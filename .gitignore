@@ -30,3 +30,5 @@ dist-ssr
 .envattached_assets/*.zip
 scripts/prod-migration-data.json
 scripts/export-data-*.json
+attached_assets/*.zip
+attached_assets/*.mp4
