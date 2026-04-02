@@ -1,0 +1,214 @@
+Not Started
+13
+My: 0
+In Progress
+11
+My: 1
+Awaiting Feedback
+6
+My: 1
+Customer Lost
+3
+My: 0
+Awaiting Payment
+1
+My: 0
+Revised Est/Waitng Approval
+0
+My: 0
+Follow Up Needed
+0
+My: 0
+Estimate Needs Revision
+0
+My: 0
+Initial Payment Received/Schedule Build
+0
+My: 0
+Work Order/Schedule Crew
+1
+My: 1
+Order Material
+0
+My: 0
+Supplement needed
+0
+My: 0
+Manager Approval Needed
+0
+My: 0
+Complete
+4
+My: 0
+File Cert. Of Completion
+0
+My: 0
+Invoiced/Waiting on Payment
+0
+My: 0
+Send Referral payment if Required
+0
+My: 0
+Paid in full, send warranty
+1
+My: 0
+Job Completed/Archive
+3
+My: 2
+New Sales Rep (Contacted)
+0
+My: 0
+New Sales Rep (Signed)
+0
+My: 0
+New Sales Rep (Lost)
+0
+My: 0
+New Task
+
+
+Search tasks...
+More
+Not Started
+13
+Gutter Repair
+Harvey Mitchell
+victoria felicia patindol
+Roof Install (Raffy)
+Raffy (Test)
+Raffy VA
+Christina Fox - Habitat
+Christina Fox
+victoria felicia patindol
+2
+YVONNE WILLIS - Habitat
+YVONNE WILLIS
+victoria felicia patindol
+LAWANDA REDWINE - Habitat
+LAWANDA REDWINE
+victoria felicia patindol
+DENISE MOORE - Habitat
+DENISE MOORE
+victoria felicia patindol
+JOANN REED - Habitat
+JOANN REED
+victoria felicia patindol
+YOLANDA HARRIS - Habitat
+YOLANDA HARRIS
+victoria felicia patindol
+TOMMY GRANDISON - Habitat
+TOMMY GRANDISON
+victoria felicia patindol
+Larry Reynolds - Habitat
+LARRY REYNOLDS
+victoria felicia patindol
+Ervin Anton - Habitat
+ERVIN ANITON
+victoria felicia patindol
+Roof Install - James Hunt - Habitat
+James Hunt
+victoria felicia patindol
+Roof Install (Raffy Test)
+Test Raffy 1/19
+Raffy VA
+Load More (8 tasks)
+In Progress
+11
+Roof Repair - Thomas Owens
+Thomas Owens
+victoria felicia patindol
+1
+Sedgwick - Repair Martin Mc Ginty
+Martin Mc Ginty
+victoria felicia patindol
+1
+Sedgwick - Repair Peter Viskocil
+Peter Viskocil
+victoria felicia patindol
+1
+Sedgwick - Repair Adam Acharya
+Adam Acharya
+victoria felicia patindol
+1
+Schedule inspection
+Nicole Simulcik
+victoria felicia patindolBrian Thortan
+4
+Roof Repair Retail
+Victor Ruiz
+victoria felicia patindol
+5
+Roof Repair (Insurance) EARLINE COTTRELL
+EARLINE COTTRELL
+victoria felicia patindol
+4
+1
+Roof Repair
+John
+victoria felicia patindol
+21
+2
+Roof Repair - Sam Lichtman-Mikol
+Sam Lichtman-Mikol
+victoria felicia patindol
+10
+Insurance - Roof Install (Linda Whitehead)
+Linda Whitehead
+K
+b
+13
+4
+Roof & Siding Install - (Insurance) Diane Stone - Diane Stone
+Diane Stone
+Kevin Stone
+25
+2
+Load More (6 tasks)
+Awaiting Feedback
+6
+Roof Install - Brittany Wilson - Sedgwick
+BRITTANY WILSON
+victoria felicia patindolBrian Thortan
+17
+1
+Roof Install - Kristina Longino - Sedwick
+KRISTINA LONGINO
+victoria felicia patindol
+11
+1
+Roof Install - Marcia Banks - Sedgwick
+Marcia Banks
+victoria felicia patindol
+12
+Roof Install - Barbara Brandt - Sedgwick
+BARBARA BRANDT
+kevin stone
+18
+1
+Roof Install - Sohl, Chad - Sedgwick
+Sohl, Chad
+victoria felicia patindol
+17
+2
+Roof Install - Mary Pope - Sedgwick
+MARY POPE
+K
+15
+1
+Load More (1 tasks)
+Customer Lost
+3
+Roof Install - Rubin Maultrie - Sedgwick
+RUBIN MOULTRIE
+K
+4
+Reminder for Kevin - Call James Garrison
+Roof Install (Insurance)
+Anthony President
+Kevin StoneRaffy BacquainoVicky Patindol
+9
+Awaiting Payment
+1
+KAROL GLADDEN - Habitat
+KAROL GLADDEN
+victoria felicia patindol

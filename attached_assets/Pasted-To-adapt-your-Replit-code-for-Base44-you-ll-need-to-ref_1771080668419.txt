@@ -1,0 +1,30 @@
+To adapt your Replit code for Base44, you'll need to refactor both the server-side and client-side components to align with Base44's architecture.
+
+Here are instructions you can pass to Replit for rewriting the code:
+
+1. For vite-twilio-ws-plugin.js (Server-Side Logic):
+
+This file needs to be converted into a Base44 backend function (e.g., functions/sarahVoiceBridge.js).
+
+Remove Vite Plugin Structure: Eliminate the export default function twilioWsPlugin() { return { ... } } and related Vite server hooks (configureServer). Base44 functions are standalone Deno services.
+Encapsulate in Deno.serve: Wrap the core logic within a Deno.serve(async (req) => { ... }) block.
+Replace Local File Storage with Base44 Entity:
+Remove fs and path imports and all loadSettings() and saveSettings() functions.
+Voice settings (like voice) should be stored in the AssistantSettings entity in Base44.
+When the function is invoked (e.g., by a Twilio webhook for a new call), fetch the voice setting from base44.entities.AssistantSettings.filter({ company_id: 'your_company_id', assistant_name: 'sarah' }).
+If you need to update these settings from the backend, use base44.entities.AssistantSettings.update().
+Access Environment Variables: Change process.env.GOOGLE_GEMINI_API_KEY to Deno.env.get("GOOGLE_GEMINI_API_KEY").
+Twilio Webhook Integration: The wss.on('connection', ...) logic needs to be carefully integrated. Base44 backend functions are typically invoked via HTTP. For Twilio media streams, your Base44 backend function would act as a Twilio webhook endpoint. This endpoint would then initiate the outbound WebSocket connection to Gemini Live.
+Remove Local Voice Settings API: The /api/sarah-voice middleware will not work. Frontend changes will handle updating the AssistantSettings entity directly.
+Convert pcm24kTo8kMulaw function: Ensure all buffer operations and dependencies (if any) are Deno-compatible.
+2. For src/components/ai/SarahVoiceSettings.jsx (Frontend Component):
+
+This React component needs to interact with the Base44 SDK and the AssistantSettings entity.
+
+Remove Direct fetch Calls: All calls to /api/sarah-voice should be replaced.
+Use Base44 SDK for Data:
+To load settings: Use import { base44 } from '@/api/base44Client'; and then const { data: assistantSettings } = useQuery({ queryKey: ['sarah-voice-settings', companyId], queryFn: () => base44.entities.AssistantSettings.filter({ company_id: companyId, assistant_name: 'sarah' }) }); (you'll need to get companyId from context, likely from the Layout component or base44.auth.me()).
+To save settings: Use await base44.entities.AssistantSettings.update(assistantSettings[0].id, { voice_id: voiceId }); for the specific AssistantSettings record.
+Integrate with AssistantSettings entity: The voice_id field in the AssistantSettings entity should be used to store the selected voice.
+Pass companyId: The component will likely need a companyId prop if it's not fetching the user's company directly.
+This approach ensures that your voice settings are persistently stored in your Base44 database and that both your frontend and backend components communicate correctly within the Base44 ecosystem.

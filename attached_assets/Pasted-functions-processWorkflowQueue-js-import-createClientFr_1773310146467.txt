@@ -1,0 +1,163 @@
+functions/processWorkflowQueue.js
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+
+Deno.serve(async (req) => {
+  try {
+    const base44 = createClientFromRequest(req);
+    console.log('🔄 Processing workflow queue...');
+
+    const allExecutions = await base44.asServiceRole.entities.WorkflowExecution.list('-created_date', 500);
+    const pendingExecutions = allExecutions.filter(exec =>
+      exec.status === 'active' && exec.next_action_time && new Date(exec.next_action_time) <= new Date()
+    );
+
+    console.log(`📊 Found ${pendingExecutions.length} workflows ready to execute`);
+    if (pendingExecutions.length === 0) return Response.json({ success: true, message: 'No pending workflows', processed: 0 });
+
+    let processed = 0, errors = 0;
+
+    for (const execution of pendingExecutions) {
+      try {
+        await base44.asServiceRole.functions.invoke('executeWorkflow', {
+          workflow_id: execution.workflow_id,
+          entity_data: {
+            entity_id: execution.entity_id,
+            entity_type: execution.entity_type,
+            entity_name: execution.entity_name,
+            company_id: execution.company_id,
+            _execution_id: execution.id,
+            _continue_from_step: execution.current_step
+          }
+        });
+        processed++;
+      } catch (error) {
+        errors++;
+        console.error(`❌ Failed to process ${execution.workflow_name}:`, error);
+      }
+    }
+
+    return Response.json({ success: true, message: `Processed ${processed} workflows`, processed, errors, total_found: pendingExecutions.length });
+
+  } catch (error) {
+    console.error('💥 Workflow queue processing error:', error);
+    return Response.json({ error: error.message, stack: error.stack }, { status: 500 });
+  }
+});
+functions/triggerWorkflow.js
+import { createClientFromRequest } from 'npm:@base44/sdk@0.7.1';
+
+Deno.serve(async (req) => {
+  try {
+    const base44 = createClientFromRequest(req);
+    const { triggerType, companyId, entityType, entityId, entityData } = await req.json();
+
+    if (!triggerType || !companyId) return Response.json({ error: 'triggerType and companyId are required' }, { status: 400 });
+
+    const workflows = await base44.asServiceRole.entities.Workflow.filter({ company_id: companyId, trigger_type: triggerType, is_active: true });
+    if (!workflows || workflows.length === 0) return Response.json({ success: true, message: 'No workflows to trigger', workflows_found: 0 });
+
+    for (const workflow of workflows) {
+      try {
+        if (!entityType || !entityId || entityType === 'Unknown' || entityId === 'unknown') { continue; }
+        await base44.asServiceRole.functions.invoke('executeWorkflow', {
+          workflow_id: workflow.id,
+          entity_data: { ...entityData, entity_type: entityType, entity_id: entityId, entity_name: entityData?.name || entityData?.customer_name || 'Unknown' },
+          company_id: companyId
+        });
+      } catch (error) {
+        console.error(`❌ Failed to trigger workflow ${workflow.workflow_name}:`, error.message);
+      }
+    }
+
+    return Response.json({ success: true, message: `Triggered ${workflows.length} workflows`, workflows_triggered: workflows.length });
+
+  } catch (error) {
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+});
+functions/testWorkflow.js
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
+
+Deno.serve(async (req) => {
+    try {
+        const base44 = createClientFromRequest(req);
+        const user = await base44.auth.me();
+        if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
+        const { workflowId } = await req.json();
+        if (!workflowId) return Response.json({ error: 'Workflow ID required' }, { status: 400 });
+
+        const workflows = await base44.asServiceRole.entities.Workflow.filter({ id: workflowId });
+        if (!workflows || workflows.length === 0) return Response.json({ error: 'Workflow not found' }, { status: 404 });
+        const workflow = workflows[0];
+
+        let company = null;
+        if (workflow.company_id) {
+            const companies = await base44.asServiceRole.entities.Company.filter({ id: workflow.company_id });
+            company = companies[0];
+        }
+
+        let emailsSent = 0, smsSent = 0, notificationsCreated = 0;
+        const errors = [];
+        const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
+
+        await base44.asServiceRole.entities.Notification.create({
+            company_id: workflow.company_id, user_email: user.email,
+            title: '🧪 Workflow Test Started', message: `Testing workflow: ${workflow.workflow_name}`,
+            type: 'general', is_read: false
+        });
+        notificationsCreated++;
+
+        for (const action of workflow.actions || []) {
+            if (action.action_type === 'send_email') {
+                let recipients = [];
+                const recipientList = (action.recipient || '').split(',').map(r => r.trim()).filter(r => r);
+                for (const recipient of recipientList) {
+                    if (recipient === 'customer' || recipient === 'lead') {
+                        if (!recipients.includes('yicnteam@gmail.com')) recipients.push('yicnteam@gmail.com');
+                    } else if (recipient.includes('@')) recipients.push(recipient);
+                }
+                if (recipients.length === 0) recipients.push('yicnteam@gmail.com');
+
+                try {
+                    const resendResponse = await fetch('https://api.resend.com/emails', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            from: `${company?.company_name || 'AI CRM Pro'} <noreply@mycrewcam.com>`,
+                            to: recipients,
+                            subject: '[TEST] ' + (action.email_subject || 'Test Email'),
+                            html: `<div style="background:#fff3cd;padding:10px;border:2px solid #ffc107;margin-bottom:20px;"><strong>🧪 TEST EMAIL</strong><br><small>Recipient setting: "${action.recipient}"</small></div>` + (action.email_body || '')
+                        })
+                    });
+                    if (resendResponse.ok) emailsSent++;
+                    else { const d = await resendResponse.json(); errors.push({ type: 'email', step: action.step, message: d.message || 'Email failed' }); }
+                } catch (e) { errors.push({ type: 'email', step: action.step, message: e.message }); }
+            }
+
+            if (action.action_type === 'send_sms') {
+                try {
+                    const smsResult = await base44.asServiceRole.functions.invoke('sendSMS', {
+                        to: action.recipient || '+12168590076', message: '[TEST] ' + (action.sms_message || 'Test SMS'),
+                        contactName: 'Test User', companyId: workflow.company_id
+                    });
+                    if (smsResult.data?.success) smsSent++;
+                    else errors.push({ type: 'sms', message: smsResult.data?.error || 'SMS failed' });
+                } catch (e) { errors.push({ type: 'sms', message: e.message }); }
+            }
+        }
+
+        await base44.asServiceRole.entities.Notification.create({
+            company_id: workflow.company_id, user_email: user.email,
+            title: '✅ Workflow Test Complete',
+            message: `Emails: ${emailsSent}, SMS: ${smsSent}, Notifications: ${notificationsCreated}`,
+            type: 'general', is_read: false
+        });
+        notificationsCreated++;
+
+        return Response.json({ success: true, message: 'Test workflow executed', emailsSent, smsSent, notificationsCreated, errors: errors.length > 0 ? errors : undefined, workflowName: workflow.workflow_name });
+
+    } catch (error) {
+        return Response.json({ error: error.message, stack: error.stack }, { status: 500 });
+    }
+});

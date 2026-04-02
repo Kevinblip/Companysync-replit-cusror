@@ -1,0 +1,152 @@
+1. Lexi voice echo fix
+File: src/components/ai/GeminiLiveNativeClient.jsx
+
+Change A: Mute mic when audio is received
+Find this block (around line 632):
+
+          if (msg.type === 'audio') {
+            hasEverReceivedAudioRef.current = true;
+            setAudioChunksReceived(prev => prev + 1);
+            if (ttsTurnTimerRef.current) {
+              clearTimeout(ttsTurnTimerRef.current);
+              ttsTurnTimerRef.current = null;
+            }
+            assistantTextBufferRef.current = "";
+            if (ttsFallbackActive) {
+              setTtsFallbackActive(false);
+              if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            }
+            await ensureAudioContextRunning();
+Add these lines right after the if (ttsFallbackActive) block and before await ensureAudioContextRunning();:
+
+            // ECHO FIX: Mute mic IMMEDIATELY when we receive audio (before playback starts)
+            if (micTrackRef.current && micTrackRef.current.enabled) {
+              micTrackRef.current.enabled = false;
+            }
+Change B: Increase unmute delay from 500ms to 1200ms
+Search for 500 in this file and replace these 3 occurrences with 1200:
+
+In speakWithTTS, inside utterance.onend:
+
+Change }, 500); to }, 1200);
+In speakWithTTS, inside utterance.onerror:
+
+Change }, 500); to }, 1200);
+In playNextChunk, inside source.onended (when audioQueueRef.current.length === 0):
+
+Change }, 500); to }, 1200);
+2. Calendar fix
+Files: prod-server.cjs and db/prod-integrations.cjs
+
+Change A: Add Google Calendar callback in prod-server.cjs
+Find this block (around line 2644):
+
+  if (pathname === '/api/functions/invoke' && req.method === 'POST') {
+    await prodIntegrations.handleFunctionInvoke(req, res);
+    return;
+  }
+  if (req.method === 'OPTIONS' && pathname.startsWith('/api/integrations/')) {
+Insert this block between them (after the return; and before the if (req.method === 'OPTIONS' line):
+
+  // Google Calendar OAuth callback — must match redirect_uri in connectUserGoogleCalendar
+  if (pathname === '/api/google-calendar-callback' && req.method === 'GET') {
+    try {
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      const error = url.searchParams.get('error');
+      const host = getPublicHost(req.headers);
+      const appUrl = (process.env.VITE_REPLIT_APP_URL || `https://${host}`).replace(/\/+$/, '');
+      if (error) {
+        const errorDesc = url.searchParams.get('error_description') || error;
+        console.error('[Calendar] Google OAuth error:', error, '-', errorDesc);
+        res.writeHead(302, { Location: `${appUrl}/settings/general?google_error=${encodeURIComponent(errorDesc)}` });
+        res.end();
+        return;
+      }
+      if (!code) {
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.end('<html><body><h1>Missing authorization code</h1></body></html>');
+        return;
+      }
+      let stateData, userEmail, redirectTo;
+      try {
+        stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+        userEmail = stateData.user_email;
+        redirectTo = stateData.redirect_to || '/calendar';
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.end('<html><body><h1>Invalid state parameter</h1></body></html>');
+        return;
+      }
+      if (!userEmail) {
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.end('<html><body><h1>Invalid state: missing user email</h1></body></html>');
+        return;
+      }
+      const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.Google_Client_Id;
+      const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || process.env.Google_Secret_Key;
+      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+        res.writeHead(500, { 'Content-Type': 'text/html' });
+        res.end('<html><body><h1>Google OAuth not configured</h1></body></html>');
+        return;
+      }
+      const REDIRECT_URI = `${appUrl}/api/google-calendar-callback`;
+      const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: GOOGLE_CLIENT_ID,
+          client_secret: GOOGLE_CLIENT_SECRET,
+          redirect_uri: REDIRECT_URI,
+          grant_type: 'authorization_code'
+        })
+      });
+      const tokens = await tokenResp.json();
+      if (tokens.error || !tokens.access_token) {
+        console.error('[Calendar] Token exchange error:', JSON.stringify(tokens));
+        const errMsg = tokens.error_description || tokens.error || 'Token exchange failed';
+        res.writeHead(302, { Location: `${appUrl}/settings/general?google_error=${encodeURIComponent(errMsg)}` });
+        res.end();
+        return;
+      }
+      const pool = prodDb.getPool();
+      const expiresAt = new Date(Date.now() + (tokens.expires_in * 1000)).toISOString();
+      await pool.query(
+        `UPDATE users SET google_calendar_connected = true, google_access_token = $1, google_refresh_token = COALESCE($2, google_refresh_token), google_token_expires_at = $3, google_sync_enabled = true, last_google_sync = NOW(), updated_at = NOW() WHERE email = $4`,
+        [tokens.access_token, tokens.refresh_token || null, expiresAt, userEmail]
+      );
+      console.log('[Calendar] Google Calendar connected for', userEmail);
+      try {
+        const handlers = await prodIntegrations.getFunctionHandlers();
+        if (handlers.syncUserGoogleCalendar) {
+          await handlers.syncUserGoogleCalendar({ targetUserEmail: userEmail });
+          console.log('[Calendar] Initial sync completed for', userEmail);
+        }
+      } catch (syncErr) {
+        console.error('[Calendar] Initial sync failed:', syncErr.message);
+      }
+      const successHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google Calendar Connected</title><meta http-equiv="refresh" content="2;url=${appUrl}${redirectTo}?google_connected=true"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%)}.container{background:white;border-radius:16px;padding:40px;max-width:500px;box-shadow:0 20px 60px rgba(0,0,0,0.3);text-align:center}.icon{font-size:64px;margin-bottom:20px}h1{color:#10b981;margin:0 0 20px 0}p{color:#666;line-height:1.6}.btn{display:inline-block;background:#667eea;color:white;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600}</style></head><body><div class="container"><div class="icon">✅</div><h1>Success!</h1><p>Google Calendar connected successfully!</p><a href="${appUrl}${redirectTo}?google_connected=true" class="btn">Return to Calendar</a><p style="color:#999;font-size:14px;margin-top:20px">Redirecting automatically...</p></div></body></html>`;
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(successHtml);
+    } catch (err) {
+      console.error('[Calendar] Callback error:', err);
+      res.writeHead(500, { 'Content-Type': 'text/html' });
+      res.end(`<html><body><h1>Error</h1><p>${err.message}</p></body></html>`);
+    }
+    return;
+  }
+Change B: Export getFunctionHandlers in db/prod-integrations.cjs
+Find this line at the end of the file:
+
+module.exports = { handleUpload, handleInvokeLLM, handleSendEmail, handleFunctionInvoke, serveUploadedFile, sendJson };
+Replace it with:
+
+module.exports = { handleUpload, handleInvokeLLM, handleSendEmail, handleFunctionInvoke, serveUploadedFile, sendJson, getFunctionHandlers };
+Calendar setup in Google Cloud
+Go to Google Cloud Console → Credentials.
+Edit your OAuth 2.0 Client ID.
+Under Authorized redirect URIs, add:
+https://YOUR-REPLIT-URL/api/google-calendar-callback
+(e.g. https://company-sync-xxx.replit.app/api/google-calendar-callback)
+Set VITE_REPLIT_APP_URL in Replit Secrets to your app URL (e.g. https://company-sync-xxx.replit.app).

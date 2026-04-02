@@ -1,0 +1,820 @@
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { 
+  Receipt, Plus, Upload, Search, Edit, Trash2, Camera,
+  DollarSign, TrendingUp, FileText, Filter, Building2, RefreshCw, Eye
+} from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Check, ChevronsUpDown } from 'lucide-react';
+import { format } from 'date-fns';
+import { toast } from "sonner";
+import ReceiptScanner from '@/components/expenses/ReceiptScanner';
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useLocation } from 'react-router-dom';
+import { useRoleBasedData } from "@/components/hooks/useRoleBasedData";
+
+export default function Expenses() {
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingExpense, setEditingExpense] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [showVendorDialog, setShowVendorDialog] = useState(false);
+  const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
+  const [vendorForm, setVendorForm] = useState({
+    vendor_name: '',
+    contact_name: '',
+    email: '',
+    phone: '',
+    vendor_type: 'supplier',
+    category: 'other'
+  });
+
+  const [formData, setFormData] = useState({
+    expense_date: new Date().toISOString().split('T')[0],
+    vendor_name: '',
+    category: 'other',
+    amount: '',
+    description: '',
+    payment_method: 'cash',
+    reference_number: '',
+    customer_id: '',
+    receipt_url: '',
+    tax_deductible: true,
+    status: 'paid'
+  });
+
+  const location = useLocation();
+
+  const queryClient = useQueryClient();
+  const { user, myCompany, isAdmin, filterCustomers, isPermissionsReady } = useRoleBasedData();
+
+  React.useEffect(() => {
+    const urlParams = new URLSearchParams(location.search);
+    const customerId = urlParams.get('customer_id');
+    if (customerId) {
+      setFormData(prev => ({ ...prev, customer_id: customerId }));
+      setShowDialog(true);
+    }
+  }, [location.search]);
+
+  const { data: allCustomers = [] } = useQuery({
+    queryKey: ['customers', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Customer.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: allExpenses = [] } = useQuery({
+    queryKey: ['expenses', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Expense.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const filteredCustomers = React.useMemo(() => {
+    const roleFiltered = filterCustomers(allCustomers);
+    // Also filter out invalid customers (junk data, XML/HTML markup, etc.)
+    return roleFiltered.filter(c => 
+      c && 
+      typeof c === 'object' && 
+      c.id && 
+      c.name && 
+      typeof c.name === 'string' && 
+      c.name.trim() !== '' &&
+      c.name !== '[]' &&
+      c.name !== 'true' &&
+      c.name !== 'false' &&
+      c.name !== 'residential' &&
+      c.name !== 'commercial' &&
+      c.name !== 'other' &&
+      !c.name.includes('<') &&
+      !c.name.includes('>') &&
+      !c.name.includes('</') &&
+      !c.name.includes('xmlspace') &&
+      !c.name.includes('<t>') &&
+      !c.name.includes('<v>') &&
+      !c.name.includes('<c>') &&
+      c.name.length < 200
+    );
+  }, [allCustomers, filterCustomers]);
+
+  const expenses = React.useMemo(() => {
+    if (!isPermissionsReady || !user || !allExpenses) return [];
+    
+    // Admins see everything
+    if (isAdmin) return allExpenses;
+    
+    // Regular staff only see expenses for customers assigned to them
+    const myCustomerIds = filteredCustomers.map(c => c.id);
+    
+    return allExpenses.filter(exp => 
+      exp.customer_id && myCustomerIds.includes(exp.customer_id)
+    );
+  }, [allExpenses, filteredCustomers, user, isAdmin, isPermissionsReady]);
+
+  const { data: vendors = [] } = useQuery({
+    queryKey: ['vendors', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Vendor.filter({ company_id: myCompany.id, is_active: true }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const createExpenseMutation = useMutation({
+    mutationFn: async (data) => {
+      const customer = filteredCustomers.find(c => c.id === data.customer_id);
+      
+      const expense = await base44.entities.Expense.create({
+        ...data,
+        company_id: myCompany.id,
+        customer_name: customer?.name || '',
+        amount: parseFloat(data.amount)
+      });
+
+      return expense;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      setShowDialog(false);
+      setEditingExpense(null);
+      resetForm();
+      toast.success('Expense saved!');
+    }
+  });
+
+  const updateExpenseMutation = useMutation({
+    mutationFn: async ({ id, data }) => {
+      const customer = filteredCustomers.find(c => c.id === data.customer_id);
+      return await base44.entities.Expense.update(id, {
+        ...data,
+        customer_name: customer?.name || '',
+        amount: parseFloat(data.amount)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      setShowDialog(false);
+      setEditingExpense(null);
+      resetForm();
+      toast.success('Expense updated!');
+    }
+  });
+
+  const deleteExpenseMutation = useMutation({
+    mutationFn: (id) => base44.entities.Expense.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      toast.success('Expense deleted!');
+    }
+  });
+
+  const createVendorMutation = useMutation({
+    mutationFn: async (data) => {
+      return await base44.entities.Vendor.create({
+        ...data,
+        company_id: myCompany.id
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vendors'] });
+      setShowVendorDialog(false);
+      setVendorForm({
+        vendor_name: '',
+        contact_name: '',
+        email: '',
+        phone: '',
+        vendor_type: 'supplier',
+        category: 'other'
+      });
+      toast.success('Vendor added!');
+    }
+  });
+
+
+
+
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      setFormData({ ...formData, receipt_url: file_url });
+      toast.success('Receipt uploaded!');
+    } catch (error) {
+      toast.error('Failed to upload receipt');
+    }
+  };
+
+  const handleReceiptData = (extractedData) => {
+    setFormData(prev => ({
+      ...prev,
+      vendor_name: extractedData.vendor_name || prev.vendor_name,
+      amount: extractedData.amount?.toString() || prev.amount,
+      expense_date: extractedData.expense_date || prev.expense_date,
+      category: extractedData.category || prev.category,
+      description: extractedData.description || prev.description,
+      payment_method: extractedData.payment_method || prev.payment_method,
+      receipt_url: extractedData.receipt_url || prev.receipt_url
+    }));
+  };
+
+  const resetForm = () => {
+    setFormData({
+      expense_date: new Date().toISOString().split('T')[0],
+      vendor_name: '',
+      category: 'other',
+      amount: '',
+      description: '',
+      payment_method: 'cash',
+      reference_number: '',
+      customer_id: '',
+      receipt_url: '',
+      tax_deductible: true,
+      status: 'paid'
+    });
+  };
+
+  const handleEdit = (expense) => {
+    setEditingExpense(expense);
+    setFormData({
+      expense_date: expense.expense_date,
+      vendor_name: expense.vendor_name,
+      category: expense.category,
+      amount: expense.amount.toString(),
+      description: expense.description || '',
+      payment_method: expense.payment_method,
+      reference_number: expense.reference_number || '',
+      customer_id: expense.customer_id || '',
+      receipt_url: expense.receipt_url || '',
+      tax_deductible: expense.tax_deductible !== false,
+      status: expense.status || 'paid'
+    });
+    setShowDialog(true);
+  };
+
+  const handleSubmit = () => {
+    if (editingExpense) {
+      updateExpenseMutation.mutate({ id: editingExpense.id, data: formData });
+    } else {
+      createExpenseMutation.mutate(formData);
+    }
+  };
+
+  // Open edit dialog when navigating with ?expense_id=...
+  React.useEffect(() => {
+    const urlParams = new URLSearchParams(location.search);
+    const expenseId = urlParams.get('expense_id');
+    if (expenseId && allExpenses.length > 0) {
+      const exp = allExpenses.find(e => e.id === expenseId);
+      if (exp) {
+        setEditingExpense(exp);
+        setFormData({
+          expense_date: exp.expense_date,
+          vendor_name: exp.vendor_name,
+          category: exp.category,
+          amount: String(exp.amount || ''),
+          description: exp.description || '',
+          payment_method: exp.payment_method || 'cash',
+          reference_number: exp.reference_number || '',
+          customer_id: exp.customer_id || '',
+          receipt_url: exp.receipt_url || '',
+          tax_deductible: exp.tax_deductible !== false,
+          status: exp.status || 'paid'
+        });
+        setShowDialog(true);
+      }
+    }
+  }, [location.search, allExpenses]);
+
+  const getCreatorName = (email) => {
+    const profile = staffProfiles.find(p => p.user_email === email);
+    return profile?.full_name || email?.split('@')[0] || 'Unknown';
+  };
+
+  const filteredExpenses = expenses.filter(exp => {
+    const matchesSearch = !searchTerm || 
+      exp.vendor_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      exp.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      exp.customer_name?.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesCategory = filterCategory === 'all' || exp.category === filterCategory;
+
+    return matchesSearch && matchesCategory;
+  });
+
+  const totalExpenses = filteredExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
+  const deductibleExpenses = filteredExpenses.filter(e => e.tax_deductible).reduce((sum, e) => sum + Number(e.amount || 0), 0);
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold">Expenses</h1>
+          <p className="text-gray-500 mt-1">Track business expenses and receipts</p>
+          <Button onClick={() => { resetForm(); setShowDialog(true); }} className="bg-blue-600 hover:bg-blue-700 mt-3">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Expense
+          </Button>
+        </div>
+        <Button onClick={() => setShowVendorDialog(true)} variant="outline">
+          <Building2 className="w-4 h-4 mr-2" />
+          Manage Vendors
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Total Expenses</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-red-600">${totalExpenses.toFixed(2)}</div>
+            <p className="text-xs text-gray-500 mt-1">{filteredExpenses.length} transactions</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Tax Deductible</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-green-600">${deductibleExpenses.toFixed(2)}</div>
+            <p className="text-xs text-gray-500 mt-1">Write-off amount</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">This Month</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-blue-600">
+              ${expenses.filter(e => {
+                const date = new Date(e.expense_date);
+                const now = new Date();
+                return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+              }).reduce((sum, e) => sum + Number(e.amount || 0), 0).toFixed(2)}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Current month</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Input
+                placeholder="Search expenses..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select value={filterCategory} onValueChange={setFilterCategory}>
+              <SelectTrigger className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                <SelectItem value="cogs">COGS</SelectItem>
+                <SelectItem value="labor">Labor</SelectItem>
+                <SelectItem value="materials">Materials</SelectItem>
+                <SelectItem value="subcontractor">Subcontractor</SelectItem>
+                <SelectItem value="rent">Rent</SelectItem>
+                <SelectItem value="utilities">Utilities</SelectItem>
+                <SelectItem value="marketing">Marketing</SelectItem>
+                <SelectItem value="office_supplies">Office Supplies</SelectItem>
+                <SelectItem value="fuel">Fuel</SelectItem>
+                <SelectItem value="equipment">Equipment</SelectItem>
+                <SelectItem value="software">Software</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {filteredExpenses.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <Receipt className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                <p>No expenses found</p>
+              </div>
+            ) : (
+              filteredExpenses.map(expense => (
+                <div key={expense.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border">
+                  <div className="flex items-center gap-4 flex-1">
+                    <div className="w-12 h-12 bg-gradient-to-br from-red-500 to-orange-500 rounded-lg flex items-center justify-center">
+                      <Receipt className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-semibold">{expense.vendor_name}</h4>
+                        <Badge variant="outline" className="capitalize">
+                          {expense.category.replace(/_/g, ' ')}
+                        </Badge>
+                        {expense.tax_deductible && (
+                          <Badge variant="outline" className="bg-green-50 text-green-700">
+                            Tax Deductible
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-600 mt-1">{expense.description}</p>
+                      <div className="flex gap-4 text-xs text-gray-500 mt-1">
+                        <span>{format(new Date(expense.expense_date), 'MMM d, yyyy')}</span>
+                        {expense.customer_name && <span>• Customer: {expense.customer_name}</span>}
+                        {expense.payment_method && <span>• {expense.payment_method}</span>}
+                        {expense.created_by && <span>• Created by {getCreatorName(expense.created_by)}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <p className="text-2xl font-bold text-gray-900">${Number(expense.amount || 0).toFixed(2)}</p>
+                    <div className="flex gap-1">
+                      {expense.receipt_url && (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          onClick={() => window.open(expense.receipt_url, '_blank')}
+                          title="View receipt"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                      )}
+                      <Button size="sm" variant="outline" onClick={() => handleEdit(expense)}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => {
+                          if (window.confirm('Delete this expense?')) {
+                            deleteExpenseMutation.mutate(expense.id);
+                          }
+                        }}
+                        className="text-red-600"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent 
+          className="max-h-[90vh] overflow-y-auto w-[95vw] max-w-2xl"
+        >
+          <DialogHeader>
+            <DialogTitle>{editingExpense ? 'Edit Expense' : 'Add New Expense'}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-4 py-4">
+            <div>
+              <Label className="text-sm font-medium">Date *</Label>
+              <Input
+                type="date"
+                value={formData.expense_date}
+                onChange={(e) => setFormData({...formData, expense_date: e.target.value})}
+              />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Vendor/Payee *</Label>
+              <Select 
+                value={formData.vendor_name} 
+                onValueChange={(v) => {
+                  if (v === '__new__') {
+                    setShowVendorDialog(true);
+                  } else {
+                    setFormData({...formData, vendor_name: v});
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select or type vendor name" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__new__">
+                    <div className="flex items-center gap-2 text-blue-600">
+                      <Plus className="w-4 h-4" />
+                      Add New Vendor
+                    </div>
+                  </SelectItem>
+                  {vendors.map(v => (
+                    <SelectItem key={v.id} value={v.vendor_name}>
+                      {v.vendor_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                value={formData.vendor_name}
+                onChange={(e) => setFormData({...formData, vendor_name: e.target.value})}
+                placeholder="Or type vendor name"
+                className="mt-2"
+              />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm font-medium">Category *</Label>
+              <Select value={formData.category} onValueChange={(v) => setFormData({...formData, category: v})}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cogs">COGS (Cost of Goods Sold)</SelectItem>
+                  <SelectItem value="labor">Labor</SelectItem>
+                  <SelectItem value="materials">Materials</SelectItem>
+                  <SelectItem value="subcontractor">Subcontractor</SelectItem>
+                  <SelectItem value="rent">Rent</SelectItem>
+                  <SelectItem value="utilities">Utilities</SelectItem>
+                  <SelectItem value="insurance">Insurance</SelectItem>
+                  <SelectItem value="marketing">Marketing</SelectItem>
+                  <SelectItem value="office_supplies">Office Supplies</SelectItem>
+                  <SelectItem value="fuel">Fuel</SelectItem>
+                  <SelectItem value="equipment">Equipment</SelectItem>
+                  <SelectItem value="software">Software</SelectItem>
+                  <SelectItem value="professional_fees">Professional Fees</SelectItem>
+                  <SelectItem value="taxes">Taxes</SelectItem>
+                  <SelectItem value="meals">Meals & Entertainment</SelectItem>
+                  <SelectItem value="travel">Travel</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+                </Select>
+                </div>
+                <div>
+                <Label className="text-sm font-medium">Amount *</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={formData.amount}
+                onChange={(e) => setFormData({...formData, amount: e.target.value})}
+                placeholder="0.00"
+                />
+                </div>
+                </div>
+                <div>
+                <Label className="text-sm font-medium">Description *</Label>
+              <Textarea
+                value={formData.description}
+                onChange={(e) => setFormData({...formData, description: e.target.value})}
+                placeholder="What was this expense for?"
+                rows={2}
+                />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                <Label className="text-sm font-medium">Payment Method</Label>
+              <Select value={formData.payment_method} onValueChange={(v) => setFormData({...formData, payment_method: v})}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="check">Check</SelectItem>
+                  <SelectItem value="credit_card">Credit Card</SelectItem>
+                  <SelectItem value="debit_card">Debit Card</SelectItem>
+                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                  <SelectItem value="ach">ACH</SelectItem>
+                  </SelectContent>
+                  </Select>
+                  </div>
+                  <div>
+                  <Label className="text-sm font-medium">Ref # <span className="text-xs text-muted-foreground">(Check/UC)</span></Label>
+              <Input
+                value={formData.reference_number}
+                onChange={(e) => setFormData({...formData, reference_number: e.target.value})}
+                placeholder="Optional"
+                />
+                </div>
+                </div>
+                <div>
+                <Label className="text-sm font-medium">Customer <span className="text-xs text-muted-foreground">(Optional)</span></Label>
+              <Popover open={customerSearchOpen} onOpenChange={setCustomerSearchOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={customerSearchOpen}
+                    className="w-full justify-between"
+                  >
+                    {formData.customer_id
+                      ? filteredCustomers.find((c) => c.id === formData.customer_id)?.name
+                      : "None"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0">
+                  <Command>
+                    <CommandInput placeholder="Search customers..." />
+                    <CommandEmpty>No customer found.</CommandEmpty>
+                    <CommandGroup className="max-h-64 overflow-auto">
+                      <CommandItem
+                        value="none"
+                        onSelect={() => {
+                          setFormData({...formData, customer_id: ""});
+                          setCustomerSearchOpen(false);
+                        }}
+                      >
+                        <Check
+                          className={`mr-2 h-4 w-4 ${!formData.customer_id ? "opacity-100" : "opacity-0"}`}
+                        />
+                        None
+                      </CommandItem>
+                      {filteredCustomers.map((c) => (
+                        <CommandItem
+                          key={c.id}
+                          value={c.name}
+                          onSelect={() => {
+                            setFormData({...formData, customer_id: c.id});
+                            setCustomerSearchOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={`mr-2 h-4 w-4 ${formData.customer_id === c.id ? "opacity-100" : "opacity-0"}`}
+                          />
+                          {c.name}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </Command>
+                </PopoverContent>
+                </Popover>
+                </div>
+                <div>
+                <Label className="text-sm font-medium">Tax Deductible?</Label>
+              <Select value={formData.tax_deductible ? 'yes' : 'no'} onValueChange={(v) => setFormData({...formData, tax_deductible: v === 'yes'})}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="yes">Yes</SelectItem>
+                  <SelectItem value="no">No</SelectItem>
+                </SelectContent>
+                </Select>
+                </div>
+                <div>
+                <Label className="text-sm font-medium">Receipt/Invoice</Label>
+              <ReceiptScanner
+                onDataExtracted={handleReceiptData}
+                onReceiptUploaded={(url) => setFormData(prev => ({ ...prev, receipt_url: url }))}
+              />
+              {formData.receipt_url && (
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => window.open(formData.receipt_url, '_blank')}
+                  className="w-full mt-2"
+                >
+                  View Receipt
+                </Button>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSubmit}
+              disabled={!formData.vendor_name || !formData.amount || !formData.description}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {editingExpense ? 'Update' : 'Save'} Expense
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
+
+      <Dialog open={showVendorDialog} onOpenChange={setShowVendorDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Vendor</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label>Vendor Name *</Label>
+              <Input
+                value={vendorForm.vendor_name}
+                onChange={(e) => setVendorForm({...vendorForm, vendor_name: e.target.value})}
+                placeholder="Home Depot, ABC Roofing, etc."
+              />
+            </div>
+            <div>
+              <Label>Contact Name</Label>
+              <Input
+                value={vendorForm.contact_name}
+                onChange={(e) => setVendorForm({...vendorForm, contact_name: e.target.value})}
+                placeholder="John Smith"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={vendorForm.email}
+                  onChange={(e) => setVendorForm({...vendorForm, email: e.target.value})}
+                  placeholder="vendor@example.com"
+                />
+              </div>
+              <div>
+                <Label>Phone</Label>
+                <Input
+                  value={vendorForm.phone}
+                  onChange={(e) => setVendorForm({...vendorForm, phone: e.target.value})}
+                  placeholder="(555) 123-4567"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Vendor Type</Label>
+                <Select value={vendorForm.vendor_type} onValueChange={(v) => setVendorForm({...vendorForm, vendor_type: v})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="supplier">Supplier</SelectItem>
+                    <SelectItem value="subcontractor">Subcontractor</SelectItem>
+                    <SelectItem value="service_provider">Service Provider</SelectItem>
+                    <SelectItem value="utility">Utility</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Default Category</Label>
+                <Select value={vendorForm.category} onValueChange={(v) => setVendorForm({...vendorForm, category: v})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="materials">Materials</SelectItem>
+                    <SelectItem value="labor">Labor</SelectItem>
+                    <SelectItem value="subcontractor">Subcontractor</SelectItem>
+                    <SelectItem value="utilities">Utilities</SelectItem>
+                    <SelectItem value="software">Software</SelectItem>
+                    <SelectItem value="equipment">Equipment</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowVendorDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => createVendorMutation.mutate(vendorForm)}
+              disabled={!vendorForm.vendor_name || createVendorMutation.isPending}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              Add Vendor
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

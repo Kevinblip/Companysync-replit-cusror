@@ -1,0 +1,329 @@
+============================================================
+SNIPPET 3: BACKEND - sarahBridgeAPI.ts additions
+============================================================
+
+IMPORTANT: You must redeploy sarahBridgeAPI on Base44 with the
+FULL updated code from functions/sarahBridgeAPI.ts
+
+Key changes in this version:
+1. AUTH: Supports BOTH bridge secret AND user session auth.
+   - Bridge secret: For WebSocket bridge calls (getSettings, saveCallLog, etc.)
+   - User session: For frontend calls (initiateOutboundCall, getOutboundSettings)
+   This means the frontend can call sarahBridgeAPI directly via
+   base44.functions.invoke() without needing the bridge secret.
+
+2. initiateOutboundCall: Now calls Twilio API DIRECTLY from Base44
+   instead of proxying through the Replit server. This fixes
+   502/401 errors when the browser can't reach the Replit dev URL.
+
+============================================================
+AUTH CHANGE - Replace the auth block at the top:
+============================================================
+
+Replace this:
+    const authHeader = req.headers.get('Authorization');
+    const expectedSecret = Deno.env.get('SARAH_BRIDGE_SECRET');
+    if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
+        return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+
+With this:
+    const authHeader = req.headers.get('Authorization');
+    const expectedSecret = Deno.env.get('SARAH_BRIDGE_SECRET');
+    const isBridgeAuth = expectedSecret && authHeader === `Bearer ${expectedSecret}`;
+
+    // ... (after parsing body and getting action) ...
+
+    const frontendActions = ['initiateOutboundCall', 'getOutboundSettings'];
+    if (!isBridgeAuth) {
+        if (frontendActions.includes(action)) {
+            try {
+                const me = await base44.auth.me();
+                if (!me) {
+                    return jsonResponse({ error: 'Unauthorized - not logged in' }, 401);
+                }
+            } catch (_e) {
+                return jsonResponse({ error: 'Unauthorized' }, 401);
+            }
+        } else {
+            return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+    }
+
+
+============================================================
+ACTION: initiateOutboundCall (UPDATED - calls Twilio directly)
+============================================================
+
+case 'initiateOutboundCall': {
+    if (!companyId || !data?.leadPhone) {
+        return jsonResponse({ error: 'Missing companyId or data.leadPhone' }, 400);
+    }
+
+    const twilioRows3 = await base44.asServiceRole.entities.TwilioSettings.filter({ company_id: companyId });
+    const twilioConfig3: any = twilioRows3[0];
+    if (!twilioConfig3 || !twilioConfig3.account_sid || !twilioConfig3.auth_token || !twilioConfig3.main_phone_number) {
+        return jsonResponse({ error: 'Twilio not configured for this company' }, 400);
+    }
+
+    const settingsRows3 = await base44.asServiceRole.entities.AssistantSettings.filter({ company_id: companyId }, '-updated_date', 1);
+    const assistSettings: any = settingsRows3[0] || {};
+    const outboundEnabled = assistSettings.outbound_calls_enabled !== false;
+    if (!outboundEnabled) {
+        return jsonResponse({ error: 'Outbound calls are disabled for this company' }, 403);
+    }
+
+    const appUrl = Deno.env.get('APP_URL') || '';
+    if (!appUrl) {
+        return jsonResponse({ error: 'APP_URL not configured. Cannot initiate outbound calls.' }, 500);
+    }
+
+    const leadPhone = data.leadPhone;
+    const leadName = data.leadName || '';
+    const leadService = data.leadService || '';
+    const leadAddress = data.leadAddress || '';
+    const maxDuration = 600;
+
+    const cleanTo = leadPhone.replace(/[^\d+]/g, '');
+    const cleanFrom = twilioConfig3.main_phone_number.replace(/[^\d+]/g, '');
+    const toNumber = cleanTo.startsWith('+') ? cleanTo : `+1${cleanTo}`;
+    const fromNumber = cleanFrom.startsWith('+') ? cleanFrom : `+1${cleanFrom}`;
+
+    const twimlUrl = `${appUrl}/twiml/outbound?companyId=${encodeURIComponent(companyId)}&leadPhone=${encodeURIComponent(leadPhone)}&leadName=${encodeURIComponent(leadName)}&leadService=${encodeURIComponent(leadService)}&leadAddress=${encodeURIComponent(leadAddress)}&maxDuration=${maxDuration}`;
+    const statusCallback = `${appUrl}/api/sarah-call-status`;
+
+    const authStr = btoa(`${twilioConfig3.account_sid}:${twilioConfig3.auth_token}`);
+    const callParams = new URLSearchParams({
+        To: toNumber,
+        From: fromNumber,
+        Url: twimlUrl,
+        StatusCallback: statusCallback,
+        StatusCallbackEvent: 'initiated ringing answered completed',
+        StatusCallbackMethod: 'POST',
+        Timeout: '30',
+        MachineDetection: 'Enable',
+        MachineDetectionTimeout: '5',
+    });
+
+    console.log(`[initiateOutboundCall] Calling Twilio: to=${toNumber}, from=${fromNumber}, company=${companyId}`);
+
+    const twilioResp = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${twilioConfig3.account_sid}/Calls.json`,
+        {
+            method: 'POST',
+            headers: {
+                'Authorization': `Basic ${authStr}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: callParams.toString(),
+        }
+    );
+
+    const twilioResult = await twilioResp.json();
+    if (!twilioResp.ok) {
+        console.error(`[initiateOutboundCall] Twilio error:`, JSON.stringify(twilioResult));
+        return jsonResponse({ error: twilioResult.message || 'Twilio call failed' }, 400);
+    }
+
+    console.log(`[initiateOutboundCall] Call created: SID=${twilioResult.sid}, status=${twilioResult.status}`);
+
+    try {
+        await base44.asServiceRole.entities.Communication.create({
+            company_id: companyId,
+            contact_phone: leadPhone,
+            contact_name: leadName,
+            communication_type: 'call',
+            direction: 'outbound',
+            message: `Outbound call initiated to ${leadName || leadPhone}. Service: ${leadService || 'N/A'}`,
+            status: 'initiated',
+            call_sid: twilioResult.sid,
+        });
+    } catch (logErr: any) {
+        console.warn('[initiateOutboundCall] Failed to log call:', logErr.message);
+    }
+
+    return jsonResponse({
+        success: true,
+        message: `Outbound call initiated to ${leadPhone}`,
+        callSid: twilioResult.sid,
+        status: twilioResult.status,
+    });
+}
+
+
+============================================================
+ACTION: getTwilioConfig (unchanged)
+============================================================
+
+case 'getTwilioConfig': {
+    if (!companyId) {
+        return jsonResponse({ error: 'Missing companyId' }, 400);
+    }
+    const twilioRows = await base44.asServiceRole.entities.TwilioSettings.filter({ company_id: companyId });
+    const twilioConfig: any = twilioRows[0];
+    if (!twilioConfig) {
+        return jsonResponse({ error: 'Twilio not configured' }, 400);
+    }
+    return jsonResponse({
+        account_sid: twilioConfig.account_sid,
+        auth_token: twilioConfig.auth_token,
+        main_phone_number: twilioConfig.main_phone_number,
+    });
+}
+
+
+============================================================
+ACTION: getOutboundSettings (unchanged)
+============================================================
+
+case 'getOutboundSettings': {
+    if (!companyId) {
+        return jsonResponse({ error: 'Missing companyId' }, 400);
+    }
+    const settingsRows2 = await base44.asServiceRole.entities.AssistantSettings.filter({ company_id: companyId });
+    const s: any = settingsRows2[0];
+    return jsonResponse({
+        outbound_calls_enabled: s?.outbound_calls_enabled ?? false,
+        auto_call_new_leads: s?.auto_call_new_leads ?? false,
+        auto_call_delay_minutes: s?.auto_call_delay_minutes ?? 5,
+        outbound_greeting: s?.outbound_greeting || '',
+        send_sms_after_booking: s?.send_sms_after_booking !== false,
+        inbound_calls_enabled: s?.inbound_calls_enabled !== false,
+    });
+}
+
+
+============================================================
+ACTION: sendFollowUpSMS (unchanged)
+============================================================
+
+case 'sendFollowUpSMS': {
+    if (!companyId || !data?.phone || !data?.message) {
+        return jsonResponse({ error: 'Missing companyId, data.phone, or data.message' }, 400);
+    }
+    const twilioRows3 = await base44.asServiceRole.entities.TwilioSettings.filter({ company_id: companyId });
+    const twilio3: any = twilioRows3[0];
+    if (!twilio3) {
+        return jsonResponse({ error: 'Twilio not configured' }, 400);
+    }
+
+    const authStr = btoa(`${twilio3.account_sid}:${twilio3.auth_token}`);
+    const cleanTo = data.phone.replace(/[^\d+]/g, '');
+    const cleanFrom = twilio3.main_phone_number.replace(/[^\d+]/g, '');
+    const smsParams = new URLSearchParams({
+        To: cleanTo.startsWith('+') ? cleanTo : `+1${cleanTo}`,
+        From: cleanFrom.startsWith('+') ? cleanFrom : `+1${cleanFrom}`,
+        Body: data.message,
+    });
+
+    const smsResp = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${twilio3.account_sid}/Messages.json`,
+        {
+            method: 'POST',
+            headers: {
+                'Authorization': `Basic ${authStr}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: smsParams.toString(),
+        }
+    );
+
+    const smsResult = await smsResp.json();
+    if (!smsResp.ok) {
+        return jsonResponse({ error: smsResult.message || 'SMS failed' }, 400);
+    }
+
+    await base44.asServiceRole.entities.Communication.create({
+        company_id: companyId,
+        contact_phone: data.phone,
+        contact_name: data.leadName || '',
+        communication_type: 'sms',
+        direction: 'outbound',
+        message: data.message,
+        status: 'sent',
+    });
+
+    return jsonResponse({ success: true, sid: smsResult.sid });
+}
+
+
+============================================================
+ACTION: sendAlert (unchanged)
+============================================================
+
+case 'sendAlert': {
+    if (!companyId || !data?.message) {
+        return jsonResponse({ error: 'Missing companyId or data.message' }, 400);
+    }
+
+    await base44.asServiceRole.entities.Communication.create({
+        company_id: companyId,
+        contact_phone: data.caller_phone || '',
+        contact_name: data.caller_name || 'Unknown Caller',
+        communication_type: 'alert',
+        direction: 'inbound',
+        message: `[${(data.urgency || 'medium').toUpperCase()}] [${data.category || 'general'}] ${data.message}`,
+        status: 'unread',
+    });
+
+    try {
+        const settingsRows = await base44.asServiceRole.entities.AssistantSettings.filter({ company_id: companyId });
+        const settings: any = settingsRows[0];
+        const alertPhone = settings?.alert_phone_number;
+
+        if (alertPhone) {
+            const twilioRows = await base44.asServiceRole.entities.TwilioSettings.filter({ company_id: companyId });
+            const twilio: any = twilioRows[0];
+            if (twilio) {
+                const authStr = btoa(`${twilio.account_sid}:${twilio.auth_token}`);
+                const cleanTo = alertPhone.replace(/[^\d+]/g, '');
+                const cleanFrom = twilio.main_phone_number.replace(/[^\d+]/g, '');
+                const alertBody = `ALERT from ${data.caller_name || 'caller'} (${data.caller_phone || 'unknown'}): ${data.message}`;
+                const smsParams = new URLSearchParams({
+                    To: cleanTo.startsWith('+') ? cleanTo : `+1${cleanTo}`,
+                    From: cleanFrom.startsWith('+') ? cleanFrom : `+1${cleanFrom}`,
+                    Body: alertBody.substring(0, 1600),
+                });
+                await fetch(
+                    `https://api.twilio.com/2010-04-01/Accounts/${twilio.account_sid}/Messages.json`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Basic ${authStr}`,
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: smsParams.toString(),
+                    }
+                );
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to send SMS alert:', e);
+    }
+
+    return jsonResponse({ success: true, message: 'Alert sent and logged' });
+}
+
+
+============================================================
+ENTITY FIELDS NEEDED on AssistantSettings:
+============================================================
+Make sure your AssistantSettings entity has these fields:
+  - inbound_calls_enabled (boolean, default true)
+  - outbound_calls_enabled (boolean, default false)
+  - auto_call_new_leads (boolean, default false)
+  - auto_call_delay_minutes (number, default 5)
+  - outbound_greeting (text, default empty)
+  - send_sms_after_booking (boolean, default true)
+  - alert_phone_number (text, default empty) - phone number to receive SMS alerts
+
+Also make sure your Communication entity has:
+  - direction (text) - values: 'inbound' or 'outbound'
+  - communication_type includes 'alert' as a valid value
+
+============================================================
+ENVIRONMENT VARIABLES NEEDED on Base44:
+============================================================
+  - APP_URL: Your Replit app URL (e.g., https://xxx.picard.replit.dev)
+    This is used for TwiML callback URLs that Twilio calls server-to-server
+  - SARAH_BRIDGE_SECRET: The bridge auth secret (same as on Replit)

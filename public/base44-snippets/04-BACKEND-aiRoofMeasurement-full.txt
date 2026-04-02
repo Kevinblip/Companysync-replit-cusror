@@ -1,0 +1,327 @@
+// ============================================================
+// FILE: functions/aiRoofMeasurement.ts
+// FULL REPLACEMENT — Copy this entire file into Base44
+// ============================================================
+// WHAT CHANGED:
+//   - Area calculation now prefers segment sum over wholeRoofStats
+//     (wholeRoofStats inflates SQ by including porches/overhangs)
+//   - Smart area selection: segment_sum if 85%+ coverage, +5% buffer
+//     if 65-85%, average if <65%, fallback wholeRoofStats * 0.92
+//   - Added apron flashing to LF calculations
+//   - Confidence lowered from 95 to 85 (was overconfident)
+//   - Returns new diagnostic fields: segment_sum_sqft, whole_roof_sqft, area_method
+//   - Pitch detection uses largest segment by area (predominant pitch)
+// ============================================================
+
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+
+Deno.serve(async (req) => {
+  const debugLogs = [];
+  
+  try {
+    debugLogs.push('🛰️ Function started');
+    
+    const base44 = createClientFromRequest(req);
+    const user = await base44.auth.me();
+    
+    if (!user) {
+      return Response.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    debugLogs.push(`✅ User authenticated: ${user.email}`);
+
+    const { latitude, longitude, address } = await req.json();
+
+    if (!latitude || !longitude) {
+      return Response.json({ 
+        success: false, 
+        error: 'Latitude and longitude are required' 
+      }, { status: 400 });
+    }
+
+    debugLogs.push(`📍 Analyzing EXACT coordinates: ${address} (${latitude}, ${longitude})`);
+
+    const googleApiKey = Deno.env.get('GOOGLE_MAPS_API_KEY');
+    if (!googleApiKey) {
+      return Response.json({ 
+        success: false, 
+        error: 'Google Maps API key not configured. Please add GOOGLE_MAPS_API_KEY in Settings → Secrets.',
+        debug_logs: debugLogs
+      }, { status: 500 });
+    }
+
+    debugLogs.push('✅ Google API key found');
+    
+    // Generate high-res satellite image URL for AI analysis
+    const satelliteImageUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${latitude},${longitude}&zoom=20&size=640x640&maptype=satellite&key=${googleApiKey}`;
+    debugLogs.push('📸 Generated satellite image URL for AI analysis');
+
+    // Call Google Solar API with EXACT coordinates
+    const solarApiUrl = `https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${latitude}&location.longitude=${longitude}&requiredQuality=HIGH&key=${googleApiKey}`;
+    
+    debugLogs.push(`🌐 Calling Google Solar API for EXACT building at (${latitude}, ${longitude})...`);
+    
+    const response = await fetch(solarApiUrl);
+    debugLogs.push(`📡 Solar API Response Status: ${response.status}`);
+    
+    let effectiveResponse = response;
+    if (!response.ok) {
+      const errorText = await response.text();
+      debugLogs.push(`❌ Solar API Error (HIGH): ${errorText}`);
+
+      // Retry with MEDIUM quality
+      const retryMediumUrl = `https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${latitude}&location.longitude=${longitude}&requiredQuality=MEDIUM&key=${googleApiKey}`;
+      debugLogs.push('🔁 Retrying Solar API with MEDIUM quality...');
+      const mediumResp = await fetch(retryMediumUrl);
+      debugLogs.push(`📡 Solar API Response Status (MEDIUM): ${mediumResp.status}`);
+
+      if (mediumResp.ok) {
+        effectiveResponse = mediumResp;
+      } else {
+        const mediumErr = await mediumResp.text();
+        debugLogs.push(`❌ Solar API Error (MEDIUM): ${mediumErr}`);
+
+        // Retry without requiredQuality
+        const retryAnyUrl = `https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${latitude}&location.longitude=${longitude}&key=${googleApiKey}`;
+        debugLogs.push('🔁 Retrying Solar API without requiredQuality...');
+        const anyResp = await fetch(retryAnyUrl);
+        debugLogs.push(`📡 Solar API Response Status (ANY): ${anyResp.status}`);
+
+        if (anyResp.ok) {
+          effectiveResponse = anyResp;
+        } else {
+          const anyErr = await anyResp.text();
+          debugLogs.push(`❌ Solar API Error (ANY): ${anyErr}`);
+
+          // Fallback: return estimated measurements
+          const estimatedAreaSqFt = 600;
+          const roofAreaSquares = 6;
+
+          const sqrtArea = Math.sqrt(estimatedAreaSqFt);
+          const ridgeLf = Math.round(sqrtArea * 0.8);
+          const valleyLf = Math.round(sqrtArea * 0.2);
+          const rakeLf = Math.round(sqrtArea * 1.8);
+          const eaveLf = Math.round(sqrtArea * 2.2);
+          const stepFlashingLf = Math.round(sqrtArea * 0.4);
+
+          return Response.json({
+            success: true,
+            roof_area_sq: roofAreaSquares,
+            roof_area_sqft: estimatedAreaSqFt,
+            ridge_lf: ridgeLf,
+            hip_lf: 0,
+            valley_lf: valleyLf,
+            rake_lf: rakeLf,
+            eave_lf: eaveLf,
+            step_flashing_lf: stepFlashingLf,
+            pitch: "6/12",
+            overall_confidence: 40,
+            ridge_confidence: 40,
+            hip_confidence: 40,
+            valley_confidence: 40,
+            rake_confidence: 40,
+            eave_confidence: 40,
+            step_flashing_confidence: 40,
+            analysis_notes: `⚠️ Google Solar API couldn't detect building near coordinates (${latitude}, ${longitude}). Using estimated ${roofAreaSquares} SQ for typical small structure. For accuracy, use Manual Drawing mode or upload inspection photos.`,
+            debug_logs: debugLogs,
+            fallback_used: true
+          });
+        }
+      }
+    }
+
+    const solarData = await (effectiveResponse || response).json();
+    debugLogs.push('✅ Parsed Solar API response');
+
+    if (solarData.center) {
+      debugLogs.push(`📍 Solar API detected building at: ${solarData.center.latitude}, ${solarData.center.longitude}`);
+    }
+
+    const roofSegments = solarData.solarPotential?.roofSegmentStats || [];
+    debugLogs.push(`📊 Found ${roofSegments.length} roof segments`);
+    
+    if (roofSegments.length === 0) {
+      debugLogs.push('⚠️ No roof segments found in Solar API data');
+      
+      const estimatedAreaSqFt = 600;
+      const roofAreaSquares = 6;
+      
+      const sqrtArea = Math.sqrt(estimatedAreaSqFt);
+      const ridgeLf = Math.round(sqrtArea * 0.8);
+      const valleyLf = Math.round(sqrtArea * 0.2);
+      const rakeLf = Math.round(sqrtArea * 1.8);
+      const eaveLf = Math.round(sqrtArea * 2.2);
+      const stepFlashingLf = Math.round(sqrtArea * 0.4);
+      
+      return Response.json({
+        success: true,
+        roof_area_sq: roofAreaSquares,
+        roof_area_sqft: estimatedAreaSqFt,
+        ridge_lf: ridgeLf,
+        hip_lf: 0,
+        valley_lf: valleyLf,
+        rake_lf: rakeLf,
+        eave_lf: eaveLf,
+        step_flashing_lf: stepFlashingLf,
+        pitch: "6/12",
+        overall_confidence: 40,
+        ridge_confidence: 40,
+        hip_confidence: 40,
+        valley_confidence: 40,
+        rake_confidence: 40,
+        eave_confidence: 40,
+        step_flashing_confidence: 40,
+        analysis_notes: `⚠️ No detailed roof data available. Using estimated measurements. For accurate measurements, use Manual Drawing mode.`,
+        debug_logs: debugLogs,
+        fallback_used: true
+      });
+    }
+    
+    // ===== AREA SELECTION LOGIC =====
+    // wholeRoofStats includes ALL surfaces (porches, overhangs, carports)
+    // Segment sum is more accurate — only counts actual roof segments
+    const wholeAreaM2 = solarData.solarPotential?.wholeRoofStats?.areaMeters2 || 0;
+    const wholeAreaSqFt = wholeAreaM2 * 10.764;
+
+    let segmentSumM2 = 0;
+    roofSegments.forEach(segment => {
+      segmentSumM2 += segment.stats?.areaMeters2 || 0;
+    });
+    const segmentSumSqFt = segmentSumM2 * 10.764;
+
+    debugLogs.push(`📗 wholeRoofStats area: ${wholeAreaSqFt.toFixed(0)} sq ft (${(wholeAreaM2).toFixed(1)} m²)`);
+    debugLogs.push(`📊 Segment sum area: ${segmentSumSqFt.toFixed(0)} sq ft (${segmentSumM2.toFixed(1)} m²) from ${roofSegments.length} segments`);
+
+    let totalAreaSqFt = 0;
+    let areaMethod = '';
+
+    if (segmentSumSqFt > 0 && wholeAreaSqFt > 0) {
+      const ratio = segmentSumSqFt / wholeAreaSqFt;
+      debugLogs.push(`📏 Segment/Whole ratio: ${ratio.toFixed(3)}`);
+
+      if (ratio >= 0.85) {
+        // Segment sum covers most of the roof — use it directly
+        totalAreaSqFt = segmentSumSqFt;
+        areaMethod = 'segment_sum (covers 85%+ of whole)';
+      } else if (ratio >= 0.65) {
+        // Some segments missing — add 5% buffer
+        totalAreaSqFt = segmentSumSqFt * 1.05;
+        areaMethod = 'segment_sum +5% (some segments missing)';
+      } else {
+        // Many segments missing — average both values
+        totalAreaSqFt = (segmentSumSqFt + wholeAreaSqFt) / 2;
+        areaMethod = 'average of segment_sum and whole (many segments missing)';
+      }
+    } else if (segmentSumSqFt > 0) {
+      totalAreaSqFt = segmentSumSqFt;
+      areaMethod = 'segment_sum (no wholeRoofStats)';
+    } else if (wholeAreaSqFt > 0) {
+      // Only wholeRoofStats available — apply 0.92 correction to remove overhangs
+      totalAreaSqFt = wholeAreaSqFt * 0.92;
+      areaMethod = 'wholeRoofStats * 0.92 (no segments)';
+    }
+
+    debugLogs.push(`📐 Selected area: ${totalAreaSqFt.toFixed(0)} sq ft | Method: ${areaMethod}`);
+
+    const roofAreaSquares = Math.round((totalAreaSqFt / 100) * 100) / 100;
+    debugLogs.push(`📦 Roof squares: ${roofAreaSquares} SQ`);
+
+    const sqrtArea = Math.sqrt(totalAreaSqFt);
+    const numSegments = roofSegments.length;
+    let ridgeLf, hipLf, valleyLf, rakeLf, eaveLf, stepFlashingLf, apronFlashingLf;
+
+    if (numSegments > 4) {
+      const complexity = Math.log2(numSegments / 4);
+      ridgeLf = Math.round(sqrtArea * (0.8 + complexity * 0.6));
+      hipLf = Math.round(sqrtArea * (0.1 + complexity * 0.15));
+      valleyLf = Math.round(sqrtArea * (0.3 + complexity * 1.0));
+      rakeLf = Math.round(sqrtArea * (1.5 + complexity * 1.2));
+      eaveLf = Math.round(sqrtArea * (2.0 + complexity * 0.65));
+      stepFlashingLf = Math.round(sqrtArea * (0.3 + complexity * 0.45));
+      apronFlashingLf = Math.round(sqrtArea * (0.2 + complexity * 0.5));
+    } else {
+      ridgeLf = Math.round(sqrtArea * 0.7);
+      hipLf = 0;
+      valleyLf = 0;
+      rakeLf = Math.round(sqrtArea * 1.4);
+      eaveLf = Math.round(sqrtArea * 2.0);
+      stepFlashingLf = Math.round(sqrtArea * 0.3);
+      apronFlashingLf = 0;
+    }
+
+    // Pitch detection — use largest segment by area (predominant pitch)
+    const degToX12 = (deg) => {
+      const rise = Math.tan((deg * Math.PI) / 180) * 12;
+      const clamped = Math.min(20, Math.max(1, Math.round(rise)));
+      return `${clamped}/12`;
+    };
+    let predominantDeg = null;
+    let maxSegArea = 0;
+    for (const seg of roofSegments) {
+      const segDeg = typeof seg.pitchDegrees === 'number' ? seg.pitchDegrees : (typeof seg.tiltDegrees === 'number' ? seg.tiltDegrees : null);
+      const segArea = seg.stats?.areaMeters2 || seg.areaMeters2 || 0;
+      if (segDeg && segDeg > 0 && segArea > maxSegArea) {
+        maxSegArea = segArea;
+        predominantDeg = segDeg;
+      }
+    }
+    if (!predominantDeg) {
+      const degs = roofSegments
+        .map(s => (typeof s.pitchDegrees === 'number' ? s.pitchDegrees : (typeof s.tiltDegrees === 'number' ? s.tiltDegrees : null)))
+        .filter(v => typeof v === 'number' && !isNaN(v) && v > 0);
+      predominantDeg = degs.length ? (degs.reduce((a,b)=>a+b,0) / degs.length) : null;
+    }
+    const pitchStr = predominantDeg ? degToX12(predominantDeg) : '6/12';
+
+    const isFlatRoof = pitchStr === '0/12' || pitchStr === '1/12' || pitchStr === '2/12' || (predominantDeg !== null && predominantDeg <= 9.5);
+    
+    debugLogs.push(`✅ Measurements calculated | Pitch: ${pitchStr} | Flat Roof: ${isFlatRoof}`);
+
+    const hasGoodData = segmentSumSqFt > 0 && roofSegments.length >= 2;
+    const overall_confidence = hasGoodData ? 85 : 75;
+    
+    const analysisNotes = `Area: ${areaMethod}. ${roofSegments.length} segments detected. LF estimated from area.`;
+    
+    debugLogs.push(`📈 Final confidence: ${overall_confidence}%`);
+
+    return Response.json({
+      success: true,
+      roof_area_sq: roofAreaSquares,
+      roof_area_sqft: totalAreaSqFt,
+      ridge_lf: ridgeLf,
+      hip_lf: hipLf,
+      valley_lf: valleyLf,
+      rake_lf: rakeLf,
+      eave_lf: eaveLf,
+      step_flashing_lf: stepFlashingLf,
+      apron_flashing_lf: apronFlashingLf,
+      pitch: pitchStr,
+      is_flat_roof: isFlatRoof,
+      num_segments: roofSegments.length,
+      segment_sum_sqft: Math.round(segmentSumSqFt),
+      whole_roof_sqft: Math.round(wholeAreaSqFt),
+      area_method: areaMethod,
+      overall_confidence: overall_confidence,
+      ridge_confidence: hasGoodData ? 82 : 72,
+      hip_confidence: hasGoodData ? 85 : 75,
+      valley_confidence: hasGoodData ? 78 : 68,
+      rake_confidence: hasGoodData ? 82 : 72,
+      eave_confidence: hasGoodData ? 82 : 72,
+      step_flashing_confidence: hasGoodData ? 75 : 65,
+      apron_flashing_confidence: hasGoodData ? 70 : 60,
+      analysis_notes: analysisNotes,
+      debug_logs: debugLogs
+    });
+
+  } catch (error) {
+    console.error('💥 Error:', error);
+    debugLogs.push(`💥 ERROR: ${error.message}`);
+    
+    return Response.json({ 
+      success: false, 
+      error: error.message,
+      stack: error.stack,
+      debug_logs: debugLogs
+    }, { status: 500 });
+  }
+});

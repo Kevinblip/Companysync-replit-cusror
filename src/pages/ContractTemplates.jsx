@@ -1,0 +1,1174 @@
+import React, { useState, useEffect, useMemo } from "react";
+import PdfViewer from "@/components/PdfViewer";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Upload,
+  FileText,
+  Sparkles,
+  Loader2,
+  Trash2,
+  Eye,
+  Send,
+  FileSignature,
+  CheckCircle,
+  Mail,
+  MessageCircle,
+  X,
+  Edit,
+  FilePlus
+} from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+
+
+export default function ContractTemplates() {
+  const [user, setUser] = useState(null);
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showUseTemplateDialog, setShowUseTemplateDialog] = useState(false);
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [previewPdfUrl, setPreviewPdfUrl] = useState(null);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [uploadFile, setUploadFile] = useState(null);
+  const [templateName, setTemplateName] = useState("");
+  const [templateCategory, setTemplateCategory] = useState("service_agreement");
+  const [templateContent, setTemplateContent] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [contactSearch, setContactSearch] = useState("");
+  const [showContactDropdown, setShowContactDropdown] = useState(false);
+
+  const [contractForm, setContractForm] = useState({
+    contract_name: "",
+    customer_name: "",
+    customer_email: "",
+    customer_phone: "",
+    create_as_lead: false,
+    delivery_method: "email"
+  });
+
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { company: myCompany } = useCurrentCompany(user);
+
+  const { data: templates = [] } = useQuery({
+    queryKey: ['contract-templates', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.ContractTemplate.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: customers = [] } = useQuery({
+    queryKey: ['customers', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Customer.filter({ company_id: myCompany.id }, '-created_date', 1000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: leads = [] } = useQuery({
+    queryKey: ['leads', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Lead.filter({ company_id: myCompany.id }, '-created_date', 1000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const allContacts = useMemo(() => {
+    const contacts = [
+      ...customers.map(c => {
+        const displayName = c.name || c.company || c.full_name || c.email?.split('@')[0] || 'Unnamed Customer';
+        return {
+          ...c,
+          type: 'customer',
+          displayName,
+          searchText: `${displayName} ${c.email || ''} ${c.phone || ''} ${c.company || ''}`.toLowerCase(),
+          email: c.email || '',
+          phone: c.phone || ''
+        };
+      }),
+      ...leads.map(l => {
+        const displayName = l.name || l.company || l.full_name || l.email?.split('@')[0] || 'Unnamed Lead';
+        return {
+          ...l,
+          type: 'lead',
+          displayName,
+          searchText: `${displayName} ${l.email || ''} ${l.phone || ''} ${l.company || ''}`.toLowerCase(),
+          email: l.email || '',
+          phone: l.phone || ''
+        };
+      })
+    ];
+
+    return contacts
+      .filter(c => {
+        const name = c.displayName.toLowerCase();
+        // Only filter out if name is literally "unnamed customer" or "unnamed lead" or truly empty
+        const isInvalidName = name === 'unnamed customer' || name === 'unnamed lead' || name.trim() === '';
+        return !isInvalidName;
+      })
+      .sort((a, b) => (a.displayName || "").localeCompare(b.displayName || ""));
+  }, [customers, leads]);
+
+  const filteredContacts = useMemo(() => {
+    if (!contactSearch) return allContacts;
+    const search = contactSearch.toLowerCase();
+    return allContacts.filter(c => c.searchText.includes(search));
+  }, [allContacts, contactSearch]);
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: (id) => base44.entities.ContractTemplate.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contract-templates'] });
+    },
+  });
+
+  const updateTemplateMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.ContractTemplate.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contract-templates'] });
+      setShowEditDialog(false);
+      setEditingTemplate(null);
+    },
+  });
+
+  const createLeadMutation = useMutation({
+    mutationFn: async (leadData) => {
+      return await base44.entities.Lead.create({
+        company_id: myCompany?.id,
+        name: leadData.name,
+        email: leadData.email,
+        phone: leadData.phone,
+        status: "new",
+        source: "manual",
+        lead_source: "Contract Signing"
+      });
+    },
+  });
+
+  const createSessionMutation = useMutation({
+    mutationFn: async (data) => {
+      if (data.create_as_lead) {
+        try {
+          await base44.entities.Lead.create({
+            company_id: myCompany?.id,
+            name: data.customer_name,
+            email: data.customer_email,
+            phone: data.customer_phone,
+            status: "new",
+            source: "manual",
+            lead_source: "Contract Signing"
+          });
+        } catch (leadErr) {
+          console.warn('⚠️ Lead creation failed (continuing):', leadErr.message);
+        }
+      }
+
+      const session = await base44.entities.ContractSigningSession.create({
+        company_id: myCompany?.id,
+        template_id: selectedTemplate.id,
+        template_name: selectedTemplate.template_name,
+        contract_name: data.contract_name,
+        customer_name: data.customer_name,
+        customer_email: data.customer_email,
+        customer_phone: data.customer_phone,
+        delivery_method: data.delivery_method,
+        rep_name: user?.full_name,
+        rep_email: user?.email,
+        status: 'draft',
+        current_signer: 'rep'
+      });
+
+      return session;
+    },
+    onSuccess: (session) => {
+      queryClient.invalidateQueries({ queryKey: ['signing-sessions'] });
+      if (contractForm.create_as_lead) {
+        queryClient.invalidateQueries({ queryKey: ['leads'] });
+      }
+      setShowUseTemplateDialog(false);
+
+      const signUrl = createPageUrl('SignContractRep') + '?sessionId=' + session.id;
+      navigate(signUrl, { state: { sessionId: String(session.id), session } });
+    },
+    onError: (error) => {
+      console.error('Session creation error:', error);
+      alert('Failed to start signing: ' + error.message);
+    }
+  });
+
+  const handleUploadSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!uploadFile || !templateName) {
+      alert('Please fill in all fields');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+
+      const { file_url } = await base44.integrations.Core.UploadFile({
+        file: uploadFile
+      });
+
+      setIsAnalyzing(true);
+
+      const analyzeResponse = await base44.functions.invoke('analyzeContractTemplate', {
+        fileUrl: file_url,
+        templateName,
+        category: templateCategory
+      });
+
+      if (!analyzeResponse.data.success) {
+        throw new Error(analyzeResponse.data.error);
+      }
+
+      await base44.entities.ContractTemplate.create({
+        company_id: myCompany?.id,
+        template_name: templateName,
+        category: templateCategory,
+        original_file_url: file_url,
+        fillable_fields: analyzeResponse.data.fields,
+        is_active: true
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['contract-templates'] });
+      setShowUploadDialog(false);
+      setTemplateName("");
+      setTemplateCategory("service_agreement");
+      setUploadFile(null);
+
+      alert(`✅ Template created with ${analyzeResponse.data.fields.length} fillable fields detected!`);
+
+    } catch (error) {
+      alert('❌ Error: ' + error.message);
+    } finally {
+      setIsUploading(false);
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleCreateFromScratch = async (e) => {
+    e.preventDefault();
+
+    if (!templateName.trim() || !templateContent.trim()) {
+      alert('Please fill in template name and content');
+      return;
+    }
+
+    try {
+      setIsCreating(true);
+
+      // Create a text/HTML file from the content
+      const blob = new Blob([templateContent], { type: 'text/html' });
+      const file = new File([blob], templateName + '.html', { type: 'text/html' });
+
+      const { file_url } = await base44.integrations.Core.UploadFile({
+        file: file
+      });
+
+      // Create template with basic text fields (no AI analysis needed)
+      await base44.entities.ContractTemplate.create({
+        company_id: myCompany?.id,
+        template_name: templateName,
+        category: templateCategory,
+        original_file_url: file_url,
+        fillable_fields: [
+          { field_name: "customer_name", field_label: "Customer Name", field_type: "text", filled_by: "customer", required: true },
+          { field_name: "customer_email", field_label: "Email", field_type: "email", filled_by: "customer", required: true },
+          { field_name: "customer_address", field_label: "Address", field_type: "address", filled_by: "customer", required: false },
+          { field_name: "customer_phone", field_label: "Phone", field_type: "phone", filled_by: "customer", required: false },
+          { field_name: "customer_notes", field_label: "Additional Notes", field_type: "text", filled_by: "customer", required: false },
+          { field_name: "customer_signature", field_label: "Signature", field_type: "signature", filled_by: "customer", required: true },
+          { field_name: "rep_name", field_label: "Rep Name", field_type: "text", filled_by: "rep", required: true },
+          { field_name: "rep_signature", field_label: "Rep Signature", field_type: "signature", filled_by: "rep", required: true }
+        ],
+        is_active: true
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['contract-templates'] });
+      setShowCreateDialog(false);
+      setTemplateName("");
+      setTemplateCategory("service_agreement");
+      setTemplateContent("");
+
+      alert('✅ Template created successfully!');
+
+    } catch (error) {
+      alert('❌ Error: ' + error.message);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleEditTemplate = (template) => {
+    setEditingTemplate(template);
+    setTemplateName(template.template_name);
+    const category = template.category && template.category !== "" ? template.category : "service_agreement";
+    setTemplateCategory(category);
+    setShowEditDialog(true);
+  };
+
+  const handleEditSubmit = (e) => {
+    e.preventDefault();
+
+    if (!templateName) {
+      alert('Please enter a template name');
+      return;
+    }
+
+    updateTemplateMutation.mutate({
+      id: editingTemplate.id,
+      data: {
+        template_name: templateName,
+        category: templateCategory,
+        fillable_fields: editingTemplate.fillable_fields
+      }
+    });
+  };
+
+  const handleViewTemplate = (template) => {
+    setPreviewPdfUrl(template.original_file_url);
+    setShowPdfPreview(true);
+  };
+
+  const getProxyPdfUrl = (url) => {
+    if (!url) return '';
+    // Relative path — serve directly from root domain (no proxy needed)
+    if (!url.startsWith('http')) {
+      return url.startsWith('/') ? url : `/${url}`;
+    }
+    // Same-domain absolute URL — extract just the path for direct serving
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname === window.location.hostname) {
+        return parsed.pathname + (parsed.search || '');
+      }
+    } catch (_) {}
+    // External/cross-domain URL — route through proxy
+    return `/api/proxy-pdf?url=${encodeURIComponent(url)}`;
+  };
+
+  const handleUseTemplate = (template) => {
+    setSelectedTemplate(template);
+    setContactSearch("");
+    setContractForm({
+      contract_name: template.template_name, // Auto-fill with template name
+      customer_name: "",
+      customer_email: "",
+      customer_phone: "",
+      create_as_lead: false,
+      delivery_method: "email"
+    });
+    setShowUseTemplateDialog(true);
+  };
+
+  const handleSelectContact = (contact) => {
+    setContractForm({
+      ...contractForm,
+      customer_name: contact.displayName,
+      customer_email: contact.email || '',
+      customer_phone: contact.phone || '',
+      contract_name: contractForm.contract_name || `${contact.displayName} - ${selectedTemplate?.template_name || 'Contract'}`,
+      create_as_lead: false
+    });
+    setContactSearch(contact.displayName);
+    setShowContactDropdown(false);
+  };
+
+  const handleStartSigning = (e) => {
+    if (e) e.preventDefault();
+
+    if (!contractForm.contract_name || !contractForm.customer_name) {
+      alert('Please fill in both the job description and customer name');
+      return;
+    }
+
+    if (contractForm.delivery_method === 'email' && !contractForm.customer_email) {
+      alert('Please provide customer email for email delivery');
+      return;
+    }
+
+    if (contractForm.delivery_method === 'sms' && !contractForm.customer_phone) {
+      alert('Please provide customer phone for SMS delivery');
+      return;
+    }
+
+    createSessionMutation.mutate(contractForm);
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Hero Section */}
+      <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-8 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-4xl font-bold mb-2">📝 E-Signature Templates</h1>
+            <p className="text-blue-100 text-lg">Upload PDFs → Send for Signatures → Auto-Complete</p>
+            <div className="flex items-center gap-6 mt-4 text-sm">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5" />
+                <span>Mobile Friendly</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5" />
+                <span>DocuSign-Style</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5" />
+                <span>Auto-Saves to Files</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+              <DialogTrigger asChild>
+                <Button size="lg" variant="outline" className="bg-white border-2 border-white text-blue-600 hover:bg-blue-50">
+                  <FilePlus className="w-5 h-5 mr-2" />
+                  Create from Scratch
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Create Contract Template from Scratch</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleCreateFromScratch} className="space-y-4">
+                  <Alert className="bg-blue-50 border-blue-200">
+                    <FilePlus className="w-4 h-4 text-blue-600" />
+                    <AlertDescription>
+                      Type your contract content below. Basic signature fields will be added automatically.
+                    </AlertDescription>
+                  </Alert>
+
+                  <div>
+                    <Label>Template Name *</Label>
+                    <Input
+                      value={templateName}
+                      onChange={(e) => setTemplateName(e.target.value)}
+                      placeholder="e.g., Simple Service Agreement"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Category</Label>
+                    <Select value={templateCategory} onValueChange={setTemplateCategory}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="service_agreement">Service Agreement</SelectItem>
+                        <SelectItem value="maintenance_contract">Maintenance Contract</SelectItem>
+                        <SelectItem value="work_order">Work Order</SelectItem>
+                        <SelectItem value="proposal">Proposal</SelectItem>
+                        <SelectItem value="nda">NDA</SelectItem>
+                        <SelectItem value="warranty">Warranty</SelectItem>
+                        <SelectItem value="custom">Custom</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label>Contract Content *</Label>
+                    <textarea
+                      value={templateContent}
+                      onChange={(e) => setTemplateContent(e.target.value)}
+                      placeholder="Type your contract text here...&#10;&#10;Example:&#10;This agreement is made between [Company Name] and the customer for...&#10;&#10;Terms:&#10;1. Services to be provided...&#10;2. Payment terms..."
+                      rows={15}
+                      className="w-full p-3 border rounded-md font-mono text-sm"
+                      required
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Signature fields will be added automatically at the end
+                    </p>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-4 border-t">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowCreateDialog(false)}
+                      disabled={isCreating}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={isCreating}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      {isCreating ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          <FilePlus className="w-4 h-4 mr-2" />
+                          Create Template
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
+              <DialogTrigger asChild>
+                <Button size="lg" className="bg-white text-blue-600 hover:bg-gray-100">
+                  <Upload className="w-5 h-5 mr-2" />
+                  Upload PDF Template
+                </Button>
+              </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Upload Contract Template</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleUploadSubmit} className="space-y-4">
+                <Alert className="bg-blue-50 border-blue-200">
+                  <Sparkles className="w-4 h-4 text-blue-600" />
+                  <AlertDescription>
+                    <strong>AI-Powered:</strong> We'll automatically detect fillable fields and who should fill them (rep vs customer).
+                  </AlertDescription>
+                </Alert>
+
+                <div>
+                  <Label>Template Name *</Label>
+                  <Input
+                    value={templateName}
+                    onChange={(e) => setTemplateName(e.target.value)}
+                    placeholder="e.g., Contingency Agreement"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label>Category</Label>
+                  <Select value={templateCategory && templateCategory.trim() !== "" ? templateCategory : "service_agreement"} onValueChange={setTemplateCategory}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="service_agreement">Service Agreement</SelectItem>
+                      <SelectItem value="maintenance_contract">Maintenance Contract</SelectItem>
+                      <SelectItem value="work_order">Work Order</SelectItem>
+                      <SelectItem value="proposal">Proposal</SelectItem>
+                      <SelectItem value="nda">NDA</SelectItem>
+                      <SelectItem value="warranty">Warranty</SelectItem>
+                      <SelectItem value="custom">Custom</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Upload PDF *</Label>
+                  <Input
+                    type="file"
+                    accept=".pdf"
+                    onChange={(e) => setUploadFile(e.target.files[0])}
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    PDF with your contract template
+                  </p>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowUploadDialog(false)}
+                    disabled={isUploading || isAnalyzing}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={isUploading || isAnalyzing}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {isUploading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : isAnalyzing ? (
+                      <>
+                        <Sparkles className="w-4 h-4 mr-2 animate-pulse" />
+                        Analyzing with AI...
+                      </>
+                    ) : (
+                      'Upload & Analyze'
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+          </div>
+        </div>
+      </div>
+
+      {/* How It Works */}
+      <Card className="border-2 border-blue-200 bg-blue-50">
+        <CardContent className="p-6">
+          <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-blue-600" />
+            How It Works (Like DocuSign)
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold shrink-0">1</div>
+              <div>
+                <p className="font-semibold">Upload PDF</p>
+                <p className="text-xs text-gray-600">AI detects fillable fields</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold shrink-0">2</div>
+              <div>
+                <p className="font-semibold">You Sign First</p>
+                <p className="text-xs text-gray-600">Fill your fields & sign</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold shrink-0">3</div>
+              <div>
+                <p className="font-semibold">Send to Customer</p>
+                <p className="text-xs text-gray-600">Email or SMS link</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold shrink-0">4</div>
+              <div>
+                <p className="font-semibold">Customer Signs</p>
+                <p className="text-xs text-gray-600">Mobile-friendly signing</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-green-600 text-white rounded-full flex items-center justify-center font-bold shrink-0">✓</div>
+              <div>
+                <p className="font-semibold">Auto-Complete</p>
+                <p className="text-xs text-gray-600">Saves to files & notifies</p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Templates Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {templates.map((template) => (
+          <Card key={template.id} className="hover:shadow-lg transition-shadow border-2">
+            <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <CardTitle className="text-lg">{template.template_name}</CardTitle>
+                  <Badge variant="outline" className="mt-2 capitalize">
+                    {(template.category || 'custom').replace('_', ' ')}
+                  </Badge>
+                </div>
+                <FileSignature className="w-8 h-8 text-blue-500" />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-4">
+              <div className="text-sm space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">📝 Fillable Fields:</span>
+                  <span className="font-bold">{template.fillable_fields?.length || 0}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">✅ Times Used:</span>
+                  <span className="font-bold">{template.usage_count || 0}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleViewTemplate(template)}
+                >
+                  <Eye className="w-4 h-4 mr-1" />
+                  Preview
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => handleUseTemplate(template)}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  <Send className="w-4 h-4 mr-1" />
+                  Use
+                </Button>
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleEditTemplate(template)}
+                  className="flex-1"
+                >
+                  <Edit className="w-4 h-4 mr-1" />
+                  Edit
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    if (window.confirm('Delete this template?')) {
+                      deleteTemplateMutation.mutate(template.id);
+                    }
+                  }}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+
+        {templates.length === 0 && (
+          <Card className="col-span-full border-2 border-dashed">
+            <CardContent className="p-12 text-center text-gray-500">
+              <Upload className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+              <p className="font-medium text-lg mb-2">No templates yet</p>
+              <p className="text-sm mb-4">Upload your first contract template (PDF) to get started</p>
+              <Button onClick={() => setShowUploadDialog(true)} className="bg-blue-600 hover:bg-blue-700">
+                <Upload className="w-4 h-4 mr-2" />
+                Upload First Template
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Edit Template Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Template</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="space-y-4">
+            <div>
+              <Label>Template Name *</Label>
+              <Input
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder="e.g., Contingency Agreement"
+                required
+              />
+            </div>
+
+            <div>
+              <Label>Category</Label>
+              <Select value={templateCategory && templateCategory.trim() !== "" ? templateCategory : "service_agreement"} onValueChange={setTemplateCategory}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="service_agreement">Service Agreement</SelectItem>
+                  <SelectItem value="maintenance_contract">Maintenance Contract</SelectItem>
+                  <SelectItem value="work_order">Work Order</SelectItem>
+                  <SelectItem value="proposal">Proposal</SelectItem>
+                  <SelectItem value="nda">NDA</SelectItem>
+                  <SelectItem value="warranty">Warranty</SelectItem>
+                  <SelectItem value="custom">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Fillable Fields Section */}
+            {editingTemplate?.fillable_fields && editingTemplate.fillable_fields.length > 0 && (
+              <div className="border-t pt-4">
+                <h3 className="font-semibold mb-3">Fillable Fields ({editingTemplate.fillable_fields.length})</h3>
+                <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                  {editingTemplate.fillable_fields.map((field, idx) => (
+                    <div key={idx} className="border rounded-lg p-3 bg-gray-50">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <h4 className="font-medium text-sm">{field.field_label}</h4>
+                          <p className="text-xs text-gray-600 mt-0.5">
+                            {field.field_name} • {field.field_type}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={field.required}
+                            onChange={(e) => {
+                              const updatedFields = [...editingTemplate.fillable_fields];
+                              updatedFields[idx].required = e.target.checked;
+                              setEditingTemplate({...editingTemplate, fillable_fields: updatedFields});
+                            }}
+                            className="w-4 h-4"
+                          />
+                          <span className="text-xs font-medium text-gray-700">Required</span>
+                        </div>
+                      </div>
+                      <div className="mt-2">
+                        <Label className="text-xs">Filled by:</Label>
+                        <Select 
+                          value={field.filled_by} 
+                          onValueChange={(value) => {
+                            const updatedFields = [...editingTemplate.fillable_fields];
+                            updatedFields[idx].filled_by = value;
+                            setEditingTemplate({...editingTemplate, fillable_fields: updatedFields});
+                          }}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="customer">Customer</SelectItem>
+                            <SelectItem value="rep">Rep</SelectItem>
+                            <SelectItem value="auto">Auto</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {field.placeholder && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Placeholder: {field.placeholder}
+                        </p>
+                      )}
+                      {field.page_number && (
+                        <Badge variant="outline" className="text-xs mt-1">
+                          Page {field.page_number}
+                        </Badge>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-4 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowEditDialog(false);
+                  setEditingTemplate(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={updateTemplateMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {updateTemplateMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Changes'
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* PDF Preview Modal */}
+      {showPdfPreview && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg w-full max-w-6xl h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b bg-gray-50">
+              <h2 className="text-xl font-bold">Template Preview</h2>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setShowPdfPreview(false);
+                  setPreviewPdfUrl(null);
+                }}
+              >
+                ×
+              </Button>
+            </div>
+            <div className="flex-1 overflow-hidden bg-gray-100 flex flex-col">
+              <PdfViewer
+                src={getProxyPdfUrl(previewPdfUrl)}
+                className="w-full flex-1 border-0"
+                title="PDF Preview"
+              />
+              <div className="text-center py-1 bg-gray-50 border-t">
+                <a href={getProxyPdfUrl(previewPdfUrl)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
+                  Open in new tab ↗
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Use Template Dialog */}
+      <Dialog open={showUseTemplateDialog} onOpenChange={setShowUseTemplateDialog}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Start Signing: {selectedTemplate?.template_name}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleStartSigning} className="space-y-4">
+            <Alert className="bg-blue-50 border-blue-200">
+              <FileSignature className="w-4 h-4 text-blue-600" />
+              <AlertDescription>
+                <strong>Workflow:</strong> You'll sign first, then we'll send it to the customer for their signature.
+              </AlertDescription>
+            </Alert>
+
+            <div>
+              <Label className="font-semibold">Job/Contract Description *</Label>
+              <p className="text-xs text-gray-500 mb-2">What's this for? (e.g., "Smith Property - Roof Replacement")</p>
+              <Input
+                value={contractForm.contract_name}
+                onChange={(e) => setContractForm({...contractForm, contract_name: e.target.value})}
+                placeholder="e.g., Stone Residence - Storm Damage Repair"
+                required
+              />
+            </div>
+
+            <div className="border-t pt-4">
+              <h4 className="font-semibold mb-3 text-sm text-gray-700">Customer Information</h4>
+
+              <div className="mb-3 relative">
+                <Label>Search Customer/Lead</Label>
+                <div className="relative">
+                  <Input
+                    value={contactSearch}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setContactSearch(value);
+                      setShowContactDropdown(true);
+                      if (!value) {
+                         setContractForm(prev => ({
+                            ...prev,
+                            customer_name: "",
+                            customer_email: "",
+                            customer_phone: "",
+                            create_as_lead: true
+                          }));
+                      }
+                    }}
+                    onFocus={() => {
+                      console.log('📝 Input focused - showing dropdown');
+                      setShowContactDropdown(true);
+                    }}
+                    onBlur={() => {
+                      console.log('📝 Input blurred - hiding dropdown in 300ms');
+                      setTimeout(() => setShowContactDropdown(false), 300);
+                    }}
+                    placeholder="Click to see all contacts or type to search..."
+                    className="pr-10"
+                  />
+                  {contactSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setContactSearch("");
+                        setShowContactDropdown(true);
+                        setContractForm(prev => ({
+                            ...prev,
+                            customer_name: "",
+                            customer_email: "",
+                            customer_phone: "",
+                            create_as_lead: true
+                          }));
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {showContactDropdown && (
+                  <div className="absolute z-[100] w-full mt-1 bg-white border-2 border-blue-300 rounded-lg shadow-xl max-h-80 overflow-y-auto">
+                    {(contactSearch ? filteredContacts : allContacts).length === 0 ? (
+                      <div className="px-4 py-8 text-center text-gray-500">
+                        <p className="font-medium">No contacts found</p>
+                        <p className="text-xs mt-1">Type a name and check "Create as new lead" below</p>
+                      </div>
+                    ) : (
+                      (contactSearch ? filteredContacts : allContacts).map((contact) => (
+                        <button
+                          key={contact.id}
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleSelectContact(contact);
+                          }}
+                          className="w-full px-4 py-3 text-left hover:bg-blue-50 border-b last:border-b-0 flex items-center gap-3 transition-colors"
+                        >
+                          <Badge
+                            variant={contact.type === 'customer' ? 'default' : 'secondary'}
+                            className="text-xs shrink-0"
+                          >
+                            {contact.type}
+                          </Badge>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-gray-900 truncate">{contact.displayName}</div>
+                            {contact.email && (
+                              <div className="text-xs text-gray-500 truncate">{contact.email}</div>
+                            )}
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                <p className="text-xs text-gray-600 mt-1 font-medium">
+                  {contactSearch 
+                    ? `${filteredContacts.length} of ${allContacts.length} contacts` 
+                    : `${allContacts.length} total contacts available`}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 mb-3 p-2 bg-green-50 border border-green-200 rounded">
+                <input
+                  type="checkbox"
+                  id="create-lead"
+                  checked={contractForm.create_as_lead}
+                  onChange={(e) => setContractForm({...contractForm, create_as_lead: e.target.checked})}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="create-lead" className="cursor-pointer text-sm">
+                  <span className="font-medium">Create as new lead</span>
+                  <span className="block text-xs text-gray-600">(Check if this is a NEW customer)</span>
+                </Label>
+              </div>
+
+              <div className="mb-3">
+                <Label className="font-semibold">Customer Name *</Label>
+                <Input
+                  value={contractForm.customer_name}
+                  onChange={(e) => setContractForm({...contractForm, customer_name: e.target.value})}
+                  placeholder="Auto-fills from search above"
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label className="font-semibold">Send Via *</Label>
+              <div className="flex gap-4 mt-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="delivery"
+                    value="email"
+                    checked={contractForm.delivery_method === 'email'}
+                    onChange={(e) => setContractForm({...contractForm, delivery_method: e.target.value})}
+                    className="w-4 h-4"
+                  />
+                  <Mail className="w-4 h-4" />
+                  <span>Email</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="delivery"
+                    value="sms"
+                    checked={contractForm.delivery_method === 'sms'}
+                    onChange={(e) => setContractForm({...contractForm, delivery_method: e.target.value})}
+                    className="w-4 h-4"
+                  />
+                  <MessageCircle className="w-4 h-4" />
+                  <span>SMS</span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <Label className="font-semibold">Customer Email {contractForm.delivery_method === 'email' ? '*' : ''}</Label>
+              <Input
+                type="email"
+                value={contractForm.customer_email}
+                onChange={(e) => setContractForm({...contractForm, customer_email: e.target.value})}
+                placeholder="Auto-fills from search above"
+                required={contractForm.delivery_method === 'email'}
+              />
+            </div>
+
+            <div>
+              <Label className="font-semibold">Customer Phone {contractForm.delivery_method === 'sms' ? '*' : ''}</Label>
+              <Input
+                type="tel"
+                value={contractForm.customer_phone}
+                onChange={(e) => setContractForm({...contractForm, customer_phone: e.target.value})}
+                placeholder="Auto-fills from search above"
+                required={contractForm.delivery_method === 'sms'}
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowUseTemplateDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={createSessionMutation.isPending || createLeadMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {(createSessionMutation.isPending || createLeadMutation.isPending) ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Starting...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4 mr-2" />
+                    Start Signing
+                  </>
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

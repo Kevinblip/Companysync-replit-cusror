@@ -1,0 +1,364 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { MessageSquare, Plus, Edit, Trash2, Copy } from "lucide-react";
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+
+export default function SMSTemplates() {
+  const [user, setUser] = useState(null);
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  
+  const [formData, setFormData] = useState({
+    template_name: "",
+    message: "",
+    category: "general",
+    merge_fields: []
+  });
+
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { company: myCompany } = useCurrentCompany(user);
+
+  const { data: allTemplates = [] } = useQuery({
+    queryKey: ['sms-templates', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.SMSTemplate.filter({ company_id: myCompany.id }, "-created_date", 1000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const templates = allTemplates.filter(t => t.company_id === myCompany?.id || t.company_id === '695944e3c1fb00b7ab716c6f' || t.is_default);
+
+  const createMutation = useMutation({
+    mutationFn: (data) => base44.entities.SMSTemplate.create({ ...data, company_id: myCompany.id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sms-templates'] });
+      handleCloseDialog();
+      alert('SMS Template created successfully!');
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.SMSTemplate.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sms-templates'] });
+      handleCloseDialog();
+      alert('SMS Template updated successfully!');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => base44.entities.SMSTemplate.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sms-templates'] });
+      alert('SMS Template deleted!');
+    },
+  });
+
+  const handleCloseDialog = () => {
+    setShowDialog(false);
+    setEditingTemplate(null);
+    setFormData({
+      template_name: "",
+      message: "",
+      category: "general",
+      merge_fields: []
+    });
+  };
+
+  const handleEdit = (template) => {
+    setEditingTemplate(template);
+    setFormData({
+      template_name: template.template_name || "",
+      message: template.message || "",
+      category: template.category || "general",
+      merge_fields: template.merge_fields || []
+    });
+    setShowDialog(true);
+  };
+
+  const handleDuplicate = (template) => {
+    setFormData({
+      template_name: template.template_name + " (Copy)",
+      message: template.message,
+      category: template.category,
+      merge_fields: template.merge_fields || []
+    });
+    setShowDialog(true);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!formData.template_name || !formData.message) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    if (editingTemplate) {
+      await updateMutation.mutateAsync({ id: editingTemplate.id, data: formData });
+    } else {
+      await createMutation.mutateAsync(formData);
+    }
+  };
+
+  const handleDelete = (id, isDefault) => {
+    if (isDefault) {
+      alert('Cannot delete default system templates');
+      return;
+    }
+    if (window.confirm('Are you sure you want to delete this template?')) {
+      deleteMutation.mutate(id);
+    }
+  };
+
+  const filteredTemplates = selectedCategory === "all"
+    ? templates
+    : templates.filter(t => t.category === selectedCategory);
+
+  const categories = {
+    estimates: { name: "Estimates", color: "bg-blue-100 text-blue-700" },
+    invoices: { name: "Invoices", color: "bg-green-100 text-green-700" },
+    proposals: { name: "Proposals", color: "bg-purple-100 text-purple-700" },
+    appointments: { name: "Appointments", color: "bg-orange-100 text-orange-700" },
+    reminders: { name: "Reminders", color: "bg-yellow-100 text-yellow-700" },
+    payments: { name: "Payments", color: "bg-emerald-100 text-emerald-700" },
+    leads: { name: "Leads", color: "bg-pink-100 text-pink-700" },
+    customers: { name: "Customers", color: "bg-cyan-100 text-cyan-700" },
+    general: { name: "General", color: "bg-gray-100 text-gray-700" }
+  };
+
+  const groupedTemplates = {};
+  filteredTemplates.forEach(template => {
+    if (!groupedTemplates[template.category]) {
+      groupedTemplates[template.category] = [];
+    }
+    groupedTemplates[template.category].push(template);
+  });
+
+  const charCount = formData.message.length;
+  const segmentCount = Math.ceil(charCount / 160);
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">SMS Templates</h1>
+          <p className="text-gray-500 mt-1">Manage your SMS communication templates</p>
+        </div>
+
+        <Dialog open={showDialog} onOpenChange={setShowDialog}>
+          <DialogTrigger asChild>
+            <Button className="bg-blue-600 hover:bg-blue-700">
+              <Plus className="w-4 h-4 mr-2" />
+              Create SMS Template
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>
+                {editingTemplate ? 'Edit SMS Template' : 'Create New SMS Template'}
+              </DialogTitle>
+            </DialogHeader>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Template Name *</Label>
+                  <Input
+                    value={formData.template_name}
+                    onChange={(e) => setFormData({...formData, template_name: e.target.value})}
+                    placeholder="e.g., Appointment Reminder"
+                  />
+                </div>
+
+                <div>
+                  <Label>Category *</Label>
+                  <Select
+                    value={formData.category}
+                    onValueChange={(value) => setFormData({...formData, category: value})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(categories).map(([key, cat]) => (
+                        <SelectItem key={key} value={key}>{cat.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div>
+                <Label>Message *</Label>
+                <Textarea
+                  value={formData.message}
+                  onChange={(e) => setFormData({...formData, message: e.target.value})}
+                  rows={5}
+                  placeholder="Hi {customer_name}, your appointment is confirmed for {appointment_date} at {appointment_time}. - {company_name}"
+                />
+                <div className="flex justify-between mt-2 text-xs">
+                  <span className={charCount > 160 ? "text-orange-600" : "text-gray-500"}>
+                    {charCount} characters ({segmentCount} SMS segment{segmentCount !== 1 ? 's' : ''})
+                  </span>
+                  {charCount > 160 && (
+                    <span className="text-orange-600">⚠️ Over 160 chars = ${(segmentCount * 0.0075).toFixed(4)} per message</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <p className="font-semibold text-sm mb-2">Available Merge Fields:</p>
+                <div className="flex flex-wrap gap-2">
+                  {['{company_name}', '{customer_name}', '{appointment_date}', '{appointment_time}', 
+                    '{estimate_number}', '{invoice_number}', '{amount}', '{phone}'
+                  ].map(field => (
+                    <code key={field} className="bg-white px-2 py-1 rounded text-xs border">
+                      {field}
+                    </code>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button type="button" variant="outline" onClick={handleCloseDialog}>
+                  Cancel
+                </Button>
+                <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
+                  {editingTemplate ? 'Update Template' : 'Create Template'}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Category Filter */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant={selectedCategory === "all" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedCategory("all")}
+            >
+              All Templates ({templates.length})
+            </Button>
+            {Object.entries(categories).map(([key, cat]) => {
+              const count = templates.filter(t => t.category === key).length;
+              if (count === 0) return null;
+              return (
+                <Button
+                  key={key}
+                  variant={selectedCategory === key ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedCategory(key)}
+                >
+                  {cat.name} ({count})
+                </Button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Templates by Category */}
+      {Object.entries(groupedTemplates).sort().map(([category, categoryTemplates]) => (
+        <Card key={category}>
+          <CardHeader className="bg-gray-50 border-b">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Badge className={categories[category]?.color}>
+                {categories[category]?.name || category}
+              </Badge>
+              <span className="text-sm text-gray-500">
+                ({categoryTemplates.length} template{categoryTemplates.length !== 1 ? 's' : ''})
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y">
+              {categoryTemplates.map((template) => (
+                <div key={template.id} className="p-4 hover:bg-gray-50 flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <MessageSquare className="w-4 h-4 text-blue-600" />
+                      <span className="font-semibold text-gray-900">{template.template_name}</span>
+                      {template.is_default && (
+                        <Badge variant="outline" className="text-xs">System Default</Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-600 font-mono">{template.message.substring(0, 100)}{template.message.length > 100 ? '...' : ''}</p>
+                    <p className="text-xs text-gray-400 mt-1">{template.message.length} chars • {Math.ceil(template.message.length / 160)} segment{Math.ceil(template.message.length / 160) !== 1 ? 's' : ''}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDuplicate(template)}
+                      title="Duplicate"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleEdit(template)}
+                    >
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                    {!template.is_default && template.company_id === myCompany?.id && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(template.id, template.is_default)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+
+      {filteredTemplates.length === 0 && (
+        <Card>
+          <CardContent className="p-12 text-center text-gray-500">
+            <MessageSquare className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+            <p className="text-lg font-semibold mb-2">No SMS Templates Found</p>
+            <p>Create your first SMS template to get started!</p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}

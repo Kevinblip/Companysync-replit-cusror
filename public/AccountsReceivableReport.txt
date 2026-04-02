@@ -1,0 +1,186 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery } from "@tanstack/react-query";
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { format, parseISO } from "date-fns";
+import { Badge } from "@/components/ui/badge";
+import { ArrowLeft, DollarSign } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+
+export default function AccountsReceivableReport() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { company: myCompany } = useCurrentCompany(user);
+  
+  const { data: invoices = [], isLoading } = useQuery({
+    queryKey: ["ar-invoices", myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Invoice.filter({ company_id: myCompany.id }, "-issue_date", 1000) : [],
+    initialData: [],
+    enabled: !!myCompany,
+  });
+
+  const outstandingInvoices = invoices.filter(inv => 
+    ["sent", "partially_paid", "overdue"].includes(inv.status)
+  );
+
+  const totalOutstanding = outstandingInvoices.reduce((sum, invoice) => {
+    const amount = invoice.amount || 0;
+    const amountPaid = invoice.amount_paid || 0;
+    return sum + (amount - amountPaid);
+  }, 0);
+
+  const getStatusBadgeVariant = (status) => {
+    switch (status) {
+      case "sent": return "secondary";
+      case "partially_paid": return "default";
+      case "overdue": return "destructive";
+      default: return "outline";
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading accounts receivable...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <Button variant="outline" onClick={() => navigate(createPageUrl("Dashboard"))}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back
+          </Button>
+          <h1 className="text-3xl font-bold text-gray-900">Accounts Receivable</h1>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="bg-gradient-to-br from-green-50 to-emerald-50 border-green-200">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-green-900">Total Outstanding</CardTitle>
+            <DollarSign className="h-5 w-5 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-green-700">
+              ${totalOutstanding.toFixed(2)}
+            </div>
+            <p className="text-xs text-green-600 mt-1">
+              From {outstandingInvoices.length} unpaid invoices
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Sent</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {outstandingInvoices.filter(i => i.status === "sent").length}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Awaiting payment</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Partially Paid</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {outstandingInvoices.filter(i => i.status === "partially_paid").length}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Balance remaining</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Outstanding Invoices</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {outstandingInvoices.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <DollarSign className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+              <p className="text-lg font-medium">No outstanding invoices</p>
+              <p className="text-sm">All invoices are paid or drafted</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Invoice #</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Issue Date</TableHead>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead className="text-right">Total Amount</TableHead>
+                    <TableHead className="text-right">Paid</TableHead>
+                    <TableHead className="text-right">Outstanding</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {outstandingInvoices.map((invoice) => {
+                    const outstanding = (invoice.amount || 0) - (invoice.amount_paid || 0);
+                    return (
+                      <TableRow key={invoice.id}>
+                        <TableCell className="font-medium">{invoice.invoice_number}</TableCell>
+                        <TableCell>{invoice.customer_name}</TableCell>
+                        <TableCell>
+                          {invoice.issue_date ? format(parseISO(invoice.issue_date), "MMM d, yyyy") : "N/A"}
+                        </TableCell>
+                        <TableCell>
+                          {invoice.due_date ? format(parseISO(invoice.due_date), "MMM d, yyyy") : "N/A"}
+                        </TableCell>
+                        <TableCell className="text-right">${(invoice.amount || 0).toFixed(2)}</TableCell>
+                        <TableCell className="text-right text-green-600">
+                          ${(invoice.amount_paid || 0).toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-orange-600">
+                          ${outstanding.toFixed(2)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={getStatusBadgeVariant(invoice.status)}>
+                            {invoice.status.replace(/_/g, " ")}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate(createPageUrl("invoice-details") + `?id=${invoice.id}`)}
+                          >
+                            View
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

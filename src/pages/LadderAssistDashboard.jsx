@@ -1,0 +1,245 @@
+import React, { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+import useRoleBasedData from "@/components/hooks/useRoleBasedData";
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { DollarSign, Users, TrendingUp, Calendar } from 'lucide-react';
+import { format } from 'date-fns';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell
+} from 'recharts';
+
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+export default function LadderAssistDashboard() {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { company: myCompany } = useCurrentCompany(user);
+  const { isAdmin } = useRoleBasedData();
+
+  const { data: inspections = [] } = useQuery({
+    queryKey: ['inspections', myCompany?.id, isAdmin],
+    queryFn: async () => {
+      if (!myCompany) return [];
+      const byCompany = await base44.entities.InspectionJob.filter({ company_id: myCompany.id }, "-created_date", 1000);
+      // Admins: if company_id filter returns nothing (jobs may lack company_id), fetch all
+      if (isAdmin && byCompany.length === 0) {
+        return await base44.entities.InspectionJob.filter({}, "-created_date", 1000);
+      }
+      return byCompany;
+    },
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: staffProfiles = [] } = useQuery({
+    queryKey: ['staff-profiles', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.StaffProfile.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: deductions = [] } = useQuery({
+    queryKey: ['deductions', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.CommissionDeduction.filter({ 
+      company_id: myCompany.id, 
+      deduction_type: 'ladder_assist' 
+    }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  // Calculate stats
+  const inspectionsWithAssist = inspections.filter(i => i.ladder_assist_needed);
+  const totalCost = inspectionsWithAssist.reduce((sum, i) => sum + (i.ladder_assist_cost || 0), 0);
+  const avgCost = inspectionsWithAssist.length > 0 ? totalCost / inspectionsWithAssist.length : 0;
+
+  // By rep
+  const byRep = {};
+  inspectionsWithAssist.forEach(inspection => {
+    const email = inspection.sales_rep_email || inspection.assigned_to_email;
+    if (!byRep[email]) {
+      const staff = staffProfiles.find(s => s.user_email === email);
+      byRep[email] = {
+        name: staff?.full_name || email,
+        count: 0,
+        totalCost: 0
+      };
+    }
+    byRep[email].count++;
+    byRep[email].totalCost += inspection.ladder_assist_cost || 0;
+  });
+
+  const repData = Object.values(byRep).sort((a, b) => b.totalCost - a.totalCost);
+
+  // By month
+  const byMonth = {};
+  inspectionsWithAssist.forEach(inspection => {
+    const month = new Date(inspection.created_date).toISOString().slice(0, 7);
+    if (!byMonth[month]) {
+      byMonth[month] = { month, count: 0, cost: 0 };
+    }
+    byMonth[month].count++;
+    byMonth[month].cost += inspection.ladder_assist_cost || 0;
+  });
+
+  const monthData = Object.values(byMonth).sort((a, b) => a.month.localeCompare(b.month)).slice(-6);
+
+  return (
+    <div className="p-6 space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Ladder Assist Analytics</h1>
+        <p className="text-gray-500 mt-1">Track ladder assistant costs and usage</p>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Total Inspections</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">{inspectionsWithAssist.length}</div>
+            <p className="text-xs text-gray-500 mt-1">With ladder assist</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Total Cost</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-red-600">${Number(totalCost || 0).toFixed(2)}</div>
+            <p className="text-xs text-gray-500 mt-1">All ladder assists</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Average Cost</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-blue-600">${Number(avgCost || 0).toFixed(2)}</div>
+            <p className="text-xs text-gray-500 mt-1">Per inspection</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Reps Using</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-purple-600">{Object.keys(byRep).length}</div>
+            <p className="text-xs text-gray-500 mt-1">Sales reps</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Cost by Sales Rep</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={repData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="totalCost" fill="#ef4444" name="Total Cost ($)" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Usage by Rep</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={repData}
+                  dataKey="count"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={100}
+                  label={(entry) => `${entry.name}: ${entry.count}`}
+                >
+                  {repData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Monthly Trend */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Monthly Trend (Last 6 Months)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={monthData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis yAxisId="left" orientation="left" stroke="#3b82f6" />
+              <YAxis yAxisId="right" orientation="right" stroke="#ef4444" />
+              <Tooltip />
+              <Legend />
+              <Bar yAxisId="left" dataKey="count" fill="#3b82f6" name="Count" />
+              <Bar yAxisId="right" dataKey="cost" fill="#ef4444" name="Cost ($)" />
+            </BarChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      {/* Detailed List by Rep */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Detailed Breakdown by Rep</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {repData.map((rep, index) => (
+              <div key={index} className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <p className="font-semibold">{rep.name}</p>
+                  <p className="text-sm text-gray-600">{rep.count} inspections with ladder assist</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-bold text-red-600">${Number(rep.totalCost || 0).toFixed(2)}</p>
+                  <p className="text-xs text-gray-500">Avg: ${Number(rep.totalCost / (rep.count || 1)).toFixed(2)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

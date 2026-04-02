@@ -1,0 +1,2847 @@
+import React, { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { ArrowLeft, Camera, Loader2, Image as ImageIcon, Trash2, FileText, Edit, CheckCircle, Save, Pen, Upload, Send, Mail, Link as LinkIcon, ExternalLink, AlertCircle, Eye, Sparkles, Zap, Download } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from '@/components/ui/input';
+import LiveCameraCapture from '../components/inspections/LiveCameraCapture';
+import SignaturePad from '../components/SignaturePad';
+import AssignmentDialog from '../components/inspections/AssignmentDialog';
+import LinkStormDialog from '../components/inspections/LinkStormDialog';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { jsPDF } from 'jspdf';
+
+const sections = [
+    'Front Elevation', 'Right Elevation', 'Rear Elevation', 'Left Elevation',
+    'Front Slope', 'Right Slope', 'Back Slope', 'Left Slope', 'Interior', 'Other'
+];
+
+export default function InspectionCapture() {
+    const navigate = useNavigate();
+    const location = useLocation();
+    const queryClient = useQueryClient();
+    
+    const [user, setUser] = useState(null);
+    
+    useEffect(() => {
+        base44.auth.me().then(setUser).catch(() => {});
+    }, []);
+
+    const [jobId, setJobId] = useState(null);
+    const [activeSection, setActiveSection] = useState(sections[0]);
+    const [isSecureContext, setIsSecureContext] = useState(false);
+    const [sectionNotes, setSectionNotes] = useState({});
+    const [isExporting, setIsExporting] = useState(false);
+    const [isViewing, setIsViewing] = useState(false);
+    const [showPdfPreview, setShowPdfPreview] = useState(false);
+    const [previewPdfUrl, setPreviewPdfUrl] = useState(null);
+    const [selectedPhotos, setSelectedPhotos] = useState([]);
+    const [showBulkEditDialog, setShowBulkEditDialog] = useState(false);
+    const [bulkCaption, setBulkCaption] = useState('');
+    const [showSignatureDialog, setShowSignatureDialog] = useState(false);
+    const [inspectorSignature, setInspectorSignature] = useState('');
+    const [uploadingFiles, setUploadingFiles] = useState(false);
+    const [showEditDialog, setShowEditDialog] = useState(false);
+    const [isSendingReport, setIsSendingReport] = useState(false);
+    const [reportRecipients, setReportRecipients] = useState({
+        sendToClient: true,
+        sendToAdjuster: false,
+        adjusterEmail: '',
+        sendToProductionManager: false,
+        sendToSalesRep: false,
+        sendToCustomEmails: false,
+        customEmails: ''
+    });
+    const [showLinkEstimateDialog, setShowLinkEstimateDialog] = useState(false);
+    const [selectedEstimateId, setSelectedEstimateId] = useState(null);
+    const [isPreviewing, setIsPreviewing] = useState(false);
+    const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+    const [selectedTemplateId, setSelectedTemplateId] = useState('default');
+    const [testingEmail, setTestingEmail] = useState(false);
+    const [showLinkStormDialog, setShowLinkStormDialog] = useState(false);
+    const [isReanalyzing, setIsReanalyzing] = useState(false);
+
+    useEffect(() => {
+        setIsSecureContext(window.isSecureContext);
+        const params = new URLSearchParams(location.search);
+        const id = params.get('id');
+        if (id) {
+            setJobId(id);
+        }
+    }, [location.search]);
+
+    const { data: job, isLoading: isLoadingJob } = useQuery({
+        queryKey: ['inspectionJob', jobId],
+        queryFn: () => base44.entities.InspectionJob.get(jobId),
+        enabled: !!jobId,
+    });
+
+    // Load notes and other data when job changes
+    useEffect(() => {
+        if (job) {
+            if (job.notes) {
+                try {
+                    const parsedNotes = JSON.parse(job.notes);
+                    setSectionNotes(parsedNotes);
+                } catch (e) {
+                    setSectionNotes({ [sections[0]]: job.notes });
+                }
+            }
+            if (job.inspector_signature) {
+                setInspectorSignature(job.inspector_signature);
+            }
+            if (job.client_email) {
+                setReportRecipients(prev => ({ ...prev, sendToClient: true }));
+            } else {
+                setReportRecipients(prev => ({ ...prev, sendToClient: false }));
+            }
+            if (job.related_estimate_id) {
+                setSelectedEstimateId(job.related_estimate_id);
+            }
+        }
+    }, [job]);
+
+    const { data: users = [] } = useQuery({
+        queryKey: ['users'],
+        queryFn: () => base44.entities.User.list(),
+        initialData: []
+    });
+
+    const { data: media = [], isLoading: isLoadingMedia } = useQuery({
+        queryKey: ['inspectionMedia', jobId],
+        queryFn: () => jobId ? base44.entities.JobMedia.filter({ related_entity_id: jobId, related_entity_type: 'InspectionJob' }) : [],
+        enabled: !!jobId,
+        initialData: []
+    });
+
+    const { data: estimates = [] } = useQuery({
+        queryKey: ['estimates'],
+        queryFn: () => base44.entities.Estimate.list('-created_date', 100),
+        initialData: []
+    });
+
+    const { data: linkedEstimate } = useQuery({
+        queryKey: ['linkedEstimate', job?.related_estimate_id],
+        queryFn: () => job?.related_estimate_id ? base44.entities.Estimate.get(job.related_estimate_id) : null,
+        enabled: !!job?.related_estimate_id,
+    });
+
+    const { data: linkedStorm } = useQuery({
+        queryKey: ['linkedStorm', job?.related_storm_event_id],
+        queryFn: () => job?.related_storm_event_id ? base44.entities.StormEvent.get(job.related_storm_event_id) : null,
+        enabled: !!job?.related_storm_event_id,
+    });
+
+    const { data: reportTemplates = [] } = useQuery({
+        queryKey: ['report-templates'],
+        queryFn: () => base44.entities.InspectionReportTemplate.filter({ is_active: true }),
+        initialData: []
+    });
+
+    const { data: emailTracking = [] } = useQuery({
+        queryKey: ['email-tracking', jobId],
+        queryFn: () => jobId ? base44.entities.EmailTracking.filter({
+            related_entity_id: jobId,
+            related_entity_type: 'InspectionJob'
+        }) : [],
+        enabled: !!jobId,
+        initialData: [],
+        refetchInterval: 30000,
+        staleTime: 10000
+    });
+
+    const { data: companies = [] } = useQuery({
+        queryKey: ['companies'],
+        queryFn: () => base44.entities.Company.list(),
+        initialData: []
+    });
+
+    const myCompany = React.useMemo(() => {
+        if (!user) return companies[0];
+        return companies.find(c => c.created_by === user.email) || companies[0];
+    }, [user, companies]);
+
+    const createJobMutation = useMutation({
+        mutationFn: (newJobData) => base44.entities.InspectionJob.create({
+            ...newJobData,
+            company_id: myCompany?.id
+        }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['inspectionJobs'] });
+        }
+    });
+
+    const updateJobNotesMutation = useMutation({
+        mutationFn: ({ id, notes }) => base44.entities.InspectionJob.update(id, { notes: JSON.stringify(notes) }),
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ['inspectionJob', jobId] });
+          alert("✅ Notes saved!");
+        }
+    });
+
+    const updateSignatureMutation = useMutation({
+        mutationFn: ({ id, signature }) => base44.entities.InspectionJob.update(id, { inspector_signature: signature }),
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ['inspectionJob', jobId] });
+          setShowSignatureDialog(false);
+          alert("✅ Signature saved!");
+        }
+    });
+
+    const uploadMutation = useMutation({
+        mutationFn: async ({ file, section, caption, targetJobId }) => {
+          const { file_url } = await base44.integrations.Core.UploadFile({ file });
+          
+          let file_type = 'photo';
+          if (file.type) {
+            if (file.type.startsWith('video')) {
+              file_type = 'video';
+            } else if (file.type.startsWith('image')) {
+              file_type = 'photo';
+            } else if (file.name) {
+              const ext = file.name.toLowerCase().split('.').pop();
+              if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) {
+                file_type = 'video';
+              } else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'].includes(ext)) {
+                file_type = 'photo';
+              }
+            }
+          } else if (file.name) {
+            const ext = file.name.toLowerCase().split('.').pop();
+            if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) {
+              file_type = 'video';
+            } else {
+              file_type = 'photo';
+            }
+          }
+
+          const media = await base44.entities.JobMedia.create({
+            related_entity_id: targetJobId,
+            related_entity_type: 'InspectionJob',
+            file_url,
+            file_type,
+            section,
+            caption,
+            uploaded_by_name: user?.full_name || 'User',
+            company_id: myCompany?.id
+          });
+
+          // Auto-trigger AI analysis for photos only
+          if (file_type === 'photo') {
+            try {
+              console.log('🤖 Auto-analyzing photo...');
+              const analysisResult = await base44.functions.invoke('analyzeCrewCamPhoto', {
+                photoUrl: file_url,
+                section: section
+              });
+
+              if (analysisResult.data.success) {
+                await base44.entities.JobMedia.update(media.id, {
+                  ai_damage_analysis: analysisResult.data.analysis
+                });
+                console.log('✅ AI analysis complete:', analysisResult.data.analysis);
+              }
+            } catch (aiError) {
+              console.error('AI analysis failed (non-critical):', aiError);
+            }
+          }
+
+          return media;
+        },
+        onSuccess: (data, variables) => {
+          queryClient.invalidateQueries({ queryKey: ['inspectionMedia', variables.targetJobId] });
+        }
+    });
+
+    const updateMediaMutation = useMutation({
+        mutationFn: ({ id, caption }) => base44.entities.JobMedia.update(id, { caption }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['inspectionMedia', jobId] });
+        }
+    });
+
+    const deleteMutation = useMutation({
+        mutationFn: (mediaId) => base44.entities.JobMedia.delete(mediaId),
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ['inspectionMedia', jobId] });
+          setSelectedPhotos([]);
+        }
+    });
+
+    const linkEstimateMutation = useMutation({
+        mutationFn: ({ jobId, estimateId }) => base44.entities.InspectionJob.update(jobId, { related_estimate_id: estimateId }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['inspectionJob', jobId] });
+            setShowLinkEstimateDialog(false);
+            alert('✅ Estimate linked successfully!');
+        }
+    });
+
+    const linkStormMutation = useMutation({
+        mutationFn: ({ jobId, stormId }) => base44.entities.InspectionJob.update(jobId, { related_storm_event_id: stormId || null }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['inspectionJob', jobId] });
+            queryClient.invalidateQueries({ queryKey: ['linkedStorm', job?.related_storm_event_id] });
+            setShowLinkStormDialog(false);
+            alert('✅ Storm event updated!');
+        }
+    });
+
+    const handleUploadWithJobCreation = async (uploadFn) => {
+        let currentJobId = jobId;
+
+        if (!currentJobId) {
+            try {
+                const newJob = await createJobMutation.mutateAsync({
+                    property_address: `Unassigned Inspection - ${new Date().toLocaleString()}`,
+                    status: 'pending'
+                });
+                currentJobId = newJob.id;
+                setJobId(newJob.id);
+                navigate(createPageUrl(`InspectionCapture?id=${newJob.id}`), { replace: true });
+            } catch (error) {
+                console.error("Failed to create temporary job", error);
+                return;
+            }
+        }
+
+        await uploadFn(currentJobId);
+    };
+
+    const handleLiveCaptureUpload = async ({ file, caption }) => {
+        let uploadedMedia = null;
+        await handleUploadWithJobCreation(async (currentJobId) => {
+            uploadedMedia = await uploadMutation.mutateAsync({ file, section: activeSection, caption, targetJobId: currentJobId });
+        });
+        return uploadedMedia;
+    };
+
+    const handleVoiceCaptionForLastPhoto = async (photoId, transcript) => {
+        try {
+            await updateMediaMutation.mutateAsync({ id: photoId, caption: transcript });
+        } catch (error) {
+            console.error('Failed to update photo caption:', error);
+        }
+    };
+
+    const handleFileUpload = async (event) => {
+        const files = Array.from(event.target.files);
+        if (files.length === 0) return;
+
+        setUploadingFiles(true);
+
+        await handleUploadWithJobCreation(async (currentJobId) => {
+            try {
+                for (const file of files) {
+                    await uploadMutation.mutateAsync({
+                        file,
+                        section: activeSection,
+                        caption: file.name || 'Uploaded photo',
+                        targetJobId: currentJobId
+                    });
+                }
+                alert(`✅ Successfully uploaded ${files.length} file(s)!`);
+            } catch (error) {
+                console.error("Upload error:", error);
+                alert("❌ Upload failed: " + (error.message || "Unknown error"));
+            }
+        });
+
+        setUploadingFiles(false);
+        event.target.value = '';
+    };
+
+    const handleSaveNotes = () => {
+        if (!jobId) {
+            alert("Please create the inspection job first before saving notes.");
+            return;
+        }
+        updateJobNotesMutation.mutate({ id: jobId, notes: sectionNotes });
+    };
+
+    const handleSectionNotesChange = (section, text) => {
+        setSectionNotes(prev => ({ ...prev, [section]: text }));
+    };
+
+    const handleSaveSignature = (signatureDataUrl) => {
+        if (!jobId) {
+            alert("Please create the inspection job first.");
+            return;
+        }
+        setInspectorSignature(signatureDataUrl);
+        updateSignatureMutation.mutate({ id: jobId, signature: signatureDataUrl });
+    };
+
+    const handleExportReport = async () => {
+        if (!jobId) {
+            alert("Please save the inspection first before exporting.");
+            return;
+        }
+
+        setIsExporting(true);
+
+        try {
+            const photoMedia = media.filter(item => item.file_type === 'photo');
+
+            if (photoMedia.length === 0) {
+                alert("⚠️ No photos found. Please capture some photos before exporting.");
+                setIsExporting(false);
+                return;
+            }
+
+            const doc = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: 'a4'
+            });
+
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            const margin = 20;
+            const contentWidth = pageWidth - (margin * 2);
+
+            // Brand color
+            const hexToRgb = (hex) => {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : { r: 30, g: 58, b: 138 };
+            };
+            
+            const primaryColor = myCompany?.brand_primary_color 
+                ? hexToRgb(myCompany.brand_primary_color) 
+                : { r: 30, g: 58, b: 138 };
+
+            // Cover page with professional design
+            let y = 20;
+            
+            // Add company logo (aspect-ratio preserved)
+            if (myCompany?.logo_url) {
+                try {
+                    const logoImg = new Image();
+                    logoImg.crossOrigin = 'anonymous';
+                    await new Promise((resolve, reject) => {
+                        logoImg.onload = resolve;
+                        logoImg.onerror = reject;
+                        logoImg.src = myCompany.logo_url;
+                    });
+                    const maxW = 60, maxH = 25;
+                    const ratio = Math.min(maxW / logoImg.naturalWidth, maxH / logoImg.naturalHeight);
+                    const logoW = logoImg.naturalWidth * ratio;
+                    const logoH = logoImg.naturalHeight * ratio;
+                    doc.addImage(myCompany.logo_url, 'PNG', 18, y, logoW, logoH);
+                    y += logoH + 5;
+                } catch (error) {
+                    console.log('⚠️ Could not add logo');
+                }
+            }
+            
+            // Company info - LARGER AND MORE PROMINENT
+            doc.setFontSize(16);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(0, 0, 0);
+            doc.text(myCompany?.company_name || 'Company Name', margin, y);
+            y += 8;
+            
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(60, 60, 60);
+            
+            if (myCompany?.address) {
+                doc.text(myCompany.address, margin, y);
+                y += 5;
+            }
+            
+            if (myCompany?.city || myCompany?.state || myCompany?.zip) {
+                const cityStateZip = [myCompany?.city, myCompany?.state, myCompany?.zip].filter(Boolean).join(', ');
+                doc.text(cityStateZip, margin, y);
+                y += 5;
+            }
+            
+            if (myCompany?.phone) {
+                doc.text(`Phone: ${myCompany.phone}`, margin, y);
+                y += 5;
+            }
+            
+            if (myCompany?.email) {
+                doc.text(`Email: ${myCompany.email}`, margin, y);
+                y += 5;
+            }
+            
+            if (myCompany?.company_website) {
+                doc.text(`Web: ${myCompany.company_website}`, margin, y);
+                y += 5;
+            }
+            
+            // Title section with branded color
+            y = 80;
+            doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+            doc.rect(0, y, pageWidth, 25, 'F');
+            
+            doc.setFontSize(28);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(255, 255, 255);
+            doc.text('INSPECTION REPORT', pageWidth / 2, y + 16, { align: 'center' });
+            
+            // Property details box
+            y = 125;
+            doc.setFillColor(245, 247, 250);
+            doc.rect(margin, y, contentWidth, 50, 'F');
+            
+            doc.setFontSize(11);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(0, 0, 0);
+            doc.text('PROPERTY INFORMATION', margin + 5, y + 8);
+            
+            y += 15;
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(60, 60, 60);
+            doc.text(`Property Address: ${job.property_address || 'N/A'}`, margin + 5, y);
+            y += 5;
+            doc.text(`Client Name: ${job.client_name || 'N/A'}`, margin + 5, y);
+            y += 5;
+            if (job.client_email) {
+                doc.text(`Client Email: ${job.client_email}`, margin + 5, y);
+                y += 5;
+            }
+            if (job.client_phone) {
+                doc.text(`Client Phone: ${job.client_phone}`, margin + 5, y);
+                y += 5;
+            }
+            doc.text(`Inspection Date: ${new Date(job.inspection_date || job.created_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`, margin + 5, y);
+            y += 5;
+            if (job.insurance_claim_number) {
+                doc.text(`Claim Number: ${job.insurance_claim_number}`, margin + 5, y);
+                y += 5;
+            }
+            if (job.insurance_company) {
+                doc.text(`Insurance Company: ${job.insurance_company}`, margin + 5, y);
+            }
+
+            // Group images by section
+            const imagesBySection = {};
+            photoMedia.forEach(item => {
+                const section = item.section || 'Other';
+                if (!imagesBySection[section]) {
+                    imagesBySection[section] = [];
+                }
+                imagesBySection[section].push(item);
+            });
+
+            // Add sections with photos
+            for (const [section, images] of Object.entries(imagesBySection)) {
+                doc.addPage();
+                
+                // Section header with branded bar
+                doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                doc.rect(0, 10, pageWidth, 12, 'F');
+                doc.setFontSize(14);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(255, 255, 255);
+                doc.text(section, pageWidth / 2, 18, { align: 'center' });
+                
+                let yPos = 30;
+                
+                if (sectionNotes && sectionNotes[section]) {
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(60, 60, 60);
+                    const lines = doc.splitTextToSize(sectionNotes[section], contentWidth);
+                    doc.text(lines, margin, yPos);
+                    yPos += (lines.length * 4) + 8;
+                }
+
+                for (const item of images) {
+                    if (yPos > pageHeight - 100) {
+                        doc.addPage();
+                        doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                        doc.rect(0, 10, pageWidth, 12, 'F');
+                        doc.setFontSize(14);
+                        doc.setFont('helvetica', 'bold');
+                        doc.setTextColor(255, 255, 255);
+                        doc.text(`${section} (continued)`, pageWidth / 2, 18, { align: 'center' });
+                        yPos = 30;
+                    }
+
+                    try {
+                        const response = await fetch(item.file_url);
+                        const blob = await response.blob();
+                        
+                        const imageDataUrl = await new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result);
+                            reader.readAsDataURL(blob);
+                        });
+
+                        const imgWidth = contentWidth;
+                        const imgHeight = 100;
+                        
+                        // Photo border
+                        doc.setDrawColor(200, 200, 200);
+                        doc.setLineWidth(0.3);
+                        doc.rect(margin, yPos, imgWidth, imgHeight);
+                        
+                        doc.addImage(imageDataUrl, 'JPEG', margin + 1, yPos + 1, imgWidth - 2, imgHeight - 2);
+                        
+                        yPos += imgHeight + 5;
+
+                        if (item.caption) {
+                            doc.setFontSize(7);
+                            doc.setFont('helvetica', 'normal');
+                            doc.setTextColor(80, 80, 80);
+                            const captionLines = doc.splitTextToSize(item.caption, contentWidth);
+                            doc.text(captionLines, margin, yPos);
+                            yPos += (captionLines.length * 3) + 10;
+                            doc.setTextColor(0);
+                        } else {
+                            yPos += 10;
+                        }
+
+                    } catch (error) {
+                        console.error(`❌ Error adding image:`, error);
+                        yPos += 10;
+                    }
+                }
+            }
+
+            // Add estimate section if linked
+            if (linkedEstimate) {
+                doc.addPage();
+                
+                doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                doc.rect(0, 10, pageWidth, 12, 'F');
+                doc.setFontSize(14);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(255, 255, 255);
+                doc.text('ESTIMATE SUMMARY', pageWidth / 2, 18, { align: 'center' });
+                
+                let yPos = 30;
+                
+                // Company logo
+                if (myCompany?.logo_url) {
+                    try {
+                        const estLogo = new Image();
+                        estLogo.crossOrigin = 'anonymous';
+                        await new Promise((res, rej) => { estLogo.onload = res; estLogo.onerror = rej; estLogo.src = myCompany.logo_url; });
+                        const mxW = 35, mxH = 14;
+                        const rt = Math.min(mxW / estLogo.naturalWidth, mxH / estLogo.naturalHeight);
+                        doc.addImage(myCompany.logo_url, 'PNG', margin, yPos, estLogo.naturalWidth * rt, estLogo.naturalHeight * rt);
+                        yPos += estLogo.naturalHeight * rt + 2;
+                    } catch (e) { /* skip */ }
+                }
+
+                // Company info (left side)
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(0, 0, 0);
+                doc.text(myCompany?.company_name || 'Company Name', margin, yPos);
+                yPos += 4;
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(60, 60, 60);
+                if (myCompany?.address) { doc.text(myCompany.address, margin, yPos); yPos += 4; }
+                if (myCompany?.city || myCompany?.state || myCompany?.zip) { doc.text([myCompany?.city, myCompany?.state, myCompany?.zip].filter(Boolean).join(', '), margin, yPos); yPos += 4; }
+                if (myCompany?.phone) { doc.text(`Phone: ${myCompany.phone}`, margin, yPos); yPos += 4; }
+                if (myCompany?.email) { doc.text(`Email: ${myCompany.email}`, margin, yPos); yPos += 4; }
+                
+                // Estimate number on right
+                let rightY = 30;
+                doc.setFontSize(20);
+                doc.setTextColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                doc.setFont('helvetica', 'bold');
+                doc.text('ESTIMATE', pageWidth - margin, rightY, { align: 'right' });
+                rightY += 6;
+                doc.setFontSize(9);
+                doc.setTextColor(100, 100, 100);
+                doc.setFont('helvetica', 'normal');
+                doc.text(`# ${linkedEstimate.estimate_number}`, pageWidth - margin, rightY, { align: 'right' });
+                
+                yPos = Math.max(yPos, rightY) + 6;
+
+                // Customer info box
+                doc.setFillColor(245, 247, 250);
+                const cbY = yPos;
+                doc.rect(margin, cbY, contentWidth, 28, 'F');
+                doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0);
+                doc.text('BILL TO:', margin + 4, cbY + 6);
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(40, 40, 40);
+                let cY = cbY + 11;
+                doc.text(job?.client_name || linkedEstimate.customer_name || 'N/A', margin + 4, cY); cY += 4;
+                if (job?.property_address || linkedEstimate.property_address) { doc.text(job?.property_address || linkedEstimate.property_address, margin + 4, cY); cY += 4; }
+                if (job?.client_phone || linkedEstimate.customer_phone) { doc.text(`Phone: ${job?.client_phone || linkedEstimate.customer_phone}`, margin + 4, cY); cY += 4; }
+                if (job?.client_email || linkedEstimate.customer_email) { doc.text(`Email: ${job?.client_email || linkedEstimate.customer_email}`, margin + 4, cY); }
+                if (job?.insurance_claim_number || linkedEstimate.claim_number) { doc.text(`Claim #: ${job?.insurance_claim_number || linkedEstimate.claim_number}`, pageWidth - margin - 4, cbY + 11, { align: 'right' }); }
+                if (job?.insurance_company || linkedEstimate.insurance_company) { doc.text(`Insurance: ${job?.insurance_company || linkedEstimate.insurance_company}`, pageWidth - margin - 4, cbY + 15, { align: 'right' }); }
+                yPos = cbY + 32;
+                
+                const items = linkedEstimate.items || linkedEstimate.line_items || [];
+                
+                if (items.length > 0) {
+                    // Table header
+                    doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                    doc.rect(margin, yPos, contentWidth, 8, 'F');
+                    
+                    doc.setFontSize(8);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(255, 255, 255);
+                    doc.text('#', margin + 2, yPos + 5.5);
+                    doc.text('Description', margin + 10, yPos + 5.5);
+                    doc.text('Qty', 115, yPos + 5.5, { align: 'right' });
+                    doc.text('Unit', 130, yPos + 5.5);
+                    doc.text('Rate', 150, yPos + 5.5, { align: 'right' });
+                    doc.text('Amount', pageWidth - margin - 2, yPos + 5.5, { align: 'right' });
+                    
+                    yPos += 10;
+                    
+                    let subtotal = 0;
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(0, 0, 0);
+                    
+                    items.forEach((item, index) => {
+                        if (yPos > pageHeight - 40) {
+                            doc.addPage();
+                            yPos = 20;
+                        }
+                        
+                        if (index % 2 === 0) {
+                            doc.setFillColor(248, 250, 252);
+                            doc.rect(margin, yPos - 3, contentWidth, 6, 'F');
+                        }
+                        
+                        doc.setFontSize(7);
+                        doc.text(String(index + 1), margin + 2, yPos + 2);
+                        
+                        const desc = item.description || 'Item';
+                        const descLines = doc.splitTextToSize(desc, 95);
+                        doc.text(descLines[0], margin + 10, yPos + 2);
+                        
+                        const qty = parseFloat(item.quantity) || 0;
+                        const rate = parseFloat(item.rate) || 0;
+                        const amount = parseFloat(item.amount) || 0;
+                        
+                        doc.text(qty % 1 === 0 ? qty.toFixed(0) : qty.toFixed(2), 115, yPos + 2, { align: 'right' });
+                        doc.text(item.unit || 'EA', 130, yPos + 2);
+                        doc.text(`$${rate.toFixed(2)}`, 150, yPos + 2, { align: 'right' });
+                        doc.text(`$${amount.toFixed(2)}`, pageWidth - margin - 2, yPos + 2, { align: 'right' });
+                        
+                        subtotal += amount;
+                        yPos += 6;
+                    });
+                    
+                    // Total line
+                    yPos += 5;
+                    doc.setDrawColor(200, 200, 200);
+                    doc.line(margin, yPos, pageWidth - margin, yPos);
+                    yPos += 8;
+                    
+                    doc.setFontSize(11);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                    doc.text('TOTAL', 145, yPos);
+                    doc.text(`$${subtotal.toFixed(2)}`, pageWidth - margin - 2, yPos, { align: 'right' });
+                }
+
+                // Estimate notes
+                if (linkedEstimate.notes) {
+                    yPos += 15;
+                    if (yPos > pageHeight - 60) { doc.addPage(); yPos = 20; }
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(0, 0, 0);
+                    doc.text('NOTES:', margin, yPos);
+                    yPos += 5;
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8);
+                    doc.setTextColor(40, 40, 40);
+                    const noteLines = doc.splitTextToSize(linkedEstimate.notes, contentWidth);
+                    noteLines.forEach(line => { if (yPos > pageHeight - 20) { doc.addPage(); yPos = 20; } doc.text(line, margin, yPos); yPos += 4; });
+                }
+
+                // Disclaimer
+                yPos += 10;
+                if (yPos > pageHeight - 60) { doc.addPage(); yPos = 20; }
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(0, 0, 0);
+                doc.text('DISCLAIMER:', margin, yPos);
+                yPos += 5;
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(7);
+                doc.setTextColor(40, 40, 40);
+                const disclaimerTextExport = `This estimate is valid for 30 days and based on a deposit of 50% upon acceptance with the remaining balance due upon completion. The estimate covers visible and disclosed damage only. Additional repairs discovered during work will require supplemental approval. Actual costs may vary based on unforeseen conditions. This estimate represents one professional opinion and is for informational purposes only. ${myCompany?.company_name || 'The Company'} and its representatives are held harmless from reliance on this estimate.`;
+                const disclaimerLinesExport = doc.splitTextToSize(disclaimerTextExport, contentWidth);
+                disclaimerLinesExport.forEach(line => { if (yPos > pageHeight - 20) { doc.addPage(); yPos = 20; } doc.text(line, margin, yPos); yPos += 3.5; });
+            }
+
+            // Inspector signature
+            if (inspectorSignature) {
+                doc.addPage();
+                doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                doc.rect(0, 10, pageWidth, 12, 'F');
+                doc.setFontSize(14);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(255, 255, 255);
+                doc.text('INSPECTOR CERTIFICATION', pageWidth / 2, 18, { align: 'center' });
+                
+                let yPos = 40;
+                
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(60, 60, 60);
+                const certText = 'I hereby certify that this inspection report accurately reflects the conditions observed at the time of inspection.';
+                const certLines = doc.splitTextToSize(certText, contentWidth);
+                doc.text(certLines, margin, yPos);
+                yPos += (certLines.length * 5) + 15;
+                
+                doc.setFillColor(245, 247, 250);
+                doc.rect(margin, yPos, 90, 45, 'F');
+                doc.setDrawColor(200, 200, 200);
+                doc.rect(margin, yPos, 90, 45);
+                
+                yPos += 5;
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(80, 80, 80);
+                doc.text('Inspector Signature:', margin + 5, yPos + 3);
+                
+                try {
+                    doc.addImage(inspectorSignature, 'PNG', margin + 5, yPos + 6, 70, 25);
+                } catch (error) {
+                    console.error('❌ Error adding signature:', error);
+                }
+                
+                yPos += 35;
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(8);
+                doc.text(`Date: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`, margin + 5, yPos);
+            }
+            
+            // Add footer to all pages
+            const totalPages = doc.internal.pages.length - 1;
+            for (let i = 1; i <= totalPages; i++) {
+                doc.setPage(i);
+                doc.setFontSize(7);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(150, 150, 150);
+                
+                const footerText = `${myCompany?.company_name || 'Inspection Report'} | ${myCompany?.phone || ''} | ${myCompany?.email || ''}`;
+                doc.text(footerText, pageWidth / 2, pageHeight - 13, { align: 'center' });
+                doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 8, { align: 'center' });
+            }
+
+            doc.save(`CrewCam_${job?.property_address?.replace(/[^a-zA-Z0-9]/g, '_') || 'Report'}_${Date.now()}.pdf`);
+            
+            alert(`✅ PDF exported with ${photoMedia.length} photos!`);
+
+        } catch (error) {
+            console.error("❌ PDF Export Error:", error);
+            alert(`❌ Failed to export PDF: ${error.message}`);
+        }
+
+        setIsExporting(false);
+    };
+
+    const handleViewPDF = async () => {
+        if (!jobId) {
+            alert("Please save the inspection first.");
+            return;
+        }
+
+        setIsViewing(true);
+
+        try {
+            const photoMedia = media.filter(item => item.file_type === 'photo');
+
+            if (photoMedia.length === 0) {
+                alert("⚠️ No photos found.");
+                setIsExporting(false);
+                return;
+            }
+
+            const doc = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: 'a4'
+            });
+
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            const margin = 20;
+            const contentWidth = pageWidth - (margin * 2);
+
+            // Brand color
+            const hexToRgb = (hex) => {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : { r: 30, g: 58, b: 138 };
+            };
+            
+            const primaryColor = myCompany?.brand_primary_color 
+                ? hexToRgb(myCompany.brand_primary_color) 
+                : { r: 30, g: 58, b: 138 };
+
+            // Cover page with professional design
+            let y = 20;
+            
+            // Add company logo (aspect-ratio preserved)
+            if (myCompany?.logo_url) {
+                try {
+                    const logoImg = new Image();
+                    logoImg.crossOrigin = 'anonymous';
+                    await new Promise((resolve, reject) => {
+                        logoImg.onload = resolve;
+                        logoImg.onerror = reject;
+                        logoImg.src = myCompany.logo_url;
+                    });
+                    const maxW = 60, maxH = 25;
+                    const ratio = Math.min(maxW / logoImg.naturalWidth, maxH / logoImg.naturalHeight);
+                    const logoW = logoImg.naturalWidth * ratio;
+                    const logoH = logoImg.naturalHeight * ratio;
+                    doc.addImage(myCompany.logo_url, 'PNG', 18, y, logoW, logoH);
+                    y += logoH + 5;
+                } catch (error) {
+                    console.log('⚠️ Could not add logo');
+                }
+            }
+            
+            // Company info - LARGER AND MORE PROMINENT
+            doc.setFontSize(16);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(0, 0, 0);
+            doc.text(myCompany?.company_name || 'Company Name', margin, y);
+            y += 8;
+            
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(60, 60, 60);
+            
+            if (myCompany?.address) {
+                doc.text(myCompany.address, margin, y);
+                y += 5;
+            }
+            
+            if (myCompany?.city || myCompany?.state || myCompany?.zip) {
+                const cityStateZip = [myCompany?.city, myCompany?.state, myCompany?.zip].filter(Boolean).join(', ');
+                doc.text(cityStateZip, margin, y);
+                y += 5;
+            }
+            
+            if (myCompany?.phone) {
+                doc.text(`Phone: ${myCompany.phone}`, margin, y);
+                y += 5;
+            }
+            
+            if (myCompany?.email) {
+                doc.text(`Email: ${myCompany.email}`, margin, y);
+                y += 5;
+            }
+            
+            if (myCompany?.company_website) {
+                doc.text(`Web: ${myCompany.company_website}`, margin, y);
+                y += 5;
+            }
+            
+            // Title section with branded color
+            y = 80;
+            doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+            doc.rect(0, y, pageWidth, 25, 'F');
+            
+            doc.setFontSize(28);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(255, 255, 255);
+            doc.text('INSPECTION REPORT', pageWidth / 2, y + 16, { align: 'center' });
+            
+            // Property details box
+            y = 125;
+            doc.setFillColor(245, 247, 250);
+            doc.rect(margin, y, contentWidth, 50, 'F');
+            
+            doc.setFontSize(11);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(0, 0, 0);
+            doc.text('PROPERTY INFORMATION', margin + 5, y + 8);
+            
+            y += 15;
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(60, 60, 60);
+            doc.text(`Property Address: ${job.property_address || 'N/A'}`, margin + 5, y);
+            y += 5;
+            doc.text(`Client Name: ${job.client_name || 'N/A'}`, margin + 5, y);
+            y += 5;
+            if (job.client_email) {
+                doc.text(`Client Email: ${job.client_email}`, margin + 5, y);
+                y += 5;
+            }
+            if (job.client_phone) {
+                doc.text(`Client Phone: ${job.client_phone}`, margin + 5, y);
+                y += 5;
+            }
+            doc.text(`Inspection Date: ${new Date(job.inspection_date || job.created_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`, margin + 5, y);
+            y += 5;
+            if (job.insurance_claim_number) {
+                doc.text(`Claim Number: ${job.insurance_claim_number}`, margin + 5, y);
+                y += 5;
+            }
+            if (job.insurance_company) {
+                doc.text(`Insurance Company: ${job.insurance_company}`, margin + 5, y);
+            }
+
+            // Group images by section
+            const imagesBySection = {};
+            photoMedia.forEach(item => {
+                const section = item.section || 'Other';
+                if (!imagesBySection[section]) {
+                    imagesBySection[section] = [];
+                }
+                imagesBySection[section].push(item);
+            });
+
+            // Add sections with photos
+            for (const [section, images] of Object.entries(imagesBySection)) {
+                doc.addPage();
+                
+                // Section header with branded bar
+                doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                doc.rect(0, 10, pageWidth, 12, 'F');
+                doc.setFontSize(14);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(255, 255, 255);
+                doc.text(section, pageWidth / 2, 18, { align: 'center' });
+                
+                let yPos = 30;
+                
+                if (sectionNotes && sectionNotes[section]) {
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(60, 60, 60);
+                    const lines = doc.splitTextToSize(sectionNotes[section], contentWidth);
+                    doc.text(lines, margin, yPos);
+                    yPos += (lines.length * 4) + 8;
+                }
+
+                for (const item of images) {
+                    if (yPos > pageHeight - 100) {
+                        doc.addPage();
+                        doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                        doc.rect(0, 10, pageWidth, 12, 'F');
+                        doc.setFontSize(14);
+                        doc.setFont('helvetica', 'bold');
+                        doc.setTextColor(255, 255, 255);
+                        doc.text(`${section} (continued)`, pageWidth / 2, 18, { align: 'center' });
+                        yPos = 30;
+                    }
+
+                    try {
+                        const response = await fetch(item.file_url);
+                        const blob = await response.blob();
+                        
+                        const imageDataUrl = await new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result);
+                            reader.readAsDataURL(blob);
+                        });
+
+                        const imgWidth = contentWidth;
+                        const imgHeight = 100;
+                        
+                        // Photo border
+                        doc.setDrawColor(200, 200, 200);
+                        doc.setLineWidth(0.3);
+                        doc.rect(margin, yPos, imgWidth, imgHeight);
+                        
+                        doc.addImage(imageDataUrl, 'JPEG', margin + 1, yPos + 1, imgWidth - 2, imgHeight - 2);
+                        
+                        yPos += imgHeight + 5;
+
+                        if (item.caption) {
+                            doc.setFontSize(7);
+                            doc.setFont('helvetica', 'normal');
+                            doc.setTextColor(80, 80, 80);
+                            const captionLines = doc.splitTextToSize(item.caption, contentWidth);
+                            doc.text(captionLines, margin, yPos);
+                            yPos += (captionLines.length * 3) + 10;
+                            doc.setTextColor(0);
+                        } else {
+                            yPos += 10;
+                        }
+
+                    } catch (error) {
+                        console.error(`❌ Error adding image:`, error);
+                        yPos += 10;
+                    }
+                }
+            }
+
+            // Add estimate section if linked
+            if (linkedEstimate) {
+                doc.addPage();
+                
+                doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                doc.rect(0, 10, pageWidth, 12, 'F');
+                doc.setFontSize(14);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(255, 255, 255);
+                doc.text('ESTIMATE SUMMARY', pageWidth / 2, 18, { align: 'center' });
+                
+                let yPos = 30;
+                
+                // Company logo
+                if (myCompany?.logo_url) {
+                    try {
+                        const estLogo = new Image();
+                        estLogo.crossOrigin = 'anonymous';
+                        await new Promise((res, rej) => { estLogo.onload = res; estLogo.onerror = rej; estLogo.src = myCompany.logo_url; });
+                        const mxW = 35, mxH = 14;
+                        const rt = Math.min(mxW / estLogo.naturalWidth, mxH / estLogo.naturalHeight);
+                        doc.addImage(myCompany.logo_url, 'PNG', margin, yPos, estLogo.naturalWidth * rt, estLogo.naturalHeight * rt);
+                        yPos += estLogo.naturalHeight * rt + 2;
+                    } catch (e) { /* skip */ }
+                }
+
+                // Company info (left side)
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(0, 0, 0);
+                doc.text(myCompany?.company_name || 'Company Name', margin, yPos);
+                yPos += 4;
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(60, 60, 60);
+                if (myCompany?.address) { doc.text(myCompany.address, margin, yPos); yPos += 4; }
+                if (myCompany?.city || myCompany?.state || myCompany?.zip) { doc.text([myCompany?.city, myCompany?.state, myCompany?.zip].filter(Boolean).join(', '), margin, yPos); yPos += 4; }
+                if (myCompany?.phone) { doc.text(`Phone: ${myCompany.phone}`, margin, yPos); yPos += 4; }
+                if (myCompany?.email) { doc.text(`Email: ${myCompany.email}`, margin, yPos); yPos += 4; }
+                
+                // Estimate number on right
+                let rightY = 30;
+                doc.setFontSize(20);
+                doc.setTextColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                doc.setFont('helvetica', 'bold');
+                doc.text('ESTIMATE', pageWidth - margin, rightY, { align: 'right' });
+                rightY += 6;
+                doc.setFontSize(9);
+                doc.setTextColor(100, 100, 100);
+                doc.setFont('helvetica', 'normal');
+                doc.text(`# ${linkedEstimate.estimate_number}`, pageWidth - margin, rightY, { align: 'right' });
+                
+                yPos = Math.max(yPos, rightY) + 6;
+
+                // Customer info box
+                doc.setFillColor(245, 247, 250);
+                const cbY = yPos;
+                doc.rect(margin, cbY, contentWidth, 28, 'F');
+                doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0);
+                doc.text('BILL TO:', margin + 4, cbY + 6);
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(40, 40, 40);
+                let cY = cbY + 11;
+                doc.text(job?.client_name || linkedEstimate.customer_name || 'N/A', margin + 4, cY); cY += 4;
+                if (job?.property_address || linkedEstimate.property_address) { doc.text(job?.property_address || linkedEstimate.property_address, margin + 4, cY); cY += 4; }
+                if (job?.client_phone || linkedEstimate.customer_phone) { doc.text(`Phone: ${job?.client_phone || linkedEstimate.customer_phone}`, margin + 4, cY); cY += 4; }
+                if (job?.client_email || linkedEstimate.customer_email) { doc.text(`Email: ${job?.client_email || linkedEstimate.customer_email}`, margin + 4, cY); }
+                if (job?.insurance_claim_number || linkedEstimate.claim_number) { doc.text(`Claim #: ${job?.insurance_claim_number || linkedEstimate.claim_number}`, pageWidth - margin - 4, cbY + 11, { align: 'right' }); }
+                if (job?.insurance_company || linkedEstimate.insurance_company) { doc.text(`Insurance: ${job?.insurance_company || linkedEstimate.insurance_company}`, pageWidth - margin - 4, cbY + 15, { align: 'right' }); }
+                yPos = cbY + 32;
+                
+                const items = linkedEstimate.items || linkedEstimate.line_items || [];
+                
+                if (items.length > 0) {
+                    // Table header
+                    doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                    doc.rect(margin, yPos, contentWidth, 8, 'F');
+                    
+                    doc.setFontSize(8);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(255, 255, 255);
+                    doc.text('#', margin + 2, yPos + 5.5);
+                    doc.text('Description', margin + 10, yPos + 5.5);
+                    doc.text('Qty', 115, yPos + 5.5, { align: 'right' });
+                    doc.text('Unit', 130, yPos + 5.5);
+                    doc.text('Rate', 150, yPos + 5.5, { align: 'right' });
+                    doc.text('Amount', pageWidth - margin - 2, yPos + 5.5, { align: 'right' });
+                    
+                    yPos += 10;
+                    
+                    let subtotal = 0;
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(0, 0, 0);
+                    
+                    items.forEach((item, index) => {
+                        if (yPos > pageHeight - 40) {
+                            doc.addPage();
+                            yPos = 20;
+                        }
+                        
+                        if (index % 2 === 0) {
+                            doc.setFillColor(248, 250, 252);
+                            doc.rect(margin, yPos - 3, contentWidth, 6, 'F');
+                        }
+                        
+                        doc.setFontSize(7);
+                        doc.text(String(index + 1), margin + 2, yPos + 2);
+                        
+                        const desc = item.description || 'Item';
+                        const descLines = doc.splitTextToSize(desc, 95);
+                        doc.text(descLines[0], margin + 10, yPos + 2);
+                        
+                        const qty = parseFloat(item.quantity) || 0;
+                        const rate = parseFloat(item.rate) || 0;
+                        const amount = parseFloat(item.amount) || 0;
+                        
+                        doc.text(qty % 1 === 0 ? qty.toFixed(0) : qty.toFixed(2), 115, yPos + 2, { align: 'right' });
+                        doc.text(item.unit || 'EA', 130, yPos + 2);
+                        doc.text(`$${rate.toFixed(2)}`, 150, yPos + 2, { align: 'right' });
+                        doc.text(`$${amount.toFixed(2)}`, pageWidth - margin - 2, yPos + 2, { align: 'right' });
+                        
+                        subtotal += amount;
+                        yPos += 6;
+                    });
+                    
+                    // Total line
+                    yPos += 5;
+                    doc.setDrawColor(200, 200, 200);
+                    doc.line(margin, yPos, pageWidth - margin, yPos);
+                    yPos += 8;
+                    
+                    doc.setFontSize(11);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                    doc.text('TOTAL', 145, yPos);
+                    doc.text(`$${subtotal.toFixed(2)}`, pageWidth - margin - 2, yPos, { align: 'right' });
+                }
+
+                // Estimate notes
+                if (linkedEstimate.notes) {
+                    yPos += 15;
+                    if (yPos > pageHeight - 60) { doc.addPage(); yPos = 20; }
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(0, 0, 0);
+                    doc.text('NOTES:', margin, yPos);
+                    yPos += 5;
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8);
+                    doc.setTextColor(40, 40, 40);
+                    const noteLines = doc.splitTextToSize(linkedEstimate.notes, contentWidth);
+                    noteLines.forEach(line => { if (yPos > pageHeight - 20) { doc.addPage(); yPos = 20; } doc.text(line, margin, yPos); yPos += 4; });
+                }
+
+                // Disclaimer
+                yPos += 10;
+                if (yPos > pageHeight - 60) { doc.addPage(); yPos = 20; }
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(0, 0, 0);
+                doc.text('DISCLAIMER:', margin, yPos);
+                yPos += 5;
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(7);
+                doc.setTextColor(40, 40, 40);
+                const disclaimerTextView = `This estimate is valid for 30 days and based on a deposit of 50% upon acceptance with the remaining balance due upon completion. The estimate covers visible and disclosed damage only. Additional repairs discovered during work will require supplemental approval. Actual costs may vary based on unforeseen conditions. This estimate represents one professional opinion and is for informational purposes only. ${myCompany?.company_name || 'The Company'} and its representatives are held harmless from reliance on this estimate.`;
+                const disclaimerLinesView = doc.splitTextToSize(disclaimerTextView, contentWidth);
+                disclaimerLinesView.forEach(line => { if (yPos > pageHeight - 20) { doc.addPage(); yPos = 20; } doc.text(line, margin, yPos); yPos += 3.5; });
+            }
+
+            // Inspector signature
+            if (inspectorSignature) {
+                doc.addPage();
+                doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                doc.rect(0, 10, pageWidth, 12, 'F');
+                doc.setFontSize(14);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(255, 255, 255);
+                doc.text('INSPECTOR CERTIFICATION', pageWidth / 2, 18, { align: 'center' });
+                
+                let yPos = 40;
+                
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(60, 60, 60);
+                const certText = 'I hereby certify that this inspection report accurately reflects the conditions observed at the time of inspection.';
+                const certLines = doc.splitTextToSize(certText, contentWidth);
+                doc.text(certLines, margin, yPos);
+                yPos += (certLines.length * 5) + 15;
+                
+                doc.setFillColor(245, 247, 250);
+                doc.rect(margin, yPos, 90, 45, 'F');
+                doc.setDrawColor(200, 200, 200);
+                doc.rect(margin, yPos, 90, 45);
+                
+                yPos += 5;
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(80, 80, 80);
+                doc.text('Inspector Signature:', margin + 5, yPos + 3);
+                
+                try {
+                    doc.addImage(inspectorSignature, 'PNG', margin + 5, yPos + 6, 70, 25);
+                } catch (error) {
+                    console.error('❌ Error adding signature:', error);
+                }
+                
+                yPos += 35;
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(8);
+                doc.text(`Date: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`, margin + 5, yPos);
+            }
+            
+            // Add footer to all pages
+            const totalPages = doc.internal.pages.length - 1;
+            for (let i = 1; i <= totalPages; i++) {
+                doc.setPage(i);
+                doc.setFontSize(7);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(150, 150, 150);
+                
+                const footerText = `${myCompany?.company_name || 'Inspection Report'} | ${myCompany?.phone || ''} | ${myCompany?.email || ''}`;
+                doc.text(footerText, pageWidth / 2, pageHeight - 13, { align: 'center' });
+                doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 8, { align: 'center' });
+            }
+
+            const blob = doc.output('blob');
+            const url = URL.createObjectURL(blob);
+            setPreviewPdfUrl(url);
+            setShowPdfPreview(true);
+        } catch (error) {
+            console.error('Error generating PDF:', error);
+            alert(`❌ Failed to view PDF: ${error.message}`);
+        }
+
+        setIsViewing(false);
+    };
+
+    const handlePreviewFullReport = async () => {
+        // Preview opens in new tab, download saves file
+        await handleViewPDF();
+    };
+
+    const handleTestEmailSend = async () => {
+    if (!jobId) {
+      alert("Please save the inspection first.");
+      return;
+    }
+
+    setTestingEmail(true);
+
+    try {
+      console.log('🧪 TEST: Calling sendInspectionReport...');
+      
+      // Temporarily override client email for testing
+      await base44.entities.InspectionJob.update(jobId, {
+        client_email: 'stonekevin866@gmail.com'
+      });
+      
+      const response = await base44.functions.invoke('sendInspectionReport', {
+        inspectionJobId: jobId,
+        sendToClient: true,
+        sendToAdjuster: false,
+        adjusterEmail: null,
+        templateId: null
+      });
+
+      console.log('🧪 TEST: Full response:', response);
+      
+      if (response.data) {
+        alert(`✅ TEST RESULT:\n\nSuccess: ${response.data.success}\nClient Sent: ${response.data.client_sent}\nClient Error: ${response.data.client_error || 'None'}\n\nCheck console for full details.`);
+      } else {
+        alert(`❌ TEST FAILED:\n\nNo data in response\n\nCheck console for details.`);
+      }
+    } catch (error) {
+      console.error('🧪 TEST ERROR:', error);
+      alert(`❌ TEST ERROR:\n\n${error.message || 'Unknown error'}\n\nCheck console for stack trace.`);
+    }
+
+    setTestingEmail(false);
+  };
+
+  const handleGenerateAndSendReport = async () => {
+      if (!jobId) {
+          alert("Please save the inspection first.");
+          return;
+      }
+
+      setIsSendingReport(true);
+
+      try {
+          console.log('📄 Generating PDF in frontend...');
+
+          // Generate PDF using same logic as handleViewPDF
+          const photoMedia = media.filter(m => m.file_type === 'photo');
+
+          if (photoMedia.length === 0) {
+              alert("⚠️ No photos found.");
+              setIsSendingReport(false);
+              return;
+          }
+
+          const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+          const pageWidth = doc.internal.pageSize.getWidth();
+          const pageHeight = doc.internal.pageSize.getHeight();
+          const margin = 20;
+          const contentWidth = pageWidth - (margin * 2);
+
+          const hexToRgb = (hex) => {
+              const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+              return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : { r: 30, g: 58, b: 138 };
+          };
+
+          const primaryColor = myCompany?.brand_primary_color ? hexToRgb(myCompany.brand_primary_color) : { r: 30, g: 58, b: 138 };
+
+          // Cover page
+          let y = 20;
+          if (myCompany?.logo_url) {
+              try {
+                  const logoImg2 = new Image();
+                  logoImg2.crossOrigin = 'anonymous';
+                  await new Promise((resolve, reject) => {
+                      logoImg2.onload = resolve;
+                      logoImg2.onerror = reject;
+                      logoImg2.src = myCompany.logo_url;
+                  });
+                  const maxW2 = 60, maxH2 = 25;
+                  const ratio2 = Math.min(maxW2 / logoImg2.naturalWidth, maxH2 / logoImg2.naturalHeight);
+                  const logoW2 = logoImg2.naturalWidth * ratio2;
+                  const logoH2 = logoImg2.naturalHeight * ratio2;
+                  doc.addImage(myCompany.logo_url, 'PNG', 18, y, logoW2, logoH2);
+                  y += logoH2 + 5;
+              } catch (error) { console.log('⚠️ Logo error'); }
+          }
+
+          doc.setFontSize(16);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(0, 0, 0);
+          doc.text(myCompany?.company_name || 'Company Name', margin, y);
+          y += 8;
+
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(60, 60, 60);
+          if (myCompany?.address) { doc.text(myCompany.address, margin, y); y += 5; }
+          if (myCompany?.city || myCompany?.state || myCompany?.zip) {
+              doc.text([myCompany?.city, myCompany?.state, myCompany?.zip].filter(Boolean).join(', '), margin, y);
+              y += 5;
+          }
+          if (myCompany?.phone) { doc.text(`Phone: ${myCompany.phone}`, margin, y); y += 5; }
+          if (myCompany?.email) { doc.text(`Email: ${myCompany.email}`, margin, y); y += 5; }
+
+          y = 80;
+          doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+          doc.rect(0, y, pageWidth, 25, 'F');
+          doc.setFontSize(28);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(255, 255, 255);
+          doc.text('INSPECTION REPORT', pageWidth / 2, y + 16, { align: 'center' });
+
+          y = 125;
+          doc.setFillColor(245, 247, 250);
+          doc.rect(margin, y, contentWidth, 50, 'F');
+          doc.setFontSize(11);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(0, 0, 0);
+          doc.text('PROPERTY INFORMATION', margin + 5, y + 8);
+          y += 15;
+          doc.setFontSize(9);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(60, 60, 60);
+          doc.text(`Property Address: ${job.property_address || 'N/A'}`, margin + 5, y); y += 5;
+          doc.text(`Client Name: ${job.client_name || 'N/A'}`, margin + 5, y); y += 5;
+          if (job.client_email) { doc.text(`Client Email: ${job.client_email}`, margin + 5, y); y += 5; }
+          if (job.client_phone) { doc.text(`Client Phone: ${job.client_phone}`, margin + 5, y); y += 5; }
+          doc.text(`Inspection Date: ${new Date(job.inspection_date || job.created_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`, margin + 5, y); y += 5;
+          if (job.insurance_claim_number) { doc.text(`Claim Number: ${job.insurance_claim_number}`, margin + 5, y); y += 5; }
+          if (job.insurance_company) { doc.text(`Insurance Company: ${job.insurance_company}`, margin + 5, y); }
+
+          const imagesBySection = {};
+          photoMedia.forEach(item => {
+              const section = item.section || 'Other';
+              if (!imagesBySection[section]) imagesBySection[section] = [];
+              imagesBySection[section].push(item);
+          });
+
+          for (const [section, images] of Object.entries(imagesBySection)) {
+              doc.addPage();
+              doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+              doc.rect(0, 10, pageWidth, 12, 'F');
+              doc.setFontSize(14);
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(255, 255, 255);
+              doc.text(section, pageWidth / 2, 18, { align: 'center' });
+              let yPos = 30;
+              if (sectionNotes && sectionNotes[section]) {
+                  doc.setFontSize(9);
+                  doc.setFont('helvetica', 'normal');
+                  doc.setTextColor(60, 60, 60);
+                  const lines = doc.splitTextToSize(sectionNotes[section], contentWidth);
+                  doc.text(lines, margin, yPos);
+                  yPos += (lines.length * 4) + 8;
+              }
+              for (const item of images) {
+                  if (yPos > pageHeight - 100) {
+                      doc.addPage();
+                      doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                      doc.rect(0, 10, pageWidth, 12, 'F');
+                      doc.setFontSize(14);
+                      doc.setFont('helvetica', 'bold');
+                      doc.setTextColor(255, 255, 255);
+                      doc.text(`${section} (continued)`, pageWidth / 2, 18, { align: 'center' });
+                      yPos = 30;
+                  }
+                  try {
+                      const response = await fetch(item.file_url);
+                      const blob = await response.blob();
+                      const arrayBuffer = await blob.arrayBuffer();
+                      const bytes = new Uint8Array(arrayBuffer);
+                      const binaryString = Array.from(bytes).map(byte => String.fromCharCode(byte)).join('');
+                      const base64String = btoa(binaryString);
+                      const contentType = response.headers.get('content-type') || 'image/jpeg';
+                      let format = contentType.includes('png') ? 'PNG' : 'JPEG';
+                      const imageDataUrl = `data:${contentType};base64,${base64String}`;
+                      const imgWidth = contentWidth;
+                      const imgHeight = 100;
+                      doc.setDrawColor(200, 200, 200);
+                      doc.setLineWidth(0.3);
+                      doc.rect(margin, yPos, imgWidth, imgHeight);
+                      doc.addImage(imageDataUrl, format, margin + 1, yPos + 1, imgWidth - 2, imgHeight - 2);
+                      yPos += imgHeight + 5;
+                      if (item.caption) {
+                          doc.setFontSize(7);
+                          doc.setFont('helvetica', 'normal');
+                          doc.setTextColor(80, 80, 80);
+                          const captionLines = doc.splitTextToSize(item.caption, contentWidth);
+                          doc.text(captionLines, margin, yPos);
+                          yPos += (captionLines.length * 3) + 10;
+                          doc.setTextColor(0);
+                      } else { yPos += 10; }
+                  } catch (error) {
+                      console.error(`❌ Error adding image:`, error);
+                      yPos += 10;
+                  }
+              }
+          }
+
+          if (linkedEstimate) {
+              doc.addPage();
+              doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+              doc.rect(0, 10, pageWidth, 12, 'F');
+              doc.setFontSize(14);
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(255, 255, 255);
+              doc.text('ESTIMATE SUMMARY', pageWidth / 2, 18, { align: 'center' });
+              let yPos = 30;
+
+              // Add company logo on estimate page (aspect-ratio preserved)
+              if (myCompany?.logo_url) {
+                  try {
+                      const logoImgEst = new Image();
+                      logoImgEst.crossOrigin = 'anonymous';
+                      await new Promise((resolve, reject) => {
+                          logoImgEst.onload = resolve;
+                          logoImgEst.onerror = reject;
+                          logoImgEst.src = myCompany.logo_url;
+                      });
+                      const maxWE = 35, maxHE = 14;
+                      const ratioE = Math.min(maxWE / logoImgEst.naturalWidth, maxHE / logoImgEst.naturalHeight);
+                      const logoWE = logoImgEst.naturalWidth * ratioE;
+                      const logoHE = logoImgEst.naturalHeight * ratioE;
+                      doc.addImage(myCompany.logo_url, 'PNG', margin, yPos, logoWE, logoHE);
+                      yPos += logoHE + 2;
+                  } catch (error) { console.log('⚠️ Logo error on estimate'); }
+              }
+
+              doc.setFontSize(10);
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(0, 0, 0);
+              doc.text(myCompany?.company_name || 'Company Name', margin, yPos);
+              yPos += 4;
+              doc.setFontSize(8);
+              doc.setFont('helvetica', 'normal');
+              doc.setTextColor(60, 60, 60);
+              if (myCompany?.address) { doc.text(myCompany.address, margin, yPos); yPos += 4; }
+              if (myCompany?.city || myCompany?.state || myCompany?.zip) { doc.text([myCompany?.city, myCompany?.state, myCompany?.zip].filter(Boolean).join(', '), margin, yPos); yPos += 4; }
+              if (myCompany?.phone) { doc.text(`Phone: ${myCompany.phone}`, margin, yPos); yPos += 4; }
+              if (myCompany?.email) { doc.text(`Email: ${myCompany.email}`, margin, yPos); yPos += 4; }
+              let rightY = 30;
+              doc.setFontSize(20);
+              doc.setTextColor(primaryColor.r, primaryColor.g, primaryColor.b);
+              doc.setFont('helvetica', 'bold');
+              doc.text('ESTIMATE', pageWidth - margin, rightY, { align: 'right' });
+              rightY += 6;
+              doc.setFontSize(9);
+              doc.setTextColor(100, 100, 100);
+              doc.setFont('helvetica', 'normal');
+              doc.text(`# ${linkedEstimate.estimate_number}`, pageWidth - margin, rightY, { align: 'right' });
+              yPos = Math.max(yPos, rightY) + 6;
+
+              // Customer info box
+              doc.setFillColor(245, 247, 250);
+              const cbY3 = yPos;
+              doc.rect(margin, cbY3, contentWidth, 28, 'F');
+              doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0);
+              doc.text('BILL TO:', margin + 4, cbY3 + 6);
+              doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(40, 40, 40);
+              let cY3 = cbY3 + 11;
+              doc.text(job?.client_name || linkedEstimate.customer_name || 'N/A', margin + 4, cY3); cY3 += 4;
+              if (job?.property_address || linkedEstimate.property_address) { doc.text(job?.property_address || linkedEstimate.property_address, margin + 4, cY3); cY3 += 4; }
+              if (job?.client_phone || linkedEstimate.customer_phone) { doc.text(`Phone: ${job?.client_phone || linkedEstimate.customer_phone}`, margin + 4, cY3); cY3 += 4; }
+              if (job?.client_email || linkedEstimate.customer_email) { doc.text(`Email: ${job?.client_email || linkedEstimate.customer_email}`, margin + 4, cY3); }
+              if (job?.insurance_claim_number || linkedEstimate.claim_number) { doc.text(`Claim #: ${job?.insurance_claim_number || linkedEstimate.claim_number}`, pageWidth - margin - 4, cbY3 + 11, { align: 'right' }); }
+              if (job?.insurance_company || linkedEstimate.insurance_company) { doc.text(`Insurance: ${job?.insurance_company || linkedEstimate.insurance_company}`, pageWidth - margin - 4, cbY3 + 15, { align: 'right' }); }
+              yPos = cbY3 + 32;
+
+              const items = linkedEstimate.items || linkedEstimate.line_items || [];
+              if (items.length > 0) {
+                  doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                  doc.rect(margin, yPos, contentWidth, 8, 'F');
+                  doc.setFontSize(8);
+                  doc.setFont('helvetica', 'bold');
+                  doc.setTextColor(255, 255, 255);
+                  doc.text('#', margin + 2, yPos + 5.5);
+                  doc.text('Description', margin + 10, yPos + 5.5);
+                  doc.text('Qty', 115, yPos + 5.5, { align: 'right' });
+                  doc.text('Unit', 130, yPos + 5.5);
+                  doc.text('Rate', 150, yPos + 5.5, { align: 'right' });
+                  doc.text('Amount', pageWidth - margin - 2, yPos + 5.5, { align: 'right' });
+                  yPos += 10;
+                  let subtotal = 0;
+                  doc.setFont('helvetica', 'normal');
+                  doc.setTextColor(0, 0, 0);
+                  items.forEach((item, index) => {
+                      if (yPos > pageHeight - 40) { doc.addPage(); yPos = 20; }
+                      if (index % 2 === 0) { doc.setFillColor(248, 250, 252); doc.rect(margin, yPos - 3, contentWidth, 6, 'F'); }
+                      doc.setFontSize(7);
+                      doc.text(String(index + 1), margin + 2, yPos + 2);
+                      const desc = item.description || 'Item';
+                      const descLines = doc.splitTextToSize(desc, 95);
+                      doc.text(descLines[0], margin + 10, yPos + 2);
+                      const qty = parseFloat(item.quantity) || 0;
+                      const rate = parseFloat(item.rate) || 0;
+                      const amount = parseFloat(item.amount) || 0;
+                      doc.text(qty % 1 === 0 ? qty.toFixed(0) : qty.toFixed(2), 115, yPos + 2, { align: 'right' });
+                      doc.text(item.unit || 'EA', 130, yPos + 2);
+                      doc.text(`$${rate.toFixed(2)}`, 150, yPos + 2, { align: 'right' });
+                      doc.text(`$${amount.toFixed(2)}`, pageWidth - margin - 2, yPos + 2, { align: 'right' });
+                      subtotal += amount;
+                      yPos += 6;
+                  });
+                  yPos += 5;
+                  doc.setDrawColor(200, 200, 200);
+                  doc.line(margin, yPos, pageWidth - margin, yPos);
+                  yPos += 8;
+                  doc.setFontSize(11);
+                  doc.setFont('helvetica', 'bold');
+                  doc.setTextColor(primaryColor.r, primaryColor.g, primaryColor.b);
+                  doc.text('TOTAL', 145, yPos);
+                  doc.text(`$${subtotal.toFixed(2)}`, pageWidth - margin - 2, yPos, { align: 'right' });
+                  }
+
+                  // Estimate notes
+                  if (linkedEstimate.notes) {
+                      yPos += 15;
+                      if (yPos > pageHeight - 60) { doc.addPage(); yPos = 20; }
+                      doc.setFontSize(9);
+                      doc.setFont('helvetica', 'bold');
+                      doc.setTextColor(0, 0, 0);
+                      doc.text('NOTES:', margin, yPos);
+                      yPos += 5;
+                      doc.setFont('helvetica', 'normal');
+                      doc.setFontSize(8);
+                      doc.setTextColor(40, 40, 40);
+                      const estNoteLines = doc.splitTextToSize(linkedEstimate.notes, contentWidth);
+                      estNoteLines.forEach(line => { if (yPos > pageHeight - 20) { doc.addPage(); yPos = 20; } doc.text(line, margin, yPos); yPos += 4; });
+                  }
+
+                  // Add disclaimer after estimate
+                  yPos += 10;
+                  if (yPos > pageHeight - 60) { doc.addPage(); yPos = 20; }
+                  doc.setFontSize(8);
+                  doc.setFont('helvetica', 'bold');
+                  doc.setTextColor(0, 0, 0);
+                  doc.text('DISCLAIMER:', margin, yPos);
+                  yPos += 5;
+                  doc.setFont('helvetica', 'normal');
+                  doc.setFontSize(7);
+                  doc.setTextColor(40, 40, 40);
+                  const disclaimerText = `This estimate is valid for 30 days and based on a deposit of 50% upon acceptance with the remaining balance due upon completion. The estimate covers visible and disclosed damage only. Additional repairs discovered during work will require supplemental approval. Actual costs may vary based on unforeseen conditions. This estimate represents one professional opinion and is for informational purposes only. ${myCompany?.company_name || 'The Company'} and its representatives are held harmless from reliance on this estimate.`;
+                  const disclaimerLines = doc.splitTextToSize(disclaimerText, contentWidth);
+                  disclaimerLines.forEach(line => { if (yPos > pageHeight - 20) { doc.addPage(); yPos = 20; } doc.text(line, margin, yPos); yPos += 3.5; });
+                  }
+
+                  if (inspectorSignature) {
+              doc.addPage();
+              doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+              doc.rect(0, 10, pageWidth, 12, 'F');
+              doc.setFontSize(14);
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(255, 255, 255);
+              doc.text('INSPECTOR CERTIFICATION', pageWidth / 2, 18, { align: 'center' });
+              let yPos = 40;
+              doc.setFontSize(10);
+              doc.setFont('helvetica', 'normal');
+              doc.setTextColor(60, 60, 60);
+              const certText = 'I hereby certify that this inspection report accurately reflects the conditions observed at the time of inspection.';
+              const certLines = doc.splitTextToSize(certText, contentWidth);
+              doc.text(certLines, margin, yPos);
+              yPos += (certLines.length * 5) + 15;
+              doc.setFillColor(245, 247, 250);
+              doc.rect(margin, yPos, 90, 45, 'F');
+              doc.setDrawColor(200, 200, 200);
+              doc.rect(margin, yPos, 90, 45);
+              yPos += 5;
+              doc.setFontSize(9);
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(80, 80, 80);
+              doc.text('Inspector Signature:', margin + 5, yPos + 3);
+              try { doc.addImage(inspectorSignature, 'PNG', margin + 5, yPos + 6, 70, 25); } catch (e) {}
+              yPos += 35;
+              doc.setFont('helvetica', 'normal');
+              doc.setFontSize(8);
+              doc.text(`Date: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`, margin + 5, yPos);
+          }
+
+          const totalPages = doc.internal.pages.length - 1;
+          for (let i = 1; i <= totalPages; i++) {
+              doc.setPage(i);
+              doc.setFontSize(7);
+              doc.setFont('helvetica', 'normal');
+              doc.setTextColor(150, 150, 150);
+              const footerText = `${myCompany?.company_name || 'Inspection Report'} | ${myCompany?.phone || ''} | ${myCompany?.email || ''}`;
+              doc.text(footerText, pageWidth / 2, pageHeight - 13, { align: 'center' });
+              doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 8, { align: 'center' });
+          }
+
+          // Convert PDF to base64
+          const pdfBase64 = doc.output('dataurlstring').split(',')[1];
+          console.log('✅ PDF generated, sending to backend for email...');
+
+          const response = await base44.functions.invoke('sendInspectionReport', {
+              inspectionJobId: jobId,
+              sendToClient: reportRecipients.sendToClient,
+              sendToAdjuster: reportRecipients.sendToAdjuster,
+              adjusterEmail: reportRecipients.adjusterEmail,
+              sendToProductionManager: reportRecipients.sendToProductionManager,
+              sendToSalesRep: reportRecipients.sendToSalesRep,
+              sendToCustomEmails: reportRecipients.sendToCustomEmails,
+              customEmails: reportRecipients.customEmails,
+              pdfBase64: pdfBase64
+          });
+
+          if (response.data.success) {
+              const messages = ['✅ Report sent successfully!'];
+              if (response.data.client_sent) messages.push('📧 Sent to client');
+              if (response.data.adjuster_sent) messages.push('📧 Sent to adjuster');
+              if (response.data.production_manager_sent) messages.push('📧 Sent to production manager');
+              if (response.data.sales_rep_sent) messages.push('📧 Sent to sales rep');
+              if (response.data.custom_sent) messages.push(`📧 Sent to ${response.data.custom_count} team member(s)`);
+              
+              // 🔔 Create in-app notifications for admins about report being sent
+              if (myCompany?.id) {
+                  try {
+                      const allStaff = await base44.entities.StaffProfile.filter({ company_id: myCompany.id });
+                      const adminEmails = allStaff.filter(s => s.is_administrator).map(s => s.user_email);
+                      
+                      // Notify admins
+                      for (const email of adminEmails) {
+                          if (email !== user?.email) { // Don't notify yourself
+                              await base44.entities.Notification.create({
+                                  company_id: myCompany.id,
+                                  user_email: email,
+                                  title: '📄 Inspection Report Sent',
+                                  message: `${user?.full_name || user?.email} sent inspection report for ${job.client_name || job.property_address}`,
+                                  type: 'inspection_report_sent',
+                                  related_entity_type: 'InspectionJob',
+                                  related_entity_id: jobId,
+                                  link_url: createPageUrl('InspectionCapture') + '?id=' + jobId,
+                                  is_read: false
+                              });
+                          }
+                      }
+                      
+                      // Notify assigned inspector (if different from sender)
+                      if (job.assigned_to_email && job.assigned_to_email !== user?.email) {
+                          await base44.entities.Notification.create({
+                              company_id: myCompany.id,
+                              user_email: job.assigned_to_email,
+                              title: '📄 Your Inspection Report Was Sent',
+                              message: `Report for ${job.client_name || job.property_address} was sent by ${user?.full_name || user?.email}`,
+                              type: 'inspection_report_sent',
+                              related_entity_type: 'InspectionJob',
+                              related_entity_id: jobId,
+                              link_url: createPageUrl('InspectionCapture') + '?id=' + jobId,
+                              is_read: false
+                          });
+                      }
+                      
+                      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+                  } catch (error) {
+                      console.error('Failed to create notifications:', error);
+                  }
+              }
+              
+              alert(messages.join('\n'));
+              setShowTemplateDialog(false);
+              queryClient.invalidateQueries({ queryKey: ['email-tracking', jobId] });
+          } else {
+              throw new Error(response.data.error || 'Failed to send report');
+          }
+      } catch (error) {
+          console.error("Report generation error:", error);
+          alert(`❌ Failed to send report: ${error.message}`);
+      }
+
+      setIsSendingReport(false);
+  };
+
+    const handlePhotoSelect = (photoId) => {
+        setSelectedPhotos(prev => {
+            if (prev.includes(photoId)) {
+                return prev.filter(id => id !== photoId);
+            } else {
+                return [...prev, photoId];
+            }
+        });
+    };
+
+    const handleSelectAll = () => {
+        if (selectedPhotos.length === activeSectionMedia.length) {
+            setSelectedPhotos([]);
+        } else {
+            setSelectedPhotos(activeSectionMedia.map(m => m.id));
+        }
+    };
+
+    const handleBulkEdit = () => {
+        if (selectedPhotos.length === 0) return;
+        setShowBulkEditDialog(true);
+    };
+
+    const handleBulkCaptionSave = async () => {
+        for (const photoId of selectedPhotos) {
+            const existingPhoto = media.find(m => m.id === photoId);
+            const existingCaption = existingPhoto?.caption || '';
+            const newCaption = existingCaption ? `${existingCaption}\n${bulkCaption}` : bulkCaption;
+            await updateMediaMutation.mutateAsync({ id: photoId, caption: newCaption });
+        }
+        setShowBulkEditDialog(false);
+        setSelectedPhotos([]);
+        setBulkCaption('');
+    };
+
+    const handleBulkDelete = () => {
+        if (selectedPhotos.length === 0) return;
+        if (window.confirm(`Delete ${selectedPhotos.length} selected photos?`)) {
+            selectedPhotos.forEach(photoId => {
+                deleteMutation.mutate(photoId);
+            });
+        }
+    };
+
+    const handleBulkDownload = async () => {
+        if (selectedPhotos.length === 0) return;
+        
+        const selectedMedia = activeSectionMedia.filter(m => selectedPhotos.includes(m.id));
+        
+        // For single file, download directly
+        if (selectedMedia.length === 1) {
+            const link = document.createElement('a');
+            link.href = selectedMedia[0].file_url;
+            link.download = selectedMedia[0].caption || `photo_${selectedMedia[0].id}`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            return;
+        }
+        
+        // For multiple files, create a zip (using a simple multi-download approach)
+        alert(`Downloading ${selectedMedia.length} photos...\n\nNote: Files will be downloaded individually`);
+        for (const media of selectedMedia) {
+            const link = document.createElement('a');
+            link.href = media.file_url;
+            link.download = media.caption || `photo_${media.id}`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            // Add small delay between downloads
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    };
+
+    const handleLinkEstimate = () => {
+        if (!selectedEstimateId) {
+            alert('Please select an estimate');
+            return;
+        }
+        linkEstimateMutation.mutate({ jobId, estimateId: selectedEstimateId });
+    };
+
+    const suggestedEstimates = estimates.filter(e =>
+        e.customer_name?.toLowerCase().includes(job?.client_name?.toLowerCase() || '') ||
+        e.property_address?.toLowerCase().includes(job?.property_address?.toLowerCase() || '')
+    );
+
+    const activeSectionMedia = jobId 
+        ? (activeSection === 'All Photos' 
+            ? media 
+            : media.filter(m => m.section === activeSection))
+        : [];
+
+    const mostRecentTracking = emailTracking.length > 0
+        ? emailTracking.sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at))[0]
+        : null;
+
+    if (isLoadingJob && jobId) {
+        return <div className="p-6 text-center"><Loader2 className="animate-spin" /></div>;
+    }
+
+    return (
+        <div className="min-h-screen bg-gray-50">
+            <div className="bg-white border-b shadow-sm px-4 py-3 sticky top-0 z-50">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => navigate(createPageUrl('InspectionsDashboard'))}
+                        >
+                            <ArrowLeft className="w-5 h-5" />
+                        </Button>
+                        <div>
+                            <h1 className="text-lg md:text-xl font-bold text-gray-900">CrewCam Photo Capture</h1>
+                            {job && (
+                                <div className="mt-1">
+                                    <p className="text-sm font-semibold text-blue-600">{job.client_name}</p>
+                                    <p className="text-xs text-gray-600">{job.property_address}</p>
+                                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                        {job.insurance_claim_number && (
+                                            <Badge variant="outline" className="text-xs">
+                                                Claim: {job.insurance_claim_number}
+                                            </Badge>
+                                        )}
+                                        {job.assigned_to_email && (() => {
+                                            const assignedUser = users.find(u => u.email === job.assigned_to_email);
+                                            return (
+                                                <Badge className="bg-green-50 text-green-800 border-green-300 text-xs">
+                                                    👤 Assigned to: {assignedUser?.full_name || job.assigned_to_name || job.assigned_to_email.split('@')[0]}
+                                                </Badge>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+                            )}
+                            {!job && <p className="text-sm text-gray-600">Loading...</p>}
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+
+                        <Button
+                            variant="outline"
+                            onClick={() => setShowEditDialog(true)}
+                            className="gap-2"
+                        >
+                            <Edit className="w-4 h-4" />
+                            <span className="hidden md:inline">Edit Job</span>
+                        </Button>
+
+                        <Button
+                            onClick={handleViewPDF}
+                            disabled={!job || media.filter(m => m.file_type === 'photo').length === 0 || isViewing}
+                            variant="outline"
+                            className="gap-2 border-green-500 text-green-700 hover:bg-green-50"
+                        >
+                            {isViewing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Eye className="w-4 h-4" />}
+                            <span className="hidden md:inline">View PDF</span>
+                        </Button>
+                        <Button
+                            onClick={handleExportReport}
+                            disabled={!job || media.filter(m => m.file_type === 'photo').length === 0 || isExporting}
+                            variant="outline"
+                            className="gap-2"
+                        >
+                            {isExporting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4" />}
+                            <span className="hidden md:inline">Download PDF</span>
+                        </Button>
+                        <Button
+                            onClick={() => setShowTemplateDialog(true)}
+                            disabled={isSendingReport || !job || media.filter(m => m.file_type === 'photo').length === 0}
+                            className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white gap-2"
+                        >
+                            {isSendingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                            <span className="hidden md:inline">Send Report</span>
+                        </Button>
+
+                    </div>
+                </div>
+            </div>
+
+            <div className="p-2 md:p-6 max-w-7xl mx-auto space-y-4">
+
+                {job && (
+                    <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {linkedEstimate ? (
+                                <Alert className="bg-green-50 border-green-300">
+                                    <CheckCircle className="h-4 w-4 text-green-600" />
+                                    <AlertDescription className="text-green-800">
+                                        <div className="flex items-center justify-between">
+                                            <span>✅ Estimate: {linkedEstimate.estimate_number} (${linkedEstimate.amount?.toFixed(2)})</span>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => navigate(createPageUrl('EstimateEditor') + `?estimate_id=${linkedEstimate.id}`)}
+                                                className="text-green-700 hover:text-green-900"
+                                            >
+                                                <ExternalLink className="w-3 h-3" />
+                                            </Button>
+                                        </div>
+                                    </AlertDescription>
+                                </Alert>
+                            ) : (
+                                <Alert className="bg-yellow-50 border-yellow-300">
+                                    <AlertCircle className="h-4 w-4 text-yellow-600" />
+                                    <AlertDescription className="text-yellow-800">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span>⚠️ No Estimate Linked</span>
+                                            <div className="flex gap-1">
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => setShowLinkEstimateDialog(true)}
+                                                    className="text-yellow-700 hover:text-yellow-900 h-7 px-2 text-xs"
+                                                >
+                                                    Link
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={async () => {
+                                                        // Calculate AI summary from media
+                                                        const photoMedia = media.filter(m => m.file_type === 'photo' && m.ai_damage_analysis);
+                                                        const totalHail = photoMedia.reduce((sum, m) => sum + (m.ai_damage_analysis?.hail_hits_counted || 0), 0);
+                                                        const totalWind = photoMedia.reduce((sum, m) => sum + (m.ai_damage_analysis?.wind_marks_counted || 0), 0);
+                                                        const avgHail = photoMedia.length > 0 ? Math.round(totalHail / photoMedia.length) : 0;
+                                                        const avgWind = photoMedia.length > 0 ? Math.round(totalWind / photoMedia.length) : 0;
+                                                        const hasDiscontinued = photoMedia.some(m => m.ai_damage_analysis?.likely_discontinued);
+
+                                                        // Update job with AI summary
+                                                        if (totalHail > 0 || totalWind > 0) {
+                                                            await base44.entities.InspectionJob.update(jobId, {
+                                                                ai_analysis_summary: {
+                                                                    total_hail_hits: totalHail,
+                                                                    total_wind_marks: totalWind,
+                                                                    hail_per_sq: avgHail,
+                                                                    wind_per_sq: avgWind,
+                                                                    material_matching_flag: hasDiscontinued,
+                                                                    overall_severity: totalHail > 10 || totalWind > 5 ? 'severe' : totalHail > 5 || totalWind > 3 ? 'moderate' : 'minor'
+                                                                }
+                                                            });
+                                                        }
+
+                                                        const params = new URLSearchParams({
+                                                            customer_name: job.client_name || '',
+                                                            customer_email: job.client_email || '',
+                                                            customer_phone: job.client_phone || '',
+                                                            property_address: job.property_address || '',
+                                                            claim_number: job.insurance_claim_number || '',
+                                                            inspection_job_id: jobId
+                                                        });
+                                                        navigate(createPageUrl('AIEstimator') + '?' + params.toString());
+                                                    }}
+                                                    className="text-yellow-700 hover:text-yellow-900 h-7 px-2 text-xs gap-1"
+                                                >
+                                                    <Sparkles className="w-3 h-3" />
+                                                    Create
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+
+                            {linkedStorm ? (
+                                <Alert className="bg-orange-50 border-orange-300">
+                                    <CheckCircle className="h-4 w-4 text-orange-600" />
+                                    <AlertDescription className="text-orange-800">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex-1">
+                                                <div>⚡ {linkedStorm.title}</div>
+                                                <div className="text-xs text-orange-700/80">
+                                                    📍 {linkedStorm.affected_areas?.join(', ')} • {linkedStorm.hail_size_inches}" hail, {linkedStorm.wind_speed_mph} mph
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-1">
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => setShowLinkStormDialog(true)}
+                                                    className="text-orange-700 hover:text-orange-900"
+                                                >
+                                                    Change
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => navigate(createPageUrl('StormReport') + `?id=${linkedStorm.id}`)}
+                                                    className="text-orange-700 hover:text-orange-900"
+                                                >
+                                                    <ExternalLink className="w-3 h-3" />
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </AlertDescription>
+                                </Alert>
+                            ) : (
+                                <Alert className="bg-gray-50 border-gray-300">
+                                    <AlertDescription className="text-gray-600">
+                                        <div className="flex items-center justify-between">
+                                            <span>No storm event linked</span>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => setShowLinkStormDialog(true)}
+                                                className="text-blue-600 hover:text-blue-800"
+                                            >
+                                                Link Storm
+                                            </Button>
+                                        </div>
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+                        </div>
+
+                        {mostRecentTracking && (
+                            <Alert className={mostRecentTracking.status === 'opened' ? 'bg-green-50 border-green-300' : 'bg-blue-50 border-blue-300'}>
+                                <Mail className="h-4 w-4 text-blue-600" />
+                                <AlertDescription>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            {mostRecentTracking.status === 'opened' ? (
+                                                <>
+                                                    <span className="font-semibold text-green-800">✅ Report Opened!</span>
+                                                    <p className="text-xs text-green-700 mt-1">
+                                                        Last viewed: {new Date(mostRecentTracking.last_opened_at).toLocaleString()}
+                                                        {mostRecentTracking.open_count > 1 && ` (${mostRecentTracking.open_count} times)`}
+                                                    </p>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="font-semibold text-blue-800">📧 Report Sent</span>
+                                                    <p className="text-xs text-blue-700 mt-1">
+                                                        To: {mostRecentTracking.recipient_name} - Not opened yet
+                                                    </p>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                </AlertDescription>
+                            </Alert>
+                        )}
+                    </>
+                )}
+
+                {!isSecureContext && (
+                    <Card className="bg-yellow-50 border-yellow-300">
+                        <CardHeader>
+                            <CardTitle className="text-yellow-800 flex items-center gap-2">
+                                <Camera className="w-5 h-5"/> Action Required to Enable Camera
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <p className="text-yellow-700 mb-4">Your browser requires a secure (HTTPS) connection to access the camera.</p>
+                            <Button asChild>
+                                <a href={window.location.href.replace('http://', 'https://')}>
+                                    Reload Page Securely to Activate Camera
+                                </a>
+                            </Button>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {isSecureContext && <LiveCameraCapture onUpload={handleLiveCaptureUpload} onVoiceNote={text => handleSectionNotesChange(activeSection, (sectionNotes[activeSection] || '') + '\n' + text)} onVoiceCaptionForLastPhoto={handleVoiceCaptionForLastPhoto} setActiveSection={setActiveSection} sections={sections} />}
+
+                <Card className="bg-gradient-to-r from-green-50 to-emerald-50 border-green-200 shadow-md">
+                    <CardContent className="p-4">
+                        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                                    <Upload className="w-6 h-6 text-green-600" />
+                                </div>
+                                <div>
+                                    <p className="font-semibold text-gray-900 text-lg">Upload from Device</p>
+                                    <p className="text-sm text-gray-600">Select photos from your gallery or files</p>
+                                </div>
+                            </div>
+                            <div>
+                                <input
+                                    type="file"
+                                    accept="image/*,video/*"
+                                    multiple
+                                    onChange={handleFileUpload}
+                                    className="hidden"
+                                    id="file-upload-input"
+                                    disabled={uploadingFiles}
+                                />
+                                <Button
+                                    onClick={() => document.getElementById('file-upload-input').click()}
+                                    disabled={uploadingFiles}
+                                    size="lg"
+                                    className="bg-green-600 hover:bg-green-700 text-white font-semibold min-h-[48px]"
+                                >
+                                    {uploadingFiles ? (
+                                        <>
+                                            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                                            Uploading...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Upload className="w-5 h-5 mr-2" />
+                                            Choose Files to Upload
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-3 text-center">
+                            📸 Tip: You can select multiple photos at once. They'll be added to the current section ({activeSection})
+                        </p>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardContent className="p-2 md:p-4">
+                        <div className="mb-4 overflow-x-auto pb-2">
+                           <div className="flex space-x-2 flex-wrap">
+                            <Button
+                                variant={activeSection === 'All Photos' ? 'default' : 'outline'}
+                                onClick={() => {
+                                    setActiveSection('All Photos');
+                                    setSelectedPhotos([]);
+                                }}
+                                className="flex-shrink-0 mb-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white border-0"
+                                style={activeSection !== 'All Photos' ? { background: 'none', color: 'inherit', border: '1px solid #e5e7eb' } : {}}
+                            >
+                                📸 All Photos {media.length > 0 && `(${media.length})`}
+                            </Button>
+                            {sections.map(section => {
+                                const count = jobId ? media.filter(m => m.section === section).length : 0;
+                                return (
+                                    <Button
+                                        key={section}
+                                        variant={activeSection === section ? 'default' : 'outline'}
+                                        onClick={() => {
+                                            setActiveSection(section);
+                                            setSelectedPhotos([]);
+                                        }}
+                                        className="flex-shrink-0 mb-2"
+                                    >
+                                        {section} {count > 0 && `(${count})`}
+                                    </Button>
+                                );
+                            })}
+                           </div>
+                        </div>
+
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-2">
+                             <div>
+                                <h3 className="font-semibold text-lg mb-1">{activeSection}</h3>
+                                <p className="text-xs md:text-sm text-gray-600">Photos for this section.</p>
+                            </div>
+                            <div className="flex gap-2 flex-wrap">
+                                {activeSectionMedia.length > 0 && (
+                                    <>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={handleSelectAll}
+                                            className="text-blue-600"
+                                        >
+                                            <CheckCircle className="w-4 h-4 mr-1" />
+                                            {selectedPhotos.length === activeSectionMedia.length ? 'Deselect All' : 'Select All'}
+                                        </Button>
+                                        {selectedPhotos.length > 0 && (
+                                            <>
+                                                <Button variant="outline" size="sm" onClick={handleBulkDownload} className="text-green-600">
+                                                    <Download className="w-4 h-4 mr-1" /> Download ({selectedPhotos.length})
+                                                </Button>
+                                                <Button variant="outline" size="sm" onClick={handleBulkEdit}>
+                                                    <Edit className="w-4 h-4 mr-1" /> Add Notes ({selectedPhotos.length})
+                                                </Button>
+                                                <Button variant="outline" size="sm" onClick={handleBulkDelete} className="text-red-600">
+                                                    <Trash2 className="w-4 h-4 mr-1" /> Delete ({selectedPhotos.length})
+                                                </Button>
+                                            </>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-4 min-h-[150px]">
+                            {isLoadingMedia && jobId ? <div className="col-span-full flex justify-center items-center py-8"><Loader2 className="animate-spin h-8 w-8 text-gray-500"/></div> : (
+                                activeSectionMedia.length > 0 ? (
+                                    activeSectionMedia.map(item => {
+                                        const isSelected = selectedPhotos.includes(item.id);
+                                        const aiData = item.ai_damage_analysis;
+                                        const hasAI = aiData && (aiData.hail_hits_counted > 0 || aiData.wind_marks_counted > 0 || aiData.missing_shingles_counted > 0 || aiData.likely_discontinued || aiData.severity);
+                                        const severityColor = aiData?.severity === 'severe' ? 'bg-red-600' : aiData?.severity === 'moderate' ? 'bg-orange-500' : aiData?.severity === 'minor' ? 'bg-yellow-500' : 'bg-green-500';
+                                        
+                                        return (
+                                            <Card
+                                                key={item.id}
+                                                className={`relative group cursor-pointer ${isSelected ? 'ring-2 ring-blue-500' : ''}`}
+                                                onClick={() => handlePhotoSelect(item.id)}
+                                            >
+                                                <div className="aspect-square bg-gray-200 rounded-t-md flex items-center justify-center relative">
+                                                    <img src={item.file_url} alt={item.caption || ''} className="w-full h-full object-cover rounded-t-md" />
+                                                    
+                                                    {/* AI Severity Badge */}
+                                                    {aiData?.severity && aiData.severity !== 'none' && (
+                                                        <div className={`absolute top-1 right-1 ${severityColor} text-white text-[10px] px-1.5 py-0.5 rounded font-bold uppercase`}>
+                                                            {aiData.severity}
+                                                        </div>
+                                                    )}
+                                                    
+                                                    {/* AI Damage Overlay */}
+                                                    {hasAI && (
+                                                        <div className="absolute top-1 left-1 bg-black/80 text-white text-xs px-2 py-1 rounded-md flex items-center gap-1 flex-wrap max-w-[90%]">
+                                                            <Sparkles className="w-3 h-3 text-yellow-400 flex-shrink-0" />
+                                                            {aiData.hail_hits_counted > 0 && <span>{aiData.hail_hits_counted} Hail</span>}
+                                                            {aiData.wind_marks_counted > 0 && <span>{aiData.wind_marks_counted} Wind</span>}
+                                                            {aiData.missing_shingles_counted > 0 && <span>{aiData.missing_shingles_counted} Missing</span>}
+                                                        </div>
+                                                    )}
+                                                    
+                                                    {/* Organic / Discontinued Flag */}
+                                                    {(aiData?.is_organic_shingle || aiData?.is_tlock_shingle) && (
+                                                        <div className="absolute bottom-1 left-1 bg-red-600 text-white text-xs px-2 py-0.5 rounded font-semibold">
+                                                            {aiData.is_tlock_shingle ? 'T-Lock' : 'Organic'} - Discontinued
+                                                        </div>
+                                                    )}
+                                                    {aiData?.likely_discontinued && !aiData?.is_organic_shingle && !aiData?.is_tlock_shingle && (
+                                                        <div className="absolute bottom-1 left-1 bg-red-600 text-white text-xs px-2 py-0.5 rounded font-semibold">
+                                                            Likely Discontinued
+                                                        </div>
+                                                    )}
+                                                    
+                                                    {isSelected && (
+                                                        <div className="absolute top-1 right-1 bg-blue-500 text-white rounded-full p-1">
+                                                            <CheckCircle className="w-4 h-4" />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <CardContent className="p-1.5">
+                                                    {activeSection === 'All Photos' && item.section && (
+                                                        <Badge variant="outline" className="text-[10px] mb-1 px-1 py-0">{item.section}</Badge>
+                                                    )}
+                                                    <p className="text-xs text-gray-600 truncate">{item.caption || 'No caption'}</p>
+                                                    {aiData?.ai_notes && (
+                                                        <p className="text-xs text-blue-600 truncate mt-1">💡 {aiData.ai_notes}</p>
+                                                    )}
+                                                </CardContent>
+                                            </Card>
+                                        );
+                                    })
+                                ) : (
+                                    <div className="col-span-full flex flex-col items-center justify-center text-center text-gray-500 py-8">
+                                        <ImageIcon className="w-10 h-10 mb-2"/>
+                                        <p className="text-sm font-medium">No photos yet</p>
+                                        <p className="text-xs text-gray-400 mt-1">Use camera above or upload files</p>
+                                    </div>
+                                )
+                            )}
+                        </div>
+
+                        <div>
+                            <div className="flex justify-between items-center mb-2">
+                                <Label>Section Notes</Label>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleSaveNotes}
+                                    disabled={!jobId || updateJobNotesMutation.isLoading}
+                                >
+                                    {updateJobNotesMutation.isLoading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
+                                    Save Notes
+                                </Button>
+                            </div>
+                            {activeSection === 'All Photos' ? (
+                                <div className="space-y-3">
+                                    {sections.filter(s => sectionNotes[s]).map(section => (
+                                        <div key={section} className="bg-gray-50 rounded-lg p-3">
+                                            <p className="text-xs font-semibold text-gray-700 mb-1">{section}</p>
+                                            <p className="text-sm text-gray-600 whitespace-pre-wrap">{sectionNotes[section]}</p>
+                                        </div>
+                                    ))}
+                                    {sections.filter(s => sectionNotes[s]).length === 0 && (
+                                        <p className="text-sm text-gray-400">No notes added to any section yet.</p>
+                                    )}
+                                </div>
+                            ) : (
+                                <Textarea
+                                    placeholder={`Add notes for ${activeSection}...`}
+                                    value={sectionNotes[activeSection] || ''}
+                                    onChange={(e) => handleSectionNotesChange(activeSection, e.target.value)}
+                                    rows={4}
+                                />
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {jobId && (
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center justify-between">
+                                <span>Inspector Signature</span>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setShowSignatureDialog(true)}
+                                >
+                                    <Pen className="w-4 h-4 mr-2" />
+                                    {inspectorSignature ? 'Update Signature' : 'Add Signature'}
+                                </Button>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {inspectorSignature ? (
+                                <div className="border rounded p-4 bg-white max-w-xs sm:max-w-sm">
+                                    <img src={inspectorSignature} alt="Inspector Signature" className="max-h-32 w-full object-contain" />
+                                </div>
+                            ) : (
+                                <p className="text-gray-500 text-sm">No signature added yet. Click "Add Signature" to certify this inspection.</p>
+                            )}
+                        </CardContent>
+                    </Card>
+                )}
+            </div>
+
+            <Dialog open={showBulkEditDialog} onOpenChange={setShowBulkEditDialog}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Add Notes to {selectedPhotos.length} Photos</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <div>
+                            <Label>Additional notes (will be added to existing notes)</Label>
+                            <Input
+                                value={bulkCaption}
+                                onChange={(e) => setBulkCaption(e.target.value)}
+                                placeholder="e.g., Hail damage visible"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowBulkEditDialog(false)}>Cancel</Button>
+                        <Button onClick={handleBulkCaptionSave}>Add Notes</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={showSignatureDialog} onOpenChange={setShowSignatureDialog}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Inspector Signature</DialogTitle>
+                    </DialogHeader>
+                    <SignaturePad onSave={handleSaveSignature} onCancel={() => setShowSignatureDialog(false)} />
+                </DialogContent>
+            </Dialog>
+
+            {/* PDF Preview Modal */}
+            <Dialog open={showPdfPreview} onOpenChange={(open) => {
+                setShowPdfPreview(open);
+                if (!open && previewPdfUrl) {
+                    URL.revokeObjectURL(previewPdfUrl);
+                    setPreviewPdfUrl(null);
+                }
+            }}>
+                <DialogContent className="max-w-6xl h-[90vh] flex flex-col">
+                    <DialogHeader className="border-b pb-4">
+                        <div className="flex items-center justify-between">
+                            <DialogTitle>Inspection Report Preview</DialogTitle>
+                            <div className="flex gap-2">
+                                <Button
+                                    onClick={() => {
+                                        if (previewPdfUrl) {
+                                            const link = document.createElement('a');
+                                            link.href = previewPdfUrl;
+                                            link.target = '_blank';
+                                            link.click();
+                                        }
+                                    }}
+                                    variant="outline"
+                                    className="md:hidden"
+                                >
+                                    <ExternalLink className="w-4 h-4 mr-2" />
+                                    Open
+                                </Button>
+                                <Button
+                                    onClick={() => {
+                                        setShowPdfPreview(false);
+                                        setShowTemplateDialog(true);
+                                    }}
+                                    disabled={isSendingReport}
+                                    className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
+                                >
+                                    {isSendingReport ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+                                    Send Report
+                                </Button>
+                            </div>
+                        </div>
+                    </DialogHeader>
+                    <div className="flex-1 overflow-hidden bg-gray-100 rounded-lg">
+                        {previewPdfUrl && (
+                            <>
+                                {/* Mobile: Show message with open button */}
+                                <div className="md:hidden h-full flex flex-col items-center justify-center p-6 text-center">
+                                    <FileText className="w-16 h-16 text-blue-600 mb-4" />
+                                    <h3 className="text-lg font-semibold mb-2">PDF Ready</h3>
+                                    <p className="text-gray-600 mb-6">Tap "Open" to view in a new tab</p>
+                                    <Button
+                                        size="lg"
+                                        onClick={() => {
+                                            const link = document.createElement('a');
+                                            link.href = previewPdfUrl;
+                                            link.target = '_blank';
+                                            link.click();
+                                        }}
+                                        className="bg-blue-600 hover:bg-blue-700"
+                                    >
+                                        <ExternalLink className="w-5 h-5 mr-2" />
+                                        Open PDF
+                                    </Button>
+                                </div>
+                                {/* Desktop: Show iframe */}
+                                <iframe
+                                    src={previewPdfUrl}
+                                    className="hidden md:block w-full h-full border-0"
+                                    title="PDF Preview"
+                                />
+                            </>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={showLinkEstimateDialog} onOpenChange={setShowLinkEstimateDialog}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>Link Estimate to Inspection</DialogTitle>
+                        <DialogDescription>
+                            Select an existing estimate to include in the full inspection report
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                        {suggestedEstimates.length > 0 && (
+                            <div className="mb-4">
+                                <p className="text-sm font-semibold text-blue-600 mb-2">🎯 Suggested Matches</p>
+                                {suggestedEstimates.slice(0, 3).map(estimate => (
+                                    <Card
+                                        key={estimate.id}
+                                        className={`mb-2 cursor-pointer hover:border-blue-400 transition-colors ${selectedEstimateId === estimate.id ? 'border-2 border-blue-500 bg-blue-50' : ''}`}
+                                        onClick={() => setSelectedEstimateId(estimate.id)}
+                                    >
+                                        <CardContent className="p-3">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <p className="font-semibold text-gray-900">{estimate.estimate_number}</p>
+                                                    <p className="text-sm text-gray-600">{estimate.customer_name}</p>
+                                                    <p className="text-xs text-gray-500">{estimate.property_address}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="font-bold text-green-600">${estimate.amount?.toFixed(2)}</p>
+                                                    <Badge variant="outline">{estimate.status}</Badge>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+                        )}
+
+                        {estimates.filter(e => !suggestedEstimates.includes(e)).length > 0 && (
+                            <div>
+                                <p className="text-sm font-semibold text-gray-600 mb-2">All Other Estimates</p>
+                                {estimates.filter(e => !suggestedEstimates.includes(e)).map(estimate => (
+                                    <Card
+                                        key={estimate.id}
+                                        className={`mb-2 cursor-pointer hover:border-blue-400 transition-colors ${selectedEstimateId === estimate.id ? 'border-2 border-blue-500 bg-blue-50' : ''}`}
+                                        onClick={() => setSelectedEstimateId(estimate.id)}
+                                    >
+                                        <CardContent className="p-3">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <p className="font-semibold text-gray-900">{estimate.estimate_number}</p>
+                                                    <p className="text-sm text-gray-600">{estimate.customer_name}</p>
+                                                    <p className="text-xs text-gray-500">{estimate.property_address}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="font-bold text-green-600">${estimate.amount?.toFixed(2)}</p>
+                                                    <Badge variant="outline">{estimate.status}</Badge>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+                        )}
+
+                        {estimates.length === 0 && (
+                            <div className="text-center py-8">
+                                <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                                <p className="text-gray-600 mb-4">No estimates found</p>
+                                <Button
+                                    onClick={() => {
+                                        const params = new URLSearchParams({
+                                            customer_name: job?.client_name || '',
+                                            customer_email: job?.client_email || '',
+                                            customer_phone: job?.client_phone || '',
+                                            property_address: job?.property_address || '',
+                                            claim_number: job?.insurance_claim_number || '',
+                                            inspection_job_id: jobId
+                                        });
+                                        navigate(createPageUrl('AIEstimator') + '?' + params.toString());
+                                    }}
+                                    className="bg-purple-600 hover:bg-purple-700"
+                                >
+                                    Create Estimate with AI
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowLinkEstimateDialog(false)}>Cancel</Button>
+                        <Button
+                            onClick={handleLinkEstimate}
+                            disabled={!selectedEstimateId || linkEstimateMutation.isPending}
+                            className="bg-blue-600 hover:bg-blue-700"
+                        >
+                            {linkEstimateMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <LinkIcon className="w-4 h-4 mr-2" />}
+                            Link Estimate
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={showTemplateDialog} onOpenChange={setShowTemplateDialog}>
+                <DialogContent className="max-h-[90vh] flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle>📧 Choose Report Template & Send</DialogTitle>
+                        <DialogDescription>
+                            Select a template optimized for the insurance carrier
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 overflow-y-auto max-h-[60vh] pr-2">
+                        {reportTemplates.length > 0 ? (
+                            <div>
+                                <Label>Select Template</Label>
+                                <Select value={selectedTemplateId || 'default'} onValueChange={setSelectedTemplateId}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Standard Report (Default)" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="default">Standard Report (Default)</SelectItem>
+                                        {reportTemplates.map(template => (
+                                            <SelectItem key={template.id} value={template.id}>
+                                                {template.template_name} {template.insurance_carrier && `(${template.insurance_carrier})`}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                {selectedTemplateId && selectedTemplateId !== 'default' && (
+                                    <p className="text-xs text-gray-600 mt-2">
+                                        {reportTemplates.find(t => t.id === selectedTemplateId)?.description}
+                                    </p>
+                                )}
+                            </div>
+                        ) : (
+                            <Alert className="bg-blue-50 border-blue-200">
+                                <AlertDescription className="text-blue-800">
+                                    Using standard template. Create custom templates in Settings → Report Templates
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <p className="text-sm text-blue-900 font-semibold mb-2">📋 This report includes:</p>
+                            <ul className="text-sm text-blue-800 space-y-1">
+                                <li>✅ All inspection photos organized by section</li>
+                                <li>✅ AI-generated Xactimate estimate</li>
+                                <li>✅ Storm data (if linked)</li>
+                                <li>✅ Inspector signature and notes</li>
+                            </ul>
+                        </div>
+
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                                <input
+                                    type="checkbox"
+                                    id="sendToClient"
+                                    checked={reportRecipients.sendToClient}
+                                    onChange={(e) => setReportRecipients({...reportRecipients, sendToClient: e.target.checked})}
+                                    className="w-4 h-4"
+                                    disabled={!job?.client_email}
+                                />
+                                <label htmlFor="sendToClient" className="flex-1 cursor-pointer">
+                                    <div className="font-semibold text-gray-900">Send to Client</div>
+                                    <div className="text-sm text-gray-600">{job?.client_email || 'No email on file'}</div>
+                                </label>
+                            </div>
+
+                            <div className="border-t pt-3">
+                                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg mb-3">
+                                    <input
+                                        type="checkbox"
+                                        id="sendToAdjuster"
+                                        checked={reportRecipients.sendToAdjuster}
+                                        onChange={(e) => setReportRecipients({...reportRecipients, sendToAdjuster: e.target.checked})}
+                                        className="w-4 h-4"
+                                    />
+                                    <label htmlFor="sendToAdjuster" className="flex-1 cursor-pointer">
+                                        <div className="font-semibold text-gray-900">Send to Insurance Adjuster</div>
+                                        <div className="text-sm text-gray-600">Professional claim documentation</div>
+                                    </label>
+                                </div>
+
+                                {reportRecipients.sendToAdjuster && (
+                                    <div>
+                                        <Label>Adjuster Email Address</Label>
+                                        <Input
+                                            type="email"
+                                            value={reportRecipients.adjusterEmail}
+                                            onChange={(e) => setReportRecipients({...reportRecipients, adjusterEmail: e.target.value})}
+                                            placeholder="adjuster@insurance.com"
+                                            className="mt-2"
+                                            required
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="border-t pt-3">
+                                <h4 className="font-semibold text-gray-900 mb-3">📤 Send to Internal Team</h4>
+                                
+                                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg mb-2">
+                                    <input
+                                        type="checkbox"
+                                        id="sendToProductionManager"
+                                        checked={reportRecipients.sendToProductionManager}
+                                        onChange={(e) => setReportRecipients({...reportRecipients, sendToProductionManager: e.target.checked})}
+                                        className="w-4 h-4"
+                                    />
+                                    <label htmlFor="sendToProductionManager" className="flex-1 cursor-pointer">
+                                        <div className="font-semibold text-gray-900">Production Manager</div>
+                                        <div className="text-sm text-gray-600">For job review and approval</div>
+                                    </label>
+                                </div>
+
+                                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg mb-2">
+                                    <input
+                                        type="checkbox"
+                                        id="sendToSalesRep"
+                                        checked={reportRecipients.sendToSalesRep}
+                                        onChange={(e) => setReportRecipients({...reportRecipients, sendToSalesRep: e.target.checked})}
+                                        className="w-4 h-4"
+                                        disabled={!job?.sales_rep_email}
+                                    />
+                                    <label htmlFor="sendToSalesRep" className="flex-1 cursor-pointer">
+                                        <div className="font-semibold text-gray-900">Assigned Sales Rep</div>
+                                        <div className="text-sm text-gray-600">{job?.sales_rep_email || 'No sales rep assigned'}</div>
+                                    </label>
+                                </div>
+
+                                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg mb-3">
+                                    <input
+                                        type="checkbox"
+                                        id="sendToCustomEmails"
+                                        checked={reportRecipients.sendToCustomEmails}
+                                        onChange={(e) => setReportRecipients({...reportRecipients, sendToCustomEmails: e.target.checked})}
+                                        className="w-4 h-4"
+                                    />
+                                    <label htmlFor="sendToCustomEmails" className="flex-1 cursor-pointer">
+                                        <div className="font-semibold text-gray-900">Custom Recipients</div>
+                                        <div className="text-sm text-gray-600">Add other team members</div>
+                                    </label>
+                                </div>
+
+                                {reportRecipients.sendToCustomEmails && (
+                                    <div>
+                                        <Label>Email Addresses (comma-separated)</Label>
+                                        <Input
+                                            type="text"
+                                            value={reportRecipients.customEmails}
+                                            onChange={(e) => setReportRecipients({...reportRecipients, customEmails: e.target.value})}
+                                            placeholder="raffy@company.com, manager@company.com"
+                                            className="mt-2"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <Alert className="bg-purple-50 border-purple-200">
+                            <AlertDescription className="text-purple-800 text-sm">
+                                📊 <strong>Email tracking enabled</strong> - You'll see when recipients open the report
+                            </AlertDescription>
+                        </Alert>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowTemplateDialog(false)}>Cancel</Button>
+                        <Button
+                            onClick={handleGenerateAndSendReport}
+                            disabled={isSendingReport || (!reportRecipients.sendToClient && !reportRecipients.sendToAdjuster && !reportRecipients.sendToProductionManager && !reportRecipients.sendToSalesRep && !reportRecipients.sendToCustomEmails) || (reportRecipients.sendToAdjuster && !reportRecipients.adjusterEmail)}
+                            className="bg-blue-600 hover:bg-blue-700"
+                        >
+                            {isSendingReport ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Mail className="w-4 h-4 mr-2" />}
+                            Generate & Send
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <AssignmentDialog
+                isOpen={showEditDialog}
+                onOpenChange={setShowEditDialog}
+                existingJob={job}
+                onAssignmentSent={(updatedJob) => {
+                    queryClient.invalidateQueries({ queryKey: ['inspectionJob', jobId] });
+                    setShowEditDialog(false);
+                }}
+            />
+
+            <LinkStormDialog
+                isOpen={showLinkStormDialog}
+                onOpenChange={setShowLinkStormDialog}
+                currentStormId={job?.related_storm_event_id}
+                onStormLinked={(stormId) => {
+                    linkStormMutation.mutate({ jobId, stormId });
+                }}
+            />
+        </div>
+    );
+}

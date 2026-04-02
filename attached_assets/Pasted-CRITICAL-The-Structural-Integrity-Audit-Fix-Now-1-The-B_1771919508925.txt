@@ -1,0 +1,51 @@
+CRITICAL: The "Structural Integrity" Audit (Fix Now)
+1. The "Blank Screen" Race Condition (Routing & State)
+The "blank screen" occurs because your frontend and backend are out of sync during a Context Switch (switching from YICN to CompanySync).
+
+The Technical Failure: When the user switches companies, the companyId in local storage updates, but React’s state doesn't instantly flush the old data. A component (like the Sales Pipeline) tries to render a list of leads for the new company using a data structure cached for the old company.
+
+The Crash: If Stone Roofing has a custom field that CompanySync doesn't, the code hits a TypeError: cannot read property 'X' of undefined. Since there is no Error Boundary wrapping the main view, the entire DOM collapses.
+
+The Fix: You must wrap your main content area in a React Error Boundary and implement a key={activeCompanyId} on your main Layout component. This forces React to unmount and remount the entire UI whenever the company changes, preventing data "ghosting."
+
+2. Hard-Coded Identity Debt (Security Risk)
+I have identified a pattern in your functions (like checkSubscriptionLimits.ts and auditDataIsolation.ts) where specific emails are used as "Master Keys."
+
+The Failure: You are using "Identity by Exception." Every time you add a new admin or a new "restricted" feature, you have to hunt down these if (email === '...') blocks across 140 files.
+
+The Audit: This is a Critical Vulnerability. If a developer leaves or an email is changed, the system breaks. More importantly, it bypasses your own audit logs.
+
+The Fix: You need a Global Role Policy. Replace all email-based checks with a Permission Bitmask or a simple user.is_platform_admin boolean in your database.
+
+3. Intake Validation vs. Cleanup Scripts
+You have roughly 12 different "cleanup" scripts (e.g., cleanupDuplicateCompanies.ts, deleteDuplicateLeads.ts).
+
+The Failure: The existence of these scripts is an admission that your Intake APIs are not validating data. You are letting "garbage" into the database and then trying to take the trash out later.
+
+The Audit: In a multi-tenant SaaS, this is dangerous. If a cleanup script has a bug, it could accidentally delete legitimate data across all subscribers.
+
+The Fix: You need to move the logic from these cleanup scripts into autoPreventDuplicates.ts and run it before the db.insert command.
+
+🟡 THE "SCALABILITY" AUDIT (Good to Have / Growth)
+1. API Silent Failures (The "Black Box" Problem)
+Your CRM relies heavily on external hooks (Twilio, Google Solar, ABC Supply).
+
+The Issue: Files like connectABCSupply.ts don't appear to have a "Retry-with-Exponential-Backoff" strategy. If ABC Supply’s server is down for 2 seconds when a user clicks "Order," the request just dies.
+
+Recommendation: Implement an Activity Log specifically for integrations. If a user's Storm Tracker isn't showing data, they should be able to see a "Last Sync: Failed (Error 500)" message instead of seeing "0 Storms."
+
+2. The "Storm Tracker" Data Filter
+The reason your storms aren't showing (even though the 721 events exist in the DB) is likely in your base44Client.js.
+
+The Logic Error: Most of your queries have a global filter: where('company_id', '==', activeCompanyId).
+
+The Audit: Storm data is Global, but your database client is treating it as Company-Specific. Because those 721 storms aren't tagged with your specific company_id, the CRM "protects" you from seeing them.
+
+The Fix: Create a "Global Exemption" list in your DB client for specific tables like StormEvents and ZipCodeData.
+
+🟢 THE "GOLDEN" AUDIT (What is Solid)
+The Logic Density: The depth of your specialized roofing logic (e.g., analyzeRoofWithGoogleSolar.ts, autoTriggerFamilyCommission.ts) is world-class. You aren't just building a CRM; you're building a "Business-in-a-Box."
+
+Task Management: Your status-column logic (22+ statuses) is highly granular and perfectly mapped to the roofing lifecycle.
+
+Multi-Tenancy Foundation: Despite the "blank screen" bugs, your auditDataIsolation.ts logic is fundamentally correct in its approach to separating subscriber data.

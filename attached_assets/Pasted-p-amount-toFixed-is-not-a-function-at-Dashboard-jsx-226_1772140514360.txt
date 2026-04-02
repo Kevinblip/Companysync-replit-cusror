@@ -1,0 +1,131 @@
+p.amount?.toFixed is not a function
+    at Dashboard.jsx:2262:52
+    at Array.forEach (<anonymous>)
+    at renderWidget (Dashboard.jsx:2258:30)
+    at Dashboard.jsx:2683:32
+    at Array.map (<anonymous>)
+    at children (Dashboard.jsx:2682:33)
+    at Droppable (@hello-pangea_dnd.js?v=c71735e7:8703:6)
+    at renderWithHooks (chunk-H343HIDT.js?v=c71735e7:11596:26)
+    at updateFunctionComponent (chunk-H343HIDT.js?v=c71735e7:14630:28)
+    at beginWork (chunk-H343HIDT.js?v=c71735e7:15972:22)Understand this error
+Dashboard.jsx:831 🎯 Critical tasks recalculated: 0
+Dashboard.jsx:896 📊 Task Health Calculation: Object
+Dashboard.jsx:916 📊 Task Metrics: Object
+Dashboard.jsx:934 📊 Final Score: Object
+Dashboard.jsx:2262 Uncaught TypeError: p.amount?.toFixed is not a function
+    at Dashboard.jsx:2262:52
+    at Array.forEach (<anonymous>)
+    at renderWidget (Dashboard.jsx:2258:30)
+    at Dashboard.jsx:2683:32
+    at Array.map (<anonymous>)
+    at children (Dashboard.jsx:2682:33)
+    at Droppable (@hello-pangea_dnd.js?v=c71735e7:8703:6)
+    at renderWithHooks (chunk-H343HIDT.js?v=c71735e7:11596:26)
+    at updateFunctionComponent (chunk-H343HIDT.js?v=c71735e7:14630:28)
+    at beginWork (chunk-H343HIDT.js?v=c71735e7:15972:22)Understand this error
+chunk-H343HIDT.js?v=c71735e7:14080 The above error occurred in the <Droppable> component:
+
+    at Droppable (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/@hello-pangea_dnd.js?v=c71735e7:8602:51)
+    at ConnectFunction (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/@hello-pangea_dnd.js?v=c71735e7:1018:74)
+    at Provider (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/@hello-pangea_dnd.js?v=c71735e7:1192:11)
+    at App (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/@hello-pangea_dnd.js?v=c71735e7:7404:5)
+    at ErrorBoundary (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/@hello-pangea_dnd.js?v=c71735e7:1675:5)
+    at DragDropContext (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/@hello-pangea_dnd.js?v=c71735e7:7516:21)
+    at div
+    at Dashboard (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/pages/Dashboard.jsx:185:20)
+    at ErrorBoundary (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/components/ErrorBoundary.jsx:10:5)
+    at div
+    at main
+    at div
+    at div
+    at Provider (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/chunk-2M7HY3UG.js?v=c71735e7:38:15)
+    at TooltipProvider (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=c71735e7:65:5)
+    at https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/components/ui/sidebar.jsx:52:3
+    at Layout (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/Layout.jsx:164:34)
+    at LayoutWrapper (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/App.jsx:43:26)
+    at RenderedRoute (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c71735e7:4088:5)
+    at Routes (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c71735e7:4558:5)
+    at AuthenticatedApp (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/App.jsx:82:74)
+    at RenderedRoute (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c71735e7:4088:5)
+    at Routes (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c71735e7:4558:5)
+    at AppRouter
+    at Router (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c71735e7:4501:15)
+    at BrowserRouter (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c71735e7:5247:5)
+    at ErrorBoundary (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/components/ErrorBoundary.jsx:10:5)
+    at ImpersonationProvider (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/lib/ImpersonationContext.jsx:32:41)
+    at QueryClientProvider (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/@tanstack_react-query.js?v=c71735e7:3081:3)
+    at AuthProvider (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/lib/AuthContext.jsx:21:32)
+    at App
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary.
+logCapturedError @ chunk-H343HIDT.js?v=c71735e7:14080Understand this error
+chunk-H343HIDT.js?v=c71735e7:16718 Uncaught TypeError: p.amount?.toFixed is not a function
+    at Dashboard.jsx:2262:52
+    at Array.forEach (<anonymous>)
+    at renderWidget (Dashboard.jsx:2258:30)
+    at Dashboard.jsx:2683:32
+    at Array.map (<anonymous>)
+    at children (Dashboard.jsx:2682:33)
+    at Droppable (@hello-pangea_dnd.js?v=c71735e7:8703:6)
+    at renderWithHooks (chunk-H343HIDT.js?v=c71735e7:11596:26)
+    at updateFunctionComponent (chunk-H343HIDT.js?v=c71735e7:14630:28)
+    at beginWork (chunk-H343HIDT.js?v=c71735e7:15972:22)Understand this error
+chunk-H343HIDT.js?v=c71735e7:14080 The above error occurred in the <ErrorBoundary> component:
+
+    at ErrorBoundary (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/@hello-pangea_dnd.js?v=c71735e7:1675:5)
+    at DragDropContext (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/@hello-pangea_dnd.js?v=c71735e7:7516:21)
+    at div
+    at Dashboard (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/pages/Dashboard.jsx:185:20)
+    at ErrorBoundary (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/components/ErrorBoundary.jsx:10:5)
+    at div
+    at main
+    at div
+    at div
+    at Provider (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/chunk-2M7HY3UG.js?v=c71735e7:38:15)
+    at TooltipProvider (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=c71735e7:65:5)
+    at https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/components/ui/sidebar.jsx:52:3
+    at Layout (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/Layout.jsx:164:34)
+    at LayoutWrapper (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/App.jsx:43:26)
+    at RenderedRoute (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c71735e7:4088:5)
+    at Routes (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c71735e7:4558:5)
+    at AuthenticatedApp (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/App.jsx:82:74)
+    at RenderedRoute (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c71735e7:4088:5)
+    at Routes (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c71735e7:4558:5)
+    at AppRouter
+    at Router (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c71735e7:4501:15)
+    at BrowserRouter (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c71735e7:5247:5)
+    at ErrorBoundary (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/components/ErrorBoundary.jsx:10:5)
+    at ImpersonationProvider (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/lib/ImpersonationContext.jsx:32:41)
+    at QueryClientProvider (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/node_modules/.vite/deps/@tanstack_react-query.js?v=c71735e7:3081:3)
+    at AuthProvider (https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev/src/lib/AuthContext.jsx:21:32)
+    at App
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary.
+logCapturedError @ chunk-H343HIDT.js?v=c71735e7:14080Understand this error
+ErrorBoundary.jsx:18 ErrorBoundary caught: TypeError: p.amount?.toFixed is not a function
+    at Dashboard.jsx:2262:52
+    at Array.forEach (<anonymous>)
+    at renderWidget (Dashboard.jsx:2258:30)
+    at Dashboard.jsx:2683:32
+    at Array.map (<anonymous>)
+    at children (Dashboard.jsx:2682:33)
+    at Droppable (@hello-pangea_dnd.js?v=c71735e7:8703:6)
+    at renderWithHooks (chunk-H343HIDT.js?v=c71735e7:11596:26)
+    at updateFunctionComponent (chunk-H343HIDT.js?v=c71735e7:14630:28)
+    at beginWork (chunk-H343HIDT.js?v=c71735e7:15972:22) Object
+componentDidCatch @ ErrorBoundary.jsx:18Understand this error
+Layout.jsx:776 🚫 Platform restriction: Hiding "Smart Glasses" for all subscribers
+Layout.jsx:792 🚫 Platform restriction: Hiding "AI Tools → Permit Assistant" for all subscribers
+Layout.jsx:792 🚫 Platform restriction: Hiding "Lead Manager → Lead Finder" for all subscribers
+Layout.jsx:792 🚫 Platform restriction: Hiding "Communication → Live Call Dashboard" for all subscribers
+Layout.jsx:792 🚫 Platform restriction: Hiding "Communication → Campaign Manager" for all subscribers
+Layout.jsx:792 🚫 Platform restriction: Hiding "Communication → Ad Builder" for all subscribers
+base44Client.js:192 [Functions] Invoking: getCompanyHierarchy
+Layout.jsx:1208 ❌ Closing all menus
+base44Client.js:207 [Functions] getCompanyHierarchy completed successfully
+stallwart.build.js:1 stallwart: failed ping 1
+stallwart.build.js:1 stallwart: failed ping 2
+stallwart.build.js:1 stallwart: failed ping 3
+stallwart.build.js:1 stallwart: failed ping 4
+stallwart.build.js:1 stallwart: failed ping 5

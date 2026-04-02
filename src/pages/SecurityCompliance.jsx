@@ -1,0 +1,606 @@
+import React, { useState, useEffect } from "react";
+import { isPlatformAdminCheck } from "@/hooks/usePlatformAdmin";
+import { base44 } from "@/api/base44Client";
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import {
+  Shield,
+  Key,
+  FileText,
+  Download,
+  Lock,
+  Database,
+  Clock,
+  AlertTriangle,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Copy,
+  Trash2,
+  Plus
+} from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { toast } from "sonner";
+
+export default function SecurityCompliance() {
+  const [user, setUser] = useState(null);
+  const [showApiKey, setShowApiKey] = useState({});
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  React.useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { company: myCompany, isLoading: companyLoading } = useCurrentCompany(user);
+
+  const isPlatformOwner = isPlatformAdminCheck(user, myCompany, null);
+
+  // Fetch security settings entity (create one if doesn't exist)
+  const { data: securitySettings = [] } = useQuery({
+    queryKey: ['security-settings', myCompany?.id],
+    queryFn: async () => {
+      if (!myCompany) return [];
+      const settings = await base44.entities.CompanySetting.filter({ company_id: myCompany.id });
+      if (settings.length === 0) {
+        const newSettings = await base44.entities.CompanySetting.create({
+          company_id: myCompany.id,
+          require_2fa: false,
+          session_timeout: 480,
+          max_login_attempts: 5,
+          min_password_length: 8,
+          require_special_chars: false,
+          enable_audit_logging: true,
+          audit_retention_days: 90,
+          data_retention_days: 365,
+          allow_data_export: true,
+          require_export_approval: false
+        });
+        return [newSettings];
+      }
+      return settings;
+    },
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const currentSettings = securitySettings[0] || {};
+
+  // Update security settings
+  const updateSettingsMutation = useMutation({
+    mutationFn: async (updates) => {
+      if (securitySettings.length > 0) {
+        return await base44.entities.CompanySetting.update(securitySettings[0].id, updates);
+      } else {
+        return await base44.entities.CompanySetting.create(updates);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['security-settings'] });
+      toast.success('Security settings updated');
+    },
+  });
+
+  // Mock API Keys (in real implementation, store in separate entity)
+  const [apiKeys, setApiKeys] = useState([
+    {
+      id: '1',
+      name: 'Production API',
+      key: 'sk_live_' + Math.random().toString(36).substring(2, 15),
+      permissions: ['read', 'write'],
+      rateLimit: '1000/hour',
+      lastUsed: new Date().toISOString(),
+      status: 'active'
+    }
+  ]);
+
+  // Mock audit logs (in real implementation, fetch from entity)
+  const auditLogs = [
+    {
+      timestamp: new Date().toISOString(),
+      user: 'stonekevin866@gmail.com',
+      action: 'updated_security_settings',
+      entity: 'SecuritySettings',
+      details: 'Enabled 2FA requirement'
+    }
+  ];
+
+  // Mock data export requests
+  const [exportRequests, setExportRequests] = useState([]);
+
+  const handleSaveSettings = () => {
+    updateSettingsMutation.mutate(currentSettings);
+  };
+
+  const handleCreateApiKey = () => {
+    const newKey = {
+      id: Date.now().toString(),
+      name: 'New API Key',
+      key: 'sk_live_' + Math.random().toString(36).substring(2, 15),
+      permissions: ['read'],
+      rateLimit: '100/hour',
+      lastUsed: null,
+      status: 'active'
+    };
+    setApiKeys([...apiKeys, newKey]);
+    toast.success('API key created');
+  };
+
+  const handleDeleteApiKey = (id) => {
+    setApiKeys(apiKeys.filter(k => k.id !== id));
+    toast.success('API key deleted');
+  };
+
+  const handleRequestExport = () => {
+    const newRequest = {
+      id: Date.now().toString(),
+      date: new Date().toISOString(),
+      requestedBy: user?.email,
+      type: 'Full Backup',
+      status: 'pending',
+      records: 'All data'
+    };
+    setExportRequests([...exportRequests, newRequest]);
+    toast.success('Export request created');
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Copied to clipboard');
+  };
+
+  useEffect(() => {
+    if (user && !companyLoading && !isPlatformOwner) {
+      navigate(createPageUrl('Dashboard'), { replace: true });
+    }
+  }, [user, companyLoading, isPlatformOwner, navigate]);
+
+  if (!user || companyLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <Clock className="w-16 h-16 mx-auto mb-4 text-blue-600 animate-spin" />
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isPlatformOwner) {
+    return null;
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-center gap-4 mb-4">
+            <Button
+              variant="ghost"
+              onClick={() => navigate(createPageUrl('SaaSAdminDashboard'))}
+            >
+              ← Back to Admin Dashboard
+            </Button>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-14 h-14 bg-red-500 rounded-xl flex items-center justify-center">
+              <Shield className="w-8 h-8 text-white" />
+            </div>
+            <div>
+              <h1 className="text-4xl font-bold text-gray-900">Security & Compliance</h1>
+              <p className="text-gray-600">Manage security settings, API keys, and data privacy</p>
+            </div>
+          </div>
+        </div>
+
+        <Tabs defaultValue="security" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-4 lg:w-auto">
+            <TabsTrigger value="security">Security Settings</TabsTrigger>
+            <TabsTrigger value="api-keys">API Keys</TabsTrigger>
+            <TabsTrigger value="audit">Audit Log</TabsTrigger>
+            <TabsTrigger value="export">Data Export</TabsTrigger>
+          </TabsList>
+
+          {/* Security Settings Tab */}
+          <TabsContent value="security" className="space-y-6">
+            {/* Authentication & Access */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Lock className="w-5 h-5" />
+                  Authentication & Access
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* 2FA */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-gray-900">Require Two-Factor Authentication</div>
+                    <p className="text-sm text-gray-600">All users must enable 2FA to access the app</p>
+                  </div>
+                  <Switch
+                    checked={currentSettings.require_2fa || false}
+                    onCheckedChange={(checked) => {
+                      updateSettingsMutation.mutate({ require_2fa: checked });
+                    }}
+                  />
+                </div>
+
+                {/* Session Timeout */}
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <Label>Session Timeout (minutes)</Label>
+                    <Input
+                      type="number"
+                      value={currentSettings.session_timeout || 480}
+                      onChange={(e) => {
+                        updateSettingsMutation.mutate({ session_timeout: parseInt(e.target.value) });
+                      }}
+                      className="mt-2"
+                    />
+                    <p className="text-sm text-gray-600 mt-1">Auto-logout after inactivity</p>
+                  </div>
+
+                  <div>
+                    <Label>Max Login Attempts</Label>
+                    <Input
+                      type="number"
+                      value={currentSettings.max_login_attempts || 5}
+                      onChange={(e) => {
+                        updateSettingsMutation.mutate({ max_login_attempts: parseInt(e.target.value) });
+                      }}
+                      className="mt-2"
+                    />
+                    <p className="text-sm text-gray-600 mt-1">Lock account after failed attempts</p>
+                  </div>
+                </div>
+
+                {/* Password Requirements */}
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <Label>Minimum Password Length</Label>
+                    <Input
+                      type="number"
+                      value={currentSettings.min_password_length || 8}
+                      onChange={(e) => {
+                        updateSettingsMutation.mutate({ min_password_length: parseInt(e.target.value) });
+                      }}
+                      className="mt-2"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium text-gray-900">Require Special Characters</div>
+                      <p className="text-sm text-gray-600">Passwords must include symbols</p>
+                    </div>
+                    <Switch
+                      checked={currentSettings.require_special_chars || false}
+                      onCheckedChange={(checked) => {
+                        updateSettingsMutation.mutate({ require_special_chars: checked });
+                      }}
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Data & Privacy */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Database className="w-5 h-5" />
+                  Data & Privacy
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Audit Logging */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-gray-900">Enable Audit Logging</div>
+                    <p className="text-sm text-gray-600">Track all user actions for compliance</p>
+                  </div>
+                  <Switch
+                    checked={currentSettings.enable_audit_logging !== false}
+                    onCheckedChange={(checked) => {
+                      updateSettingsMutation.mutate({ enable_audit_logging: checked });
+                    }}
+                  />
+                </div>
+
+                {/* Retention Policies */}
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <Label>Audit Log Retention (days)</Label>
+                    <Input
+                      type="number"
+                      value={currentSettings.audit_retention_days || 90}
+                      onChange={(e) => {
+                        updateSettingsMutation.mutate({ audit_retention_days: parseInt(e.target.value) });
+                      }}
+                      className="mt-2"
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Data Retention (days)</Label>
+                    <Input
+                      type="number"
+                      value={currentSettings.data_retention_days || 365}
+                      onChange={(e) => {
+                        updateSettingsMutation.mutate({ data_retention_days: parseInt(e.target.value) });
+                      }}
+                      className="mt-2"
+                    />
+                    <p className="text-sm text-gray-600 mt-1">Days before permanent deletion</p>
+                  </div>
+                </div>
+
+                {/* Data Export */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-gray-900">Allow Data Export</div>
+                    <p className="text-sm text-gray-600">Users can request data exports (GDPR compliance)</p>
+                  </div>
+                  <Switch
+                    checked={currentSettings.allow_data_export !== false}
+                    onCheckedChange={(checked) => {
+                      updateSettingsMutation.mutate({ allow_data_export: checked });
+                    }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-gray-900">Require Export Approval</div>
+                    <p className="text-sm text-gray-600">Admin must approve data export requests</p>
+                  </div>
+                  <Switch
+                    checked={currentSettings.require_export_approval || false}
+                    onCheckedChange={(checked) => {
+                      updateSettingsMutation.mutate({ require_export_approval: checked });
+                    }}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="flex justify-end">
+              <Button
+                onClick={handleSaveSettings}
+                className="bg-blue-600 hover:bg-blue-700"
+                disabled={updateSettingsMutation.isPending}
+              >
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+                Save Settings
+              </Button>
+            </div>
+          </TabsContent>
+
+          {/* API Keys Tab */}
+          <TabsContent value="api-keys" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Key className="w-5 h-5" />
+                      API Keys
+                    </CardTitle>
+                    <p className="text-sm text-gray-600 mt-1">Manage API keys for integrations</p>
+                  </div>
+                  <Button onClick={handleCreateApiKey} className="bg-blue-600 hover:bg-blue-700">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create API Key
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b text-left">
+                        <th className="pb-3 text-sm font-medium text-gray-600">Name</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">Key</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">Permissions</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">Rate Limit</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">Last Used</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">Status</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {apiKeys.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="py-12 text-center text-gray-500">
+                            No API keys created yet
+                          </td>
+                        </tr>
+                      ) : (
+                        apiKeys.map((apiKey) => (
+                          <tr key={apiKey.id} className="border-b hover:bg-gray-50">
+                            <td className="py-4 font-medium text-gray-900">{apiKey.name}</td>
+                            <td className="py-4">
+                              <div className="flex items-center gap-2">
+                                <code className="text-sm bg-gray-100 px-2 py-1 rounded">
+                                  {showApiKey[apiKey.id] ? apiKey.key : '••••••••••••••••'}
+                                </code>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setShowApiKey({ ...showApiKey, [apiKey.id]: !showApiKey[apiKey.id] })}
+                                >
+                                  {showApiKey[apiKey.id] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => copyToClipboard(apiKey.key)}
+                                >
+                                  <Copy className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </td>
+                            <td className="py-4">
+                              <div className="flex gap-1">
+                                {apiKey.permissions.map(perm => (
+                                  <Badge key={perm} variant="outline" className="text-xs">
+                                    {perm}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="py-4 text-sm text-gray-600">{apiKey.rateLimit}</td>
+                            <td className="py-4 text-sm text-gray-600">
+                              {apiKey.lastUsed ? new Date(apiKey.lastUsed).toLocaleDateString() : 'Never'}
+                            </td>
+                            <td className="py-4">
+                              <Badge className={apiKey.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+                                {apiKey.status}
+                              </Badge>
+                            </td>
+                            <td className="py-4">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDeleteApiKey(apiKey.id)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Audit Log Tab */}
+          <TabsContent value="audit" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="w-5 h-5" />
+                  Audit Log
+                </CardTitle>
+                <p className="text-sm text-gray-600 mt-1">Track all user actions and changes</p>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b text-left">
+                        <th className="pb-3 text-sm font-medium text-gray-600">Timestamp</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">User</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">Action</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">Entity</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-12 text-center text-gray-500">
+                            No audit logs yet
+                          </td>
+                        </tr>
+                      ) : (
+                        auditLogs.map((log, index) => (
+                          <tr key={index} className="border-b hover:bg-gray-50">
+                            <td className="py-4 text-sm text-gray-600">
+                              {new Date(log.timestamp).toLocaleString()}
+                            </td>
+                            <td className="py-4 text-sm text-gray-900">{log.user}</td>
+                            <td className="py-4">
+                              <Badge variant="outline">{log.action}</Badge>
+                            </td>
+                            <td className="py-4 text-sm text-gray-600">{log.entity}</td>
+                            <td className="py-4 text-sm text-gray-600">{log.details}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Data Export Tab */}
+          <TabsContent value="export" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Download className="w-5 h-5" />
+                      Data Export Requests
+                    </CardTitle>
+                    <p className="text-sm text-gray-600 mt-1">GDPR-compliant data export and backup</p>
+                  </div>
+                  <Button onClick={handleRequestExport} className="bg-blue-600 hover:bg-blue-700">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Request Export
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b text-left">
+                        <th className="pb-3 text-sm font-medium text-gray-600">Date</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">Requested By</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">Type</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">Status</th>
+                        <th className="pb-3 text-sm font-medium text-gray-600">Records</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {exportRequests.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-12 text-center text-gray-500">
+                            No export requests yet
+                          </td>
+                        </tr>
+                      ) : (
+                        exportRequests.map((request) => (
+                          <tr key={request.id} className="border-b hover:bg-gray-50">
+                            <td className="py-4 text-sm text-gray-600">
+                              {new Date(request.date).toLocaleDateString()}
+                            </td>
+                            <td className="py-4 text-sm text-gray-900">{request.requestedBy}</td>
+                            <td className="py-4 text-sm text-gray-600">{request.type}</td>
+                            <td className="py-4">
+                              <Badge className={request.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
+                                {request.status}
+                              </Badge>
+                            </td>
+                            <td className="py-4 text-sm text-gray-600">{request.records}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
+  );
+}

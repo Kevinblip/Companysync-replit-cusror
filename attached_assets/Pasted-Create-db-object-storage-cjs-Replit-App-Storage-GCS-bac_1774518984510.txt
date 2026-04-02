@@ -1,0 +1,194 @@
+Create db/object-storage.cjs:
+
+/**
+ * Replit App Storage (GCS-backed) helper for CJS production code.
+ * Uses the local Replit sidecar at http://127.0.0.1:1106 to obtain
+ * signed URLs for PUT/GET/HEAD, then performs the actual operations
+ * directly against Google Cloud Storage.
+ *
+ * Bucket layout:
+ *   PUBLIC_OBJECT_SEARCH_PATHS = /replit-objstore-xxx/public
+ *   All uploads go into: {bucket}/public/{filename}
+ */
+const SIDECAR_URL = 'http://127.0.0.1:1106';
+function getBucketAndPrefix() {
+  const searchPaths = process.env.PUBLIC_OBJECT_SEARCH_PATHS || '';
+  const firstPath = searchPaths.split(',')[0].trim();
+  if (!firstPath) throw new Error('PUBLIC_OBJECT_SEARCH_PATHS not set — object storage not configured');
+  const parts = firstPath.split('/').filter(Boolean);
+  const bucketName = parts[0];
+  const prefix = parts.slice(1).join('/');
+  return { bucketName, prefix };
+}
+function getObjectName(filename) {
+  const { prefix } = getBucketAndPrefix();
+  return prefix ? `${prefix}/${filename}` : filename;
+}
+async function getSignedUrl(filename, method, ttlSec = 900) {
+  const { bucketName } = getBucketAndPrefix();
+  const objectName = getObjectName(filename);
+  const expiresAt = new Date(Date.now() + ttlSec * 1000).toISOString();
+  const response = await fetch(`${SIDECAR_URL}/object-storage/signed-object-url`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bucket_name: bucketName, object_name: objectName, method, expires_at: expiresAt }),
+  });
+  if (!response.ok) {
+    const txt = await response.text().catch(() => response.status);
+    throw new Error(`Sidecar signed-URL error (${response.status}): ${txt}`);
+  }
+  const data = await response.json();
+  return data.signed_url;
+}
+async function uploadToObjectStorage(filename, buffer, mimeType) {
+  const signedUrl = await getSignedUrl(filename, 'PUT', 900);
+  const response = await fetch(signedUrl, {
+    method: 'PUT',
+    body: buffer,
+    headers: { 'Content-Type': mimeType },
+    duplex: 'half',
+  });
+  if (!response.ok) {
+    const txt = await response.text().catch(() => response.status);
+    throw new Error(`Upload to object storage failed (${response.status}): ${txt}`);
+  }
+  return true;
+}
+async function downloadFromObjectStorage(filename) {
+  try {
+    const signedUrl = await getSignedUrl(filename, 'GET', 900);
+    const response = await fetch(signedUrl);
+    if (response.status === 403 || response.status === 404) return null;
+    if (!response.ok) throw new Error(`Download failed (${response.status})`);
+    const buf = await response.arrayBuffer();
+    return Buffer.from(buf);
+  } catch (e) {
+    if (e.message && (e.message.includes('not found') || e.message.includes('ECONNREFUSED'))) return null;
+    throw e;
+  }
+}
+async function objectExistsInStorage(filename) {
+  try {
+    const signedUrl = await getSignedUrl(filename, 'GET', 60);
+    const response = await fetch(signedUrl, { method: 'HEAD' });
+    return response.ok;
+  } catch (e) {
+    return false;
+  }
+}
+async function isObjectStorageAvailable() {
+  try {
+    const paths = process.env.PUBLIC_OBJECT_SEARCH_PATHS || '';
+    if (!paths) return false;
+    const response = await fetch(`${SIDECAR_URL}/token`, { signal: AbortSignal.timeout(2000) });
+    return response.status < 500;
+  } catch (e) {
+    return false;
+  }
+}
+module.exports = {
+  uploadToObjectStorage,
+  downloadFromObjectStorage,
+  objectExistsInStorage,
+  isObjectStorageAvailable,
+};
+Create db/migrate-photos-to-storage.cjs:
+
+/**
+ * One-time migration: move existing file_uploads binary data from PostgreSQL
+ * into Replit App Storage (GCS), then NULL out the file_data column.
+ *
+ * Run: node db/migrate-photos-to-storage.cjs [--dry-run] [--batch=10] [--limit=50]
+ * Idempotent: files already in object storage are skipped.
+ */
+'use strict';
+const { uploadToObjectStorage, downloadFromObjectStorage, isObjectStorageAvailable } = require('./object-storage.cjs');
+const path = require('path');
+const args = process.argv.slice(2);
+const DRY_RUN    = args.includes('--dry-run');
+const BATCH_SIZE = parseInt((args.find(a => a.startsWith('--batch=')) || '--batch=10').split('=')[1], 10);
+const LIMIT      = parseInt((args.find(a => a.startsWith('--limit=')) || '--limit=9999').split('=')[1], 10);
+const MIME_TYPES = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+  '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+  '.pdf': 'application/pdf', '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.csv': 'text/csv', '.txt': 'text/plain',
+  '.heic': 'image/heic', '.heif': 'image/heif',
+  '.bmp': 'image/bmp', '.tiff': 'image/tiff', '.tif': 'image/tiff',
+};
+async function main() {
+  console.log('=== Photo Storage Migration ===');
+  console.log(`Mode: ${DRY_RUN ? 'DRY RUN (no changes)' : 'LIVE'}`);
+  console.log(`Batch size: ${BATCH_SIZE}, Limit: ${LIMIT}`);
+  const available = await isObjectStorageAvailable();
+  if (!available) {
+    console.error('ERROR: Object storage sidecar not reachable. Must run on Replit.');
+    process.exit(1);
+  }
+  console.log('Object storage sidecar: OK');
+  console.log('Bucket:', process.env.PUBLIC_OBJECT_SEARCH_PATHS);
+  const prodDb = require('./prod-db.cjs');
+  const pool = prodDb.getPool();
+  const countRes = await pool.query(`SELECT COUNT(*) FROM file_uploads WHERE file_data IS NOT NULL`);
+  const totalToMigrate = parseInt(countRes.rows[0].count, 10);
+  console.log(`\nFiles with binary data in DB: ${totalToMigrate}`);
+  if (totalToMigrate === 0) {
+    console.log('Nothing to migrate. Done.');
+    await pool.end();
+    return;
+  }
+  const toProcess = Math.min(totalToMigrate, LIMIT);
+  console.log(`Will process: ${toProcess} files in batches of ${BATCH_SIZE}\n`);
+  let offset = 0, migrated = 0, skipped = 0, failed = 0;
+  while (migrated + skipped < toProcess) {
+    const batchLimit = Math.min(BATCH_SIZE, toProcess - migrated - skipped);
+    const batchRes = await pool.query(
+      `SELECT id, mime_type, file_size, file_data FROM file_uploads WHERE file_data IS NOT NULL ORDER BY id LIMIT $1 OFFSET $2`,
+      [batchLimit, offset]
+    );
+    if (batchRes.rows.length === 0) break;
+    for (const row of batchRes.rows) {
+      const { id, mime_type, file_size, file_data } = row;
+      const ext = path.extname(id).toLowerCase();
+      const resolvedMime = mime_type || MIME_TYPES[ext] || 'application/octet-stream';
+      try {
+        const existing = await downloadFromObjectStorage(id);
+        if (existing && existing.length > 0) {
+          console.log(`  SKIP  ${id} (already in object storage)`);
+          skipped++;
+          if (!DRY_RUN) await pool.query(`UPDATE file_uploads SET file_data = NULL WHERE id = $1`, [id]);
+          continue;
+        }
+        if (!DRY_RUN) {
+          await uploadToObjectStorage(id, file_data, resolvedMime);
+          const verify = await downloadFromObjectStorage(id);
+          if (!verify || verify.length === 0) throw new Error(`Verification failed`);
+          await pool.query(`UPDATE file_uploads SET file_data = NULL WHERE id = $1`, [id]);
+          console.log(`  OK    ${id} (${Math.round(file_size / 1024)} KB → object storage)`);
+        } else {
+          console.log(`  DRY   ${id} (${Math.round(file_size / 1024)} KB) — would migrate`);
+        }
+        migrated++;
+      } catch (err) {
+        console.error(`  FAIL  ${id}: ${err.message}`);
+        failed++;
+        offset++;
+      }
+    }
+    if (DRY_RUN) offset += batchRes.rows.length;
+  }
+  console.log(`\n=== Done === Migrated: ${migrated}, Skipped: ${skipped}, Failed: ${failed}`);
+  const after = await pool.query(`SELECT COUNT(*), pg_size_pretty(SUM(octet_length(file_data))) as size FROM file_uploads WHERE file_data IS NOT NULL`);
+  console.log(`Remaining binary rows: ${after.rows[0].count} (${after.rows[0].size || '0 bytes'})`);
+  await pool.end();
+}
+main().catch(err => { console.error('Migration error:', err); process.exit(1); });
+Then tell the clone: Once both files are created, run the dry run first to confirm it can connect, then run live:
+
+node db/migrate-photos-to-storage.cjs --dry-run
+node db/migrate-photos-to-storage.cjs --batch=10
+The script requires db/prod-db.cjs to already exist in the project (for the database pool) and the PUBLIC_OBJECT_SEARCH_PATHS env var to be set (provisioned via the Replit App Storage integration).
+

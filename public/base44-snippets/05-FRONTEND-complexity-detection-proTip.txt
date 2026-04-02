@@ -1,0 +1,96 @@
+// ============================================================
+// FILE: src/pages/AIEstimator.jsx
+// TARGETED CHANGES — Apply these to your existing AIEstimator.jsx
+// ============================================================
+// WHAT CHANGED:
+//   1. Added complexity detection in calculateRealConfidence()
+//   2. Added proTip field returned from confidence calculation
+//   3. Added pro_tip passthrough to satellite analysis results
+//   4. Added Pro Tip blue info banner in estimate results UI
+//   5. Added Info icon import from lucide-react
+// ============================================================
+
+
+// ===== CHANGE 1: Add "Info" to your lucide-react imports =====
+// Find your existing lucide-react import and add Info:
+import {
+  // ... your existing icons ...
+  Info   // <-- ADD THIS
+} from "lucide-react";
+
+
+// ===== CHANGE 2: Complexity detection in calculateRealConfidence() =====
+// Inside calculateRealConfidence(), AFTER you calculate hip, valley, etc.
+// and BEFORE the geometry checks, ADD this block:
+
+    let complexityScore = 95;
+    const totalLinears = ridge + hip + valley + rake + eave + stepFlash;
+    const hipValleyRatio = area > 0 ? (hip + valley) / (area * 10) : 0;
+
+    const numSegments = Number(analysis.num_segments) || 0;
+    const isComplexRoof = (hip > 60 || valley > 80 || numSegments > 12 || hipValleyRatio > 0.8);
+    const isVeryComplexRoof = ((hip > 100 && valley > 60) || numSegments > 16 || hipValleyRatio > 1.2);
+
+    if (isVeryComplexRoof) {
+      complexityScore -= 25;
+      warnings.push('Very complex roof with many hips, valleys, or dormers — satellite accuracy is limited for this type of roof');
+    } else if (isComplexRoof) {
+      complexityScore -= 15;
+      warnings.push('Complex roof geometry detected — consider supplementing with an aerial report for best accuracy');
+    } else if (hipValleyRatio > 0.4) {
+      complexityScore -= 4;
+    }
+    if (stepFlash > 50) { complexityScore -= 5; }
+
+    let proTip = null;
+    if (isVeryComplexRoof) {
+      proTip = 'This roof has complex geometry (multiple hips, valleys, or dormers). For the most accurate bid, we recommend pairing this estimate with an aerial measurement report or physical inspection before ordering materials.';
+    } else if (isComplexRoof) {
+      proTip = 'This roof has some complexity. Consider verifying key measurements with an aerial report or on-site inspection for material ordering confidence.';
+    }
+
+    details.complexity = { score: Math.max(complexityScore, 50), ratio: hipValleyRatio.toFixed(2), isComplex: isComplexRoof, isVeryComplex: isVeryComplexRoof, numSegments };
+    factors.push(Math.max(complexityScore, 50));
+
+
+// ===== CHANGE 3: Add proTip to return object =====
+// In the return statement of calculateRealConfidence(), add proTip:
+
+    return {
+      overall,
+      grade,
+      gradeColor,
+      tolerancePct,
+      pitchMultiplier: pitchMult,
+      correctedAreaSq: Math.round(correctedAreaSq * 100) / 100,
+      correctedAreaSqFt: Math.round(correctedAreaSqFt),
+      areaRange: { low: Math.round(areaLow * 100) / 100, high: Math.round(areaHigh * 100) / 100 },
+      perMeasurement,
+      details,
+      warnings,
+      proTip,       // <-- ADD THIS LINE
+      source: sourceInfo.label
+    };
+
+
+// ===== CHANGE 4: Pass proTip to analysis object =====
+// Where you assign realConf values to the analysis object
+// (after calculateRealConfidence() is called), ADD this line:
+
+      if (realConf.proTip) analysis.pro_tip = realConf.proTip;
+
+
+// ===== CHANGE 5: Pro Tip banner in the UI =====
+// In your satellite analysis results section, AFTER the grid with
+// Roof Area / Order Qty / Pitch Multiplier cards, and BEFORE the
+// linear measurement grid, ADD this JSX:
+
+                        {satelliteAnalysis.pro_tip && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2 flex items-start gap-2" data-testid="pro-tip-banner">
+                            <Info className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                            <div>
+                              <span className="text-blue-800 font-semibold text-xs">Pro Tip:</span>
+                              <p className="text-blue-700 text-xs mt-0.5">{satelliteAnalysis.pro_tip}</p>
+                            </div>
+                          </div>
+                        )}

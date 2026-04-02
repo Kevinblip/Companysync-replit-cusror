@@ -1,0 +1,529 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { 
+  Bell, 
+  Calendar, 
+  CheckCircle2, 
+  Clock, 
+  AlertCircle,
+  Trash2,
+  RefreshCw
+} from "lucide-react";
+import { format, isToday, isTomorrow, isPast, isFuture, addDays } from "date-fns";
+
+export default function Reminders() {
+  const [user, setUser] = useState(null);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { company: myCompany } = useCurrentCompany(user);
+
+  const { data: tasks = [], isLoading: tasksLoading } = useQuery({
+    queryKey: ['my-tasks', user?.email, myCompany?.id],
+    queryFn: async () => {
+      if (!user || !myCompany) return [];
+      const allTasks = await base44.entities.Task.filter({ company_id: myCompany.id }, '-due_date', 1000);
+      return allTasks.filter(t => 
+        (t.assigned_to === user.email || t.assignees?.some(a => a.email === user.email)) &&
+        t.due_date && 
+        !t.is_archived &&
+        t.status !== 'job_completed'
+      );
+    },
+    enabled: !!user && !!myCompany,
+    initialData: [],
+  });
+
+  const { data: calendarEvents = [], isLoading: eventsLoading } = useQuery({
+    queryKey: ['my-upcoming-events', user?.email, myCompany?.id],
+    queryFn: async () => {
+      if (!user || !myCompany) return [];
+      const today = new Date();
+      const nextWeek = addDays(today, 7);
+      
+      const allEvents = await base44.entities.CalendarEvent.filter({ company_id: myCompany.id }, '-start_time', 500);
+      return allEvents.filter(e => {
+        const eventDate = new Date(e.start_time);
+        return eventDate >= today && 
+               eventDate <= nextWeek &&
+               e.status === 'scheduled' &&
+               (e.assigned_to === user.email || e.attendees?.includes(user.email));
+      });
+    },
+    enabled: !!user && !!myCompany,
+    initialData: [],
+  });
+
+  const completeTaskMutation = useMutation({
+    mutationFn: ({ taskId, completed }) => 
+      base44.entities.Task.update(taskId, { 
+        status: completed ? 'job_completed' : 'in_progress',
+        column: completed ? 'job_completed' : 'in_progress'
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+    },
+  });
+
+  const deleteTaskMutation = useMutation({
+    mutationFn: (taskId) => base44.entities.Task.delete(taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+    },
+  });
+
+  const getTaskPriorityColor = (priority) => {
+    switch (priority) {
+      case 'high': return 'bg-red-100 text-red-700 border-red-300';
+      case 'medium': return 'bg-yellow-100 text-yellow-700 border-yellow-300';
+      case 'low': return 'bg-blue-100 text-blue-700 border-blue-300';
+      default: return 'bg-gray-100 text-gray-700 border-gray-300';
+    }
+  };
+
+  const getTaskUrgency = (dueDate) => {
+    if (!dueDate) return 'none';
+    const date = new Date(dueDate);
+    if (isPast(date)) return 'overdue';
+    if (isToday(date)) return 'today';
+    if (isTomorrow(date)) return 'tomorrow';
+    return 'upcoming';
+  };
+
+  const groupedTasks = React.useMemo(() => {
+    const overdue = tasks.filter(t => getTaskUrgency(t.due_date) === 'overdue');
+    const today = tasks.filter(t => getTaskUrgency(t.due_date) === 'today');
+    const tomorrow = tasks.filter(t => getTaskUrgency(t.due_date) === 'tomorrow');
+    const upcoming = tasks.filter(t => getTaskUrgency(t.due_date) === 'upcoming');
+    
+    return { overdue, today, tomorrow, upcoming };
+  }, [tasks]);
+
+  const getEventTypeColor = (type) => {
+    const colors = {
+      meeting: 'bg-blue-100 text-blue-700',
+      inspection: 'bg-green-100 text-green-700',
+      call: 'bg-purple-100 text-purple-700',
+      appointment: 'bg-orange-100 text-orange-700',
+      reminder: 'bg-yellow-100 text-yellow-700',
+      estimate: 'bg-pink-100 text-pink-700',
+      other: 'bg-gray-100 text-gray-700',
+    };
+    return colors[type] || colors.other;
+  };
+
+  const groupedEvents = React.useMemo(() => {
+    const today = calendarEvents.filter(e => isToday(new Date(e.start_time)));
+    const tomorrow = calendarEvents.filter(e => isTomorrow(new Date(e.start_time)));
+    const upcoming = calendarEvents.filter(e => {
+      const date = new Date(e.start_time);
+      return !isToday(date) && !isTomorrow(date);
+    });
+    
+    return { today, tomorrow, upcoming };
+  }, [calendarEvents]);
+
+  if (tasksLoading || eventsLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  const totalReminders = tasks.length + calendarEvents.length;
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 p-4 md:p-6 pb-24">
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                <Bell className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Reminders</h1>
+                <p className="text-sm text-gray-600">
+                  {totalReminders === 0 ? 'All caught up!' : `${totalReminders} upcoming reminder${totalReminders > 1 ? 's' : ''}`}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Overdue Tasks */}
+        {groupedTasks.overdue.length > 0 && (
+          <Card className="border-red-300 bg-red-50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-red-700">
+                <AlertCircle className="w-5 h-5" />
+                Overdue Tasks ({groupedTasks.overdue.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {groupedTasks.overdue.map((task) => (
+                <div key={task.id} className="bg-white p-4 rounded-lg border border-red-200 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      checked={false}
+                      onCheckedChange={(checked) => 
+                        completeTaskMutation.mutate({ taskId: task.id, completed: checked })
+                      }
+                      className="mt-1"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900">{task.name}</h3>
+                      {task.description && (
+                        <p className="text-sm text-gray-600 mt-1">{task.description}</p>
+                      )}
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300">
+                          <Clock className="w-3 h-3 mr-1" />
+                          Due {format(new Date(task.due_date), 'MMM d, yyyy')}
+                        </Badge>
+                        {task.priority && (
+                          <Badge className={getTaskPriorityColor(task.priority)}>
+                            {task.priority}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        if (confirm('Delete this task?')) {
+                          deleteTaskMutation.mutate(task.id);
+                        }
+                      }}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Today's Tasks */}
+        {groupedTasks.today.length > 0 && (
+          <Card className="border-orange-300 bg-orange-50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-orange-700">
+                <AlertCircle className="w-5 h-5" />
+                Due Today ({groupedTasks.today.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {groupedTasks.today.map((task) => (
+                <div key={task.id} className="bg-white p-4 rounded-lg border border-orange-200 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      checked={false}
+                      onCheckedChange={(checked) => 
+                        completeTaskMutation.mutate({ taskId: task.id, completed: checked })
+                      }
+                      className="mt-1"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900">{task.name}</h3>
+                      {task.description && (
+                        <p className="text-sm text-gray-600 mt-1">{task.description}</p>
+                      )}
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">
+                          <Clock className="w-3 h-3 mr-1" />
+                          Today
+                        </Badge>
+                        {task.priority && (
+                          <Badge className={getTaskPriorityColor(task.priority)}>
+                            {task.priority}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        if (confirm('Delete this task?')) {
+                          deleteTaskMutation.mutate(task.id);
+                        }
+                      }}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Tomorrow's Tasks */}
+        {groupedTasks.tomorrow.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-blue-700">
+                <Clock className="w-5 h-5" />
+                Due Tomorrow ({groupedTasks.tomorrow.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {groupedTasks.tomorrow.map((task) => (
+                <div key={task.id} className="bg-white p-4 rounded-lg border shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      checked={false}
+                      onCheckedChange={(checked) => 
+                        completeTaskMutation.mutate({ taskId: task.id, completed: checked })
+                      }
+                      className="mt-1"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900">{task.name}</h3>
+                      {task.description && (
+                        <p className="text-sm text-gray-600 mt-1">{task.description}</p>
+                      )}
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
+                          <Clock className="w-3 h-3 mr-1" />
+                          Tomorrow
+                        </Badge>
+                        {task.priority && (
+                          <Badge className={getTaskPriorityColor(task.priority)}>
+                            {task.priority}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        if (confirm('Delete this task?')) {
+                          deleteTaskMutation.mutate(task.id);
+                        }
+                      }}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Upcoming Tasks */}
+        {groupedTasks.upcoming.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="w-5 h-5" />
+                Upcoming Tasks ({groupedTasks.upcoming.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {groupedTasks.upcoming.map((task) => (
+                <div key={task.id} className="bg-white p-4 rounded-lg border shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      checked={false}
+                      onCheckedChange={(checked) => 
+                        completeTaskMutation.mutate({ taskId: task.id, completed: checked })
+                      }
+                      className="mt-1"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900">{task.name}</h3>
+                      {task.description && (
+                        <p className="text-sm text-gray-600 mt-1">{task.description}</p>
+                      )}
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <Badge variant="outline">
+                          <Clock className="w-3 h-3 mr-1" />
+                          {format(new Date(task.due_date), 'MMM d, yyyy')}
+                        </Badge>
+                        {task.priority && (
+                          <Badge className={getTaskPriorityColor(task.priority)}>
+                            {task.priority}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        if (confirm('Delete this task?')) {
+                          deleteTaskMutation.mutate(task.id);
+                        }
+                      }}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Today's Events */}
+        {groupedEvents.today.length > 0 && (
+          <Card className="border-green-300 bg-green-50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-green-700">
+                <Calendar className="w-5 h-5" />
+                Today's Events ({groupedEvents.today.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {groupedEvents.today.map((event) => (
+                <div key={event.id} className="bg-white p-4 rounded-lg border border-green-200 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <Calendar className="w-5 h-5 text-green-600 mt-1 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900">{event.title}</h3>
+                      {event.description && (
+                        <p className="text-sm text-gray-600 mt-1">{event.description}</p>
+                      )}
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <Badge className="bg-green-100 text-green-700">
+                          <Clock className="w-3 h-3 mr-1" />
+                          {format(new Date(event.start_time), 'h:mm a')}
+                        </Badge>
+                        <Badge className={getEventTypeColor(event.event_type)}>
+                          {event.event_type?.replace('_', ' ')}
+                        </Badge>
+                        {event.location && (
+                          <Badge variant="outline" className="text-xs">
+                            📍 {event.location}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Tomorrow's Events */}
+        {groupedEvents.tomorrow.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="w-5 h-5" />
+                Tomorrow's Events ({groupedEvents.tomorrow.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {groupedEvents.tomorrow.map((event) => (
+                <div key={event.id} className="bg-white p-4 rounded-lg border shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <Calendar className="w-5 h-5 text-blue-600 mt-1 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900">{event.title}</h3>
+                      {event.description && (
+                        <p className="text-sm text-gray-600 mt-1">{event.description}</p>
+                      )}
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <Badge variant="outline">
+                          <Clock className="w-3 h-3 mr-1" />
+                          {format(new Date(event.start_time), 'h:mm a')}
+                        </Badge>
+                        <Badge className={getEventTypeColor(event.event_type)}>
+                          {event.event_type?.replace('_', ' ')}
+                        </Badge>
+                        {event.location && (
+                          <Badge variant="outline" className="text-xs">
+                            📍 {event.location}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Upcoming Events */}
+        {groupedEvents.upcoming.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="w-5 h-5" />
+                Upcoming Events ({groupedEvents.upcoming.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {groupedEvents.upcoming.map((event) => (
+                <div key={event.id} className="bg-white p-4 rounded-lg border shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <Calendar className="w-5 h-5 text-blue-600 mt-1 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900">{event.title}</h3>
+                      {event.description && (
+                        <p className="text-sm text-gray-600 mt-1">{event.description}</p>
+                      )}
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <Badge variant="outline">
+                          <Clock className="w-3 h-3 mr-1" />
+                          {format(new Date(event.start_time), 'MMM d, h:mm a')}
+                        </Badge>
+                        <Badge className={getEventTypeColor(event.event_type)}>
+                          {event.event_type?.replace('_', ' ')}
+                        </Badge>
+                        {event.location && (
+                          <Badge variant="outline" className="text-xs">
+                            📍 {event.location}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Empty State */}
+        {totalReminders === 0 && (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                <CheckCircle2 className="w-10 h-10 text-green-600" />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">All Caught Up!</h3>
+              <p className="text-gray-600 text-center max-w-md">
+                You have no pending tasks or upcoming events. Great job staying on top of things!
+              </p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,1033 @@
+company_id
+title
+content
+summary
+category
+tags
+attachments
+is_published
+is_ai_training
+ai_assistant_targets
+priority
+view_count
+helpful_count
+not_helpful_count
+rating_average
+rating_count
+feedback
+695944e3c1fb00b7ab716c6f
+Twilio Set up
+<p>Step-by-step training video</p><p><a href="https://preview-sandbox--3f46b77123962c025692619cf2ed8faa.base44.app/TrainingVideoPlayer?id=698fa638135ab302c8aeaa73" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 12</p>
+Training Videos
+[]
+[]
+true
+true
+["sarah"]
+8
+12
+4
+1
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+698498ec6970b991394546bd
+Welcome to the CRM
+<p>Step-by-step training video</p><p><a href="https://preview-sandbox--19216ef3c9148a48cde7bc4ca709f323.base44.app/TrainingVideoPlayer?id=69871c11d6e23d52b8997471" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 7</p>
+Training Videos
+[]
+[]
+true
+true
+["lexi","estimator","sarah","marcus"]
+8
+12
+4
+2
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Field Operations: Territory Management & Mobile App Guide
+# Field Operations: Territory Management & Mobile App Manage your sales territories, track field reps in real-time, and optimize door-knocking routes with the Field Operations tools. --- ## Territory Manager ### What It Does - Define geographic sales territories - Assign reps to specific areas - Prevent territory overlap conflicts - Track performance by region --- ### Accessing Territory Manager Go to **Field Operations → Territory Manager** from the sidebar. ![Territory Manager Navigatio...
+services
+["field operations","territory","mobile app","door knocking","canvassing","GPS"]
+[{"name":"Territory Manager Navigation","type":"image","url":"https://base44.app/api/apps/6959400ce977cc44003a6384/files/public/6959400ce977cc44003a6384/da2f61838_Screenshot2026-02-06040736.png"},{"name":"Territory Map View","type":"image","url":"https://base44.app/api/apps/6959400ce977cc44003a6384/files/public/6959400ce977cc44003a6384/ae77f48d1_Screenshot2026-02-06040750.png"},{"name":"Territory Settings","type":"image","url":"https://base44.app/api/apps/6959400ce977cc44003a6384/files/public/69...
+true
+true
+["lexi","estimator"]
+8
+31
+9
+1
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Roofing Line Items: Standard Order & Checklist
+# Roofing Line Items: Standard Order & Checklist Always write your estimates in this order for consistency and to ensure nothing is missed. Insurance adjusters expect line items in a logical sequence. --- ## Standard Line Item Order ### Section 1: Tear-Off & Removal | Order | Code | Description | Unit | |-------|------|-------------|------| | 1 | RFG RSHN | Remove - Composition shingles | SQ | | 2 | RFG RFELT | Remove - Roofing felt | SQ | | 3 | RFG RFLASH | Remove - Flashing | LF | | 4 | R...
+policies
+["line items","estimating","checklist","order","xactimate"]
+[]
+true
+true
+["lexi","estimator"]
+9
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+AI Estimator: Complete Quick Reference Guide
+# AI Estimator: Complete Quick Reference Guide The AI Estimator analyzes photos, measurements, and property data to generate accurate roofing estimates in minutes. This guide covers everything you need to know. --- ## Getting Started ### Accessing the AI Estimator Go to **AI Tools → AI Estimator** from the sidebar. ![Navigate to AI Estimator](https://base44.app/api/apps/6959400ce977cc44003a6384/files/public/6959400ce977cc44003a6384/8318d62ed_Screenshot2026-02-06063502.png) **Caption: Naviga...
+processes
+["ai estimator","estimates","quick reference","pricing"]
+[]
+true
+true
+["lexi","estimator"]
+9
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Insurance Estimates: Reading & Matching Carrier Estimates
+# Insurance Estimates: Reading & Matching Carrier Estimates When working insurance claims, you need to understand how adjusters write estimates and how to match or supplement them. This guide teaches you to read insurance estimates like a pro. --- ## Understanding Insurance Estimate Structure Insurance estimates follow a specific format (usually Xactimate): ``` CLAIM INFORMATION ----------------- Claim #: 2024-ABC-123456 Date of Loss: 01/15/2024 Policy #: HO-987654321 Insured: John & Jane S...
+policies
+["insurance","xactimate","estimates","claims","supplements","O&P"]
+[]
+true
+true
+["lexi","estimator"]
+10
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Accounting Dashboard: Complete Guide
+# Accounting Dashboard: Complete Guide The Accounting Dashboard gives you a real-time view of your company's financial health. Track income, expenses, profit margins, and cash flow all in one place. --- ## Accessing the Dashboard Go to **Accounting → Dashboard** from the sidebar. ![SCREENSHOT NEEDED: Sidebar showing Accounting menu expanded with Dashboard highlighted] **Caption: Navigate to Accounting Dashboard** --- ## Dashboard Overview The dashboard displays key metrics in easy-to-rea...
+processes
+["accounting","dashboard","finances","reports","profit"]
+[]
+true
+true
+["lexi","estimator"]
+8
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Customer Portal: Complete Setup & Usage Guide
+# Customer Portal: Complete Setup & Usage Guide The Customer Portal gives your clients a professional, self-service webpage where they can view estimates, pay invoices, sign contracts, and communicate with your team—without creating a username or password. --- ## How the Portal Works Customers access their portal via a **Magic Link**—a secure, unique URL that's sent via email or SMS. No passwords to forget, no accounts to create. --- ## Sending a Portal Link to a Customer ### Step 1: Open...
+services
+["portal","customer service","payments","estimates","contracts"]
+[]
+true
+true
+["lexi","estimator"]
+8
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Lead Finder & Storm Tracking: Complete Guide
+# Lead Finder & Storm Tracking: Complete Guide Find new customers by tracking severe weather events and identifying properties in affected areas. This is one of the most powerful lead generation tools for roofing and restoration contractors. --- ## Storm Tracking ### What It Shows The Storm Tracker displays recent severe weather events on an interactive map: - **Hail storms** with size and intensity - **Wind events** with speed data - **Tornado paths** with damage corridors - **Flood zones**...
+services
+["leads","storm","canvassing","hail","prospecting","lead-generation"]
+[]
+true
+true
+["lexi","estimator"]
+9
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Using the Accounting Dashboard: Financial Mastery
+<h3>Accounting Dashboard: Financial Mastery</h3> <p>The Accounting Dashboard is your financial command center. Here is how to use every feature to keep your books balanced.</p> <h4>1. Understanding the Metrics</h4> <ul> <li><strong>Total Revenue:</strong> The sum of all <em>Payments</em> with status 'Received'. Does not include pending invoices.</li> <li><strong>Net Profit:</strong> (Total Revenue) - (Expenses + Payouts + Commissions). This is your real take-home.</li></ul>
+processes
+["accounting","finance","dashboard"]
+true
+true
+["lexi","estimator"]
+8
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Sarah AI Sales Assistant: Configuration Guide
+<h3>Sarah AI Sales Assistant: Configuration Guide</h3> <p>Sarah is your front-line defense for handling leads. Configure her correctly to maximize conversions.</p> <h4>1. Behavior Settings</h4> <ul> <li><strong>Business Hours:</strong> Set your "Open" and "Closed" hours in <em>Sarah Settings</em>. <ul> <li><em>During Hours:</em> Sarah tries to book appointments.</li> <li><em>After Hours:</em> Sarah takes messages and marks urgency.</li></ul></li></ul>
+services
+["ai","sarah","sales","automation"]
+true
+true
+["lexi","estimator"]
+9
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+When to Add Steep Charges: Complete Pricing Guide
+# When to Add Steep Charges: Complete Pricing Guide Steep and high roof charges compensate for the extra labor, safety equipment, and time required when working on pitched roofs. This guide tells you exactly when to apply them and how much to charge. --- ## Roof Pitch Reference Chart | Pitch | Rise/Run | Degrees | Walk-ability | Charge Level | |-------|----------|---------|--------------|-------------| | 3/12 | 3" per foot | 14° | Easy walk | None | | 4/12 | 4" per foot | 18° | Easy walk | N...
+policies
+["pricing","steep","high roof","pitch","estimating"]
+[]
+true
+true
+["lexi","estimator"]
+9
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Siding Job Standard Components: Complete Checklist
+# Siding Job Standard Components: Complete Checklist Every siding estimate should include these standard components to ensure code compliance, proper installation, and no surprises on install day. --- ## Required Components Overview | # | Component | Why It's Required | |---|-----------|------------------| | 1 | Tear-Off & Disposal | Remove existing siding | | 2 | House Wrap / WRB | Weather-resistant barrier | | 3 | Siding Material | The actual siding | | 4 | Starter Strip | First course fou...
+policies
+["siding","estimating","components","checklist","vinyl","james hardie"]
+[]
+true
+true
+["lexi","estimator"]
+9
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Field Operations: Territory & App Guide
+<h3>Field Operations: Territory & App Guide</h3> <p>Master the map and keep your field team organized.</p> <h4>1. Drawing Territories</h4> <ul> <li>Go to <strong>Operations > Territory Manager</strong>.</li> <li>Use the <strong>"Draw Polygon"</strong> tool to outline a neighborhood.</li> <li><strong>Assign:</strong> Click the shape and select a Sales Rep. Only they will see leads in this area on their mobile app.</li></ul>
+processes
+["field operations","territory","mobile"]
+true
+true
+["lexi","estimator"]
+7
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Setting Up Workflows: Complete Automation Guide
+# Setting Up Workflows: Complete Automation Guide Workflows let you automate repetitive tasks like follow-up emails, status updates, and notifications. Instead of manually remembering to send an email 3 days after a proposal, the system does it for you. --- ## Understanding Workflow Components ### Triggers Triggers are the events that START your automation: | Trigger Type | When It Fires | Best Used For | |-------------|---------------|---------------| | **New Lead Created** | When any lead...
+processes
+["automation","workflows","email","follow-up","sequences"]
+[]
+true
+true
+["lexi","estimator"]
+9
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Standard Roof Replacement Checklist
+# Standard Roof Replacement Checklist Use this checklist to ensure every roof replacement job is completed correctly, safely, and to code. Print this out or use it digitally on every job. --- ## Pre-Job Checklist (Day Before) ### Customer Communication - [ ] Confirm install date with homeowner - [ ] Remind customer to move vehicles from driveway - [ ] Inform neighbors (shared driveways/close proximity) - [ ] Verify gate codes or access instructions - [ ] Confirm someone will be available to ...
+processes
+["roofing","checklist","installation","quality"]
+[]
+true
+true
+["lexi","estimator"]
+10
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Family Commissions: Complete Setup & Payout Guide
+# Family Commissions: Complete Setup & Payout Guide Family Commissions lets you automatically share profits with family members, silent partners, or investors without adding them as system users. They get paid based on a percentage of your revenue. --- ## Understanding How It Works ### The Family Pool First, you define what percentage of **total revenue** goes into the "family pool." Then, each family member gets their share of THAT pool. **Example:** ``` Total Invoice Revenue: $100,000 Fam...
+team
+["commissions","family","payouts","profit-sharing","partners"]
+[{"name":"Family Commissions Dashboard","url":"https://base44.app/api/apps/6959400ce977cc44003a6384/files/public/6959400ce977cc44003a6384/bea168709_Screenshot2026-02-06034025.png","type":"image"},{"name":"Add Family Member","url":"https://base44.app/api/apps/6959400ce977cc44003a6384/files/public/6959400ce977cc44003a6384/3302bff70_Screenshot2026-02-06034038.png","type":"image"},{"name":"Commission Details","url":"https://base44.app/api/apps/6959400ce977cc44003a6384/files/public/6959400ce977cc4400...
+true
+true
+["lexi","estimator"]
+8
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Subscription & Billing: Managing Your Plan
+<h3>Subscription & Billing: Managing Your Plan</h3> <p>Keep your account active and manage your company's growth.</p> <h4>1. Understanding Plans</h4> <ul> <li><strong>Starter ($97/mo):</strong> Best for solos. 1 User, 100 Customers.</li> <li><strong>Professional ($197/mo):</strong> For growing teams. 5 Users, Unlimited Customers, AI Estimator included.</li> <li><strong>Enterprise ($497/mo):</strong> Full power. Unlimited Users, Advanced API access, Dedicated Support.</li> </ul>
+pricing
+["billing","subscription","plans"]
+true
+true
+["lexi","estimator"]
+6
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Calendar Integration: Complete Setup Guide
+# Calendar Integration: Complete Setup Guide Sync your CompanySync calendar with Google Calendar to see appointments across all your devices and get mobile notifications. --- ## Why Connect Google Calendar? | Benefit | How It Helps | |---------|-------------| | **Mobile Access** | See appointments on your phone | | **Notifications** | Get reminders via Google | | **Team Sharing** | Share calendars with staff | | **Two-Way Sync** | Events created either place appear in both | --- ## Connect...
+processes
+["calendar","google","integration","sync","scheduling"]
+[]
+true
+true
+["lexi","estimator"]
+8
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+roof cheat sheet
+Roof Install - Cheat Sheet (Line Items) 🔨 Tear-Off / Removal Tear-off asphalt shingles – 1 layer (RFG300) Additional layers (if applicable) Tear-off ridge cap (RFG306) Tear-off starter course shingles (RFG305) Remove roof felt / underlayment (RFG295) Dumpster fee or debris removal (DUMP) 🧱 Decking Replace roof sheathing / decking – per sheet (RFG239) Re-nail decking (code upgrade if applicable) 🧰 Installation - Roofing System Asphalt architectural shingles – per SQ (RFG220) Starter course shi...
+pricing
+[]
+true
+true
+["lexi","estimator"]
+9
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Xactimate Line Item Codes: Complete Reference
+# Xactimate Line Item Codes: Complete Reference This is your master reference for Xactimate codes used in roofing, siding, and gutters. Use these codes when creating estimates for insurance claims. --- ## How to Use This Guide 1. Find the category for your work 2. Locate the specific line item 3. Note the code (e.g., RFG CSSQ) 4. Enter in your estimate with correct quantity and unit --- ## Roofing Codes ### Tear-Off / Removal | Code | Description | Unit | Notes | |------|-------------|--...
+policies
+["xactimate","codes","line items","insurance","estimating"]
+[]
+true
+true
+["lexi","estimator"]
+10
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+EagleView Integration: Ordering & Using Reports
+# EagleView Integration: Ordering & Using Reports EagleView provides the most accurate aerial roof measurements available. This guide covers how to order reports and use them in your estimates. --- ## What is EagleView? EagleView uses aerial imagery (planes, satellites, drones) to create precise 3D models of roofs. Their reports are: - **Accepted by insurance companies** as official documentation - **Accurate to within 2%** on most measurements - **Available nationwide** in the USA and Canad...
+processes
+["eagleview","aerial reports","measurements","integration"]
+[]
+true
+true
+["lexi","estimator"]
+8
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Insurance Estimates: Reading & Matching Carrier Estimates
+# Insurance Estimates: Reading & Matching Carrier Estimates When working insurance claims, you need to understand how adjusters write estimates and how to match or supplement them. This guide teaches you to read insurance estimates like a pro. --- ## Understanding Insurance Estimate Structure Insurance estimates follow a specific format (usually Xactimate): ``` CLAIM INFORMATION ----------------- Claim #: 2024-ABC-123456 Date of Loss: 01/15/2024 Policy #: HO-987654321 Insured: John & Jane S...
+policies
+["insurance","xactimate","estimates","claims","supplements","O&P"]
+[]
+true
+true
+["lexi","estimator"]
+10
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+AI Estimator Quick Reference Guide
+# AI Estimator Quick Reference ## 📐 Ice & Water Shield Calculation Rules ### Eaves Coverage: - **Overhang ≤ 12 inches:** Apply 3 feet of ice & water from edge - **Overhang > 12 inches:** Apply 6 feet of ice & water from edge - **Default assumption (satellite):** 6 feet (safer for insurance) ### Valley Coverage: - Apply ice & water shield for **full length** of all valleys - Typically 36" wide rolls ### Calculation Formula: - Ice & Water (eaves) = Eave LF × (Coverage Width ÷ 3) - Example: 100 LF...
+Complete guide for using the AI Estimator with examples and commands
+processes
+[]
+true
+true
+["lexi","estimator"]
+101
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Reading Aerial Measurement Reports: Complete Guide
+# Reading Aerial Measurement Reports: Complete Guide Aerial measurement reports from services like EagleView, GAF QuickMeasure, and Hover provide accurate roof measurements without climbing. This guide teaches you how to read and use these reports. --- ## What's Included in an Aerial Report | Section | What It Contains | |---------|------------------| | **Summary Page** | Total squares, pitch, complexity | | **Roof Diagram** | Bird's eye view with dimensions | | **Facet Details** | Each roof...
+processes
+["aerial reports","measurements","eagleview","estimating","roof measurements"]
+[]
+true
+true
+["lexi","estimator"]
+9
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Roofing Line Items - Standard Order & Codes
+🏠 ROOF INSTALL - STANDARD LINE ITEMS (ALWAYS FOLLOW THIS ORDER) 🔨 TEAR-OFF / REMOVAL (ALWAYS INCLUDE FOR REPLACEMENT JOBS): 1. Tear-off asphalt shingles – 1 layer (RFG300) - Price per SQ 2. Additional layers (if applicable) 3. Tear-off ridge cap (RFG306) 4. Tear-off starter course shingles (RFG305) 5. Remove roof felt / underlayment (RFG295) 6. Dumpster fee or debris removal (DUMP) 🧱 DECKING (IF NEEDED): 7. Replace roof sheathing / decking – per sheet (RFG239) 8. Re-nail decking (code upgrade...
+processes
+[]
+true
+true
+["lexi","estimator"]
+10
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+CrewCam AI Damage Analysis - Complete Workflow
+# CrewCam AI Damage Analysis - Complete Workflow ## Overview This guide walks you through the complete CrewCam inspection process, from sending assignments to creating AI-powered estimates. --- ## Step 1: Send Inspector Assignment ### From CrewCam Dashboard: 1. Click **"Send Assignment"** button 2. **Link to CRM** (Critical First Step): - **New Contact**: Creates a new Lead + Customer automatically - **Existing Lead**: Select from your pipeline - auto-fills contact info - **Existing...
+Operations
+["crewcam","ai","inspections","workflow","damage-analysis"]
+true
+true
+["lexi","estimator"]
+0
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+AI Estimator Satellite
+<p>Step-by-step guide to using satellite measurements for generating accurate roofing estimates</p><p><a href="https://preview--company-sync-copy-003a6384.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2cd" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 11</p>
+Training Videos
+[]
+true
+true
+["estimator"]
+8
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+Storm Tracker
+<p>Master storm tracking, lead generation, and property data importing for storm response</p><p><a href="https://preview--company-sync-copy-003a6384.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2d2" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 20</p>
+Training Videos
+[]
+true
+true
+["lexi","estimator","sarah","marcus"]
+8
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+AI Estimator Part 1
+<p>Complete walkthrough of AI Estimator document upload and analysis features</p><p><a href="https://preview--company-sync-copy-003a6384.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2d0" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 11</p>
+Training Videos
+[]
+true
+true
+["estimator"]
+8
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+Tasks and Import Tasks
+<p>Learn how to manage tasks and bulk import tasks from CSV files</p><p><a href="https://preview--company-sync-copy-003a6384.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2ce" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 5</p>
+Training Videos
+[]
+true
+true
+["lexi","estimator","sarah","marcus"]
+8
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+Lexi AI Chief Operating Officer
+<p>Complete guide to using Lexi AI for scheduling, lead management, and customer communication</p><p><a href="https://preview-sandbox--e75aa95382cfb0880265d4b85bd8febe.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2cc" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 9</p>
+Training Videos
+[]
+true
+true
+["lexi"]
+8
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+Training Video 1/15/2026
+<p>Step-by-step training video</p><p><a href="https://preview-sandbox--e75aa95382cfb0880265d4b85bd8febe.base44.app/TrainingVideoPlayer?id=6967e3318b383bb261042b77" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 1</p>
+Training Videos
+[]
+true
+true
+["lexi","estimator","sarah","marcus"]
+8
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+Training Video 1/15/2026
+<p>Step-by-step training video</p><p><a href="https://preview-sandbox--e75aa95382cfb0880265d4b85bd8febe.base44.app/TrainingVideoPlayer?id=6967e3318b383bb261042b77" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 1</p>
+Training Videos
+[]
+true
+true
+["lexi","estimator","sarah","marcus"]
+8
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+Training Video 1/15/2026
+<p>Step-by-step training video</p><p><a href="https://preview-sandbox--e75aa95382cfb0880265d4b85bd8febe.base44.app/TrainingVideoPlayer?id=6967e3318b383bb261042b77" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 1</p>
+Training Videos
+[]
+true
+true
+["lexi","estimator"]
+8
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+Training Video 1/15/2026
+<p>Step-by-step training video</p><p><a href="https://preview-sandbox--e75aa95382cfb0880265d4b85bd8febe.base44.app/TrainingVideoPlayer?id=6967e3318b383bb261042b77" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 1</p>
+Training Videos
+[]
+true
+true
+["lexi","estimator"]
+8
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+AI Estimator Satellite
+<p>Step-by-step guide to using satellite measurements for generating accurate roofing estimates</p><p><a href="https://preview-sandbox--be62ffc2009a5c75c60728d64ffd1145.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2cd" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 11</p>
+Training Videos
+[]
+true
+true
+["estimator"]
+8
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+CrewCam
+<p>Introduction to CrewCam photo capture and AI damage analysis</p><p><a href="https://preview-sandbox--be62ffc2009a5c75c60728d64ffd1145.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2cf" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 4</p>
+Training Videos
+[]
+true
+true
+["lexi","estimator"]
+8
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+CompanySync Dashboard
+<p>Overview of the dashboard metrics, calendar, and lead tracking features</p><p><a href="https://preview-sandbox--be62ffc2009a5c75c60728d64ffd1145.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2d1" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 3</p>
+Training Videos
+[]
+true
+true
+["lexi","estimator"]
+8
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+AI Estimator Satellite
+<p>Step-by-step guide to using satellite measurements for generating accurate roofing estimates</p><p><a href="https://preview-sandbox--be62ffc2009a5c75c60728d64ffd1145.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2cd" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 11</p>
+Training Videos
+[]
+true
+true
+["estimator"]
+8
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+CrewCam
+<p>Introduction to CrewCam photo capture and AI damage analysis</p><p><a href="https://preview--company-sync-copy-003a6384.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2cf" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 4</p>
+Training Videos
+[]
+true
+true
+["lexi","estimator"]
+0
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+AI Estimator Satellite
+<p>Step-by-step guide to using satellite measurements for generating accurate roofing estimates</p><p><a href="https://preview--company-sync-copy-003a6384.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2cd" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 11</p>
+Training Videos
+[]
+true
+true
+["estimator"]
+0
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+CrewCam
+<p>Introduction to CrewCam photo capture and AI damage analysis</p><p><a href="https://preview-sandbox--be62ffc2009a5c75c60728d64ffd1145.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2cf" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 4</p>
+Training Videos
+[]
+true
+true
+["lexi","estimator"]
+0
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+AI Estimator Satellite
+<p>Step-by-step guide to using satellite measurements for generating accurate roofing estimates</p><p><a href="https://preview-sandbox--be62ffc2009a5c75c60728d64ffd1145.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2cd" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 11</p>
+Training Videos
+[]
+true
+true
+["estimator"]
+0
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+696e0a65e92c51a8aaa9d66e
+AI Estimator Satellite
+<p>Step-by-step guide to using satellite measurements for generating accurate roofing estimates</p><p><a href="https://preview-sandbox--be62ffc2009a5c75c60728d64ffd1145.base44.app/TrainingVideoPlayer?id=6959986e0ebd8a88e741c2cd" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 11</p>
+Training Videos
+[]
+true
+true
+["estimator"]
+0
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Training the AI Estimator
+<h3>Training the AI Estimator: A Comprehensive Guide</h3> <p>The AI Estimator is a powerful tool that learns from your specific business data. To get the best results, you need to "teach" it your pricing, preferred materials, and line item ordering. Here is a detailed guide on how to do that effectively.</p> <h4>1. Uploading Past Estimates (The Foundation)</h4> <p>The most effective way to train the AI is by showing it examples of "perfect" estimates you've created in the past.</p> <ul> <li><str...
+processes
+["estimator","training","ai"]
+true
+true
+["lexi","estimator"]
+9
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+AI Estimator Part 1
+<p>Step-by-step training video</p><p><a href="https://preview--ai-crm-pro-10afd77e.base44.app/TrainingVideoPlayer?id=6929f262146f4dd639bbdb43" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 11</p>
+Training Videos
+[]
+true
+true
+["estimator"]
+0
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Training Video 12/18/2025
+<p>Step-by-step training video</p><p><a href="https://preview--ai-crm-pro-10afd77e.base44.app/TrainingVideoPlayer?id=6943e2398b785c50e2668d97" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 10</p>
+Training Videos
+[]
+[]
+true
+true
+["lexi","estimator"]
+0
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+CrewCam
+<p>Step-by-step training video</p><p><a href="https://preview--ai-crm-pro-10afd77e.base44.app/TrainingVideoPlayer?id=692a9b53e774f2887e9f913f" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 4</p>
+Training Videos
+[]
+[]
+true
+true
+["lexi","estimator"]
+0
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Tasks and Import Tasks
+<p>Step-by-step training video</p><p><a href="https://preview--ai-crm-pro-10afd77e.base44.app/TrainingVideoPlayer?id=692aa3641e52fe244a15c801" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 5</p>
+Training Videos
+[]
+true
+true
+["lexi","estimator"]
+0
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+CompanySync Dashboard
+<p>Step-by-step training video</p><p><a href="https://preview--ai-crm-pro-10afd77e.base44.app/TrainingVideoPlayer?id=692997ea04e17971481d1052" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 3</p>
+Training Videos
+[]
+[]
+true
+true
+["lexi","estimator"]
+0
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Storm Tracker
+<p>Step-by-step training video</p><p><a href="https://ai-crm-pro-10afd77e.base44.app/TrainingVideoPlayer?id=6952478cb9da569b6f7987d2" target="_blank">▶️ Watch Training Video</a></p><p><strong>Slides:</strong> 20</p>
+Training Videos
+[]
+[]
+true
+true
+["lexi","estimator"]
+0
+12
+4
+0
+4.3
+5
+[{"user_email":"user@company.com","user_name":"Alex Turner","rating":4,"comment":"Very useful training material.","timestamp":"2026-02-12T14:30:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Bidengine Aerial Report - Sample
+Sample Bidlist/Roofgraf Premium Roof Report showing measurements, pitch diagrams, area calculations, and waste percentages for property at 1423 E 39th St, Cleveland, OH. Includes detailed facet breakdowns and length measurements.
+processes
+["roof measurement tool"]
+true
+true
+["lexi","estimator"]
+0
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+When to Add Steep/High Roof Charges
+--- Extracted from When to Add Steep(1).pdf --- # When to Add Steep/High Roof Charges Steep or high-pitch roof charges should be applied only when certain conditions are met, to ensure safety, code compliance, and labor time are properly factored in. ## Steep Charge **Condition:** Slope Over 6/12 - Any roof with a pitch greater than 6/12 qualifies. - Use Xactimate or insurance carrier guidelines for surcharge percentage. - Surcharge Percentage Range: 10-15% ## High Charge **Condition:** Over...
+policies
+[]
+true
+true
+["lexi","estimator"]
+0
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+EagleView Report - Sample
+Sample EagleView Extended Coverage 3D Report showing roof measurements, pitch analysis, waste calculations, and detailed diagrams for property at 4408 Turney, Cleveland, OH. Includes structure-by-structure breakdowns and measurement tables.
+processes
+[]
+true
+true
+["lexi","estimator"]
+0
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Roof Install - Standard Line Items Cheat Sheet
+Roof Install - Cheat Sheet (Line Items) 🔨 Tear-Off / Removal - Tear-off asphalt shingles – 1 layer (RFG300) - Additional layers (if applicable) - Tear-off ridge cap (RFG306) - Tear-off starter course shingles (RFG305) - Remove roof felt / underlayment (RFG295) - Dumpster fee or debris removal (DUMP) 🧱 Decking - Replace roof sheathing / decking – per sheet (RFG239) - Re-nail decking (code upgrade if applicable) 🧰 Installation - Roofing System - Asphalt architectural shingles – per SQ (RFG22...
+pricing
+[]
+true
+true
+["lexi","estimator"]
+0
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Xactimate Line Items - Comprehensive List
+Comprehensive Xactimate pricing list for roofing materials and labor - includes detailed line items for shingles, underlayment, flashing, tear-off, and specialty roofing components.
+pricing
+[]
+[]
+true
+true
+["lexi","estimator"]
+0
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Siding Job Standard Components
+# Siding Job Standard Components Every siding job must include the following core components to ensure a professional, code-compliant install: ## 1. Tear-Off / Prep - Removal and disposal of all existing siding materials. - Inspection of sheathing for rot or damage. ## 2. House Wrap / Moisture Barrier - Installation of Tyvek or equivalent. - Taped and sealed at seams and windows. ## 3. Flashing Tape - Used around windows, doors, and other openings. - Required under all Z-flashing and trim. ...
+policies
+[]
+true
+true
+["lexi","estimator"]
+0
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Standard Roof Replacement Checklist
+Standard Roofing Replacement Checklist.docx - File URL: https://base44.app/api/apps/68eba3445754d69c10afd77e/files/public/68eba3445754d69c10afd77e/50e61a948_StandardRoofingReplacementChecklist.docx
+faq
+[]
+true
+true
+["lexi","estimator"]
+0
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Roofing Line Items - Standard Order & Codes
+🏠 ROOF INSTALL - STANDARD LINE ITEMS (ALWAYS FOLLOW THIS ORDER) 🔨 TEAR-OFF / REMOVAL (ALWAYS INCLUDE FOR REPLACEMENT JOBS): 1. Tear-off asphalt shingles – 1 layer (RFG300) - Price per SQ 2. Additional layers (if applicable) 3. Tear-off ridge cap (RFG306) 4. Tear-off starter course shingles (RFG305) 5. Remove roof felt / underlayment (RFG295) 6. Dumpster fee or debris removal (DUMP) 🧱 DECKING (IF NEEDED): 7. Replace roof sheathing / decking – per sheet (RFG239) 8. Re-nail decking (code upgra...
+processes
+[]
+true
+true
+["lexi","estimator"]
+0
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+Insurance Estimates: Reading & Matching Carrier Estimates
+# Insurance Estimates: Reading & Matching Carrier Estimates When working insurance claims, you need to understand how adjusters write estimates and how to match or supplement them. This guide teaches you to read insurance estimates like a pro. --- ## Understanding Insurance Estimate Structure Insurance estimates follow a specific format (usually Xactimate): ``` CLAIM INFORMATION ----------------- Claim #: 2024-ABC-123456 Date of Loss: 01/15/2024 Policy #: HO-987654321 Insured: John & Jane S...
+policies
+["insurance","xactimate","estimates","claims","supplements","O&P"]
+[]
+true
+true
+["lexi","estimator"]
+10
+31
+9
+0
+4.4
+10
+[{"user_email":"admin@roofing.com","user_name":"Chris Johnson","rating":4,"comment":"Really helpful for understanding Lexi's capabilities.","timestamp":"2026-02-16T10:15:00Z"}]
+
+695944e3c1fb00b7ab716c6f
+AI Estimator Quick Reference Guide
+# AI Estimator Quick Reference ## 📐 Ice & Water Shield Calculation Rules ### Eaves Coverage: - **Overhang ≤ 12 inches:** Apply 3 feet of ice & water from edge - **Overhang > 12 inches:** Apply 6 feet of ice & water from edge - **Default assumption (satellite):** 6 feet (safer for insurance) ### Valley Coverage: - Apply ice & water shield for **full length** of all valleys - Typically 36" wide rolls ### Calculation Formula: - Ice & Water (eaves) = Eave LF × (Coverage Width ÷ 3) - Example: 10...
+processes
+[]
+true
+true
+["lexi","estimator"]
+0
+31
+9
+0
+4.4
+10
+[{"user_email":"admin

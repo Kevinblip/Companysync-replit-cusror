@@ -1,0 +1,115 @@
+import { useMemo, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { base44 } from "@/api/base44Client";
+
+const LAST_USED_KEY = 'last_used_company_id';
+
+/**
+ * useCurrentCompany - THE SINGLE SOURCE OF TRUTH for resolving the active company.
+ * 
+ * Priority:
+ * 1. Impersonated company (from sessionStorage) — highest priority
+ * 2. Last used company (from localStorage) — remembers your previous session
+ * 3. Staff profile company — for normal users
+ * 4. Owned company — fallback
+ * 
+ * EVERY page/component that needs "myCompany" MUST use this hook.
+ * Do NOT write custom company-detection logic in individual pages.
+ */
+export default function useCurrentCompany(user) {
+  const impersonatedId = typeof window !== 'undefined' 
+    ? sessionStorage.getItem('impersonating_company_id') 
+    : null;
+
+  const lastUsedId = typeof window !== 'undefined'
+    ? localStorage.getItem(LAST_USED_KEY)
+    : null;
+
+  // Fetch companies the user has access to
+  const { data: companies = [], isLoading: isLoadingCompanies } = useQuery({
+    queryKey: ['current-company-list', user?.email],
+    queryFn: async () => {
+      if (!user) return [];
+      const owned = await base44.entities.Company.filter({ created_by: user.email, is_deleted: { $ne: true } });
+      const myProfiles = await base44.entities.StaffProfile.filter({ user_email: user.email });
+      const companyIds = myProfiles.map(p => p.company_id).filter(Boolean);
+
+      let staffed = [];
+      if (companyIds.length > 0) {
+        const promises = companyIds.map(id => base44.entities.Company.filter({ id }));
+        const results = await Promise.all(promises);
+        staffed = results.flat();
+      }
+
+      const all = [...owned, ...staffed];
+      return Array.from(new Map(all.map(item => [item.id, item])).values());
+    },
+    enabled: !!user,
+    initialData: [],
+  });
+
+  // If impersonating, fetch that specific company (may not be in user's list)
+  const { data: impersonatedCompany } = useQuery({
+    queryKey: ['impersonated-company', impersonatedId],
+    queryFn: async () => {
+      if (!impersonatedId) return null;
+      const results = await base44.entities.Company.filter({ id: impersonatedId });
+      return results?.[0] || null;
+    },
+    enabled: !!impersonatedId,
+  });
+
+  // Fetch staff profiles for this user
+  const { data: staffProfiles = [] } = useQuery({
+    queryKey: ['current-company-staff', user?.email],
+    queryFn: () => user ? base44.entities.StaffProfile.filter({ user_email: user.email }) : [],
+    enabled: !!user,
+    initialData: [],
+  });
+
+  const company = useMemo(() => {
+    // 1. IMPERSONATION — highest priority
+    if (impersonatedId) {
+      if (impersonatedCompany) return impersonatedCompany;
+      const fromList = companies.find(c => c.id === impersonatedId);
+      if (fromList) return fromList;
+    }
+
+    if (!user) return null;
+
+    // 2. LAST USED company — remembers previous session
+    if (lastUsedId && !impersonatedId) {
+      const lastUsed = companies.find(c => c.id === lastUsedId);
+      if (lastUsed) return lastUsed;
+    }
+
+    // 3. STAFF PROFILE company
+    const myProfile = staffProfiles.find(s => s.user_email === user.email);
+    if (myProfile?.company_id) {
+      const profileCompany = companies.find(c => c.id === myProfile.company_id);
+      if (profileCompany) return profileCompany;
+    }
+
+    // 4. OWNED company (newest)
+    const ownedCompanies = companies.filter(c => c.created_by === user.email);
+    if (ownedCompanies.length === 0) return null;
+
+    return [...ownedCompanies].sort((a, b) => 
+      new Date(b.created_date) - new Date(a.created_date)
+    )[0];
+  }, [user, companies, staffProfiles, impersonatedCompany, impersonatedId, lastUsedId]);
+
+  useEffect(() => {
+    if (company?.id && !impersonatedId) {
+      localStorage.setItem(LAST_USED_KEY, company.id);
+    }
+  }, [company?.id, impersonatedId]);
+
+  return {
+    company,
+    companies,
+    staffProfiles,
+    isLoading: isLoadingCompanies,
+    isImpersonating: !!impersonatedId,
+  };
+}

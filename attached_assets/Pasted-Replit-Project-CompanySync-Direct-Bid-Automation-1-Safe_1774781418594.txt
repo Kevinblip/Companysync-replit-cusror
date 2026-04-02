@@ -1,0 +1,71 @@
+Replit Project: CompanySync "Direct Bid" Automation
+1. Safety & Architecture Rules (Crucial)
+Non-Destructive Integration: This script must only read from the webhook and post to the Lead Notes. Do not allow the script to modify existing Status or Assigned To fields unless explicitly coded.
+
+Idempotency: Ensure that if a webhook is sent twice for the same Lead_ID, the script checks if a mailer was already sent within the last 24 hours to prevent double-billing/mailing.
+
+Secret Management: Use Replit's "Secrets" tool for all API keys. Never hardcode them.
+
+2. Updated Environment Variables
+CS_WEBHOOK_SECRET: Verify incoming CompanySync signatures.
+
+RENTCAST_API_KEY: For homeowner names.
+
+INTERNAL_ESTIMATOR_URL: Your proprietary pricing API.
+
+POSTGRID_API_KEY: Fulfillment.
+
+CS_API_KEY: To post the "Confirmation Note" back to the lead record.
+
+DRY_RUN_MODE: Set to true initially so it generates the PDF but does not charge your PostGrid account.
+
+3. The Logic Flow for the Developer
+Step A: The Webhook Receiver
+Endpoint: POST /hooks/bid-mailer
+
+Input: Expects address, lead_id, field_photo_url, and rep_name.
+
+Action: If DRY_RUN_MODE is on, log everything to the console instead of calling PostGrid.
+
+Step B: Parallel Enrichment
+Async Call 1: Hit RentCast for owner_name. If not found, default to "Homeowner at [Street Name]".
+
+Async Call 2: Hit Internal Estimator. If it fails or returns $0, abort the mailer and post an error note to the CompanySync Lead.
+
+Step C: The "Marcus" Prompt (Copywriting)
+Instruct the LLM to use the context from Marcus Marketing.
+The Prompt for the AI: > "You are Marcus, a high-converting direct response copywriter. Write a 3-paragraph letter for {{owner_name}}.
+
+Problem: Their roof at {{address}} is showing signs of age/storm wear (reference the photo taken by our rep).
+Agitation: Waiting leads to leaks, interior damage, and higher insurance premiums.
+Solution: We’ve already run their measurements through our AI. Their specific price is ${{total_bid}}.
+CTA: Scan the QR code to lock in this price."
+
+Step D: Post-Action Logging
+Once the mailer is "Sent," the script must use the CS_API_KEY to add a Note to the Lead:
+
+"[AI Automation]: Personalized Bid Mailer sent to {{owner_name}} for ${{total_bid}}."
+
+4. Copy/Paste This Prompt into Replit Agent
+"I need to build a Node.js middleware for a roofing company. It acts as a 'Glue' between our CRM (CompanySync) and our mailing service.
+
+Setup Express Server: Create a /webhook/bid-mailer endpoint.
+
+Verification: Use a secret to verify the webhook source.
+
+Data Fetching: When a webhook hits, take the address and:
+
+Call RentCast API to get the homeowner's name.
+
+Call an internal API [Insert URL] to get a roof estimate.
+
+AI Copy: Use an LLM (OpenAI/Anthropic) to write a PAS-style letter using the name and price.
+
+Mailing: Use the PostGrid API to send a 4x6 or 8.5x11 mailer. Include a photo from the webhook field_photo_url.
+
+Feedback Loop: After sending, use the CompanySync API to post a note to the Lead ID confirming the mailer was sent.
+
+Safety: Include a 'Dry Run' toggle in the environment variables so I can test without spending money on postage."
+
+One final piece of advice:
+Before you go live, ask your Replit developer to generate a QR Code for the letter. That QR code should link back to a specific "Lead Landing Page" in CompanySync so you can track exactly when the homeowner opens the mailer.

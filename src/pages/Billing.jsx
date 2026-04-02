@@ -1,0 +1,364 @@
+import React, { useState, useMemo, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { 
+  CreditCard, 
+  Users, 
+  Check, 
+  Crown,
+  Zap,
+  Rocket,
+  Calendar,
+  DollarSign,
+  AlertCircle
+} from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogDescription
+} from "@/components/ui/dialog";
+import { format, addMonths, differenceInDays } from "date-fns";
+
+export default function Billing() {
+  const [showPlanDialog, setShowPlanDialog] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+
+  const queryClient = useQueryClient();
+
+  const [user, setUser] = useState(null);
+  useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { company: myCompany } = useCurrentCompany(user);
+
+  const { data: allUsers = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => base44.entities.User.list(),
+    initialData: [],
+  });
+
+  const { data: subscriptions = [] } = useQuery({
+    queryKey: ['company-subscriptions', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.CompanySubscription.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: plans = [] } = useQuery({
+    queryKey: ['subscription-plans'],
+    queryFn: () => base44.entities.SubscriptionPlan.list(),
+    initialData: [],
+  });
+
+  const currentSubscription = subscriptions[0];
+  const activeUserCount = allUsers.length;
+
+  const updateSubscriptionMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.CompanySubscription.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['company-subscriptions'] });
+      setShowPlanDialog(false);
+    },
+  });
+
+  const createSubscriptionMutation = useMutation({
+    mutationFn: (data) => base44.entities.CompanySubscription.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['company-subscriptions'] });
+      setShowPlanDialog(false);
+    },
+  });
+
+  const currentPlan = useMemo(() => {
+    if (!currentSubscription) return null;
+    return plans.find(p => p.plan_name === currentSubscription.plan_name);
+  }, [currentSubscription, plans]);
+
+  const calculateCost = (plan, userCount) => {
+    const includedUsers = plan.included_users || 1;
+    const additionalUsers = Math.max(0, userCount - includedUsers);
+    return Number(plan.base_price || 0) + (additionalUsers * Number(plan.price_per_user || 0));
+  };
+
+  const handleChangePlan = (plan) => {
+    const newCost = calculateCost(plan, activeUserCount);
+    const today = new Date();
+    const cycleEnd = addMonths(today, 1);
+
+    const subscriptionData = {
+      company_name: currentSubscription?.company_name || "My Company",
+      plan_name: plan.plan_name,
+      status: "active",
+      billing_cycle_start: today.toISOString().split('T')[0],
+      billing_cycle_end: cycleEnd.toISOString().split('T')[0],
+      user_count: activeUserCount,
+      monthly_cost: newCost
+    };
+
+    if (currentSubscription?.id) {
+      updateSubscriptionMutation.mutate({
+        id: currentSubscription.id,
+        data: subscriptionData
+      });
+    } else {
+      createSubscriptionMutation.mutate(subscriptionData);
+    }
+  };
+
+  const daysUntilRenewal = currentSubscription?.billing_cycle_end 
+    ? differenceInDays(new Date(currentSubscription.billing_cycle_end), new Date())
+    : 0;
+
+  const getPlanIcon = (planName) => {
+    if (planName?.toLowerCase().includes('enterprise')) return Rocket;
+    if (planName?.toLowerCase().includes('professional')) return Crown;
+    return Zap;
+  };
+
+  const getStatusColor = (status) => {
+    const colors = {
+      'active': 'bg-green-100 text-green-700 border-green-200',
+      'trial': 'bg-blue-100 text-blue-700 border-blue-200',
+      'past_due': 'bg-red-100 text-red-700 border-red-200',
+      'cancelled': 'bg-gray-100 text-gray-700 border-gray-200',
+      'expired': 'bg-orange-100 text-orange-700 border-orange-200'
+    };
+    return colors[status] || 'bg-gray-100 text-gray-700 border-gray-200';
+  };
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">Billing & Subscription</h1>
+        <p className="text-gray-500 mt-1">Manage your subscription and billing information</p>
+      </div>
+
+      {currentSubscription && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-blue-700">Current Plan</span>
+                  <Badge variant="outline" className={getStatusColor(currentSubscription.status)}>
+                    {currentSubscription.status}
+                  </Badge>
+                </div>
+                <div className="text-2xl font-bold text-blue-900 mb-1">
+                  {currentSubscription.plan_name}
+                </div>
+                <p className="text-sm text-blue-600">
+                  ${Number(currentSubscription.monthly_cost || 0).toFixed(2)}/month
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-purple-700">Active Users</span>
+                  <Users className="w-5 h-5 text-purple-600" />
+                </div>
+                <div className="text-2xl font-bold text-purple-900 mb-1">
+                  {activeUserCount}
+                </div>
+                <p className="text-sm text-purple-600">
+                  {currentPlan && currentPlan.price_per_user > 0 
+                    ? `$${currentPlan.price_per_user}/user/month`
+                    : 'Included in plan'
+                  }
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-green-700">Next Billing</span>
+                  <Calendar className="w-5 h-5 text-green-600" />
+                </div>
+                <div className="text-2xl font-bold text-green-900 mb-1">
+                  {daysUntilRenewal} days
+                </div>
+                <p className="text-sm text-green-600">
+                  {currentSubscription.billing_cycle_end 
+                    ? format(new Date(currentSubscription.billing_cycle_end), 'MMM d, yyyy')
+                    : '-'
+                  }
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="bg-white shadow-md">
+            <CardHeader>
+              <CardTitle>Current Subscription Details</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="text-sm text-gray-500">Base Plan Cost</span>
+                  <p className="text-lg font-semibold">${currentPlan?.base_price || 0}/month</p>
+                </div>
+                <div>
+                  <span className="text-sm text-gray-500">Additional Users</span>
+                  <p className="text-lg font-semibold">
+                    {Math.max(0, activeUserCount - (currentPlan?.included_users || 1))} × ${currentPlan?.price_per_user || 0}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-sm text-gray-500">Billing Cycle</span>
+                  <p className="text-lg font-semibold">
+                    {currentSubscription.billing_cycle_start && format(new Date(currentSubscription.billing_cycle_start), 'MMM d')} - {currentSubscription.billing_cycle_end && format(new Date(currentSubscription.billing_cycle_end), 'MMM d')}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-sm text-gray-500">Total Monthly Cost</span>
+                  <p className="text-lg font-semibold text-green-600">
+                    ${Number(currentSubscription.monthly_cost || 0).toFixed(2)}
+                  </p>
+                </div>
+              </div>
+
+              {currentPlan?.features && currentPlan.features.length > 0 && (
+                <div className="pt-4 border-t">
+                  <h4 className="font-semibold mb-2">Included Features</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    {currentPlan.features.map((feature, i) => (
+                      <div key={i} className="flex items-center gap-2 text-sm">
+                        <Check className="w-4 h-4 text-green-600" />
+                        {feature}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      <div>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold text-gray-900">Available Plans</h2>
+          <Button onClick={() => setShowPlanDialog(true)} variant="outline">
+            Change Plan
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {plans.filter(p => p.is_active).map((plan) => {
+            const PlanIcon = getPlanIcon(plan.plan_name);
+            const monthlyCost = calculateCost(plan, activeUserCount);
+            const isCurrentPlan = currentSubscription?.plan_name === plan.plan_name;
+
+            return (
+              <Card key={plan.id} className={`relative ${isCurrentPlan ? 'border-2 border-blue-500' : 'border-gray-200'}`}>
+                {isCurrentPlan && (
+                  <div className="absolute top-0 right-0 bg-blue-500 text-white text-xs font-semibold px-3 py-1 rounded-bl-lg rounded-tr-lg">
+                    Current Plan
+                  </div>
+                )}
+                <CardHeader>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
+                      <PlanIcon className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-xl">{plan.plan_name}</CardTitle>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-3xl font-bold">${plan.base_price}<span className="text-lg text-gray-500">/mo</span></div>
+                    {plan.price_per_user > 0 && (
+                      <p className="text-sm text-gray-600">
+                        + ${plan.price_per_user}/user/month (after {plan.included_users || 1} {plan.included_users === 1 ? 'user' : 'users'})
+                      </p>
+                    )}
+                    <p className="text-sm font-semibold text-green-600">
+                      Your cost: ${monthlyCost.toFixed(2)}/month
+                    </p>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3 mb-4">
+                    {plan.features?.map((feature, i) => (
+                      <div key={i} className="flex items-start gap-2 text-sm">
+                        <Check className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                        <span>{feature}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <Button 
+                    className="w-full" 
+                    variant={isCurrentPlan ? "outline" : "default"}
+                    onClick={() => {
+                      setSelectedPlan(plan);
+                      setShowPlanDialog(true);
+                    }}
+                    disabled={isCurrentPlan}
+                  >
+                    {isCurrentPlan ? 'Current Plan' : 'Select Plan'}
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+
+      <Dialog open={showPlanDialog} onOpenChange={setShowPlanDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Plan Change</DialogTitle>
+            <DialogDescription>
+              {selectedPlan && (
+                <div className="mt-4 space-y-3">
+                  <p>You're about to change to the <strong>{selectedPlan.plan_name}</strong> plan.</p>
+                  <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                    <div className="flex justify-between">
+                      <span>Base price:</span>
+                      <span className="font-semibold">${selectedPlan.base_price}/month</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Users ({activeUserCount}):</span>
+                      <span className="font-semibold">
+                        ${(Math.max(0, activeUserCount - (selectedPlan.included_users || 1)) * selectedPlan.price_per_user).toFixed(2)}/month
+                      </span>
+                    </div>
+                    <div className="border-t pt-2 flex justify-between">
+                      <span className="font-semibold">Total:</span>
+                      <span className="font-bold text-green-600">
+                        ${calculateCost(selectedPlan, activeUserCount).toFixed(2)}/month
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 text-sm text-gray-600 bg-blue-50 p-3 rounded">
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-600" />
+                    <span>Changes will take effect immediately. You'll be prorated for the remainder of your billing cycle.</span>
+                  </div>
+                </div>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button variant="outline" onClick={() => setShowPlanDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => selectedPlan && handleChangePlan(selectedPlan)}>
+              Confirm Change
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

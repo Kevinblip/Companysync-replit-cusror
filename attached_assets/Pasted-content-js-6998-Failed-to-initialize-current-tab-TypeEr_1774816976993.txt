@@ -1,0 +1,60 @@
+content.js:6998 Failed to initialize current tab: TypeError: Cannot read properties of undefined (reading 'query')
+    at content.js:4964:64533
+    at new Promise (<anonymous>)
+    at sn (content.js:4964:64505)
+    at qf.initializeCurrentTab (content.js:6998:18770)
+    at new qf (content.js:6998:18654)
+    at content.js:6998:20491
+    at content.js:9619:164
+VM15382 vendor.js:159 Uncaught (in promise) Error: No Listener: tabs:outgoing.message.ready
+    at g (VM15382 vendor.js:159:18553)
+content.js:1971 Failed to initialize current tab: TypeError: Cannot read properties of undefined (reading 'query')
+    at content.js:6:64856
+    at new Promise (<anonymous>)
+    at Ei (content.js:6:64828)
+    at _R.initializeCurrentTab (content.js:1971:18770)
+    at new _R (content.js:1971:18654)
+    at content.js:1971:20491
+    at content.js:4888:14616
+content.js:6998 Failed to initialize current tab: TypeError: Cannot read properties of undefined (reading 'query')
+    at content.js:4964:64533
+    at new Promise (<anonymous>)
+    at sn (content.js:4964:64505)
+    at qf.initializeCurrentTab (content.js:6998:18770)
+    at new qf (content.js:6998:18654)
+    at content.js:6998:20491
+    at content.js:9619:164
+content.js:1971 Failed to initialize current tab: TypeError: Cannot read properties of undefined (reading 'query')
+    at content.js:6:64856
+    at new Promise (<anonymous>)
+    at Ei (content.js:6:64828)
+    at _R.initializeCurrentTab (content.js:1971:18770)
+    at new _R (content.js:1971:18654)
+    at content.js:1971:20491
+    at content.js:4888:14616
+content.js:6998 Failed to initialize current tab: TypeError: Cannot read properties of undefined (reading 'query')
+    at content.js:4964:64533
+    at new Promise (<anonymous>)
+    at sn (content.js:4964:64505)
+    at qf.initializeCurrentTab (content.js:6998:18770)
+    at new qf (content.js:6998:18654)
+    at content.js:6998:20491
+    at content.js:9619:164
+react-router-dom.js?v=ece5aa36:4436 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+react-router-dom.js?v=ece5aa36:4436 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+main.jsx:17 [PWA] Service worker registered, scope: https://78c9522f-7690-4243-9478-af7783cbc1ec-00-2zholg8vy7yg7.janeway.replit.dev/
+Code-Analyzer-1?sett…tab=customerUsage:1 Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner.
+base44Client.js:236 [Functions] Invoking: getCompanyHierarchy
+useFastQuery.js:93 [FastQuery] Prefetched 7 entity sets from local DB
+base44Client.js:251 [Functions] getCompanyHierarchy completed successfully
+Code-Analyzer-1?sett…tab=customerUsage:1 Unchecked runtime.lastError: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
+5
+Code-Analyzer-1?sett…tab=customerUsage:1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
+stallwart.build.js:1 stallwart: failed ping 1
+﻿
+
+Press ctrl i to turn on code suggestions. Press ctrl x to disable code suggestions.
+ctrl
+i
+ to turn on code suggestions. Don't show again
+

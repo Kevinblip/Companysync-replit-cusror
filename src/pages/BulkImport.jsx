@@ -1,0 +1,1329 @@
+
+import React, { useState, useRef } from "react";
+import { base44 } from "@/api/base44Client";
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Progress } from "@/components/ui/progress";
+import {
+  Upload,
+  Download,
+  FileSpreadsheet,
+  DollarSign,
+  Users,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  UserPlus,
+  FileText,
+  ShoppingCart,
+  Briefcase,
+  CheckSquare,
+  Receipt,
+} from "lucide-react";
+
+export default function BulkImport() {
+  const [user, setUser] = useState(null);
+  const [activeTab, setActiveTab] = useState("leads");
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [importResult, setImportResult] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const queryClient = useQueryClient();
+
+  React.useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { company: myCompany } = useCurrentCompany(user);
+
+  const { data: priceListItems = [] } = useQuery({
+    queryKey: ['price-list-items', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.PriceListItem.filter({ company_id: myCompany.id }, "-created_date", 100) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  // Import Leads
+  const importLeads = useMutation({
+    mutationFn: async (file) => {
+      const text = await file.text();
+      const lines = text.split('\n');
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      
+      const items = [];
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        
+        const values = lines[i].split(',');
+        const item = { company_id: myCompany?.id };
+        
+        headers.forEach((header, idx) => {
+          item[header] = values[idx]?.trim();
+        });
+        
+        if (item.name) {
+          items.push(item);
+        }
+      }
+      
+      if (items.length > 0) {
+        await base44.entities.Lead.bulkCreate(items);
+      }
+      
+      return { imported: items.length };
+    },
+    onSuccess: (result) => {
+      setImportResult({
+        success: true,
+        message: `Successfully imported ${result.imported} leads!`,
+      });
+      setUploadProgress(100);
+    },
+    onError: (error) => {
+      setImportResult({
+        success: false,
+        message: `Import failed: ${error.message}`,
+      });
+    },
+  });
+
+  // Import Customers
+  const importCustomers = useMutation({
+    mutationFn: async (file) => {
+      const text = await file.text();
+      const lines = text.split('\n');
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      
+      const customers = [];
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        
+        const values = lines[i].split(',');
+        const customer = { company_id: myCompany?.id };
+        
+        headers.forEach((header, idx) => {
+          customer[header] = values[idx]?.trim();
+        });
+        
+        if (customer.name) {
+          customers.push(customer);
+        }
+      }
+      
+      if (customers.length > 0) {
+        await base44.entities.Customer.bulkCreate(customers);
+      }
+      
+      return { imported: customers.length };
+    },
+    onSuccess: (result) => {
+      setImportResult({
+        success: true,
+        message: `Successfully imported ${result.imported} customers!`,
+      });
+      setUploadProgress(100);
+    },
+    onError: (error) => {
+      setImportResult({
+        success: false,
+        message: `Import failed: ${error.message}`,
+      });
+    },
+  });
+
+  // Import Prices
+  const importPrices = useMutation({
+    mutationFn: async (file) => {
+      const text = await file.text();
+      const lines = text.split('\n');
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      
+      const items = [];
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        
+        const values = lines[i].split(',');
+        const item = {};
+        
+        headers.forEach((header, idx) => {
+          item[header] = values[idx]?.trim();
+        });
+        
+        if (item.code && item.description && item.price) {
+          items.push({
+            code: item.code,
+            description: item.description,
+            unit: item.unit || 'EA',
+            price: parseFloat(item.price),
+            category: item.category || 'Other',
+            source: item.source || 'Custom',
+          });
+        }
+      }
+      
+      if (items.length > 0) {
+        await base44.entities.PriceListItem.bulkCreate(items);
+      }
+      
+      return { imported: items.length };
+    },
+    onSuccess: (result) => {
+      setImportResult({
+        success: true,
+        message: `Successfully imported ${result.imported} price items!`,
+      });
+      setUploadProgress(100);
+    },
+    onError: (error) => {
+      setImportResult({
+        success: false,
+        message: `Import failed: ${error.message}`,
+      });
+    },
+  });
+
+  // Import Payments
+  const importPayments = useMutation({
+    mutationFn: async (file) => {
+      const text = await file.text();
+      const lines = text.split('\n');
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      
+      const items = [];
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        
+        const values = lines[i].split(',');
+        const item = {};
+        
+        headers.forEach((header, idx) => {
+          item[header] = values[idx]?.trim();
+        });
+        
+        if (item.customer_name && item.amount) {
+          items.push({
+            ...item,
+            amount: parseFloat(item.amount),
+          });
+        }
+      }
+      
+      if (items.length > 0) {
+        await base44.entities.Payment.bulkCreate(items);
+      }
+      
+      return { imported: items.length };
+    },
+    onSuccess: (result) => {
+      setImportResult({
+        success: true,
+        message: `Successfully imported ${result.imported} payments!`,
+      });
+      setUploadProgress(100);
+    },
+    onError: (error) => {
+      setImportResult({
+        success: false,
+        message: `Import failed: ${error.message}`,
+      });
+    },
+  });
+
+  // Import Invoices - FIX STATUS
+  const importInvoices = useMutation({
+    mutationFn: async (file) => {
+      const text = await file.text();
+      const lines = text.split('\n');
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      
+      const items = [];
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        
+        const values = lines[i].split(',');
+        const item = { company_id: myCompany?.id };
+        
+        headers.forEach((header, idx) => {
+          let value = values[idx]?.trim().replace(/^["']|["']$/g, '');
+          
+          // Map Perfex fields
+          if (header === 'invoice #' || header === 'invoice_number' || header === 'number') {
+            item.invoice_number = value;
+          } else if (header === 'customer' || header === 'customer_name' || header === 'client') {
+            item.customer_name = value;
+          } else if (header === 'amount' || header === 'total') {
+            item.amount = parseFloat(value.replace(/[$,]/g, '')) || 0;
+          } else if (header === 'total tax' || header === 'total_tax' || header === 'tax') {
+            item.total_tax = parseFloat(value.replace(/[$,]/g, '')) || 0;
+          } else if (header === 'issue date' || header === 'date' || header === 'issue_date') {
+            // Handle "-" as null for dates
+            item.issue_date = (value && value !== '-') ? value : null;
+          } else if (header === 'due date' || header === 'due_date') {
+            // Handle "-" as null for dates
+            item.due_date = (value && value !== '-') ? value : null;
+          } else if (header === 'status') {
+            item.status = value.toLowerCase() || 'sent';
+          } else {
+            // Generic fallback for other headers
+            item[header] = value;
+          }
+        });
+        
+        // SET DEFAULT STATUS TO 'sent' IF NOT PROVIDED
+        if (!item.status) {
+          item.status = 'sent';
+        }
+        
+        if (item.invoice_number && item.customer_name && item.amount) {
+          items.push(item);
+        }
+      }
+      
+      if (items.length > 0) {
+        await base44.entities.Invoice.bulkCreate(items);
+      }
+      
+      return { imported: items.length };
+    },
+    onSuccess: (result) => {
+      setImportResult({
+        success: true,
+        message: `Successfully imported ${result.imported} invoices!`,
+      });
+      setUploadProgress(100);
+    },
+    onError: (error) => {
+      setImportResult({
+        success: false,
+        message: `Import failed: ${error.message}`,
+      });
+    },
+  });
+
+  // Import Items
+  const importItems = useMutation({
+    mutationFn: async (file) => {
+      const text = await file.text();
+      const lines = text.split('\n');
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      
+      const items = [];
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        
+        const values = lines[i].split(',');
+        const item = {};
+        
+        headers.forEach((header, idx) => {
+          item[header] = values[idx]?.trim();
+        });
+        
+        if (item.name && item.price) {
+          items.push({
+            ...item,
+            price: parseFloat(item.price),
+            cost: item.cost ? parseFloat(item.cost) : undefined,
+          });
+        }
+      }
+      
+      if (items.length > 0) {
+        await base44.entities.Item.bulkCreate(items);
+      }
+      
+      return { imported: items.length };
+    },
+    onSuccess: (result) => {
+      setImportResult({
+        success: true,
+        message: `Successfully imported ${result.imported} items!`,
+      });
+      setUploadProgress(100);
+    },
+    onError: (error) => {
+      setImportResult({
+        success: false,
+        message: `Import failed: ${error.message}`,
+      });
+    },
+  });
+
+  // Import Tasks
+  const importTasks = useMutation({
+    mutationFn: async (file) => {
+      const text = await file.text();
+      const lines = text.split('\n');
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      
+      const items = [];
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        
+        const values = lines[i].split(',');
+        const item = {};
+        
+        headers.forEach((header, idx) => {
+          item[header] = values[idx]?.trim();
+        });
+        
+        if (item.name) {
+          items.push(item);
+        }
+      }
+      
+      if (items.length > 0) {
+        await base44.entities.Task.bulkCreate(items);
+      }
+      
+      return { imported: items.length };
+    },
+    onSuccess: (result) => {
+      setImportResult({
+        success: true,
+        message: `Successfully imported ${result.imported} tasks!`,
+      });
+      setUploadProgress(100);
+    },
+    onError: (error) => {
+      setImportResult({
+        success: false,
+        message: `Import failed: ${error.message}`,
+      });
+    },
+  });
+
+  // Import Projects
+  const importProjects = useMutation({
+    mutationFn: async (file) => {
+      const text = await file.text();
+      const lines = text.split('\n');
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      
+      const items = [];
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        
+        const values = lines[i].split(',');
+        const item = {};
+        
+        headers.forEach((header, idx) => {
+          item[header] = values[idx]?.trim();
+        });
+        
+        if (item.name) {
+          items.push(item);
+        }
+      }
+      
+      if (items.length > 0) {
+        await base44.entities.Project.bulkCreate(items);
+      }
+      
+      return { imported: items.length };
+    },
+    onSuccess: (result) => {
+      setImportResult({
+        success: true,
+        message: `Successfully imported ${result.imported} projects!`,
+      });
+      setUploadProgress(100);
+    },
+    onError: (error) => {
+      setImportResult({
+        success: false,
+        message: `Import failed: ${error.message}`,
+      });
+    },
+  });
+
+  // Import Estimates - COMPREHENSIVE PERFEX MAPPING
+  const importEstimates = useMutation({
+    mutationFn: async (file) => {
+      const text = await file.text();
+      const lines = text.split('\n');
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      
+      console.log('CSV Headers:', headers);
+      
+      const items = [];
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        
+        const values = lines[i].split(',');
+        const item = { company_id: myCompany?.id };
+        
+        headers.forEach((header, idx) => {
+          let value = values[idx]?.trim().replace(/^["']|["']$/g, '');
+          
+          // Map Perfex fields to our fields
+          if (header === 'estimate #' || header === 'estimate_number' || header === 'number') {
+            item.estimate_number = value;
+          } else if (header === 'amount' || header === 'total') {
+            item.amount = parseFloat(value.replace(/[$,]/g, '')) || 0;
+          } else if (header === 'total tax' || header === 'total_tax' || header === 'tax') {
+            item.total_tax = parseFloat(value.replace(/[$,]/g, '')) || 0;
+          } else if (header === 'customer' || header === 'customer_name' || header === 'client') {
+            item.customer_name = value;
+          } else if (header === 'customer email' || header === 'email') {
+            item.customer_email = value;
+          } else if (header === 'project' || header === 'project_name') {
+            item.project_name = value;
+          } else if (header === 'date' || header === 'estimate_date' || header === 'created_date') {
+            // IMPORTANT: Use the date from CSV as created_date for proper sorting
+            item.created_date = value;
+          } else if (header === 'expiry date' || header === 'valid_until' || header === 'expirydate') {
+            item.valid_until = value;
+          } else if (header === 'reference #' || header === 'reference_number' || header === 'reference') {
+            item.reference_number = value;
+          } else if (header === 'status') {
+            // Map Perfex status to our status
+            const statusMap = {
+              'draft': 'draft',
+              'sent': 'sent',
+              'accepted': 'accepted',
+              'declined': 'declined',
+              'expired': 'expired'
+            };
+            item.status = statusMap[value.toLowerCase()] || 'draft';
+          } else if (header === 'insurance company' || header === 'insurance_company') {
+            item.insurance_company = value;
+          } else if (header === "adjuster's name" || header === 'adjuster_name' || header === 'adjuster') {
+            item.adjuster_name = value;
+          } else if (header === "adjuster's phone number" || header === 'adjuster_phone') {
+            item.adjuster_phone = value;
+          } else if (header === 'claim number' || header === 'claim_number') {
+            item.claim_number = value;
+          } else if (header === 'tags') {
+            item.tags = value ? value.split(';').map(t => t.trim()) : [];
+          } else if (header === 'notes' || header === 'client_note') {
+            item.notes = value;
+          }
+        });
+        
+        // Default status if not set
+        if (!item.status) {
+          item.status = 'draft';
+        }
+        
+        // CRITICAL: If no created_date from CSV, don't add one - let database handle it
+        // This way manually created estimates will appear at top
+        
+        if (item.estimate_number && item.customer_name && item.amount) {
+          items.push(item);
+        }
+      }
+      
+      console.log(`Importing ${items.length} estimates...`);
+      
+      if (items.length > 0) {
+        // Batch create with delay to avoid rate limits
+        const batchSize = 25; // Smaller batches
+        for (let i = 0; i < items.length; i += batchSize) {
+          const batch = items.slice(i, i + batchSize);
+          await base44.entities.Estimate.bulkCreate(batch);
+          
+          // Add delay between batches
+          if (i + batchSize < items.length) {
+            await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+          }
+        }
+      }
+      
+      return { imported: items.length };
+    },
+    onSuccess: (result) => {
+      setImportResult({
+        success: true,
+        message: `Successfully imported ${result.imported} estimates!`,
+      });
+      setUploadProgress(100);
+      queryClient.invalidateQueries({ queryKey: ['estimates'] });
+    },
+    onError: (error) => {
+      setImportResult({
+        success: false,
+        message: `Import failed: ${error.message}`,
+      });
+    },
+  });
+
+  const handleFileSelect = (type) => {
+    const file = fileInputRef.current?.files?.[0];
+    if (!file) return;
+
+    setUploadProgress(0);
+    setImportResult(null);
+
+    if (type === "leads") {
+      importLeads.mutate(file);
+    } else if (type === "customers") {
+      importCustomers.mutate(file);
+    } else if (type === "prices") {
+      importPrices.mutate(file);
+    } else if (type === "payments") {
+      importPayments.mutate(file);
+    } else if (type === "invoices") {
+      importInvoices.mutate(file);
+    } else if (type === "items") {
+      importItems.mutate(file);
+    } else if (type === "tasks") {
+      importTasks.mutate(file);
+    } else if (type === "projects") {
+      importProjects.mutate(file);
+    } else if (type === "estimates") {
+      importEstimates.mutate(file);
+    }
+  };
+
+  const downloadSampleCSV = (type) => {
+    let csv = '';
+    
+    if (type === "leads") {
+      csv = `name,email,phone,street,city,state,zip,status,source,value
+John Doe,john@example.com,555-0100,123 Main St,Cleveland,OH,44101,new,website,5000
+Jane Smith,jane@example.com,555-0200,456 Oak Ave,Columbus,OH,43201,contacted,referral,7500`;
+    } else if (type === "customers") {
+      csv = `name,email,phone,street,city,state,zip,customer_type
+John Smith,john@example.com,555-0100,123 Main St,Cleveland,OH,44101,residential
+ABC Company,contact@abc.com,555-0200,456 Oak Ave,Columbus,OH,43201,commercial`;
+    } else if (type === "prices") {
+      csv = `code,description,unit,price,category,source
+RFG SSSQ,Shingles standard 3-tab,SQ,350,Roofing,Xactimate
+RFG RDG,Ridge cap architectural asphalt,LF,8.50,Roofing,Xactimate`;
+    } else if (type === "payments") {
+      csv = `payment_number,customer_name,invoice_number,amount,payment_method,payment_date,status
+PAY-001,John Smith,INV-001,500.00,credit_card,2025-01-15,received
+PAY-002,Jane Doe,INV-002,750.00,check,2025-01-16,received`;
+    } else if (type === "invoices") {
+      csv = `invoice_number,customer_name,customer_email,amount,status,due_date,issue_date,total_tax
+INV-001,John Smith,john@example.com,500.00,paid,2025-02-01,2025-01-01,25.00
+INV-002,Jane Doe,jane@example.com,750.00,sent,2025-02-15,2025-01-15,0.00`;
+    } else if (type === "items") {
+      csv = `name,description,unit,price,cost,category
+Labor - Roofing,Hourly labor for roofing work,HR,75.00,45.00,labor
+Asphalt Shingles,Standard 3-tab shingles,SQ,350.00,200.00,materials`;
+    } else if (type === "tasks") {
+      csv = `name,description,status,priority,due_date,assigned_to
+Complete roof inspection,Inspect roof for storm damage,not_started,high,2025-02-01,john@example.com
+Send estimate,Send estimate to customer,in_progress,medium,2025-01-25,jane@example.com`;
+    } else if (type === "projects") {
+      csv = `name,customer_name,status,start_date,deadline,budget,description
+123 Main St Roof Replacement,John Smith,in_progress,2025-01-15,2025-02-15,15000,Complete roof replacement
+456 Oak Ave Siding,Jane Doe,not_started,2025-02-01,2025-03-01,8000,Install new vinyl siding`;
+    } else if (type === "estimates") {
+      csv = `estimate_number,customer_name,customer_email,amount,status,created_date,valid_until,total_tax,reference_number,project_name,insurance_company,adjuster_name,adjuster_phone,claim_number,tags,notes
+EST-001,John Smith,john@example.com,1500.00,sent,2025-01-10,2025-02-10,75.00,REF-123,Roof Repair,ABC Ins,Jane Doe,555-1234,CLM-XYZ,roofing;urgent,"Customer requested a new roof. Estimate covers labor and materials."
+EST-002,Jane Doe,jane@example.com,7500.00,accepted,2025-01-15,2025-02-15,350.00,REF-456,Siding Project,XYZ Ins,John Smith,555-5678,CLM-UVW,siding,"Estimate approved by the client, awaiting scheduling."`;
+    }
+    
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sample_${type}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+  };
+
+  const isPending = importLeads.isPending || importCustomers.isPending || importPrices.isPending || 
+                    importPayments.isPending || importInvoices.isPending || importItems.isPending ||
+                    importTasks.isPending || importProjects.isPending || importEstimates.isPending;
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-gray-900">Bulk Import</h1>
+        <p className="text-gray-500 mt-1">Import leads, customers, invoices, payments, and more from CSV files</p>
+      </div>
+
+      {/* Global Alert for CSV Tips */}
+      <Alert className="bg-blue-50 border-blue-200 mb-6">
+        <AlertCircle className="w-4 h-4 text-blue-600" />
+        <AlertDescription>
+          <strong>📋 CSV Format Tips:</strong>
+          <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
+            <li><strong>Estimates:</strong> Include estimate #, customer, amount, status, insurance company, adjuster name, adjuster phone, claim #, expiry date</li>
+            <li><strong>Invoices:</strong> Include invoice #, customer, amount, status, issue date, due date</li>
+            <li><strong>Payments:</strong> Include payment #, invoice #, customer, amount, payment date, payment method</li>
+            <li>Export from Perfex: Go to Estimates → Click "Export" button → Download as CSV</li>
+            <li>First row must be column headers</li>
+            <li>Save as UTF-8 CSV format</li>
+          </ul>
+        </AlertDescription>
+      </Alert>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid grid-cols-4 lg:grid-cols-9 gap-2">
+          <TabsTrigger value="leads">
+            <UserPlus className="w-4 h-4 mr-2" />
+            Leads
+          </TabsTrigger>
+          <TabsTrigger value="customers">
+            <Users className="w-4 h-4 mr-2" />
+            Customers
+          </TabsTrigger>
+          <TabsTrigger value="estimates">
+            <Receipt className="w-4 h-4 mr-2" />
+            Estimates
+          </TabsTrigger>
+          <TabsTrigger value="invoices">
+            <FileText className="w-4 h-4 mr-2" />
+            Invoices
+          </TabsTrigger>
+          <TabsTrigger value="payments">
+            <DollarSign className="w-4 h-4 mr-2" />
+            Payments
+          </TabsTrigger>
+          <TabsTrigger value="items">
+            <ShoppingCart className="w-4 h-4 mr-2" />
+            Items
+          </TabsTrigger>
+          <TabsTrigger value="tasks">
+            <CheckSquare className="w-4 h-4 mr-2" />
+            Tasks
+          </TabsTrigger>
+          <TabsTrigger value="projects">
+            <Briefcase className="w-4 h-4 mr-2" />
+            Projects
+          </TabsTrigger>
+          <TabsTrigger value="prices">
+            <FileSpreadsheet className="w-4 h-4 mr-2" />
+            Price Lists
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Leads Import */}
+        <TabsContent value="leads" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Import Leads</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="w-4 h-4" />
+                <AlertDescription>
+                  Upload a CSV file with columns: <strong>name, email, phone, street, city, state, zip, status, source, value</strong>
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex gap-4">
+                <Button 
+                  variant="outline"
+                  onClick={() => downloadSampleCSV("leads")}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Sample CSV
+                </Button>
+
+                <div className="flex-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={() => handleFileSelect("leads")}
+                    className="hidden"
+                  />
+                  <Button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full"
+                    disabled={isPending}
+                  >
+                    {isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Importing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 mr-2" />
+                        Upload CSV File
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {isPending && (
+                <Progress value={uploadProgress} className="w-full" />
+              )}
+
+              {importResult && (
+                <Alert variant={importResult.success ? "default" : "destructive"}>
+                  {importResult.success ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4" />
+                  )}
+                  <AlertDescription>{importResult.message}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Customers Import */}
+        <TabsContent value="customers" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Import Customers</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="w-4 h-4" />
+                <AlertDescription>
+                  Upload a CSV file with columns: <strong>name, email, phone, street, city, state, zip, customer_type</strong>
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex gap-4">
+                <Button 
+                  variant="outline"
+                  onClick={() => downloadSampleCSV("customers")}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Sample CSV
+                </Button>
+
+                <div className="flex-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={() => handleFileSelect("customers")}
+                    className="hidden"
+                  />
+                  <Button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full"
+                    disabled={isPending}
+                  >
+                    {isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Importing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 mr-2" />
+                        Upload CSV File
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {isPending && (
+                <Progress value={uploadProgress} className="w-full" />
+              )}
+
+              {importResult && (
+                <Alert variant={importResult.success ? "default" : "destructive"}>
+                  {importResult.success ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4" />
+                  )}
+                  <AlertDescription>{importResult.message}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Estimates Import (New Tab Content) */}
+        <TabsContent value="estimates" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Import Estimates (Perfex Compatible)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="w-4 h-4" />
+                <AlertDescription>
+                  Upload a CSV file with columns: <strong>estimate_number, customer_name, customer_email, amount, status, created_date, valid_until, total_tax, reference_number, project_name, insurance_company, adjuster_name, adjuster_phone, claim_number, tags, notes</strong>
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex gap-4">
+                <Button 
+                  variant="outline"
+                  onClick={() => downloadSampleCSV("estimates")}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Sample CSV
+                </Button>
+
+                <div className="flex-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={() => handleFileSelect("estimates")}
+                    className="hidden"
+                  />
+                  <Button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full"
+                    disabled={isPending}
+                  >
+                    {isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Importing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 mr-2" />
+                        Upload CSV File
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {isPending && (
+                <Progress value={uploadProgress} className="w-full" />
+              )}
+
+              {importResult && (
+                <Alert variant={importResult.success ? "default" : "destructive"}>
+                  {importResult.success ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4" />
+                  )}
+                  <AlertDescription>{importResult.message}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Invoices Import */}
+        <TabsContent value="invoices" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Import Invoices</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="w-4 h-4" />
+                <AlertDescription>
+                  Upload a CSV file with columns: <strong>invoice_number, customer_name, customer_email, amount, status, due_date, issue_date, total_tax</strong>
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex gap-4">
+                <Button 
+                  variant="outline"
+                  onClick={() => downloadSampleCSV("invoices")}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Sample CSV
+                </Button>
+
+                <div className="flex-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={() => handleFileSelect("invoices")}
+                    className="hidden"
+                  />
+                  <Button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full"
+                    disabled={isPending}
+                  >
+                    {isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Importing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 mr-2" />
+                        Upload CSV File
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {isPending && (
+                <Progress value={uploadProgress} className="w-full" />
+              )}
+
+              {importResult && (
+                <Alert variant={importResult.success ? "default" : "destructive"}>
+                  {importResult.success ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4" />
+                  )}
+                  <AlertDescription>{importResult.message}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Payments Import */}
+        <TabsContent value="payments" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Import Payments</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="w-4 h-4" />
+                <AlertDescription>
+                  Upload a CSV file with columns: <strong>payment_number, customer_name, invoice_number, amount, payment_method, payment_date, status</strong>
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex gap-4">
+                <Button 
+                  variant="outline"
+                  onClick={() => downloadSampleCSV("payments")}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Sample CSV
+                </Button>
+
+                <div className="flex-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={() => handleFileSelect("payments")}
+                    className="hidden"
+                  />
+                  <Button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full"
+                    disabled={isPending}
+                  >
+                    {isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Importing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 mr-2" />
+                        Upload CSV File
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {isPending && (
+                <Progress value={uploadProgress} className="w-full" />
+              )}
+
+              {importResult && (
+                <Alert variant={importResult.success ? "default" : "destructive"}>
+                  {importResult.success ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4" />
+                  )}
+                  <AlertDescription>{importResult.message}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Items Import */}
+        <TabsContent value="items" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Import Items</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="w-4 h-4" />
+                <AlertDescription>
+                  Upload a CSV file with columns: <strong>name, description, unit, price, cost, category</strong>
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex gap-4">
+                <Button 
+                  variant="outline"
+                  onClick={() => downloadSampleCSV("items")}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Sample CSV
+                </Button>
+
+                <div className="flex-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={() => handleFileSelect("items")}
+                    className="hidden"
+                  />
+                  <Button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full"
+                    disabled={isPending}
+                  >
+                    {isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Importing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 mr-2" />
+                        Upload CSV File
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {isPending && (
+                <Progress value={uploadProgress} className="w-full" />
+              )}
+
+              {importResult && (
+                <Alert variant={importResult.success ? "default" : "destructive"}>
+                  {importResult.success ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4" />
+                  )}
+                  <AlertDescription>{importResult.message}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Tasks Import */}
+        <TabsContent value="tasks" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Import Tasks</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="w-4 h-4" />
+                <AlertDescription>
+                  Upload a CSV file with columns: <strong>name, description, status, priority, due_date, assigned_to</strong>
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex gap-4">
+                <Button 
+                  variant="outline"
+                  onClick={() => downloadSampleCSV("tasks")}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Sample CSV
+                </Button>
+
+                <div className="flex-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={() => handleFileSelect("tasks")}
+                    className="hidden"
+                  />
+                  <Button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full"
+                    disabled={isPending}
+                  >
+                    {isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Importing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 mr-2" />
+                        Upload CSV File
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {isPending && (
+                <Progress value={uploadProgress} className="w-full" />
+              )}
+
+              {importResult && (
+                <Alert variant={importResult.success ? "default" : "destructive"}>
+                  {importResult.success ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4" />
+                  )}
+                  <AlertDescription>{importResult.message}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Projects Import */}
+        <TabsContent value="projects" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Import Projects</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="w-4 h-4" />
+                <AlertDescription>
+                  Upload a CSV file with columns: <strong>name, customer_name, status, start_date, deadline, budget, description</strong>
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex gap-4">
+                <Button 
+                  variant="outline"
+                  onClick={() => downloadSampleCSV("projects")}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Sample CSV
+                </Button>
+
+                <div className="flex-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={() => handleFileSelect("projects")}
+                    className="hidden"
+                  />
+                  <Button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full"
+                    disabled={isPending}
+                  >
+                    {isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Importing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 mr-2" />
+                        Upload CSV File
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {isPending && (
+                <Progress value={uploadProgress} className="w-full" />
+              )}
+
+              {importResult && (
+                <Alert variant={importResult.success ? "default" : "destructive"}>
+                  {importResult.success ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4" />
+                  )}
+                  <AlertDescription>{importResult.message}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Price List Import */}
+        <TabsContent value="prices" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Import Xactimate/Custom Price List</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="w-4 h-4" />
+                <AlertDescription>
+                  Upload a CSV file with columns: <strong>code, description, unit, price, category, source</strong>
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex gap-4">
+                <Button 
+                  variant="outline"
+                  onClick={() => downloadSampleCSV("prices")}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Sample CSV
+                </Button>
+
+                <div className="flex-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={() => handleFileSelect("prices")}
+                    className="hidden"
+                  />
+                  <Button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full"
+                    disabled={isPending}
+                  >
+                    {isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Importing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 mr-2" />
+                        Upload CSV File
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {isPending && (
+                <Progress value={uploadProgress} className="w-full" />
+              )}
+
+              {importResult && (
+                <Alert variant={importResult.success ? "default" : "destructive"}>
+                  {importResult.success ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4" />
+                  )}
+                  <AlertDescription>{importResult.message}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-semibold mb-2">Current Price List:</h4>
+                <p className="text-sm text-gray-700">{priceListItems.length} items loaded</p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

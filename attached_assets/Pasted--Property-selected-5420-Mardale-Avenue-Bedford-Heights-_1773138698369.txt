@@ -1,0 +1,150 @@
+**Property selected:** 5420 Mardale Avenue, Bedford Heights, OH 44146
+
+✨ **Choose your measurement method:**
+
+1️⃣ **AI Auto-Detect** (30-60 seconds) - Let AI analyze the roof automatically
+2️⃣ **Manual Drawing** (Most Accurate) - Draw lines yourself on the satellite map
+
+Click the button below to choose!
+✅ **Added Main Structure (Manual) (25.96 SQ)!**
+
+Review the measurements, add gutters, or add more structures. When ready, click "Generate Estimate".
+**Created Complete Roof Estimate!**
+
+**7 items** | **Total: $14,479.5** | **$558/SQ**
+
+Roof: 25.96 SQ | Pitch: 4/12 | 12% waste included
+
+Waste (12%) auto-applied to materials. Say "make it $520 per sq" to adjust pricing.
+Ask a question...
+
+Dumpster
+10% Waste
+O&P
+Steep
+High Roof
+Pipe Boot
+Plywood
+Vent
+Skylight
+15% Markup
+Permit
+Customers
+Template:
+
+Auto (based on pricing)
+Pricing:
+
+Xactimate (Old)
+Select Existing Contact (Optional)
+Search customers & leads...
+Link CrewCam Job (Optional)
+None - No inspection photos
+Name
+John Smith
+Email
+john@example.com
+Phone
+(555) 123-4567
+Address
+5420 Mardale Avenue, Bedford Heights, OH 44146
+Claim Number
+CLM-2024-001
+Insurance Company
+State Farm
+Adjuster Name
+John Doe
+Adjuster Phone
+(555) 123-4567
+Notes
+Additional project notes...
+Estimates
+🏠 Shingles
+7 Line Items
+$14,479.5
+EN
+ES
+#	Code	Description	Qty	Unit	Rate	RCV	Dep %	ACV	
+1	
+RFG SSSQ
+
+Shingles, architectural asphalt
+29.07
+SQ
+350
+$10174.50	
+0
+$10174.50	
+
+2	
+RFG UL
+
+Underlayment, #30 felt
+29.07
+SQ
+25
+$726.75	
+0
+$726.75	
+
+3	
+IWS
+
+Ice & water barrier
+23.52
+LF
+2.02
+$47.51	
+0
+$47.51	
+
+4	
+RFG RDC
+
+Ridge cap, architectural asphalt
+112.75
+LF
+8.5
+$958.38	
+0
+$958.38	
+
+5	
+VMTLWP
+
+Valley metal - (W) profile - painted
+20.95
+LF
+12
+$251.40	
+0
+$251.40	
+
+6	
+RFG FLS
+
+Step flashing, metal
+31.27
+LF
+4.5
+$140.72	
+0
+$140.72	
+
+7	
+RFG R&R
+
+Remove roof covering, 3-tab composition shingle
+29.07
+SQ
+75
+$2180.25	
+0
+$2180.25	
+
+Add Blank Row
+Browse Items
+RCV:
+$14479.50
+ACV:
+$14479.50

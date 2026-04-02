@@ -1,0 +1,42 @@
+Here are the key files and instructions, ready to hand off:
+
+File 1: db/object-storage.cjs — the Replit App Storage helper (already in the codebase)
+
+File 2: db/migrate-photos-to-storage.cjs — the one-time migration script (already in the codebase)
+
+Instructions to give the clone:
+
+Task: Run the production photo migration
+
+The photo storage migration is already coded and deployed. The migration script needs to be run against the production database to move any remaining binary photo data from PostgreSQL into object storage.
+
+What was done (already merged):
+
+db/object-storage.cjs — CJS helper that uses the Replit sidecar (http://127.0.0.1:1106) for signed PUT/GET/HEAD operations against the GCS-backed App Storage bucket
+db/prod-integrations.cjs — updated so new uploads go to object storage first (no more binary blobs in DB), serveUploadedFile checks object storage → DB binary fallback → disk
+db/migrate-photos-to-storage.cjs — idempotent batch migration script
+What the clone needs to do:
+
+Run the migration against the production database:
+
+node dist/db/migrate-photos-to-storage.cjs --batch=10
+Flags available:
+
+--dry-run — shows what would happen, makes no changes
+--batch=10 — process 10 files per batch (use smaller batches if there are timeout issues)
+--limit=50 — only process N files (useful for testing a subset first)
+Verify success with:
+
+node -e "
+const prodDb = require('./dist/db/prod-db.cjs');
+const pool = prodDb.getPool();
+pool.query('SELECT COUNT(*) total, COUNT(file_data) with_binary, pg_size_pretty(COALESCE(SUM(octet_length(file_data)), 0)) as binary_size FROM file_uploads').then(r => { console.log(r.rows[0]); pool.end(); });
+"
+Expected result: with_binary: 0, binary_size: 0 bytes
+
+Important notes:
+
+The script is idempotent — files already in object storage are skipped automatically
+The sidecar (http://127.0.0.1:1106) must be reachable — this only works from within the Replit environment
+All existing photo URLs (/uploads/uuid.ext) continue to work during and after migration — there is a fallback chain: object storage → DB binary → disk
+dist/db/ files are already synced and match the source files

@@ -1,0 +1,59 @@
+import os
+import stripe
+import openai
+from flask import Flask, session
+from flask_session import Session
+from cryptography.fernet import Fernet
+
+# --- 1. THE FOUNDATION (Fixes the Login) ---
+app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET')
+app.config['SESSION_TYPE'] = 'filesystem' # Keeps users logged in even if Replit sleeps
+Session(app)
+
+# --- 2. THE SECURITY (Encryption) ---
+stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
+cipher_suite = Fernet(os.environ.get('ENCRYPTION_KEY').encode())
+
+class CompanySync:
+    @staticmethod
+    def run_ai_task(company_data, user_data, prompt):
+        """
+        Phase 3 Logic: Checks Admin toggles -> Bills Stripe -> Uses Client's Key.
+        """
+        # A. PERMISSION CHECK
+        if not company_data.get('ai_enabled'):
+            return "Error: AI Module is disabled for this company."
+        
+        if not user_data.get('has_ai_access'):
+            return "Error: You don't have permission to use AI."
+
+        try:
+            # B. BILL THE USER ($0.02 Fee for you)
+            stripe.SubscriptionItem.create_usage_record(
+                company_data.get('stripe_usage_id'),
+                quantity=1,
+                timestamp='now'
+            )
+
+            # C. DECRYPT THEIR KEY (Their fuel)
+            encrypted_key = company_data.get('encrypted_openai_key')
+            decrypted_key = cipher_suite.decrypt(encrypted_key.encode()).decode()
+            
+            # D. EXECUTE TASK
+            client = openai.OpenAI(api_key=decrypted_key)
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.choices[0].message.content
+
+        except Exception as e:
+            return f"System Alert: {str(e)}. Please check API key/Stripe status."
+
+    @staticmethod
+    def encrypt_new_key(raw_key):
+        """Use this when a roofer pastes their key in settings"""
+        return cipher_suite.encrypt(raw_key.encode()).decode()
+
+# --- END OF MASTER ENGINE ---

@@ -1,0 +1,329 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { 
+  CreditCard, 
+  Calendar, 
+  Users, 
+  TrendingUp, 
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  ArrowRight
+} from "lucide-react";
+import { format } from "date-fns";
+
+export default function ManageSubscription() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [user, setUser] = useState(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+
+  useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { company: myCompany } = useCurrentCompany(user);
+
+  const { data: staffProfiles = [] } = useQuery({
+    queryKey: ['staff-profiles', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.StaffProfile.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: customers = [] } = useQuery({
+    queryKey: ['customers', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Customer.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: leads = [] } = useQuery({
+    queryKey: ['leads', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Lead.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const planLimits = {
+    trial: { users: 5, clients: 100, leads: 250 },
+    starter: { users: 5, clients: 100, leads: 250 },
+    professional: { users: 10, clients: 500, leads: 200 },
+    business: { users: 20, clients: 1000, leads: 500 },
+    enterprise: { users: 25, clients: 2500, leads: 1000 },
+    legacy: { users: 999, clients: 99999, leads: 99999 },
+    lifetime: { users: 999, clients: 99999, leads: 99999 },
+    unlimited: { users: 999, clients: 99999, leads: 99999 },
+  };
+
+  const currentLimits = planLimits[myCompany?.subscription_plan || 'trial'] || planLimits.trial;
+  const activeCustomers = customers.filter(c => c.is_active !== false).length;
+  const activeLeads = leads.filter(l => l.is_active !== false).length;
+  const activeUsers = staffProfiles.filter(s => s.is_active !== false).length + 1; // +1 for owner
+
+  const getUsageColor = (current, max) => {
+    const percentage = (current / max) * 100;
+    if (percentage >= 90) return "text-red-600";
+    if (percentage >= 75) return "text-yellow-600";
+    return "text-green-600";
+  };
+
+  const getStatusBadge = (status) => {
+    const configs = {
+      active: { icon: CheckCircle, color: "bg-green-100 text-green-700", label: "Active" },
+      trial: { icon: Calendar, color: "bg-blue-100 text-blue-700", label: "Free Trial" },
+      past_due: { icon: AlertTriangle, color: "bg-red-100 text-red-700", label: "Past Due" },
+      cancelled: { icon: XCircle, color: "bg-gray-100 text-gray-700", label: "Cancelled" },
+      expired: { icon: XCircle, color: "bg-red-100 text-red-700", label: "Expired" }
+    };
+
+    const config = configs[status] || configs.active;
+    const Icon = config.icon;
+
+    return (
+      <Badge className={config.color}>
+        <Icon className="w-3 h-3 mr-1" />
+        {config.label}
+      </Badge>
+    );
+  };
+
+  const handleCancelSubscription = async () => {
+    if (!window.confirm("Are you sure you want to cancel your subscription? You'll lose access to premium features.")) {
+      return;
+    }
+
+    setIsCancelling(true);
+
+    try {
+      await base44.functions.invoke('cancelSubscription', {
+        companyId: myCompany.id,
+        stripeSubscriptionId: myCompany.stripe_subscription_id
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      alert('✅ Subscription cancelled. You have access until the end of your billing period.');
+    } catch (error) {
+      alert('Failed to cancel subscription: ' + error.message);
+    }
+
+    setIsCancelling(false);
+  };
+
+  if (!myCompany) {
+    return (
+      <div className="p-6 text-center">
+        <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
+        <p className="text-gray-600">Loading subscription details...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Subscription Management</h1>
+          <p className="text-gray-500 mt-1">Manage your plan and billing</p>
+        </div>
+      </div>
+
+      {/* Current Plan Card */}
+      <Card className="bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span className="text-2xl">Current Plan</span>
+            {getStatusBadge(myCompany.subscription_status)}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid md:grid-cols-2 gap-6">
+            <div>
+              <p className="text-sm text-gray-600 mb-1">Plan</p>
+              <p className="text-3xl font-bold text-gray-900 capitalize">
+                {myCompany.subscription_plan || 'Trial'}
+              </p>
+            </div>
+            {myCompany.trial_ends_at && myCompany.subscription_status === 'trial' && (
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Trial Ends</p>
+                <p className="text-xl font-semibold text-gray-900">
+                  {format(new Date(myCompany.trial_ends_at), 'MMMM d, yyyy')}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {Math.ceil((new Date(myCompany.trial_ends_at) - new Date()) / (1000 * 60 * 60 * 24))} days remaining
+                </p>
+              </div>
+            )}
+          </div>
+
+          {myCompany.subscription_status === 'trial' && (
+            <div className="bg-gradient-to-r from-green-100 to-blue-100 rounded-lg p-4 border border-green-300">
+              <p className="font-semibold text-gray-900 mb-2">🎉 You're on a free trial!</p>
+              <p className="text-sm text-gray-700">
+                Enjoying the CRM? Choose a plan before your trial ends to keep access to all features.
+              </p>
+              <Button
+                onClick={() => navigate(createPageUrl('Pricing'))}
+                className="mt-3 bg-green-600 hover:bg-green-700"
+              >
+                Choose a Plan
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Usage Stats */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Usage & Limits</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-gray-600" />
+                <span className="font-medium">Users</span>
+              </div>
+              <span className={`font-bold ${getUsageColor(activeUsers, currentLimits.users)}`}>
+                {activeUsers} / {currentLimits.users}
+              </span>
+            </div>
+            <Progress value={(activeUsers / currentLimits.users) * 100} className="h-2" />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-gray-600" />
+                <span className="font-medium">Active Clients</span>
+              </div>
+              <span className={`font-bold ${getUsageColor(activeCustomers, currentLimits.clients)}`}>
+                {activeCustomers} / {currentLimits.clients}
+              </span>
+            </div>
+            <Progress value={(activeCustomers / currentLimits.clients) * 100} className="h-2" />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-gray-600" />
+                <span className="font-medium">Active Leads</span>
+              </div>
+              <span className={`font-bold ${getUsageColor(activeLeads, currentLimits.leads)}`}>
+                {activeLeads} / {currentLimits.leads}
+              </span>
+            </div>
+            <Progress value={(activeLeads / currentLimits.leads) * 100} className="h-2" />
+          </div>
+
+          {(activeUsers >= currentLimits.users || activeCustomers >= currentLimits.clients || activeLeads >= currentLimits.leads) && (
+            <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4">
+              <p className="text-yellow-800 font-semibold mb-2">⚠️ Approaching Limit</p>
+              <p className="text-sm text-yellow-700 mb-3">
+                You're close to your plan limits. Consider upgrading to continue growing.
+              </p>
+              <Button
+                onClick={() => navigate(createPageUrl('Pricing'))}
+                size="sm"
+                className="bg-yellow-600 hover:bg-yellow-700"
+              >
+                Upgrade Plan
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Billing Information */}
+      {myCompany.stripe_customer_id && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Billing Information</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-3">
+              <CreditCard className="w-5 h-5 text-gray-600" />
+              <div>
+                <p className="font-medium">Stripe Customer ID</p>
+                <p className="text-sm text-gray-600 font-mono">{myCompany.stripe_customer_id}</p>
+              </div>
+            </div>
+
+            {myCompany.stripe_subscription_id && (
+              <div className="flex items-center gap-3">
+                <Calendar className="w-5 h-5 text-gray-600" />
+                <div>
+                  <p className="font-medium">Subscription ID</p>
+                  <p className="text-sm text-gray-600 font-mono">{myCompany.stripe_subscription_id}</p>
+                </div>
+              </div>
+            )}
+
+            {myCompany.subscription_status === 'active' && (
+              <div className="pt-4 border-t">
+                <Button
+                  onClick={handleCancelSubscription}
+                  disabled={isCancelling}
+                  variant="outline"
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                >
+                  {isCancelling ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Cancelling...
+                    </>
+                  ) : (
+                    'Cancel Subscription'
+                  )}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Actions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Quick Actions</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button
+            onClick={() => navigate(createPageUrl('Pricing'))}
+            variant="outline"
+            className="w-full justify-start"
+          >
+            View All Plans
+          </Button>
+          <Button
+            onClick={() => navigate(createPageUrl('CompanySetup'))}
+            variant="outline"
+            className="w-full justify-start"
+          >
+            Update Company Info
+          </Button>
+          <Button
+            onClick={() => navigate(createPageUrl('Dashboard'))}
+            variant="outline"
+            className="w-full justify-start"
+          >
+            Back to Dashboard
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

@@ -1,0 +1,558 @@
+diff --git a/src/pages/InspectionCapture.jsx b/src/pages/InspectionCapture.jsx
+index 08dbf15..57281fc 100644
+--- a/src/pages/InspectionCapture.jsx
++++ b/src/pages/InspectionCapture.jsx
+@@ -82,6 +82,20 @@ export default function InspectionCapture() {
+     const [testingEmail, setTestingEmail] = useState(false);
+     const [showLinkStormDialog, setShowLinkStormDialog] = useState(false);
+     const [isReanalyzing, setIsReanalyzing] = useState(false);
++    const [reanalyzingPhotoId, setReanalyzingPhotoId] = useState(null);
++    const [showPhotoDetailDialog, setShowPhotoDetailDialog] = useState(false);
++    const [editingPhoto, setEditingPhoto] = useState(null);
++    const [editFormData, setEditFormData] = useState({
++        caption: '',
++        hail_hits_counted: 0,
++        wind_marks_counted: 0,
++        missing_shingles_counted: 0,
++        severity: 'none',
++        ai_notes: ''
++    });
++    const [showSharePhotosDialog, setShowSharePhotosDialog] = useState(false);
++    const [shareEmail, setShareEmail] = useState('');
++    const [isSharingPhotos, setIsSharingPhotos] = useState(false);
+ 
+     useEffect(() => {
+         setIsSecureContext(window.isSecureContext);
+@@ -295,7 +309,7 @@ export default function InspectionCapture() {
+     });
+ 
+     const updateMediaMutation = useMutation({
+-        mutationFn: ({ id, caption }) => base44.entities.JobMedia.update(id, { caption }),
++        mutationFn: ({ id, ...updates }) => base44.entities.JobMedia.update(id, updates),
+         onSuccess: () => {
+             queryClient.invalidateQueries({ queryKey: ['inspectionMedia', jobId] });
+         }
+@@ -392,6 +406,178 @@ export default function InspectionCapture() {
+         event.target.value = '';
+     };
+ 
++    const handleOpenPhotoDetail = (item) => {
++        const aiData = item.ai_damage_analysis || {};
++        setEditingPhoto(item);
++        setEditFormData({
++            caption: item.caption || '',
++            hail_hits_counted: aiData.hail_hits_counted || 0,
++            wind_marks_counted: aiData.wind_marks_counted || 0,
++            missing_shingles_counted: aiData.missing_shingles_counted || 0,
++            severity: aiData.severity || 'none',
++            ai_notes: aiData.ai_notes || ''
++        });
++        setShowPhotoDetailDialog(true);
++    };
++
++    const handleSavePhotoDetail = async () => {
++        if (!editingPhoto) return;
++        const existingAI = editingPhoto.ai_damage_analysis || {};
++        const updatedAI = {
++            ...existingAI,
++            hail_hits_counted: parseInt(editFormData.hail_hits_counted) || 0,
++            wind_marks_counted: parseInt(editFormData.wind_marks_counted) || 0,
++            missing_shingles_counted: parseInt(editFormData.missing_shingles_counted) || 0,
++            severity: editFormData.severity,
++            ai_notes: editFormData.ai_notes,
++            manually_edited: true,
++            edited_at: new Date().toISOString()
++        };
++
++        const totalDamage = updatedAI.hail_hits_counted + updatedAI.wind_marks_counted + updatedAI.missing_shingles_counted;
++        if (totalDamage > 0 && updatedAI.severity === 'none') {
++            updatedAI.severity = totalDamage <= 3 ? 'minor' : totalDamage <= 10 ? 'moderate' : 'severe';
++        }
++
++        await base44.entities.JobMedia.update(editingPhoto.id, {
++            caption: editFormData.caption,
++            ai_damage_analysis: updatedAI
++        });
++        queryClient.invalidateQueries({ queryKey: ['inspectionMedia', jobId] });
++        setShowPhotoDetailDialog(false);
++        setEditingPhoto(null);
++    };
++
++    const handleSharePhotosEmail = async () => {
++        if (!shareEmail || !jobId) return;
++        setIsSharingPhotos(true);
++        try {
++            const photoMedia = media.filter(m => m.file_type === 'photo');
++            if (photoMedia.length === 0) {
++                alert('No photos to share.');
++                setIsSharingPhotos(false);
++                return;
++            }
++
++            let htmlBody = `<h2 style="color:#1e3a8a;">Inspection Photos - ${job?.property_address || 'Property'}</h2>`;
++            htmlBody += `<p><strong>Date:</strong> ${new Date(job?.inspection_date || job?.created_date).toLocaleDateString()}</p>`;
++            htmlBody += `<p><strong>Client:</strong> ${job?.client_name || 'N/A'}</p>`;
++            if (job?.insurance_claim_number) htmlBody += `<p><strong>Claim #:</strong> ${job.insurance_claim_number}</p>`;
++            htmlBody += `<hr style="margin:15px 0;">`;
++
++            const imagesBySection = {};
++            photoMedia.forEach(item => {
++                const section = item.section || 'Other';
++                if (!imagesBySection[section]) imagesBySection[section] = [];
++                imagesBySection[section].push(item);
++            });
++
++            for (const [section, photos] of Object.entries(imagesBySection)) {
++                htmlBody += `<h3 style="color:#1e3a8a;border-bottom:2px solid #1e3a8a;padding-bottom:5px;">${section}</h3>`;
++                for (const photo of photos) {
++                    const aiData = photo.ai_damage_analysis;
++                    const imgUrl = photo.annotated_url || photo.file_url;
++                    htmlBody += `<div style="margin-bottom:20px;">`;
++                    htmlBody += `<img src="${imgUrl}" style="max-width:100%;max-height:400px;border-radius:8px;" />`;
++                    htmlBody += `<p style="margin:5px 0;"><strong>${photo.caption || 'No caption'}</strong></p>`;
++                    if (aiData) {
++                        let damageInfo = [];
++                        if (aiData.hail_hits_counted > 0) damageInfo.push(`${aiData.hail_hits_counted} Hail`);
++                        if (aiData.wind_marks_counted > 0) damageInfo.push(`${aiData.wind_marks_counted} Wind`);
++                        if (aiData.missing_shingles_counted > 0) damageInfo.push(`${aiData.missing_shingles_counted} Missing`);
++                        if (damageInfo.length > 0) {
++                            htmlBody += `<p style="color:#dc2626;font-weight:bold;">Damage: ${damageInfo.join(', ')} | Severity: ${(aiData.severity || 'none').toUpperCase()}</p>`;
++                        }
++                        if (aiData.ai_notes) {
++                            htmlBody += `<p style="color:#2563eb;font-size:13px;">${aiData.ai_notes}</p>`;
++                        }
++                        if (aiData.manually_edited) {
++                            htmlBody += `<p style="color:#7c3aed;font-size:11px;">Manually reviewed</p>`;
++                        }
++                    }
++                    htmlBody += `</div>`;
++                }
++            }
++
++            if (sectionNotes && Object.keys(sectionNotes).length > 0) {
++                htmlBody += `<h3 style="color:#1e3a8a;">Section Notes</h3>`;
++                for (const [section, notes] of Object.entries(sectionNotes)) {
++                    if (notes) {
++                        htmlBody += `<p><strong>${section}:</strong> ${notes}</p>`;
++                    }
++                }
++            }
++
++            htmlBody += `<hr><p style="font-size:11px;color:#666;">Sent from CompanySync CrewCam</p>`;
++
++            await base44.integrations.Core.SendEmail({
++                to: shareEmail,
++                subject: `Inspection Photos - ${job?.property_address || 'Property'} - ${new Date().toLocaleDateString()}`,
++                body: htmlBody
++            });
++
++            alert('Photos shared successfully!');
++            setShowSharePhotosDialog(false);
++            setShareEmail('');
++        } catch (error) {
++            console.error('Share photos failed:', error);
++            alert('Failed to share photos: ' + (error.message || 'Unknown error'));
++        } finally {
++            setIsSharingPhotos(false);
++        }
++    };
++
++    const handleReanalyzePhoto = async (item, silent = false) => {
++        if (reanalyzingPhotoId) return;
++        setReanalyzingPhotoId(item.id);
++        try {
++            const fileUrl = item.file_url;
++            console.log('Re-analyzing photo with two-pass AI...', item.id);
++            const analysisResult = await base44.functions.invoke('analyzeCrewCamPhoto', {
++                photoUrl: fileUrl,
++                section: item.section || 'Other'
++            });
++
++            if (analysisResult.data.success) {
++                const analysisData = analysisResult.data.analysis;
++                let annotatedUrl = null;
++
++                if (analysisData.detections && analysisData.detections.length > 0) {
++                    try {
++                        console.log(`Drawing ${analysisData.detections.length} chalk annotations...`);
++                        const annotatedBlob = await annotateImage(fileUrl, analysisData.detections);
++                        const fileName = `annotated_crewcam_${Date.now()}.jpg`;
++                        const annotatedFile = new File([annotatedBlob], fileName, { type: 'image/jpeg' });
++                        const uploadRes = await base44.integrations.Core.UploadFile({ file: annotatedFile });
++                        annotatedUrl = uploadRes.file_url;
++                        console.log('Annotated image uploaded:', annotatedUrl);
++                    } catch (annotError) {
++                        console.error('Annotation drawing failed:', annotError);
++                    }
++                }
++
++                await base44.entities.JobMedia.update(item.id, {
++                    ai_damage_analysis: analysisData,
++                    ...(annotatedUrl ? { annotated_url: annotatedUrl } : {})
++                });
++
++                queryClient.invalidateQueries({ queryKey: ['inspectionMedia', jobId] });
++                if (!silent) {
++                    alert(`AI Analysis Complete: ${analysisData.hail_hits_counted || 0} hail hits, ${analysisData.wind_marks_counted || 0} wind marks. Severity: ${analysisData.severity || 'none'}`);
++                }
++                return analysisData;
++            }
++        } catch (error) {
++            console.error('Re-analysis failed:', error);
++            if (!silent) {
++                alert('AI analysis failed: ' + (error.message || 'Unknown error'));
++            }
++        } finally {
++            setReanalyzingPhotoId(null);
++        }
++        return null;
++    };
++
+     const handleSaveNotes = () => {
+         if (!jobId) {
+             alert("Please create the inspection job first before saving notes.");
+@@ -2303,6 +2489,47 @@ export default function InspectionCapture() {
+                                             <CheckCircle className="w-4 h-4 mr-1" />
+                                             {selectedPhotos.length === activeSectionMedia.length ? 'Deselect All' : 'Select All'}
+                                         </Button>
++                                        <Button
++                                            data-testid="button-reanalyze-all"
++                                            variant="outline"
++                                            size="sm"
++                                            className="text-purple-600"
++                                            disabled={isReanalyzing || !!reanalyzingPhotoId}
++                                            onClick={async () => {
++                                                const photos = activeSectionMedia.filter(m => m.file_type === 'photo');
++                                                if (photos.length === 0) return;
++                                                if (!confirm(`Re-analyze ${photos.length} photo(s) with AI? This may take a moment.`)) return;
++                                                setIsReanalyzing(true);
++                                                let completed = 0;
++                                                let totalHail = 0;
++                                                let totalWind = 0;
++                                                for (const photo of photos) {
++                                                    const result = await handleReanalyzePhoto(photo, true);
++                                                    if (result) {
++                                                        completed++;
++                                                        totalHail += result.hail_hits_counted || 0;
++                                                        totalWind += result.wind_marks_counted || 0;
++                                                    }
++                                                }
++                                                setIsReanalyzing(false);
++                                                alert(`Batch Analysis Complete: ${completed}/${photos.length} photos analyzed. Total: ${totalHail} hail hits, ${totalWind} wind marks across all photos.`);
++                                            }}
++                                        >
++                                            {isReanalyzing ? (
++                                                <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> Analyzing...</>
++                                            ) : (
++                                                <><Zap className="w-4 h-4 mr-1" /> Analyze All</>
++                                            )}
++                                        </Button>
++                                        <Button
++                                            data-testid="button-share-photos"
++                                            variant="outline"
++                                            size="sm"
++                                            className="text-green-600"
++                                            onClick={() => setShowSharePhotosDialog(true)}
++                                        >
++                                            <Send className="w-4 h-4 mr-1" /> Share Photos
++                                        </Button>
+                                         {selectedPhotos.length > 0 && (
+                                             <>
+                                                 <Button variant="outline" size="sm" onClick={handleBulkDownload} className="text-green-600">
+@@ -2333,8 +2560,15 @@ export default function InspectionCapture() {
+                                         return (
+                                             <Card
+                                                 key={item.id}
++                                                data-testid={`card-photo-${item.id}`}
+                                                 className={`relative group cursor-pointer ${isSelected ? 'ring-2 ring-blue-500' : ''}`}
+-                                                onClick={() => handlePhotoSelect(item.id)}
++                                                onClick={() => {
++                                                    if (selectedPhotos.length > 0) {
++                                                        handlePhotoSelect(item.id);
++                                                    } else {
++                                                        handleOpenPhotoDetail(item);
++                                                    }
++                                                }}
+                                             >
+                                                 <div className="aspect-square bg-gray-200 rounded-t-md flex items-center justify-center relative">
+                                                     <img 
+@@ -2343,6 +2577,19 @@ export default function InspectionCapture() {
+                                                       className="w-full h-full object-cover rounded-t-md" 
+                                                     />
+                                                     
++                                                    {/* Selection checkbox - always visible on hover or when selected */}
++                                                    <div 
++                                                        className={`absolute top-1 right-1 z-10 ${isSelected ? 'visible' : 'invisible group-hover:visible'}`}
++                                                        onClick={(e) => {
++                                                            e.stopPropagation();
++                                                            handlePhotoSelect(item.id);
++                                                        }}
++                                                    >
++                                                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isSelected ? 'bg-blue-500 text-white' : 'bg-white/80 border-2 border-gray-400'}`}>
++                                                            {isSelected && <CheckCircle className="w-4 h-4" />}
++                                                        </div>
++                                                    </div>
++                                                    
+                                                     {/* AI Annotated Badge */}
+                                                     {item.annotated_url && (
+                                                       <div className="absolute bottom-1 right-1 bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
+@@ -2350,16 +2597,16 @@ export default function InspectionCapture() {
+                                                       </div>
+                                                     )}
+                                                     
+-                                                    {/* AI Severity Badge */}
++                                                    {/* AI Severity Badge - moved to not conflict with checkbox */}
+                                                     {aiData?.severity && aiData.severity !== 'none' && (
+-                                                        <div className={`absolute top-1 right-1 ${severityColor} text-white text-[10px] px-1.5 py-0.5 rounded font-bold uppercase`}>
+-                                                            {aiData.severity}
++                                                        <div className={`absolute top-8 right-1 ${severityColor} text-white text-[10px] px-1.5 py-0.5 rounded font-bold uppercase`}>
++                                                            SEV
+                                                         </div>
+                                                     )}
+                                                     
+                                                     {/* AI Damage Overlay */}
+                                                     {hasAI && (
+-                                                        <div className="absolute top-1 left-1 bg-black/80 text-white text-xs px-2 py-1 rounded-md flex items-center gap-1 flex-wrap max-w-[90%]">
++                                                        <div className="absolute top-1 left-1 bg-black/80 text-white text-xs px-2 py-1 rounded-md flex items-center gap-1 flex-wrap max-w-[80%]">
+                                                             <Sparkles className="w-3 h-3 text-yellow-400 flex-shrink-0" />
+                                                             {aiData.hail_hits_counted > 0 && <span>{aiData.hail_hits_counted} Hail</span>}
+                                                             {aiData.wind_marks_counted > 0 && <span>{aiData.wind_marks_counted} Wind</span>}
+@@ -2378,12 +2625,6 @@ export default function InspectionCapture() {
+                                                             Likely Discontinued
+                                                         </div>
+                                                     )}
+-                                                    
+-                                                    {isSelected && (
+-                                                        <div className="absolute top-1 right-1 bg-blue-500 text-white rounded-full p-1">
+-                                                            <CheckCircle className="w-4 h-4" />
+-                                                        </div>
+-                                                    )}
+                                                 </div>
+                                                 <CardContent className="p-1.5">
+                                                     {activeSection === 'All Photos' && item.section && (
+@@ -2391,8 +2632,41 @@ export default function InspectionCapture() {
+                                                     )}
+                                                     <p className="text-xs text-gray-600 truncate">{item.caption || 'No caption'}</p>
+                                                     {aiData?.ai_notes && (
+-                                                        <p className="text-xs text-blue-600 truncate mt-1">💡 {aiData.ai_notes}</p>
++                                                        <p className="text-xs text-blue-600 truncate mt-1">{aiData.ai_notes}</p>
+                                                     )}
++                                                    <div className="flex gap-1 mt-1.5">
++                                                        <Button
++                                                            data-testid={`button-edit-photo-${item.id}`}
++                                                            variant="outline"
++                                                            size="sm"
++                                                            className="flex-1 text-xs h-7"
++                                                            onClick={(e) => {
++                                                                e.stopPropagation();
++                                                                handleOpenPhotoDetail(item);
++                                                            }}
++                                                        >
++                                                            <Edit className="w-3 h-3 mr-1" /> Edit
++                                                        </Button>
++                                                        {item.file_type === 'photo' && (
++                                                            <Button
++                                                                data-testid={`button-reanalyze-${item.id}`}
++                                                                variant="outline"
++                                                                size="sm"
++                                                                className="flex-1 text-xs h-7"
++                                                                disabled={reanalyzingPhotoId === item.id}
++                                                                onClick={(e) => {
++                                                                    e.stopPropagation();
++                                                                    handleReanalyzePhoto(item);
++                                                                }}
++                                                            >
++                                                                {reanalyzingPhotoId === item.id ? (
++                                                                    <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> AI...</>
++                                                                ) : (
++                                                                    <><Zap className="w-3 h-3 mr-1" /> {hasAI ? 'Re-AI' : 'AI'}</>
++                                                                )}
++                                                            </Button>
++                                                        )}
++                                                    </div>
+                                                 </CardContent>
+                                             </Card>
+                                         );
+@@ -2873,6 +3147,181 @@ export default function InspectionCapture() {
+                     linkStormMutation.mutate({ jobId, stormId });
+                 }}
+             />
++
++            <Dialog open={showPhotoDetailDialog} onOpenChange={(open) => { setShowPhotoDetailDialog(open); if (!open) setEditingPhoto(null); }}>
++                <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
++                    <DialogHeader>
++                        <DialogTitle>Photo Details</DialogTitle>
++                        <DialogDescription>View, edit damage counts, or re-analyze this photo</DialogDescription>
++                    </DialogHeader>
++                    {editingPhoto && (
++                        <div className="space-y-4">
++                            <div className="relative rounded-md overflow-hidden">
++                                <img
++                                    src={editingPhoto.annotated_url || editingPhoto.file_url}
++                                    alt={editingPhoto.caption || ''}
++                                    className="w-full max-h-[300px] object-contain bg-gray-100 rounded-md"
++                                />
++                                {editingPhoto.annotated_url && (
++                                    <div className="absolute bottom-2 right-2 bg-blue-600 text-white text-xs px-2 py-0.5 rounded font-semibold">
++                                        AI Annotated
++                                    </div>
++                                )}
++                            </div>
++
++                            <div>
++                                <Label>Caption / Description (Slope & What's Shown)</Label>
++                                <Textarea
++                                    data-testid="input-photo-caption"
++                                    value={editFormData.caption}
++                                    onChange={(e) => setEditFormData(prev => ({ ...prev, caption: e.target.value }))}
++                                    placeholder="e.g., North Slope - Close-up of hail damage on 3-tab shingles"
++                                    rows={2}
++                                />
++                            </div>
++
++                            <div className="grid grid-cols-3 gap-3">
++                                <div>
++                                    <Label>Hail Hits</Label>
++                                    <Input
++                                        data-testid="input-hail-count"
++                                        type="number"
++                                        min="0"
++                                        value={editFormData.hail_hits_counted}
++                                        onChange={(e) => setEditFormData(prev => ({ ...prev, hail_hits_counted: e.target.value }))}
++                                    />
++                                </div>
++                                <div>
++                                    <Label>Wind Marks</Label>
++                                    <Input
++                                        data-testid="input-wind-count"
++                                        type="number"
++                                        min="0"
++                                        value={editFormData.wind_marks_counted}
++                                        onChange={(e) => setEditFormData(prev => ({ ...prev, wind_marks_counted: e.target.value }))}
++                                    />
++                                </div>
++                                <div>
++                                    <Label>Missing</Label>
++                                    <Input
++                                        data-testid="input-missing-count"
++                                        type="number"
++                                        min="0"
++                                        value={editFormData.missing_shingles_counted}
++                                        onChange={(e) => setEditFormData(prev => ({ ...prev, missing_shingles_counted: e.target.value }))}
++                                    />
++                                </div>
++                            </div>
++
++                            <div>
++                                <Label>Severity</Label>
++                                <Select
++                                    value={editFormData.severity}
++                                    onValueChange={(val) => setEditFormData(prev => ({ ...prev, severity: val }))}
++                                >
++                                    <SelectTrigger data-testid="select-severity">
++                                        <SelectValue />
++                                    </SelectTrigger>
++                                    <SelectContent>
++                                        <SelectItem value="none">None</SelectItem>
++                                        <SelectItem value="minor">Minor</SelectItem>
++                                        <SelectItem value="moderate">Moderate</SelectItem>
++                                        <SelectItem value="severe">Severe</SelectItem>
++                                    </SelectContent>
++                                </Select>
++                            </div>
++
++                            <div>
++                                <Label>Notes</Label>
++                                <Textarea
++                                    data-testid="input-ai-notes"
++                                    value={editFormData.ai_notes}
++                                    onChange={(e) => setEditFormData(prev => ({ ...prev, ai_notes: e.target.value }))}
++                                    placeholder="Damage observations and notes..."
++                                    rows={3}
++                                />
++                            </div>
++
++                            {editingPhoto.ai_damage_analysis?.manually_edited && (
++                                <p className="text-xs text-purple-600">Manually edited on {new Date(editingPhoto.ai_damage_analysis.edited_at).toLocaleString()}</p>
++                            )}
++                        </div>
++                    )}
++                    <DialogFooter className="flex flex-col sm:flex-row gap-2">
++                        {editingPhoto?.file_type === 'photo' && (
++                            <Button
++                                data-testid="button-dialog-reanalyze"
++                                variant="outline"
++                                disabled={reanalyzingPhotoId === editingPhoto?.id}
++                                onClick={async () => {
++                                    const result = await handleReanalyzePhoto(editingPhoto);
++                                    if (result) {
++                                        setEditFormData({
++                                            caption: editFormData.caption,
++                                            hail_hits_counted: result.hail_hits_counted || 0,
++                                            wind_marks_counted: result.wind_marks_counted || 0,
++                                            missing_shingles_counted: result.missing_shingles_counted || 0,
++                                            severity: result.severity || 'none',
++                                            ai_notes: result.ai_notes || ''
++                                        });
++                                    }
++                                }}
++                            >
++                                {reanalyzingPhotoId === editingPhoto?.id ? (
++                                    <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> Analyzing...</>
++                                ) : (
++                                    <><Zap className="w-4 h-4 mr-1" /> Re-Analyze with AI</>
++                                )}
++                            </Button>
++                        )}
++                        <Button variant="outline" onClick={() => { setShowPhotoDetailDialog(false); setEditingPhoto(null); }}>Cancel</Button>
++                        <Button data-testid="button-save-photo-detail" onClick={handleSavePhotoDetail}>
++                            <Save className="w-4 h-4 mr-1" /> Save Changes
++                        </Button>
++                    </DialogFooter>
++                </DialogContent>
++            </Dialog>
++
++            <Dialog open={showSharePhotosDialog} onOpenChange={setShowSharePhotosDialog}>
++                <DialogContent>
++                    <DialogHeader>
++                        <DialogTitle>Share Photos</DialogTitle>
++                        <DialogDescription>Send inspection photos with damage notes to your production manager or anyone else. No formal report — just the photos, labels, and notes.</DialogDescription>
++                    </DialogHeader>
++                    <div className="space-y-4">
++                        <div>
++                            <Label>Recipient Email</Label>
++                            <Input
++                                data-testid="input-share-email"
++                                type="email"
++                                value={shareEmail}
++                                onChange={(e) => setShareEmail(e.target.value)}
++                                placeholder="productionmanager@company.com"
++                            />
++                        </div>
++                        <div className="bg-gray-50 rounded-md p-3 text-sm text-gray-600">
++                            <p className="font-medium mb-1">What gets sent:</p>
++                            <ul className="list-disc list-inside space-y-1 text-xs">
++                                <li>All photos (annotated versions if available)</li>
++                                <li>Photo captions and slope/area labels</li>
++                                <li>Damage counts (hail, wind, missing)</li>
++                                <li>AI notes and manual edits</li>
++                                <li>Section notes</li>
++                            </ul>
++                        </div>
++                    </div>
++                    <DialogFooter>
++                        <Button variant="outline" onClick={() => setShowSharePhotosDialog(false)}>Cancel</Button>
++                        <Button
++                            data-testid="button-send-share"
++                            onClick={handleSharePhotosEmail}
++                            disabled={!shareEmail || isSharingPhotos}
++                        >
++                            {isSharingPhotos ? <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> Sending...</> : <><Send className="w-4 h-4 mr-1" /> Send Photos</>}
++                        </Button>
++                    </DialogFooter>
++                </DialogContent>
++            </Dialog>
+         </div>
+     );
+ }
+\ No newline at end of file

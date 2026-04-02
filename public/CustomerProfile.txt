@@ -1,0 +1,4053 @@
+import React, { useState, useEffect, useRef } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectSeparator } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  User,
+  Building,
+  Phone,
+  Mail,
+  MapPin,
+  FileText,
+  DollarSign,
+  CreditCard,
+  Briefcase,
+  CheckSquare,
+  MessageSquare,
+  Calendar,
+  FileSignature,
+  Folder,
+  Bell,
+  Receipt,
+  Save,
+  ArrowLeft,
+  Plus,
+  Loader2,
+  Upload,
+  Eye,
+  Trash2,
+  Image,
+  Download,
+  Pencil,
+  MoreVertical,
+  CheckCircle,
+  Camera,
+  X
+} from "lucide-react";
+import { format } from "date-fns";
+import { useNavigate, useLocation } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import Dialer from "../components/communication/Dialer";
+import EmailDialog from "../components/communication/EmailDialog";
+import SMSDialog from "../components/communication/SMSDialog";
+import CommissionSummary from "../components/customer/CommissionSummary";
+import CustomerGroupSelect from "../components/customers/CustomerGroupSelect";
+import CustomerTagSelect from "../components/customers/CustomerTagSelect";
+import InstallerSelect from "../components/customers/InstallerSelect";
+import VendorSelect from "../components/customers/VendorSelect";
+import { toast } from "sonner";
+import { jsPDF } from "jspdf";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+
+export default function CustomerProfile() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const urlParams = new URLSearchParams(location.search);
+  const customerNameFromUrl = urlParams.get('name');
+
+  const [customerId, setCustomerId] = useState(null);
+  const [activeSection, setActiveSection] = useState("profile");
+  const [showDialer, setShowDialer] = useState(false);
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [showSMSDialog, setShowSMSDialog] = useState(false);
+  const [customerData, setCustomerData] = useState(null);
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [paymentForm, setPaymentForm] = useState({
+    amount: "",
+    payment_method: "cash",
+    payment_date: new Date().toISOString().split('T')[0],
+    invoice_number: "",
+    reference_number: "",
+    notes: "",
+    send_receipt: true
+  });
+
+  const [showEditPaymentDialog, setShowEditPaymentDialog] = useState(false);
+  const [editPaymentForm, setEditPaymentForm] = useState({
+    id: null,
+    amount: "",
+    payment_method: "cash",
+    payment_date: new Date().toISOString().split('T')[0],
+    invoice_number: "",
+    reference_number: "",
+    notes: ""
+  });
+
+  const [showFileUpload, setShowFileUpload] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [fileForm, setFileForm] = useState({
+    label: "",
+    category: "",
+    notes: "",
+    files: []
+  });
+  const [customCategories, setCustomCategories] = useState([]);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [imageErrors, setImageErrors] = useState({});
+  const [viewingFile, setViewingFile] = useState(null);
+
+  const [editingFile, setEditingFile] = useState(null);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editForm, setEditForm] = useState({
+    document_name: "",
+    category: "",
+    description: ""
+  });
+
+  const [user, setUser] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]); // New state for selected files for PDF
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false); // New state for PDF generation loading
+  const [showTaskDialog, setShowTaskDialog] = useState(false);
+  const [taskForm, setTaskForm] = useState({
+    name: "",
+    description: "",
+    priority: "medium",
+    due_date: "",
+    assigned_to: "",
+    status: "not_started"
+  });
+  const [showCheckUploadDialog, setShowCheckUploadDialog] = useState(false);
+  const [isProcessingCheck, setIsProcessingCheck] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editedNoteText, setEditedNoteText] = useState('');
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [bulkDeleteNotes, setBulkDeleteNotes] = useState('');
+
+  useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const id = urlParams.get('id');
+    const name = urlParams.get('name');
+    
+    if (id) {
+      setCustomerId(id);
+    } else if (name) {
+      setCustomerId(name);
+    }
+  }, [location.search]);
+
+  const { company: myCompany, staffProfiles } = useCurrentCompany(user);
+
+  const myStaffProfile = React.useMemo(() => {
+    if (!user) return null;
+    return staffProfiles.find(s => s.user_email === user.email);
+  }, [user, staffProfiles]);
+
+  // Third: Fetch customer AFTER myCompany is available (with company filtering for security)
+  const { data: customer, isLoading: isLoadingCustomers } = useQuery({
+    queryKey: ['customer', customerId, myCompany?.id],
+    queryFn: async () => {
+      if (!customerId) return null;
+      
+      // SECURITY: Always filter by company_id to prevent cross-company data leaks
+      const companyFilter = myCompany?.id ? { company_id: myCompany.id } : {};
+      
+      // Try direct filter by ID first (fastest)
+      const byId = await base44.entities.Customer.filter({ id: customerId, ...companyFilter });
+      if (byId && byId.length > 0) return byId[0];
+      
+      // Fallback: search by name within company
+      const byName = await base44.entities.Customer.filter({ name: customerId, ...companyFilter });
+      if (byName && byName.length > 0) return byName[0];
+      
+      return null;
+    },
+    enabled: !!customerId && !!myCompany,
+    staleTime: 60000,
+  });
+
+  useEffect(() => {
+    if (customer) {
+      setCustomerData({
+        ...customer,
+        street: customer.street || "",
+        city: customer.city || "",
+        state: customer.state || "",
+        zip: customer.zip || "",
+        assigned_to_users: customer.assigned_to_users || (customer.assigned_to ? [customer.assigned_to] : []),
+        notes: customer.notes || "",
+        company: customer.company || "",
+        phone: customer.phone || "",
+        phone_2: customer.phone_2 || "",
+        email: customer.email || "",
+        group: customer.group || "",
+        insurance_company: customer.insurance_company || "",
+        claim_number: customer.claim_number || "",
+        adjuster_name: customer.adjuster_name || "",
+        adjuster_phone: customer.adjuster_phone || "",
+        installer: customer.installer || "",
+        vendor_name: customer.vendor_name || "",
+        tags: customer.tags || [],
+      });
+    }
+  }, [customer]);
+
+  useEffect(() => {
+    if (myCompany?.id) {
+      const savedCategories = localStorage.getItem(`custom_categories_${myCompany.id}`);
+      if (savedCategories) {
+        setCustomCategories(JSON.parse(savedCategories));
+      }
+    }
+  }, [myCompany]);
+
+  const { data: estimates = [] } = useQuery({
+      queryKey: ['customer-estimates', customer?.id, customer?.name, customer?.email, myCompany?.id],
+      queryFn: async () => {
+        if (!customer || !myCompany) return [];
+
+        const cid = myCompany.id;
+
+        const byId = await base44.entities.Estimate.filter({ customer_id: customer.id, company_id: cid });
+
+        const byName = await base44.entities.Estimate.filter({ customer_name: customer.name, company_id: cid });
+        const byEmail = customer.email ? await base44.entities.Estimate.filter({ customer_email: customer.email, company_id: cid }) : [];
+
+        const normalize = (s) => (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+        const targetName = normalize(customer.name);
+        const recent = await base44.entities.Estimate.filter({ company_id: cid }, '-created_date', 200);
+        const ciMatches = recent.filter((e) => 
+          normalize(e.customer_name) === targetName ||
+          (customer.email && (e.customer_email || '').toLowerCase() === customer.email.toLowerCase())
+        );
+
+        const allEstimates = [...byId, ...byName, ...(byEmail || []), ...ciMatches];
+        const uniqueEstimates = allEstimates.filter((est, idx, self) => idx === self.findIndex((e) => e.id === est.id));
+        return uniqueEstimates;
+      },
+      enabled: !!customer && !!myCompany,
+      initialData: [],
+    });
+
+  const { data: invoices = [] } = useQuery({
+    queryKey: ['customer-invoices', customer?.name, myCompany?.id],
+    queryFn: () => (customer && myCompany) ? base44.entities.Invoice.filter({ customer_name: customer.name, company_id: myCompany.id }) : [],
+    enabled: !!customer && !!myCompany,
+    initialData: [],
+  });
+
+  const { data: payments = [] } = useQuery({
+    queryKey: ['customer-payments', customer?.id, myCompany?.id],
+    queryFn: async () => {
+      if (!customer || !myCompany) return [];
+      const cid = myCompany.id;
+      const byId = await base44.entities.Payment.filter({ customer_id: customer.id, company_id: cid });
+      const byName = await base44.entities.Payment.filter({ customer_name: customer.name, company_id: cid });
+      let byInvoices = [];
+      if (invoices && invoices.length > 0) {
+        const results = await Promise.all(
+          invoices.map(inv => base44.entities.Payment.filter({ invoice_number: inv.invoice_number, company_id: cid }))
+        );
+        byInvoices = results.flat();
+      }
+      const merged = [...byId, ...byName, ...byInvoices];
+      const unique = merged.filter((p, idx, self) => idx === self.findIndex(x => x.id === p.id));
+      return unique;
+    },
+    enabled: !!customer && !!myCompany,
+    initialData: [],
+  });
+
+  // Auto-link orphan payments (missing customer_id) to this customer when invoice/customer match
+  const reconcileRun = useRef(false);
+  useEffect(() => {
+    const run = async () => {
+      if (!customer || reconcileRun.current || payments.length === 0) return;
+      const invoiceNumbers = new Set((invoices || []).map(i => i.invoice_number));
+      const toFix = payments.filter(p => !p.customer_id && (p.customer_name === customer.name || (p.invoice_number && invoiceNumbers.has(p.invoice_number))));
+      if (toFix.length === 0) { reconcileRun.current = true; return; }
+      for (const p of toFix) {
+        try {
+          await base44.entities.Payment.update(p.id, { customer_id: customer.id, customer_name: customer.name });
+        } catch (e) { console.warn('Payment link fix failed', p.id, e?.message); }
+      }
+      reconcileRun.current = true;
+      queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
+    };
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customer?.id, payments.length, invoices.length]);
+
+  const { data: allPayouts = [] } = useQuery({
+    queryKey: ['all-payouts', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Payout.filter({ company_id: myCompany.id }, "-created_date", 10000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const payouts = React.useMemo(() => {
+    if (!customer || !invoices || invoices.length === 0) return [];
+    
+    // Get all sales rep emails from this customer's invoices
+    const salesRepEmails = new Set();
+    invoices.forEach(invoice => {
+      if (invoice.commission_splits && invoice.commission_splits.length > 0) {
+        invoice.commission_splits.forEach(split => {
+          salesRepEmails.add(split.user_email);
+        });
+      } else if (invoice.sale_agent) {
+        salesRepEmails.add(invoice.sale_agent);
+      }
+    });
+    
+    // Filter payouts: either linked to this customer OR to any sales rep who has commissions on this customer's invoices
+    return allPayouts.filter(p => 
+      p.customer_id === customer.id || 
+      (p.payout_type === 'commission' && salesRepEmails.has(p.recipient_email))
+    );
+  }, [customer, invoices, allPayouts]);
+
+  const { data: projects = [] } = useQuery({
+    queryKey: ['customer-projects', customer?.name, myCompany?.id],
+    queryFn: () => (customer && myCompany) ? base44.entities.Project.filter({ customer_name: customer.name, company_id: myCompany.id }) : [],
+    enabled: !!customer && !!myCompany,
+    initialData: [],
+  });
+
+  const { data: tasks = [] } = useQuery({
+    queryKey: ['customer-tasks', customer?.name, myCompany?.id],
+    queryFn: () => (customer && myCompany) ? base44.entities.Task.filter({ related_to: customer.name, company_id: myCompany.id }) : [],
+    enabled: !!customer && !!myCompany,
+    initialData: [],
+  });
+
+  const { data: boards = [] } = useQuery({
+    queryKey: ['task-boards', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.TaskBoard.filter({ company_id: myCompany.id }, "-created_date") : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const createTaskMutation = useMutation({
+    mutationFn: (taskData) => {
+      const defaultBoard = boards.find(b => b.is_default) || boards[0];
+      
+      if (!defaultBoard) {
+        throw new Error('No task board found. Please create a task board first in the Tasks page.');
+      }
+
+      const defaultColumn = defaultBoard?.columns?.[0]?.id || "not_started";
+      const assignedStaff = staffProfiles.find(s => s.user_email === (taskData.assigned_to || user?.email));
+
+      return base44.entities.Task.create({
+        ...taskData,
+        company_id: myCompany?.id,
+        board_id: defaultBoard.id,
+        column: defaultColumn,
+        assignees: assignedStaff ? [{
+          email: assignedStaff.user_email,
+          name: assignedStaff.full_name,
+          avatar: assignedStaff.avatar_url
+        }] : [],
+        related_to: customer.name,
+        source: "customer"
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      setShowTaskDialog(false);
+      setTaskForm({
+        name: "",
+        description: "",
+        priority: "medium",
+        due_date: "",
+        assigned_to: "",
+        status: "not_started"
+      });
+      toast.success('✅ Task created successfully!');
+    },
+    onError: (error) => {
+      toast.error('Failed to create task: ' + error.message);
+    }
+  });
+
+  const deleteTaskMutation = useMutation({
+    mutationFn: (taskId) => base44.entities.Task.delete(taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      toast.success('✅ Task deleted successfully!');
+    },
+    onError: (error) => {
+      toast.error('Failed to delete task: ' + error.message);
+    }
+  });
+
+  const { data: communications = [] } = useQuery({
+    queryKey: ['customer-communications', customer?.name, myCompany?.id],
+    queryFn: () => (customer && myCompany) ? base44.entities.Communication.filter({ contact_name: customer.name, company_id: myCompany.id }) : [],
+    enabled: !!customer && !!myCompany,
+    initialData: [],
+  });
+
+  const { data: proposals = [] } = useQuery({
+    queryKey: ['customer-proposals', customer?.name, myCompany?.id],
+    queryFn: () => (customer && myCompany) ? base44.entities.Proposal.filter({ customer_name: customer.name, company_id: myCompany.id }) : [],
+    enabled: !!customer && !!myCompany,
+    initialData: [],
+  });
+
+  const { data: contracts = [] } = useQuery({
+    queryKey: ['customer-contracts', customer?.name, myCompany?.id],
+    queryFn: () => (customer && myCompany) ? base44.entities.Contract.filter({ customer_name: customer.name, company_id: myCompany.id }) : [],
+    enabled: !!customer && !!myCompany,
+    initialData: [],
+  });
+
+  const { data: calendarEvents = [] } = useQuery({
+    queryKey: ['customer-events', customer?.name, myCompany?.id],
+    queryFn: () => (customer && myCompany) ? base44.entities.CalendarEvent.filter({ related_customer: customer.name, company_id: myCompany.id }) : [],
+    enabled: !!customer && !!myCompany,
+    initialData: [],
+  });
+
+  const { data: inspectionJobs = [] } = useQuery({
+    queryKey: ['customer-inspection-jobs', customer?.id, customer?.name, myCompany?.id],
+    queryFn: async () => {
+      if (!customer || !myCompany) return [];
+      const cid = myCompany.id;
+      const byId = await base44.entities.InspectionJob.filter({ related_customer_id: customer.id, company_id: cid });
+      const byName = await base44.entities.InspectionJob.filter({ client_name: customer.name, company_id: cid });
+      const merged = [...byId, ...byName];
+      const unique = merged.filter((job, idx, self) => idx === self.findIndex(j => j.id === job.id));
+      return unique || [];
+    },
+    enabled: !!customer && !!myCompany,
+    initialData: [],
+  });
+
+  const { data: inspectionMedia = [] } = useQuery({
+    queryKey: ['customer-inspection-media', inspectionJobs.map(j => j.id).join(',')],
+    queryFn: async () => {
+      if (!inspectionJobs || inspectionJobs.length === 0) return [];
+      const media = await base44.entities.JobMedia.filter({ 
+        inspection_job_id: { $in: inspectionJobs.map(j => j.id) } 
+      });
+      return media || [];
+    },
+    enabled: inspectionJobs.length > 0,
+    initialData: [],
+  });
+
+  const { data: files = [] } = useQuery({
+    queryKey: ['customer-files', customer?.id, activeSection, myCompany?.id],
+    queryFn: async () => {
+      if (!customer || !myCompany) return [];
+      const cid = myCompany.id;
+      const byName = await base44.entities.Document.filter({ related_customer: customer.name, company_id: cid });
+      const byId = await base44.entities.Document.filter({ related_entity_id: customer.id, company_id: cid });
+      
+      // Merge and deduplicate
+      const allFiles = [...byName, ...byId];
+      const uniqueFiles = allFiles.filter((file, index, self) => 
+        index === self.findIndex(f => f.id === file.id)
+      );
+      return uniqueFiles;
+    },
+    enabled: !!customer && activeSection === 'files',
+    initialData: [],
+    staleTime: 0,
+  });
+
+  const { data: customerExpenses = [] } = useQuery({
+    queryKey: ['customer-expenses', customer?.id, myCompany?.id],
+    queryFn: () => (customer && myCompany) ? base44.entities.Expense.filter({ customer_id: customer.id, company_id: myCompany.id }) : [],
+    enabled: !!customer && !!myCompany,
+    initialData: [],
+  });
+
+  useEffect(() => {
+    if (showPaymentDialog && invoices.length > 0) {
+      if (!paymentForm.invoice_number && paymentForm.amount === "") {
+        const unpaidInvoice = invoices.find(inv =>
+          ['sent', 'draft', 'viewed', 'overdue', 'partially_paid'].includes(inv.status) &&
+          (inv.amount || 0) > (inv.amount_paid || 0)
+        );
+        if (unpaidInvoice) {
+          setPaymentForm(prev => ({
+            ...prev,
+            invoice_number: unpaidInvoice.invoice_number,
+            amount: (unpaidInvoice.amount - (unpaidInvoice.amount_paid || 0)).toFixed(2)
+          }));
+        }
+      }
+    }
+  }, [showPaymentDialog, invoices, paymentForm.invoice_number, paymentForm.amount]);
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data, originalAssignedUsers }) => {
+      const updatedCustomer = await base44.entities.Customer.update(id, data);
+
+      // 🔥 UPDATE ALL INVOICES when assignment changes
+      if (originalAssignedUsers && updatedCustomer.assigned_to_users && myCompany?.id) {
+        const assignmentChanged = JSON.stringify(originalAssignedUsers.sort()) !== JSON.stringify(updatedCustomer.assigned_to_users.sort());
+        
+        if (assignmentChanged) {
+          console.log('💼 Customer assignment changed, updating invoices...');
+          
+          // Get all invoices for this customer
+          const customerInvoices = await base44.entities.Invoice.filter({ 
+            customer_name: updatedCustomer.name,
+            company_id: myCompany.id
+          });
+          
+          // 🔥 CRITICAL FIX: Create commission splits for ALL assigned users
+          if (updatedCustomer.assigned_to_users.length > 0) {
+            // Get all staff profiles
+            const allStaffProfiles = await base44.entities.StaffProfile.filter({ company_id: myCompany.id });
+            
+            // Filter to only those with commission rates
+            const assignedWithCommission = updatedCustomer.assigned_to_users
+              .map(email => allStaffProfiles.find(s => s.user_email === email))
+              .filter(profile => profile && profile.commission_rate > 0);
+            
+            console.log('💰 Assigned staff with commission rates:', assignedWithCommission.map(s => s.full_name));
+            
+            if (assignedWithCommission.length > 0 && customerInvoices.length > 0) {
+              // Calculate split percentage
+              const splitPercentage = 100 / assignedWithCommission.length;
+              
+              const newCommissionSplits = assignedWithCommission.map(profile => ({
+                user_email: profile.user_email,
+                user_name: profile.full_name || profile.user_email,
+                split_percentage: splitPercentage,
+                role: 'Sales Rep'
+              }));
+              
+              // 🔥 FIX RATE LIMIT: Batch update with delays
+              for (let i = 0; i < customerInvoices.length; i++) {
+                const invoice = customerInvoices[i];
+                await base44.entities.Invoice.update(invoice.id, {
+                  sale_agent: assignedWithCommission[0].user_email,
+                  sale_agent_name: assignedWithCommission[0].full_name || assignedWithCommission[0].user_email,
+                  commission_splits: newCommissionSplits
+                });
+                console.log(`✅ Updated invoice ${invoice.invoice_number} with ${newCommissionSplits.length} commission splits`);
+                
+                // Add small delay every 5 invoices to prevent rate limits
+                if ((i + 1) % 5 === 0 && i < customerInvoices.length - 1) {
+                  await new Promise(resolve => setTimeout(resolve, 200));
+                }
+              }
+            } else if (assignedWithCommission.length === 0) {
+              console.log('⚠️ No assigned users have commission rates enabled');
+            }
+          }
+        }
+
+        const newlyAssigned = updatedCustomer.assigned_to_users.filter(
+          (email) => !originalAssignedUsers.includes(email)
+        );
+
+        if (newlyAssigned.length > 0) {
+          console.log('📧 Sending assignment emails to newly assigned:', newlyAssigned);
+          
+          const allStaffProfiles = await base44.entities.StaffProfile.filter({ company_id: myCompany.id });
+          const adminEmails = allStaffProfiles.filter(s => s.is_administrator).map(s => s.user_email);
+          const notifyEmails = [...new Set([...newlyAssigned, ...adminEmails])];
+
+          console.log('📧 Total recipients (newly assigned + admins):', notifyEmails);
+
+          let emailsSent = 0;
+          let emailsFailed = 0;
+          
+          for (const email of notifyEmails) {
+            try {
+              const isNewlyAssigned = newlyAssigned.includes(email);
+              
+              await base44.entities.Notification.create({
+                company_id: myCompany.id,
+                user_email: email,
+                title: '👤 Customer Assignment',
+                message: isNewlyAssigned 
+                  ? `You have been assigned to customer: ${updatedCustomer.name}`
+                  : `Customer ${updatedCustomer.name} was assigned to new staff`,
+                type: 'customer_created',
+                related_entity_type: 'Customer',
+                related_entity_id: updatedCustomer.id,
+                link_url: createPageUrl('CustomerProfile') + `?id=${updatedCustomer.id}`,
+                is_read: false,
+              });
+
+              await base44.integrations.Core.SendEmail({
+                to: email,
+                from_name: myCompany.company_name || 'CRM',
+                subject: `Customer Assignment: ${updatedCustomer.name}`,
+                body: `<h2>Customer Assignment Update</h2>
+                       ${isNewlyAssigned ? '<p style="color: green;"><strong>You have been assigned to a new customer!</strong></p>' : '<p>A customer has been assigned to new staff.</p>'}
+                       <p><strong>Customer:</strong> ${updatedCustomer.name}</p>
+                       <p><strong>Email:</strong> ${updatedCustomer.email || 'N/A'}</p>
+                       <p><strong>Phone:</strong> ${updatedCustomer.phone || 'N/A'}</p>
+                       <p><strong>Address:</strong> ${[updatedCustomer.street, updatedCustomer.city, updatedCustomer.state, updatedCustomer.zip].filter(Boolean).join(', ') || 'N/A'}</p>
+                       <p><a href="${window.location.origin + createPageUrl('CustomerProfile') + `?id=${updatedCustomer.id}`}">View Customer Profile</a></p>
+                       <p><small>Updated by: ${user?.full_name || user?.email}</small></p>`,
+              });
+              
+              console.log('✅ Email sent to:', email);
+              emailsSent++;
+            } catch (error) {
+              console.error(`❌ Failed to send notification to ${email}:`, error);
+              emailsFailed++;
+            }
+          }
+        }
+      }
+
+      return { updatedCustomer, emailsSent: 0, emailsFailed: 0 };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      
+      if (data.emailsSent > 0 || data.emailsFailed > 0) {
+        toast.success(`Customer updated! Sent ${data.emailsSent} email(s). ${data.emailsFailed > 0 ? `${data.emailsFailed} failed.` : ''}`, {
+          duration: 5000
+        });
+      } else {
+        toast.success('Customer updated!');
+      }
+    },
+    onError: (error) => {
+      console.error("Failed to update customer:", error);
+      toast.error(`❌ Failed to update customer: ${error.message}`);
+    }
+  });
+
+  const isHeicFile = (filename) => {
+    return filename?.toLowerCase().endsWith('.heic') || filename?.toLowerCase().endsWith('.heif');
+  };
+
+  const uploadFileMutation = useMutation({
+    mutationFn: async (data) => {
+      if (!myCompany?.id) {
+        throw new Error("Company ID not available for file upload.");
+      }
+      if (!data.files || data.files.length === 0) {
+        throw new Error("No files selected for upload.");
+      }
+      
+      const heicFiles = Array.from(data.files).filter(f => isHeicFile(f.name));
+      if (heicFiles.length > 0) {
+        const heicNames = heicFiles.map(f => f.name).join(', ');
+        alert(`⚠️ Warning: HEIC files detected (${heicNames}).\n\nHEIC is Apple's format and won't display in browsers.\n\nPlease convert to JPG/PNG first, or they will show as broken images.`);
+      }
+      
+      const uploadPromises = data.files.map(async (file, index) => {
+        const { file_url } = await base44.integrations.Core.UploadFile({ file });
+        
+        console.log('File uploaded:', { file_url, fileName: file.name, fileType: file.type });
+        
+        return base44.entities.Document.create({
+          company_id: myCompany.id,
+          document_name: data.label ? `${data.label} ${data.files.length > 1 ? index + 1 : ''}`.trim() : file.name,
+          file_url: file_url,
+          file_size: file.size,
+          file_type: file.type,
+          category: data.category || "other",
+          related_customer: customer.name,
+          description: data.notes,
+          is_customer_visible: true
+        });
+      });
+      return Promise.all(uploadPromises);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-files'] });
+      setShowFileUpload(false);
+      setFileForm({ label: "", category: "", notes: "", files: [] });
+      toast.success('✅ File(s) uploaded successfully!');
+    },
+    onError: (error) => {
+      console.error("File upload failed:", error);
+      toast.error("File upload failed: " + error.message);
+    }
+  });
+
+  const deleteFileMutation = useMutation({
+    mutationFn: (id) => base44.entities.Document.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-files'] });
+      toast.success('✅ File deleted successfully!');
+    },
+    onError: (error) => {
+      console.error("File deletion failed:", error);
+      toast.error("File deletion failed: " + error.message);
+    }
+  });
+
+  const updateFileMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.Document.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-files'] });
+      setShowEditDialog(false);
+      setEditingFile(null);
+      toast.success('✅ File updated successfully!');
+    },
+    onError: (error) => {
+      console.error("File update failed:", error);
+      toast.error("File update failed: " + error.message);
+    }
+  });
+
+  const createPaymentMutation = useMutation({
+    mutationFn: async (paymentData) => {
+      if (!customer) {
+        throw new Error("Customer not found for payment.");
+      }
+      if (!myCompany?.id) {
+        throw new Error("Company ID not available for payment.");
+      }
+
+      console.log('🔵 Starting payment creation from Customer Profile...');
+      
+      const allPayments = await base44.entities.Payment.filter({ company_id: myCompany.id }, '-created_date', 10000);
+      const numbers = allPayments
+        .map(p => p.payment_number)
+        .filter(num => num && num.startsWith('PAY-'))
+        .map(num => parseInt(num.replace(/PAY-\d{4}-|[^\d]/g, '')))
+        .filter(num => !isNaN(num));
+      
+      const maxNumber = numbers.length > 0 ? Math.max(...numbers) : 0;
+      const paymentNumber = `PAY-${new Date().getFullYear()}-${String(maxNumber + 1).padStart(4, '0')}`;
+      
+      // Trim invoice number to avoid whitespace issues
+      const cleanInvoiceNumber = paymentData.invoice_number ? paymentData.invoice_number.trim() : "";
+      
+      // Map unsupported payment methods to 'other' and log in notes
+      const unsupportedMethods = ['cash_app','zelle','venmo'];
+      const mappedMethod = unsupportedMethods.includes(paymentData.payment_method) ? 'other' : paymentData.payment_method;
+      const finalNotes = unsupportedMethods.includes(paymentData.payment_method)
+        ? (paymentData.notes ? `${paymentData.notes} | Recorded via ${paymentData.payment_method.replace('_',' ')}` : `Recorded via ${paymentData.payment_method.replace('_',' ')}`)
+        : paymentData.notes;
+
+      const newPayment = await base44.entities.Payment.create({
+        amount: paymentData.amount,
+        payment_method: mappedMethod,
+        payment_date: paymentData.payment_date,
+        reference_number: paymentData.reference_number,
+        notes: finalNotes,
+        invoice_number: cleanInvoiceNumber,
+        payment_number: paymentNumber,
+        customer_name: customer.name,
+        customer_id: customer.id,
+        // Ensure invoice_id is saved if invoice_number is present
+        invoice_id: cleanInvoiceNumber
+          ? invoices.find(inv => inv.invoice_number === cleanInvoiceNumber)?.id
+          : null,
+        status: 'received',
+        company_id: myCompany.id,
+      });
+      console.log('✅ Payment created:', newPayment.payment_number);
+
+      try {
+        let salesRepEmails = [];
+        
+        if (paymentData.invoice_number) {
+          const invoice = invoices.find(inv => inv.invoice_number === paymentData.invoice_number);
+          if (invoice?.commission_splits?.length > 0) {
+            salesRepEmails = invoice.commission_splits.map(cs => cs.user_email);
+          } else if (invoice?.sale_agent) {
+            salesRepEmails = [invoice.sale_agent];
+          }
+        }
+        
+        if (salesRepEmails.length === 0) {
+          salesRepEmails = customer.assigned_to_users || (customer.assigned_to ? [customer.assigned_to] : []);
+        }
+        
+        if (salesRepEmails.length > 0) {
+          console.log('💰 Updating commissions for:', salesRepEmails);
+          for (const salesRepEmail of salesRepEmails) {
+            await base44.functions.invoke('updateCommissions', {
+              paymentId: newPayment.id,
+              invoiceId: paymentData.invoice_number ? (invoices.find(inv => inv.invoice_number === paymentData.invoice_number)?.id) : null,
+              amount: parseFloat(paymentData.amount),
+              salesRepEmail: salesRepEmail
+            });
+            console.log('✅ Commission updated for:', salesRepEmail);
+          }
+        }
+      } catch (commError) {
+        console.error('⚠️ Commission update failed (non-critical):', commError);
+      }
+
+      if (paymentData.invoice_number) {
+        const invoice = invoices.find(inv => inv.invoice_number === paymentData.invoice_number);
+        if (invoice) {
+          // Always use backend recalculation for accuracy
+          await base44.functions.invoke('recalculateInvoicePayments', {
+            invoice_number: invoice.invoice_number
+          });
+
+          if (newStatus === 'paid' && myCompany?.id) {
+            try {
+              await base44.functions.invoke('executeWorkflow', {
+                triggerType: 'invoice_paid',
+                entityType: 'Invoice',
+                entityId: invoice.id,
+                entityData: {
+                  ...invoice,
+                  amount_paid: totalPaid,
+                  status: newStatus,
+                  customer_name: customer.name,
+                  customer_email: customer.email,
+                  invoice_number: invoice.invoice_number,
+                  amount: invoice.amount,
+                },
+                companyId: myCompany.id
+              });
+            } catch (error) {
+              console.error('⚠️ Workflow trigger failed (non-critical):', error);
+            }
+          }
+        }
+      }
+
+      // 🔔 USE UNIVERSAL NOTIFICATION DISPATCHER
+      let notificationResult = { successCount: 0, errorCount: 0, errors: [] };
+      try {
+        const response = await base44.functions.invoke('universalNotificationDispatcher', {
+          action: 'create',
+          entityType: 'Payment',
+          entityId: newPayment.id,
+          entityData: newPayment,
+          companyId: myCompany.id
+        });
+        notificationResult = response.data;
+        console.log('✅ Universal notifications sent:', notificationResult);
+      } catch (error) {
+        console.error('Notification dispatcher failed:', error);
+        notificationResult.errors.push(error.message);
+      }
+
+      // 💌 Send receipt to customer (separate from staff notifications)
+      if (customer.email && paymentData.send_receipt) {
+        try {
+          await base44.integrations.Core.SendEmail({
+            to: customer.email,
+            from_name: myCompany.company_name || 'CRM',
+            subject: `Payment Receipt - $${newPayment.amount.toFixed(2)}`,
+            body: `<h2>Payment Received - Thank You!</h2>
+              <p>Dear ${newPayment.customer_name},</p>
+              <p>We have received your payment. Here are the details:</p>
+              <p><strong>Amount:</strong> $${newPayment.amount.toFixed(2)}</p>
+              <p><strong>Payment Date:</strong> ${format(new Date(newPayment.payment_date), 'MMM d, yyyy')}</p>
+              <p><strong>Payment Method:</strong> ${newPayment.payment_method}</p>
+              ${newPayment.invoice_number ? `<p><strong>Invoice:</strong> ${newPayment.invoice_number}</p>` : ''}
+              <p>Thank you for your business!</p>
+              <p>Best regards,<br/>${myCompany.company_name || 'Your Team'}</p>`
+          });
+          console.log('✅ Customer receipt sent');
+        } catch (error) {
+          console.error('Customer receipt failed:', error);
+        }
+      }
+
+      try {
+        await base44.functions.invoke('triggerWorkflow', {
+          triggerType: 'payment_received',
+          companyId: myCompany.id,
+          entityType: 'Payment',
+          entityId: newPayment.id,
+          entityData: {
+            payment_number: newPayment.payment_number,
+            customer_name: newPayment.customer_name,
+            customer_email: customer.email || '',
+            amount: newPayment.amount,
+            payment_method: newPayment.payment_method,
+            invoice_number: newPayment.invoice_number,
+            payment_date: newPayment.payment_date,
+            app_url: window.location.origin
+          }
+        });
+        console.log('✅ Workflow triggered');
+      } catch (error) {
+        console.error('Workflow failed:', error);
+      }
+
+      return { 
+        newPayment, 
+        notificationsSent: notificationResult.successCount, 
+        emailsSent: notificationResult.successCount,
+        totalRecipients: notificationResult.successCount,
+        errors: notificationResult.errors || []
+      };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['staff-profiles'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      setShowPaymentDialog(false);
+      setPaymentForm({
+        amount: "",
+        payment_method: "cash",
+        payment_date: new Date().toISOString().split('T')[0],
+        invoice_number: "",
+        reference_number: "",
+        notes: "",
+        send_receipt: true
+      });
+      let message = `Payment recorded! Sent ${result.notificationsSent} notifications to staff.`;
+      if (result.errors && result.errors.length > 0) {
+        message += ` Some notifications failed.`;
+      }
+      toast.success(message, { duration: 5000 });
+      
+      if (result.errors && result.errors.length > 0) {
+        console.error('Notification errors:', result.errors);
+      }
+    },
+    onError: (error) => {
+      console.error("Failed to record payment:", error);
+      toast.error(`❌ Failed to record payment: ${error.message}`);
+    }
+  });
+
+  const deletePaymentMutation = useMutation({
+    mutationFn: async (paymentId) => {
+      const payment = payments.find(p => p.id === paymentId);
+      if (!payment) {
+        throw new Error("Payment not found");
+      }
+
+      if (payment.invoice_number) {
+        const invoice = invoices.find(inv => inv.invoice_number === payment.invoice_number);
+        if (invoice) {
+          const newAmountPaid = Math.max(0, (invoice.amount_paid || 0) - payment.amount);
+          let newStatus = 'sent';
+          
+          if (newAmountPaid === 0) {
+            newStatus = 'sent';
+            const originalInvoiceStatus = invoices.find(inv => inv.id === invoice.id)?.status;
+            if (originalInvoiceStatus && originalInvoiceStatus !== 'paid') {
+              newStatus = originalInvoiceStatus;
+            }
+          } else if (newAmountPaid < invoice.amount) {
+            newStatus = 'partially_paid';
+          } else {
+            newStatus = 'paid';
+          }
+          
+          await base44.entities.Invoice.update(invoice.id, {
+            amount_paid: newAmountPaid,
+            status: newStatus
+          });
+        }
+      }
+
+      await base44.entities.Payment.delete(paymentId);
+
+      // 🔔 Send notifications via universal dispatcher
+      try {
+        const response = await base44.functions.invoke('universalNotificationDispatcher', {
+          action: 'delete',
+          entityType: 'Payment',
+          entityId: payment.id,
+          entityData: payment,
+          companyId: myCompany.id
+        });
+        console.log('✅ Delete notifications sent:', response.data);
+        return { 
+          payment, 
+          notificationsSent: response.data.successCount,
+          emailsSent: response.data.successCount 
+        };
+      } catch (error) {
+        console.error('Notification dispatcher failed:', error);
+        return { payment, notificationsSent: 0, emailsSent: 0 };
+      }
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      toast.success(`Payment deleted! Sent ${result.emailsSent} notifications to admins.`);
+    },
+    onError: (error) => {
+      console.error("Failed to delete payment:", error);
+      toast.error(`❌ Failed to delete payment: ${error.message}`);
+    }
+  });
+
+  const updatePaymentMutation = useMutation({
+    mutationFn: async () => {
+      if (!editPaymentForm.id) throw new Error('No payment selected');
+      const unsupported = ['cash_app','zelle','venmo'];
+      const mapped = unsupported.includes(editPaymentForm.payment_method) ? 'other' : editPaymentForm.payment_method;
+      const finalNotes = unsupported.includes(editPaymentForm.payment_method)
+        ? (editPaymentForm.notes ? `${editPaymentForm.notes} | Recorded via ${editPaymentForm.payment_method.replace('_',' ')}` : `Recorded via ${editPaymentForm.payment_method.replace('_',' ')}`)
+        : editPaymentForm.notes;
+      const updated = await base44.entities.Payment.update(editPaymentForm.id, {
+        amount: parseFloat(editPaymentForm.amount),
+        payment_method: mapped,
+        payment_date: editPaymentForm.payment_date,
+        reference_number: editPaymentForm.reference_number || '',
+        notes: finalNotes,
+        invoice_number: (editPaymentForm.invoice_number || '').trim()
+      });
+      if (updated.invoice_number) {
+        try { await base44.functions.invoke('recalculateInvoicePayments', { invoice_number: updated.invoice_number }); } catch (_) {}
+      }
+      return updated;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-invoices'] });
+      setShowEditPaymentDialog(false);
+    },
+    onError: (e) => {
+      toast.error('Failed to update payment: ' + e.message);
+    }
+  });
+
+  const deleteInvoiceMutation = useMutation({
+    mutationFn: async (invoiceId) => {
+      await base44.entities.Invoice.delete(invoiceId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-invoices'] });
+      toast.success('✅ Invoice deleted successfully!');
+    },
+    onError: (error) => {
+      console.error("Failed to delete invoice:", error);
+      toast.error(`❌ Failed to delete invoice: ${error.message}`);
+    }
+  });
+
+  const handleSaveCustomer = (e) => {
+    e.preventDefault();
+
+    if (customer && customerData) {
+      const originalAssignedUsers = customer.assigned_to_users || [];
+      updateMutation.mutate({ id: customer.id, data: customerData, originalAssignedUsers });
+    }
+  };
+
+  const handleFileUpload = async () => {
+    if (!fileForm.files || fileForm.files.length === 0) {
+      toast.error("Please select at least one file.");
+      return;
+    }
+    if (!fileForm.category) {
+      toast.error("Please select a category for the files.");
+      return;
+    }
+    if (!myCompany?.id) {
+      toast.error("Company information is not loaded yet. Please try again.");
+      return;
+    }
+    setUploadingFile(true);
+    try {
+      await uploadFileMutation.mutateAsync(fileForm);
+    } catch (error) {
+      // Error is already logged in mutation's onError
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const handleAddCategory = () => {
+    if (!newCategoryName.trim()) return;
+    
+    const newCategoryValue = newCategoryName.toLowerCase().replace(/\s+/g, '_');
+    if (allCategories.some(cat => cat.value === newCategoryValue)) {
+      toast.error("A category with this name already exists.");
+      return;
+    }
+
+    const newCategory = {
+      value: newCategoryValue,
+      label: newCategoryName.trim(),
+      icon: "📁",
+      custom: true
+    };
+    
+    const updated = [...customCategories, newCategory];
+    setCustomCategories(updated);
+    if (myCompany?.id) {
+      localStorage.setItem(`custom_categories_${myCompany.id}`, JSON.stringify(updated));
+    }
+    setNewCategoryName("");
+  };
+
+  const handleDeleteCategory = (categoryValue) => {
+    if (!window.confirm('Are you sure you want to delete this custom category? Files assigned to this category will remain, but will effectively become uncategorized until re-assigned.')) return;
+    
+    const updated = customCategories.filter(c => c.value !== categoryValue);
+    setCustomCategories(updated);
+    if (myCompany?.id) {
+      localStorage.setItem(`custom_categories_${myCompany.id}`, JSON.stringify(updated));
+    }
+  };
+
+  const handleImageError = (fileId, fileUrl) => {
+    console.error('Image failed to load:', { 
+      fileId, 
+      fileUrl: typeof fileUrl === 'string' ? fileUrl : JSON.stringify(fileUrl) 
+    });
+    setImageErrors(prev => ({ ...prev, [fileId]: true }));
+  };
+
+  const handleDownload = async (file) => {
+    try {
+      const response = await fetch(file.file_url);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.document_name;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    } catch (error) {
+      console.error('Download failed:', error);
+      toast.error('Download failed');
+    }
+  };
+
+  const handleEditFile = (file) => {
+    setEditingFile(file);
+    setEditForm({
+      document_name: file.document_name || "",
+      category: file.category || "",
+      description: file.description || ""
+    });
+    setShowEditDialog(true);
+  };
+
+  const handleUpdateFile = () => {
+    if (!editForm.document_name) {
+      toast.error("Please enter a file name.");
+      return;
+    }
+    if (!editForm.category) {
+      toast.error("Please select a category for the file.");
+      return;
+    }
+    updateFileMutation.mutate({
+      id: editingFile.id,
+      data: {
+        document_name: editForm.document_name,
+        category: editForm.category,
+        description: editForm.description
+      }
+    });
+  };
+
+  const handleDeleteInvoice = (invoice) => {
+    if (user?.role !== 'admin') {
+      toast.error('⛔ Access Denied\n\nOnly administrators can delete invoices.');
+      return;
+    }
+
+    if (window.confirm(`Delete invoice ${invoice.invoice_number}?\n\nAmount: $${invoice.amount}\n\nThis cannot be undone!`)) {
+      deleteInvoiceMutation.mutate(invoice.id);
+    }
+  };
+
+  const handleEditInvoice = (invoice) => {
+    navigate(createPageUrl('invoice-details') + `?id=${invoice.id}`);
+  };
+
+  const handleCreateEstimate = () => {
+    if (!customer) return;
+    
+    const fullAddress = [customer.street, customer.city, customer.state, customer.zip]
+      .filter(Boolean)
+      .join(', ');
+    
+    const params = new URLSearchParams({
+      customer_id: customer.id,
+      customer_name: customer.name,
+      customer_email: customer.email || '',
+      customer_phone: customer.phone || '',
+      property_address: fullAddress || '',
+      insurance_company: customer.insurance_company || '',
+      claim_number: customer.claim_number || '',
+      adjuster_name: customer.adjuster_name || '',
+      adjuster_phone: customer.adjuster_phone || ''
+    });
+    
+    navigate(createPageUrl('AIEstimator') + '?' + params.toString());
+  };
+
+  const handleCreateInvoice = () => {
+    if (!customer) return;
+    
+    const params = new URLSearchParams({
+      prefill: 'true',
+      customer_name: customer.name,
+      customer_email: customer.email || '',
+      create_new: 'true'
+    });
+    
+    navigate(createPageUrl('Invoices') + '?' + params.toString());
+  };
+
+  const handleCreateProject = () => {
+    if (!customer) return;
+    
+    const params = new URLSearchParams({
+      prefill: 'true',
+      customer_name: customer.name,
+      create_new: 'true'
+    });
+    
+    navigate(createPageUrl('Projects') + '?' + params.toString());
+  };
+
+  const handleRecordPayment = (e) => {
+    e.preventDefault();
+    if (!customer) {
+      toast.error('Customer information is not available.');
+      return;
+    }
+    if (!paymentForm.amount || parseFloat(paymentForm.amount) <= 0) {
+      toast.error('Please enter a valid payment amount.');
+      return;
+    }
+    createPaymentMutation.mutate({
+      ...paymentForm,
+      amount: parseFloat(paymentForm.amount)
+    });
+  };
+
+  const handlePaymentDialogChange = (open) => {
+    if (!open) {
+      // The payment form is now reset in onSuccess
+    }
+    setShowPaymentDialog(open);
+  };
+
+  const filesByCategory = files.reduce((acc, file) => {
+    const cat = file.category || 'other';
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(file);
+    return acc;
+  }, {});
+
+  // Add CrewCam inspection photos to files (from Document records already created)
+  const allFilesWithInspections = React.useMemo(() => {
+    const combined = { ...filesByCategory };
+    // Photos are already in files via Document records, no need to duplicate from inspectionMedia
+    return combined;
+  }, [filesByCategory]);
+
+  const defaultCategories = [
+    { value: "front", label: "Front View", icon: "🏠" },
+    { value: "rear", label: "Rear View", icon: "🏡" },
+    { value: "left_slope", label: "Left Slope", icon: "📐" },
+    { value: "right_slope", label: "Right Slope", icon: "📐" },
+    { value: "left_elevation", label: "Left Elevation", icon: "🏢" },
+    { value: "right_elevation", label: "Right Elevation", icon: "🏢" },
+    { value: "roof_detail", label: "Roof Detail", icon: "🔍" },
+    { value: "damage", label: "Damage Photo", icon: "⚠️" },
+    { value: "Check", label: "Check", icon: "💵" },
+    { value: "contract", label: "Contract", icon: "📄" },
+    { value: "invoice", label: "Invoice", icon: "🧾" },
+    { value: "other", label: "Other", icon: "📸" }
+  ];
+
+  const allCategories = [...defaultCategories, ...customCategories];
+
+  const handleFileSelect = (fileId) => {
+    setSelectedFiles(prev => {
+      if (prev.includes(fileId)) {
+        return prev.filter(id => id !== fileId);
+      } else {
+        return [...prev, fileId];
+      }
+    });
+  };
+
+  const handleSelectAllInCategory = (categoryFiles) => {
+    const categoryImageFileIds = categoryFiles.filter(f => f.file_type?.startsWith('image/')).map(f => f.id);
+    const allSelected = categoryImageFileIds.length > 0 && categoryImageFileIds.every(id => selectedFiles.includes(id));
+    
+    if (allSelected) {
+      setSelectedFiles(prev => prev.filter(id => !categoryImageFileIds.includes(id)));
+    } else {
+      setSelectedFiles(prev => [...new Set([...prev, ...categoryImageFileIds])]);
+    }
+  };
+
+  const handleDownloadSelectedAsPDF = async () => {
+    if (selectedFiles.length === 0) {
+      toast.info('Please select at least one photo to download.');
+      return;
+    }
+
+    setIsGeneratingPDF(true);
+
+    try {
+      const selectedFileObjects = files.filter(f => selectedFiles.includes(f.id) && f.file_type?.startsWith('image/'));
+      
+      if (selectedFileObjects.length === 0) {
+        toast.warning('⚠️ No image files selected. Please select photos to create a PDF.');
+        setIsGeneratingPDF(false);
+        return;
+      }
+
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 15;
+      const contentWidth = pageWidth - (margin * 2);
+
+      // Header
+      doc.setFontSize(20);
+      doc.text(customer.name || 'Customer Photos', margin, margin + 10);
+      
+      doc.setFontSize(10);
+      doc.text(`Generated: ${new Date().toLocaleDateString()}`, margin, margin + 18);
+      
+      let isFirstPhoto = true;
+
+      for (const file of selectedFileObjects) {
+        try {
+          if (!isFirstPhoto) {
+            doc.addPage();
+          }
+          isFirstPhoto = false;
+
+          // Category and file name
+          const categoryLabel = allCategories.find(c => c.value === file.category)?.label || file.category;
+          doc.setFontSize(14);
+          doc.text(categoryLabel || 'Photo', margin, margin + 25); // Adjusted Y for header and date
+
+          doc.setFontSize(10);
+          doc.text(file.document_name || 'Untitled', margin, margin + 33); // Adjusted Y
+
+          // Add image
+          const response = await fetch(file.file_url);
+          const blob = await response.blob();
+          
+          const imageDataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+
+          const imgProps = doc.getImageProperties(imageDataUrl);
+          const imgHeight = (imgProps.height * contentWidth) / imgProps.width;
+          
+          // Ensure image fits on page, if not, scale down
+          let finalImgHeight = imgHeight;
+          if (finalImgHeight > (pageHeight - margin * 2 - 50)) { // 50 for title/desc space
+            finalImgHeight = (pageHeight - margin * 2 - 50);
+          }
+
+          doc.addImage(imageDataUrl, imgProps.fileType, margin, margin + 40, contentWidth, finalImgHeight); // Adjusted Y
+
+          // Description
+          if (file.description) {
+            doc.setFontSize(9);
+            doc.setTextColor(80);
+            const descLines = doc.splitTextToSize(file.description, contentWidth);
+            doc.text(descLines, margin, margin + 40 + finalImgHeight + 5); // Adjusted Y
+            doc.setTextColor(0);
+          }
+
+        } catch (error) {
+          console.error('Failed to add image to PDF:', error);
+          // Continue to next image even if one fails
+        }
+      }
+
+      const pdfBytes = doc.output('arraybuffer');
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${customer.name?.replace(/[^a-zA-Z0-9]/g, '_')}_Photos_${Date.now()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+
+      toast.success(`✅ PDF created with ${selectedFileObjects.length} photo${selectedFileObjects.length > 1 ? 's' : ''}!`);
+      setSelectedFiles([]);
+
+    } catch (error) {
+      console.error('PDF generation failed:', error);
+      toast.error('❌ Failed to create PDF: ' + error.message);
+    }
+
+    setIsGeneratingPDF(false);
+  };
+
+  const handleCheckUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessingCheck(true);
+    try {
+      // 1. Upload file first
+      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      
+      // 2. Call backend function with JSON
+      const payload = {
+        fileUrl: file_url,
+        customerId: customer.id,
+        customerName: customer.name,
+        companyId: myCompany?.id,
+        file_size: file.size,
+        file_type: file.type
+      };
+
+      const result = await base44.functions.invoke('processCheckPayment', payload);
+
+      if (result.data.success) {
+        const extracted = result.data.extracted_data;
+        toast.success(`✅ Check Payment Recorded!\n\nAmount: $${extracted.amount || '0.00'}\nCheck #: ${extracted.check_number || 'N/A'}\nDate: ${extracted.check_date || 'N/A'}\nPayer: ${extracted.payer_name || 'N/A'}`, {
+          duration: 6000
+        });
+        
+        queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
+        queryClient.invalidateQueries({ queryKey: ['customer-files'] });
+        queryClient.invalidateQueries({ queryKey: ['payments'] });
+        setShowCheckUploadDialog(false);
+      }
+    } catch (error) {
+      console.error('Error processing check:', error);
+      toast.error('Failed to process check: ' + error.message);
+    } finally {
+      setIsProcessingCheck(false);
+    }
+  };
+
+  if (isLoadingCustomers) {
+    return (
+      <div className="p-6">
+        <Card className="p-12 text-center flex flex-col items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-gray-400 mb-4" />
+          <p className="text-gray-500">Loading customer profile...</p>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!customer || !customerData) { 
+    return (
+      <div className="p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <Button variant="outline" onClick={() => navigate(createPageUrl('Customers'))}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Customers
+          </Button>
+        </div>
+        <Card className="p-12 text-center">
+          <p className="text-gray-500">Customer not found</p>
+        </Card>
+      </div>
+    );
+  }
+
+  const sections = [
+    { id: "profile", label: "Profile", icon: User },
+    { id: "notes", label: "Notes", icon: FileText, count: customer?.customer_notes?.length || 0 },
+    { id: "documents", label: "Documents & Reports", icon: Folder, count: files.length + estimates.length + invoices.length + proposals.length + contracts.length },
+    { id: "invoices", label: "Invoices", icon: Receipt, count: invoices.length },
+    { id: "payments", label: "Payments", icon: DollarSign, count: payments.length },
+    { id: "expenses", label: "Expenses", icon: Receipt, count: customerExpenses.length },
+    { id: "commissions", label: "Commissions", icon: CreditCard },
+    { id: "proposals", label: "Proposals", icon: FileSignature, count: proposals.length },
+    { id: "estimates", label: "Estimates", icon: FileText, count: estimates.length },
+    { id: "contracts", label: "Contracts", icon: FileSignature, count: contracts.length },
+    { id: "projects", label: "Projects", icon: Briefcase, count: projects.length },
+    { id: "tasks", label: "Tasks", icon: CheckSquare, count: tasks.length },
+    { id: "communications", label: "Communications", icon: MessageSquare, count: communications.length },
+    { id: "calendar", label: "Calendar", icon: Calendar, count: calendarEvents.length },
+    { id: "files", label: "Files", icon: Folder, count: files.length },
+    { id: "reminders", label: "Reminders", icon: Bell, count: 0 },
+  ];
+
+  const totalRevenue = [...payments.filter(p => p.status === 'received'), ...invoices.filter(i => i.status === 'paid')].reduce((sum, item) => sum + (item.amount || 0), 0);
+  const openEstimates = estimates.filter(e => ['draft', 'sent', 'viewed'].includes(e.status)).reduce((sum, e) => sum + (e.amount || 0), 0);
+  const unpaidInvoices = invoices.filter(i => ['sent', 'overdue', 'partially_paid'].includes(i.status)).reduce((sum, i) => sum + (i.amount || 0), 0);
+  const totalExpenses = customerExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+
+  // Format date-only strings (YYYY-MM-DD) as local dates to avoid UTC shifting a day back
+  const formatDateOnly = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+      if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const dt = new Date(y, m - 1, d); // local date
+        return format(dt, 'MMM d, yyyy');
+      }
+      const dt = new Date(dateStr);
+      return format(dt, 'MMM d, yyyy');
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
+  return (
+    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+      <Card className="bg-gradient-to-r from-blue-600 to-purple-600 text-white">
+        <CardContent className="p-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center">
+                <User className="w-10 h-10 text-blue-600" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold">{customer.name}</h1>
+                {customer.company && (
+                  <p className="text-blue-100 text-lg">{customer.company}</p>
+                )}
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  <Badge variant="secondary" className={customer.is_active ? "bg-green-500" : "bg-gray-500"}>
+                    {customer.is_active ? "Active" : "Inactive"}
+                  </Badge>
+                  {customer.customer_type && (
+                    <Badge variant="secondary" className="bg-purple-500">
+                      {customer.customer_type}
+                    </Badge>
+                  )}
+                  {customer.tags?.map((tag, idx) => (
+                    <Badge key={idx} variant="secondary" className="bg-blue-500">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 lg:flex lg:flex-row gap-2">
+              <Button 
+                onClick={handleCreateEstimate}
+                className="bg-white text-blue-600 hover:bg-blue-50"
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                New Estimate
+              </Button>
+              <Button 
+                onClick={handleCreateInvoice}
+                className="bg-white text-blue-600 hover:bg-blue-50"
+              >
+                <DollarSign className="w-4 h-4 mr-2" />
+                New Invoice
+              </Button>
+              <Button 
+                onClick={handleCreateProject}
+                className="bg-white text-blue-600 hover:bg-blue-50"
+              >
+                <Briefcase className="w-4 h-4 mr-2" />
+                New Project
+              </Button>
+              <Button 
+                onClick={() => setShowDialer(true)}
+                className="bg-white text-blue-600 hover:bg-blue-50"
+              >
+                <Phone className="w-4 h-4 mr-2" />
+                Call
+              </Button>
+              <Button 
+                onClick={async () => {
+                  try {
+                    const response = await base44.functions.invoke('generateCustomerPortalLink', {
+                      customer_id: customer.id
+                    });
+                    if (response.data.success) {
+                      navigator.clipboard.writeText(response.data.portal_url);
+                      toast.success('✅ Portal link copied to clipboard!');
+                    }
+                  } catch (error) {
+                    toast.error('Failed to generate portal link: ' + error.message);
+                  }
+                }}
+                className="bg-white text-purple-600 hover:bg-purple-50"
+              >
+                <User className="w-4 h-4 mr-2" />
+                Portal Link
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Tabs defaultValue="profile" value={activeSection} onValueChange={setActiveSection} className="w-full">
+        <div className="flex">
+          <div className="w-64 bg-white border-r min-h-screen">
+            <ScrollArea className="h-full">
+              <div className="p-4 space-y-1">
+                {sections.map((section) => {
+                  const Icon = section.icon;
+                  return (
+                    <button
+                      key={section.id}
+                      onClick={() => setActiveSection(section.id)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+                        activeSection === section.id
+                          ? 'bg-blue-50 text-blue-700 font-medium'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon className="w-4 h-4" />
+                        <span>{section.label}</span>
+                      </div>
+                      {section.count !== undefined && section.count > 0 && (
+                        <Badge variant="secondary" className="text-xs">
+                          {section.count}
+                        </Badge>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </ScrollArea>
+          </div>
+
+          <div className="flex-1 p-6">
+            <TabsContent value="profile" className="mt-0">
+              {activeSection === "profile" && (
+                <form onSubmit={handleSaveCustomer} className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Customer Details</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Primary Contact Name</Label>
+                          <Input
+                            value={customerData.name}
+                            onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label>Company</Label>
+                          <Input
+                            value={customerData.company}
+                            onChange={(e) => setCustomerData({...customerData, company: e.target.value})}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Phone</Label>
+                          <Input
+                            type="tel"
+                            value={customerData.phone}
+                            onChange={(e) => setCustomerData({...customerData, phone: e.target.value})}
+                          />
+                        </div>
+                        <div>
+                          <Label>Phone 2</Label>
+                          <Input
+                            type="tel"
+                            value={customerData.phone_2}
+                            onChange={(e) => setCustomerData({...customerData, phone_2: e.target.value})}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label>Email</Label>
+                        <Input
+                          type="email"
+                          value={customerData.email}
+                          onChange={(e) => setCustomerData({...customerData, email: e.target.value})}
+                        />
+                      </div>
+
+                      <div className="border-t pt-4">
+                        <h3 className="font-semibold mb-3">Address</h3>
+                        <div className="space-y-4">
+                          <div>
+                            <Label>Street Address</Label>
+                            <Input
+                              value={customerData.street}
+                              onChange={(e) => setCustomerData({...customerData, street: e.target.value})}
+                              placeholder="123 Main Street"
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                              <Label>City</Label>
+                              <Input
+                                value={customerData.city}
+                                onChange={(e) => setCustomerData({...customerData, city: e.target.value})}
+                                placeholder="Cleveland"
+                              />
+                            </div>
+                            <div>
+                              <Label>State</Label>
+                              <Input
+                                value={customerData.state}
+                                onChange={(e) => setCustomerData({...customerData, state: e.target.value})}
+                                placeholder="OH"
+                                maxLength={2}
+                              />
+                            </div>
+                            <div>
+                              <Label>Zip Code</Label>
+                              <Input
+                                value={customerData.zip}
+                                onChange={(e) => setCustomerData({...customerData, zip: e.target.value})}
+                                placeholder="44101"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Installer</Label>
+                          <InstallerSelect
+                            value={customerData.installer}
+                            onChange={(value) => setCustomerData({...customerData, installer: value === 'none_selection_special_value' ? '' : value})}
+                            companyId={myCompany?.id}
+                          />
+                        </div>
+                        <div>
+                          <Label>Vendor Name</Label>
+                          <VendorSelect
+                            value={customerData.vendor_name}
+                            onChange={(value) => setCustomerData({...customerData, vendor_name: value === 'none_selection_special_value' ? '' : value})}
+                            companyId={myCompany?.id}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label>Assigned To</Label>
+                        <Select
+                          value={customerData.assigned_to_users?.[0] || customerData.assigned_to || ""}
+                          onValueChange={(v) => {
+                            const currentUsers = customerData.assigned_to_users || [];
+                            let updatedUsers = [];
+
+                            if (v === 'clear_all') {
+                              updatedUsers = [];
+                            } else if (currentUsers.includes(v)) {
+                              updatedUsers = currentUsers.filter(u => u !== v);
+                            } else {
+                              updatedUsers = [...currentUsers, v];
+                            }
+                            
+                            setCustomerData({
+                              ...customerData, 
+                              assigned_to_users: updatedUsers,
+                              assigned_to: updatedUsers[0] || ""
+                            });
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder={
+                              customerData.assigned_to_users && customerData.assigned_to_users.length > 0
+                                ? `${customerData.assigned_to_users.length} assigned`
+                                : "Select staff members"
+                            } />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="clear_all">Clear All</SelectItem>
+                            {staffProfiles.map(staff => {
+                              const isSelected = customerData.assigned_to_users?.includes(staff.user_email);
+                              return (
+                                <SelectItem key={staff.user_email} value={staff.user_email}>
+                                  <div className="flex items-center gap-2">
+                                    {isSelected && <span className="font-bold text-green-600">✓</span>}
+                                    {staff.full_name || staff.user_email}
+                                  </div>
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                        {customerData.assigned_to_users && customerData.assigned_to_users.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {customerData.assigned_to_users.map(email => {
+                              const staff = staffProfiles.find(s => s.user_email === email);
+                              return (
+                                <Badge key={email} variant="secondary" className="text-xs">
+                                  {staff?.full_name || email}
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <Label>Group</Label>
+                        <CustomerGroupSelect
+                          value={customerData.group}
+                          onChange={(value) => setCustomerData({...customerData, group: value})}
+                          companyId={myCompany?.id}
+                        />
+                      </div>
+
+                      <div>
+                        <Label>Tags</Label>
+                        <CustomerTagSelect
+                          value={customerData.tags || []}
+                          onChange={(tags) => setCustomerData({...customerData, tags})}
+                          companyId={myCompany?.id}
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-3 pt-2">
+                        <Switch
+                          checked={customerData.is_active}
+                          onCheckedChange={(checked) => setCustomerData({...customerData, is_active: checked})}
+                        />
+                        <Label>Active</Label>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Insurance Information</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Insurance Company</Label>
+                          <Input
+                            value={customerData.insurance_company}
+                            onChange={(e) => setCustomerData({...customerData, insurance_company: e.target.value})}
+                            placeholder="e.g., State Farm"
+                          />
+                        </div>
+                        <div>
+                          <Label>Claim Number</Label>
+                          <Input
+                            value={customerData.claim_number}
+                            onChange={(e) => setCustomerData({...customerData, claim_number: e.target.value})}
+                            placeholder="e.g., CLM-123456"
+                          />
+                        </div>
+                        <div>
+                          <Label>Adjuster Name</Label>
+                          <Input
+                            value={customerData.adjuster_name}
+                            onChange={(e) => setCustomerData({...customerData, adjuster_name: e.target.value})}
+                          />
+                        </div>
+                        <div>
+                          <Label>Adjuster Phone</Label>
+                          <Input
+                            value={customerData.adjuster_phone}
+                            onChange={(e) => setCustomerData({...customerData, adjuster_phone: e.target.value})}
+                          />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardContent className="p-6">
+                      <div>
+                        <Label>Notes</Label>
+                        <Textarea
+                          value={customerData.notes}
+                          onChange={(e) => setCustomerData({...customerData, notes: e.target.value})}
+                          rows={4}
+                          placeholder="Internal notes about this customer..."
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <div className="flex justify-end gap-2">
+                    <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Changes
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </TabsContent>
+
+            <TabsContent value="invoices" className="mt-0">
+              {activeSection === "invoices" && (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-xl font-bold">Invoices ({invoices.length})</h2>
+                    </div>
+                    <div className="space-y-3">
+                      {invoices.map((invoice) => (
+                        <div key={invoice.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
+                          <div className="flex-1 cursor-pointer" onClick={() => navigate(createPageUrl('invoice-details') + `?id=${invoice.id}`)}>
+                            <div className="font-medium">{invoice.invoice_number}</div>
+                            <div className="text-sm text-gray-500">
+                              Due: {invoice.due_date ? formatDateOnly(invoice.due_date) : 'No due date'}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <div className="font-semibold text-green-600">${invoice.amount?.toFixed(2)}</div>
+                              <Badge variant="outline" className={
+                                invoice.status === 'paid' ? 'bg-green-100 text-green-700' :
+                                invoice.status === 'partially_paid' ? 'bg-yellow-100 text-yellow-700' :
+                                invoice.status === 'overdue' ? 'bg-red-100 text-red-700' :
+                                'bg-blue-100 text-blue-700'
+                              }>
+                                {invoice.status}
+                              </Badge>
+                            </div>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-10 w-10"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <MoreVertical className="w-5 h-5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleEditInvoice(invoice)}>
+                                  <Pencil className="w-4 h-4 mr-2" />
+                                  Edit
+                                </DropdownMenuItem>
+                                {user?.role === 'admin' && (
+                                  <DropdownMenuItem 
+                                    onClick={() => handleDeleteInvoice(invoice)}
+                                    className="text-red-600"
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    Delete
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      ))}
+                      {invoices.length === 0 && (
+                        <div className="text-center py-12 text-gray-500">
+                          No invoices yet
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="payments" className="mt-0">
+              {activeSection === "payments" && (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-xl font-bold">Payments ({payments.length})</h2>
+                      <div className="flex gap-2">
+                        <Button 
+                          onClick={() => setShowCheckUploadDialog(true)}
+                          className="bg-blue-600 hover:bg-blue-700"
+                        >
+                          <Camera className="w-4 h-4 mr-2" />
+                          Scan Check
+                        </Button>
+                        <Button 
+                          onClick={() => setShowPaymentDialog(true)}
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Record Payment
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      {payments.map((payment) => (
+                        <div key={payment.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 group">
+                          <div>
+                            <div className="font-medium">{payment.payment_number}</div>
+                            <div className="text-sm text-gray-500">
+                            {payment.payment_date ? formatDateOnly(payment.payment_date) : ''}
+                            </div>
+                            <div className="text-xs text-gray-400">{payment.payment_method}</div>
+                            {payment.invoice_number && (
+                              <div className="text-xs text-blue-600 mt-1">Invoice: {payment.invoice_number}</div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3">
+                             <div className="text-right">
+                               <div className="font-semibold text-green-600">${payment.amount?.toFixed(2)}</div>
+                               <Badge variant="outline" className="bg-green-100 text-green-700">
+                                 {payment.status}
+                               </Badge>
+                             </div>
+                             <Button
+                               variant="ghost"
+                               size="icon"
+                               className="text-blue-600 hover:bg-blue-50"
+                               onClick={() => {
+                                 setEditPaymentForm({
+                                   id: payment.id,
+                                   amount: String(payment.amount || ''),
+                                   payment_method: payment.payment_method || 'cash',
+                                   payment_date: payment.payment_date || new Date().toISOString().split('T')[0],
+                                   invoice_number: payment.invoice_number || '',
+                                   reference_number: payment.reference_number || '',
+                                   notes: payment.notes || ''
+                                 });
+                                 setShowEditPaymentDialog(true);
+                               }}
+                               title="Edit payment"
+                             >
+                               <Pencil className="w-4 h-4" />
+                             </Button>
+                             {user?.role === 'admin' && (
+                               <Button
+                                 size="icon"
+                                 variant="ghost"
+                                 className="opacity-0 group-hover:opacity-100 transition-opacity text-red-600 hover:bg-red-50"
+                                 onClick={() => {
+                                   if (window.confirm('Delete this payment? This will update the related invoice if applicable.')) {
+                                     deletePaymentMutation.mutate(payment.id);
+                                   }
+                                 }}
+                                 title="Delete payment"
+                               >
+                                 <Trash2 className="w-4 h-4" />
+                               </Button>
+                             )}
+                           </div>
+                        </div>
+                      ))}
+                      {payments.length === 0 && (
+                        <div className="text-center py-12 text-gray-500">
+                          No payments yet
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="projects" className="mt-0">
+              {activeSection === "projects" && (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-xl font-bold">Projects ({projects.length})</h2>
+                    </div>
+                    <div className="space-y-3">
+                      {projects.map((project) => (
+                        <div key={project.id} className="p-4 border rounded-lg hover:bg-gray-50 cursor-pointer" onClick={() => navigate(createPageUrl('Projects'))}>
+                          <div className="flex items-center justify-between">
+                            <div className="font-medium">{project.name}</div>
+                            <Badge variant="outline">
+                              {project.status}
+                            </Badge>
+                          </div>
+                          {project.description && (
+                            <div className="text-sm text-gray-500 mt-2">{project.description}</div>
+                          )}
+                          <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">
+                            {project.start_date && <span>Start: {formatDateOnly(project.start_date)}</span>}
+                            {project.deadline && <span>Deadline: {formatDateOnly(project.deadline)}</span>}
+                            {project.budget && <span>Budget: ${project.budget.toFixed(2)}</span>}
+                          </div>
+                        </div>
+                      ))}
+                      {projects.length === 0 && (
+                        <div className="text-center py-12 text-gray-500">
+                          No projects yet
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="tasks" className="mt-0">
+              {activeSection === "tasks" && (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-xl font-bold">Tasks ({tasks.length})</h2>
+                      <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => setShowTaskDialog(true)}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Related Task
+                      </Button>
+                    </div>
+                    <div className="space-y-3">
+                      {tasks.map((task) => {
+                        const taskBoard = boards.find(b => b.id === task.board_id);
+                        const boardColumns = taskBoard?.columns || [
+                          { id: 'not_started', name: 'Not Started', color: '#94a3b8' },
+                          { id: 'in_progress', name: 'In Progress', color: '#3b82f6' },
+                          { id: 'job_completed', name: 'Completed', color: '#10b981' }
+                        ];
+                        
+                        return (
+                          <div 
+                            key={task.id} 
+                            className="flex items-center gap-3 p-4 border rounded-lg hover:bg-gray-50 group cursor-pointer"
+                            onClick={() => navigate(createPageUrl('Tasks') + `?task_id=${task.id}`)}
+                          >
+                            <input 
+                              type="checkbox" 
+                              checked={task.status === 'job_completed'} 
+                              readOnly 
+                              className="w-4 h-4"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <div className="flex-1">
+                              <div className="font-medium text-blue-600 hover:underline">{task.name}</div>
+                              {task.description && <div className="text-sm text-gray-500">{task.description}</div>}
+                              {task.due_date && (
+                                <div className="text-xs text-gray-400 mt-1">
+                                  Due: {format(new Date(task.due_date), 'MMM d, yyyy')}
+                                </div>
+                              )}
+                            </div>
+                            <Select
+                              value={task.column || 'not_started'}
+                              onValueChange={async (newColumn) => {
+                                try {
+                                  await base44.entities.Task.update(task.id, {
+                                    column: newColumn,
+                                    status: newColumn === 'job_completed' ? 'job_completed' : 
+                                           newColumn === 'not_started' ? 'not_started' : 'in_progress'
+                                  });
+                                  queryClient.invalidateQueries({ queryKey: ['customer-tasks'] });
+                                  queryClient.invalidateQueries({ queryKey: ['tasks'] });
+                                  toast.success('Task moved!');
+                                } catch (error) {
+                                  toast.error('Failed to move task: ' + error.message);
+                                }
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <SelectTrigger className="w-40">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {boardColumns.map(col => (
+                                  <SelectItem key={col.id} value={col.id}>
+                                    {col.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-red-600 hover:bg-red-50"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (window.confirm('Delete this task? This will remove it from everywhere in the system.')) {
+                                  deleteTaskMutation.mutate(task.id);
+                                }
+                              }}
+                              title="Delete task"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                      {tasks.length === 0 && (
+                        <div className="text-center py-12 text-gray-500">
+                          No tasks yet
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="communications" className="mt-0">
+              {activeSection === "communications" && (
+                <Card>
+                  <CardContent className="p-6">
+                    <h2 className="text-xl font-bold mb-4">Communication History ({communications.length})</h2>
+                    <div className="space-y-3">
+                      {communications.map((comm) => (
+                        <div key={comm.id} className="p-4 border rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              {comm.communication_type === 'call' && <Phone className="w-4 h-4 text-blue-600" />}
+                              {comm.communication_type === 'email' && <Mail className="w-4 h-4 text-purple-600" />}
+                              {comm.communication_type === 'sms' && <MessageSquare className="w-4 h-4 text-green-600" />}
+                              <span className="font-medium capitalize">{comm.communication_type}</span>
+                            </div>
+                            <span className="text-sm text-gray-500">
+                              {format(new Date(comm.created_date), 'MMM d, yyyy h:mm a')}
+                            </span>
+                          </div>
+                          {comm.subject && <div className="font-medium mb-1">{comm.subject}</div>}
+                          {comm.message && <div className="text-sm text-gray-600">{comm.message}</div>}
+                          {comm.duration_minutes && (
+                            <div className="text-xs text-gray-400 mt-2">Duration: {comm.duration_minutes} minutes</div>
+                          )}
+                        </div>
+                      ))}
+                      {communications.length === 0 && (
+                        <div className="text-center py-12 text-gray-500">
+                          No communications yet
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="proposals" className="mt-0">
+              {activeSection === "proposals" && (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-xl font-bold">Proposals ({proposals.length})</h2>
+                      <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => navigate(createPageUrl('Proposals'))}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        New Proposal
+                      </Button>
+                    </div>
+                    <div className="space-y-3">
+                      {proposals.map((proposal) => (
+                        <div key={proposal.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                          <div>
+                            <div className="font-medium">{proposal.proposal_number}</div>
+                            <div className="text-sm text-gray-600">{proposal.title}</div>
+                            <div className="text-xs text-gray-400 mt-1">
+                              {proposal.created_date ? format(new Date(proposal.created_date), 'MMM d, yyyy') : ''}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-semibold text-green-600">${proposal.amount?.toFixed(2)}</div>
+                            <Badge variant="outline">
+                              {proposal.status}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                      {proposals.length === 0 && (
+                        <div className="text-center py-12 text-gray-500">
+                          No proposals yet
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="contracts" className="mt-0">
+              {activeSection === "contracts" && (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-xl font-bold">Contracts ({contracts.length})</h2>
+                      <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => navigate(createPageUrl('Contracts'))}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        New Contract
+                      </Button>
+                    </div>
+                    <div className="space-y-3">
+                      {contracts.map((contract) => (
+                        <div key={contract.id} className="p-4 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                          <div className="flex items-center justify-between">
+                            <div className="font-medium">{contract.contract_name}</div>
+                            <Badge variant="outline">
+                              {contract.status}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">
+                            <span>Type: {contract.contract_type}</span>
+                            {contract.start_date && <span>Start: {format(new Date(contract.start_date), 'MMM d, yyyy')}</span>}
+                            {contract.end_date && <span>End: {format(new Date(contract.end_date), 'MMM d, yyyy')}</span>}
+                            {contract.value && <span>Value: ${contract.value.toFixed(2)}</span>}
+                          </div>
+                        </div>
+                      ))}
+                      {contracts.length === 0 && (
+                        <div className="text-center py-12 text-gray-500">
+                          No contracts yet
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="calendar" className="mt-0">
+              {activeSection === "calendar" && (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-xl font-bold">Calendar Events ({calendarEvents.length})</h2>
+                      <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => navigate(createPageUrl('Calendar'))}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Schedule Event
+                      </Button>
+                    </div>
+                    <div className="space-y-3">
+                      {calendarEvents.map((event) => (
+                        <div key={event.id} className="p-4 border rounded-lg hover:bg-gray-50">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="font-medium">{event.title}</div>
+                              <div className="text-sm text-gray-600 mt-1">
+                                {format(new Date(event.start_time), 'MMM d, yyyy h:mm a')}
+                              </div>
+                              {event.location && <div className="text-xs text-gray-400 mt-1">📍 {event.location}</div>}
+                            </div>
+                            <Badge variant="outline">
+                              {event.event_type}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                      {calendarEvents.length === 0 && (
+                        <div className="text-center py-12 text-gray-500">
+                          No calendar events yet
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="files" className="mt-0">
+              {activeSection === "files" && (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-xl font-bold flex items-center gap-2">
+                        <Folder className="w-5 h-5 text-blue-600" />
+                        Files & Photos ({files.length + inspectionMedia.length})
+                      </h2>
+                      <div className="flex gap-2">
+                        {files.some(f => f.file_type?.startsWith('image/') || f.file_type === 'photo') && (
+                          <Button
+                            onClick={() => {
+                              const allImageIds = files
+                                .filter(f => (f.file_type?.startsWith('image/') || f.file_type === 'photo') && !isHeicFile(f.document_name))
+                                .map(f => f.id);
+                              setSelectedFiles(allImageIds.length === selectedFiles.length && selectedFiles.every(id => allImageIds.includes(id)) ? [] : allImageIds);
+                            }}
+                            variant="outline"
+                            className="text-blue-600"
+                          >
+                            <CheckCircle className="w-4 h-4 mr-1" />
+                            {files.filter(f => (f.file_type?.startsWith('image/') || f.file_type === 'photo') && !isHeicFile(f.document_name)).length === selectedFiles.length && selectedFiles.length > 0 ? 'Deselect All' : 'Select All'}
+                          </Button>
+                        )}
+                        {selectedFiles.length > 0 && (
+                          <>
+                            <Button
+                              onClick={handleDownloadSelectedAsPDF}
+                              disabled={isGeneratingPDF}
+                              className="bg-green-600 hover:bg-green-700"
+                            >
+                              {isGeneratingPDF ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  Creating PDF...
+                                </>
+                              ) : (
+                                <>
+                                  <Download className="w-4 h-4 mr-2" />
+                                  Download {selectedFiles.length} as PDF
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              onClick={() => setShowBulkDeleteDialog(true)}
+                              className="bg-red-600 hover:bg-red-700"
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Delete All
+                            </Button>
+                          </>
+                        )}
+                        <Button onClick={() => setShowFileUpload(true)} className="bg-blue-600 hover:bg-blue-700">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Upload Files
+                        </Button>
+                      </div>
+                    </div>
+
+                    {showFileUpload && (
+                      <div className="mb-6 p-6 bg-blue-50 border-2 border-blue-200 rounded-lg">
+                        <h3 className="font-semibold mb-4">Upload Files (Batch Upload)</h3>
+                        <div className="space-y-4">
+                          <div>
+                            <Label>Select Files * (you can select multiple)</Label>
+                            <Input
+                              type="file"
+                              accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,.pdf,.doc,.docx,.xlsx,.pptx,.txt"
+                              multiple
+                              onChange={(e) => setFileForm({...fileForm, files: Array.from(e.target.files)})}
+                            />
+                            {fileForm.files.length > 0 && (
+                              <div className="mt-2 text-sm text-gray-600">
+                                <p className="font-medium">{fileForm.files.length} file(s) selected:</p>
+                                <ul className="list-disc list-inside max-h-20 overflow-y-auto">
+                                  {Array.from(fileForm.files).map((file, idx) => (
+                                    <li key={idx} className={isHeicFile(file.name) ? 'text-red-600 font-semibold' : ''}>
+                                      {file.name} {isHeicFile(file.name) && '⚠️ HEIC - Won\'t display!'}
+                                    </li>
+                                  ))}
+                               </ul>
+                                {Array.from(fileForm.files).some(f => isHeicFile(f.name)) && (
+                                  <p className="text-red-600 text-xs mt-2">
+                                    ⚠️ HEIC files won't display in browsers. Please convert to JPG/PNG first!
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            <p className="text-xs text-gray-500 mt-1">
+                              Supported: JPG, PNG, GIF, WebP, PDF, DOC, DOCX, XLSX, TXT (NOT HEIC)
+                            </p>
+                          </div>
+
+                          <div>
+                            <Label>Category *</Label>
+                            <div className="flex gap-2 items-start">
+                              <Select
+                                value={fileForm.category}
+                                onValueChange={(v) => {
+                                    setFileForm({...fileForm, category: v});
+                                    setShowAddCategory(false);
+                                }}
+                              >
+                                <SelectTrigger className="flex-1">
+                                  <SelectValue placeholder="Select category" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <div className="px-2 py-1.5 border-b sticky top-0 bg-white z-10">
+                                    <p className="text-xs font-semibold text-gray-500 uppercase">Default Categories</p>
+                                  </div>
+                                  {defaultCategories.map(cat => (
+                                    <SelectItem key={cat.value} value={cat.value}>
+                                      <div className="flex items-center gap-2">
+                                        {cat.icon} {cat.label}
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                  {customCategories.length > 0 && (
+                                    <>
+                                      <SelectSeparator />
+                                      <div className="px-2 py-1.5 border-b sticky top-0 bg-white z-10">
+                                        <p className="text-xs font-semibold text-gray-500 uppercase">Custom Categories</p>
+                                      </div>
+                                      {customCategories.map(cat => (
+                                        <SelectItem key={cat.value} value={cat.value}>
+                                          <div className="flex items-center gap-2">
+                                            {cat.icon} {cat.label}
+                                          </div>
+                                        </SelectItem>
+                                      ))}
+                                    </>
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setShowAddCategory(!showAddCategory)}
+                                title="Add or manage custom categories"
+                              >
+                                <Plus className="w-4 h-4" />
+                              </Button>
+                            </div>
+
+                            {showAddCategory && (
+                              <div className="flex flex-col gap-2 mt-2 p-3 border rounded-md bg-gray-50">
+                                <div className="flex gap-2">
+                                  <Input
+                                    placeholder="New category name"
+                                    value={newCategoryName}
+                                    onChange={(e) => setNewCategoryName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        handleAddCategory();
+                                      }
+                                    }}
+                                  />
+                                  <Button onClick={handleAddCategory} size="sm">
+                                    Add
+                                  </Button>
+                                </div>
+                                {customCategories.length > 0 && (
+                                  <div className="mt-2 space-y-1">
+                                    <p className="text-xs font-semibold text-gray-500">Existing Custom Categories:</p>
+                                    {customCategories.map(cat => (
+                                      <div key={cat.value} className="flex items-center justify-between p-1 pl-2 text-sm bg-white rounded-md border">
+                                        <span className="flex items-center gap-2">
+                                          {cat.icon} {cat.label}
+                                        </span>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => handleDeleteCategory(cat.value)}
+                                          className="h-6 w-6 p-0 text-red-600"
+                                          title={`Delete ${cat.label} category`}
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </Button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          <div>
+                            <Label>Label / Title (optional)</Label>
+                            <Input
+                              value={fileForm.label}
+                              onChange={(e) => setFileForm({...fileForm, label: e.target.value})}
+                              placeholder="e.g., Left Elevation - will add numbers if multiple files"
+                            />
+                          </div>
+
+                          <div>
+                            <Label>Notes (optional)</Label>
+                            <Textarea
+                              value={fileForm.notes}
+                              onChange={(e) => setFileForm({...fileForm, notes: e.target.value})}
+                              placeholder="Add any notes about these files..."
+                              rows={3}
+                            />
+                          </div>
+
+                          <div className="flex gap-3 justify-end">
+                            <Button 
+                              variant="outline" 
+                              onClick={() => {
+                                setShowFileUpload(false);
+                                setFileForm({ label: "", category: "", notes: "", files: [] });
+                                setShowAddCategory(false);
+                              }}
+                              disabled={uploadingFile}
+                            >
+                              Cancel
+                            </Button>
+                            <Button 
+                              onClick={handleFileUpload}
+                              disabled={fileForm.files.length === 0 || !fileForm.category || uploadingFile}
+                              className="bg-blue-600 hover:bg-blue-700"
+                            >
+                              {uploadingFile ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  Uploading {fileForm.files.length} file(s)...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="w-4 h-4 mr-2" />
+                                  Upload {fileForm.files.length > 0 && `(${fileForm.files.length})`}
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {showEditDialog && editingFile && (
+                      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+                        <DialogContent className="max-w-lg">
+                          <DialogHeader>
+                            <DialogTitle>Edit File Details</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4 pt-4">
+                            <div>
+                              <Label>File Name *</Label>
+                              <Input
+                                value={editForm.document_name}
+                                onChange={(e) => setEditForm({...editForm, document_name: e.target.value})}
+                                placeholder="e.g., Front Elevation 1"
+                              />
+                            </div>
+                            <div>
+                              <Label>Category *</Label>
+                              <Select
+                                value={editForm.category}
+                                onValueChange={(v) => setEditForm({...editForm, category: v})}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select category" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <div className="px-2 py-1.5 border-b sticky top-0 bg-white z-10">
+                                    <p className="text-xs font-semibold text-gray-500 uppercase">Default Categories</p>
+                                  </div>
+                                  {defaultCategories.map(cat => (
+                                    <SelectItem key={cat.value} value={cat.value}>
+                                      <div className="flex items-center gap-2">
+                                        {cat.icon} {cat.label}
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                  {customCategories.length > 0 && (
+                                    <>
+                                      <SelectSeparator />
+                                      <div className="px-2 py-1.5 border-b sticky top-0 bg-white z-10">
+                                        <p className="text-xs font-semibold text-gray-500 uppercase">Custom Categories</p>
+                                      </div>
+                                      {customCategories.map(cat => (
+                                        <SelectItem key={cat.value} value={cat.value}>
+                                          <div className="flex items-center gap-2">
+                                            {cat.icon} {cat.label}
+                                          </div>
+                                        </SelectItem>
+                                      ))}
+                                    </>
+                                  )}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label>Notes</Label>
+                              <Textarea
+                                value={editForm.description}
+                                onChange={(e) => setEditForm({...editForm, description: e.target.value})}
+                                placeholder="Add notes about this file..."
+                                rows={4}
+                              />
+                            </div>
+                            <div className="flex justify-end gap-3">
+                              <Button
+                                variant="outline"
+                                onClick={() => {
+                                  setShowEditDialog(false);
+                                  setEditingFile(null);
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                onClick={handleUpdateFile}
+                                disabled={updateFileMutation.isLoading}
+                                className="bg-blue-600 hover:bg-blue-700"
+                              >
+                                {updateFileMutation.isLoading ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Saving...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Save className="w-4 h-4 mr-2" />
+                                    Save Changes
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    )}
+
+                    {Object.keys(filesByCategory).length === 0 && inspectionMedia.length === 0 ? (
+                      <div className="text-center py-12 text-gray-500">
+                        <Folder className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                        <p>No files uploaded yet</p>
+                        <p className="text-xs mt-2">Click "Upload Files" to add documents or photos.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        {Object.entries(allFilesWithInspections).sort(([catA], [catB]) => {
+                          if (catA === 'other') return 1;
+                          if (catB === 'other') return -1;
+                          const labelA = allCategories.find(c => c.value === catA)?.label || catA.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                          const labelB = allCategories.find(c => c.value === catB)?.label || catB.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                          return labelA.localeCompare(labelB);
+                        }).map(([category, categoryFiles]) => {
+                          const catInfo = allCategories.find(c => c.value === category) || { 
+                            label: category.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase()), 
+                            icon: "📁",
+                            custom: false
+                          };
+                          const categoryImageFiles = categoryFiles.filter(f => f.file_type?.startsWith('image/') && !isHeicFile(f.document_name));
+                          const allCategoryImagesSelected = categoryImageFiles.length > 0 && categoryImageFiles.every(f => selectedFiles.includes(f.id));
+                          
+                          return (
+                            <div key={category} className="border rounded-lg p-4 bg-white">
+                              <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-semibold flex items-center gap-2">
+                                  <span>{catInfo.icon}</span>
+                                  <span>{catInfo.label}</span>
+                                  <Badge variant="secondary">{categoryFiles.length}</Badge>
+                                </h3>
+                                <div className="flex gap-2">
+                                  {categoryImageFiles.length > 0 && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSelectAllInCategory(categoryFiles);
+                                      }}
+                                      className="text-blue-600"
+                                    >
+                                      <CheckCircle className="w-4 h-4 mr-1" />
+                                      {allCategoryImagesSelected ? 'Deselect All Photos' : 'Select All Photos'}
+                                    </Button>
+                                  )}
+                                  {catInfo.custom && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteCategory(category)
+                                      }}
+                                      className="text-red-600 hover:text-red-700"
+                                      title={`Delete ${catInfo.label} category`}
+                                    >
+                                      <Trash2 className="w-4 h-4 mr-1" />
+                                      Delete Category
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                {categoryFiles.map((file) => {
+                                  const isHeic = isHeicFile(file.document_name);
+                                  const isSelected = selectedFiles.includes(file.id);
+                                  const isImage = file.file_type?.startsWith('image/') || file.file_type === 'photo';
+
+                                 return (
+                                   <div 
+                                     key={file.id} 
+                                     className={`group relative border rounded-lg overflow-hidden bg-gray-50 hover:shadow-lg transition-shadow duration-200 ${isImage && !isHeic ? 'cursor-pointer' : ''} ${isSelected && isImage && !isHeic ? 'ring-2 ring-blue-500' : ''}`}
+                                     onClick={(e) => {
+                                       e.stopPropagation();
+                                       if (isImage && !isHeic) {
+                                         handleFileSelect(file.id);
+                                       } else if (!isImage || isHeic) {
+                                         setViewingFile(file);
+                                       }
+                                     }}
+                                   >
+                                     {isImage && !isHeic && (
+                                       <input
+                                         type="checkbox"
+                                         checked={isSelected}
+                                         onChange={(e) => {
+                                           e.stopPropagation();
+                                           handleFileSelect(file.id);
+                                         }}
+                                         onClick={(e) => e.stopPropagation()}
+                                         className="absolute top-3 left-3 w-5 h-5 cursor-pointer z-20 accent-blue-600"
+                                         title="Select for download"
+                                       />
+                                     )}
+                                     {(file.file_type?.startsWith('image/') || file.file_type === 'photo') && !isHeic ? (
+                                       imageErrors[file.id] ? (
+                                         <div className="w-full h-40 bg-gray-200 flex flex-col items-center justify-center text-gray-500 p-2">
+                                           <Image className="w-12 h-12 mb-2" />
+                                           <p className="text-xs font-semibold mb-1">Image failed to load</p>
+                                           <p className="text-xs text-gray-400 break-all px-2 text-center">
+                                             {file.file_url || 'No URL'}
+                                           </p>
+                                         </div>
+                                       ) : (
+                                         <img 
+                                           src={file.file_url} 
+                                           alt={file.document_name}
+                                           className="w-full h-40 object-cover hover:opacity-90 transition-opacity"
+                                           onError={() => handleImageError(file.id, file.file_url)}
+                                           loading="lazy"
+                                         />
+                                       )
+                                     ) : isHeic ? (
+                                       <div className="w-full h-40 bg-yellow-100 flex flex-col items-center justify-center text-yellow-800 p-3">
+                                         <Image className="w-12 h-12 mb-2" />
+                                         <p className="text-xs font-semibold text-center">HEIC Format</p>
+                                         <p className="text-xs text-center mt-1">Can't display in browser</p>
+                                         <p className="text-xs text-center mt-1">Click to download</p>
+                                       </div>
+                                     ) : (
+                                       <div className="w-full h-40 bg-gray-100 flex items-center justify-center">
+                                         <FileText className="w-12 h-12 text-gray-400" />
+                                       </div>
+                                     )}
+                                     <div className="p-3 bg-white">
+                                       <p className="font-medium text-sm truncate">{file.document_name}</p>
+                                       {file.description && (
+                                         <p className="text-xs text-gray-500 mt-1 line-clamp-2">{file.description}</p>
+                                       )}
+                                       <p className="text-xs text-gray-400 mt-1">
+                                         {file.created_date ? format(new Date(file.created_date), 'MMM d, yyyy') : ''}
+                                       </p>
+                                     </div>
+                                      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <Button
+                                          size="icon"
+                                          variant="outline"
+                                          className="bg-white h-7 w-7 p-0"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleEditFile(file);
+                                          }}
+                                          title="Edit file details"
+                                        >
+                                          <Pencil className="w-4 h-4" />
+                                        </Button>
+                                        <Button
+                                          size="icon"
+                                          variant="outline"
+                                          className="bg-white h-7 w-7 p-0"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDownload(file);
+                                          }}
+                                          title="Download File"
+                                        >
+                                          <Download className="w-4 h-4" />
+                                        </Button>
+                                        <Button
+                                          size="icon"
+                                          variant="outline"
+                                          className="bg-white text-red-600 h-7 w-7 p-0"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (window.confirm('Are you sure you want to delete this file?')) {
+                                              deleteFileMutation.mutate(file.id);
+                                            }
+                                          }}
+                                          title="Delete File"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="expenses" className="mt-0">
+              {activeSection === "expenses" && (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-xl font-bold">Expenses ({customerExpenses.length})</h2>
+                      <Button
+                        onClick={() => navigate(createPageUrl('Expenses') + `?customer_id=${customer.id}`)}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Expense
+                      </Button>
+                    </div>
+                    <div className="space-y-3">
+                      {customerExpenses.map((expense) => (
+                        <div key={expense.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
+                          <div className="flex-1">
+                            <div className="font-medium">{expense.vendor_name}</div>
+                            <div className="text-sm text-gray-600">{expense.description}</div>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Badge variant="outline" className="text-xs">
+                                {expense.category?.replace(/_/g, ' ')}
+                              </Badge>
+                              <span className="text-xs text-gray-500">
+                                {format(new Date(expense.expense_date), 'MMM d, yyyy')}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-semibold text-red-600 text-lg">${expense.amount?.toFixed(2)}</div>
+                            <div className="text-xs text-gray-500">{expense.payment_method}</div>
+                            <div className="flex gap-1 justify-end mt-2">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-blue-600 hover:bg-blue-50"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(createPageUrl('Expenses') + `?expense_id=${expense.id}`);
+                                }}
+                                title="Edit expense"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-red-600 hover:bg-red-50"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (window.confirm('Delete this expense?')) {
+                                    await base44.entities.Expense.delete(expense.id);
+                                    queryClient.invalidateQueries({ queryKey: ['customer-expenses'] });
+                                    queryClient.invalidateQueries({ queryKey: ['expenses'] });
+                                  }
+                                }}
+                                title="Delete expense"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {customerExpenses.length === 0 && (
+                        <div className="text-center py-12 text-gray-500">
+                          <Receipt className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                          <p>No expenses yet</p>
+                          <p className="text-xs mt-2">Track expenses related to this customer</p>
+                        </div>
+                      )}
+                    </div>
+                    {customerExpenses.length > 0 && (
+                      <div className="pt-4 mt-2 border-t flex items-center justify-between">
+                        <div className="text-sm text-gray-500">Total expenses</div>
+                        <div className="text-xl font-bold text-red-600">${totalExpenses.toFixed(2)}</div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="notes" className="mt-0">
+              {activeSection === "notes" && (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-xl font-bold">Customer Notes ({customer?.customer_notes?.length || 0})</h2>
+                      <Button
+                        size="sm"
+                        onClick={async () => {
+                          const note = prompt('Add a new note:');
+                          if (!note?.trim()) return;
+                          
+                          const newNote = {
+                            id: Date.now().toString(),
+                            note: note.trim(),
+                            created_at: new Date().toISOString(),
+                            created_by: user?.email
+                          };
+                          
+                          const updatedNotes = [...(customer.customer_notes || []), newNote];
+                          await base44.entities.Customer.update(customer.id, {
+                            customer_notes: updatedNotes
+                          });
+                          queryClient.invalidateQueries({ queryKey: ['customers'] });
+                          toast.success('Note added!');
+                        }}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Note
+                      </Button>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      {customer?.customer_notes && customer.customer_notes.length > 0 ? (
+                        customer.customer_notes
+                          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                          .map((note) => {
+                            const isEditing = editingNoteId === note.id;
+                            
+                            return (
+                              <div key={note.id} className="p-4 border rounded-lg bg-gray-50 hover:bg-gray-100 group">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex-1">
+                                    {isEditing ? (
+                                      <Textarea
+                                        value={editedNoteText}
+                                        onChange={(e) => setEditedNoteText(e.target.value)}
+                                        className="mb-2 min-h-[80px]"
+                                        autoFocus
+                                      />
+                                    ) : (
+                                      <p className="text-gray-800 whitespace-pre-wrap">{note.note}</p>
+                                    )}
+                                    <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
+                                      <span>{format(new Date(note.created_at), 'MMM d, yyyy h:mm a')}</span>
+                                      <span>•</span>
+                                      <span>{staffProfiles.find(s => s.user_email === note.created_by)?.full_name || note.created_by}</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-1">
+                                    {isEditing ? (
+                                      <>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-8 w-8 text-green-600 hover:bg-green-50"
+                                          onClick={async () => {
+                                            if (!editedNoteText.trim()) {
+                                              toast.error('Note cannot be empty');
+                                              return;
+                                            }
+                                            const updatedNotes = customer.customer_notes.map(n =>
+                                              n.id === note.id ? { ...n, note: editedNoteText.trim() } : n
+                                            );
+                                            await base44.entities.Customer.update(customer.id, {
+                                              customer_notes: updatedNotes
+                                            });
+                                            queryClient.invalidateQueries({ queryKey: ['customers'] });
+                                            setEditingNoteId(null);
+                                            toast.success('Note updated');
+                                          }}
+                                          title="Save changes"
+                                        >
+                                          <Save className="w-4 h-4" />
+                                        </Button>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-8 w-8"
+                                          onClick={() => setEditingNoteId(null)}
+                                          title="Cancel editing"
+                                        >
+                                          <X className="w-4 h-4" />
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-8 w-8"
+                                          onClick={() => {
+                                            setEditingNoteId(note.id);
+                                            setEditedNoteText(note.note);
+                                          }}
+                                          title="Edit note"
+                                        >
+                                          <Pencil className="w-4 h-4" />
+                                        </Button>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="text-red-600 hover:bg-red-50 h-8 w-8"
+                                          onClick={async () => {
+                                            if (confirm('Delete this note?')) {
+                                              const updatedNotes = customer.customer_notes.filter(n => n.id !== note.id);
+                                              await base44.entities.Customer.update(customer.id, {
+                                                customer_notes: updatedNotes
+                                              });
+                                              queryClient.invalidateQueries({ queryKey: ['customers'] });
+                                              toast.success('Note deleted');
+                                            }
+                                          }}
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                      ) : (
+                        <div className="text-center py-12 text-gray-500">
+                          <FileText className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                          <p>No notes yet</p>
+                          <p className="text-xs mt-2">Add notes to track important customer information</p>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="reminders" className="mt-0">
+              {activeSection === "reminders" && (
+                <Card>
+                  <CardContent className="p-12 text-center text-gray-500">
+                    <p>This section is coming soon!</p>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="commissions" className="mt-0">
+              {activeSection === "commissions" && (
+                <Card>
+                  <CardContent className="p-6 space-y-6">
+                    <h2 className="text-xl font-bold">Commission Summary</h2>
+                    <CommissionSummary invoices={invoices} staffProfiles={staffProfiles} payouts={payouts} />
+                    
+                    {payouts.filter(p => p.payout_type === 'commission').length > 0 && (
+                      <div>
+                        <h3 className="font-semibold mb-3">Commission Payouts</h3>
+                        <div className="space-y-3">
+                          {payouts
+                            .filter(p => p.payout_type === 'commission')
+                            .map(payout => (
+                              <div key={payout.id} className="p-4 border rounded-lg hover:bg-gray-50">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <div className="font-medium">{payout.recipient_name}</div>
+                                    <div className="text-sm text-gray-500">{payout.description}</div>
+                                    <Badge variant="outline" className={payout.status === 'completed' ? 'bg-green-100 text-green-700 mt-2' : 'bg-yellow-100 text-yellow-700 mt-2'}>
+                                      {payout.status}
+                                    </Badge>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-xl font-bold text-green-600">${payout.amount.toFixed(2)}</div>
+                                    {payout.payment_date && (
+                                      <div className="text-xs text-gray-500">
+                                        Paid: {format(new Date(payout.payment_date), 'MMM d, yyyy')}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="documents" className="mt-0">
+              {activeSection === "documents" && (
+                <div className="space-y-6">
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <Card className="border-blue-200 bg-blue-50">
+                      <CardContent className="p-4">
+                        <div className="text-xs text-blue-700 font-medium">Estimates</div>
+                        <div className="text-2xl font-bold text-blue-600">{estimates.length}</div>
+                      </CardContent>
+                    </Card>
+                    <Card className="border-green-200 bg-green-50">
+                      <CardContent className="p-4">
+                        <div className="text-xs text-green-700 font-medium">Invoices</div>
+                        <div className="text-2xl font-bold text-green-600">{invoices.length}</div>
+                      </CardContent>
+                    </Card>
+                    <Card className="border-purple-200 bg-purple-50">
+                      <CardContent className="p-4">
+                        <div className="text-xs text-purple-700 font-medium">Proposals</div>
+                        <div className="text-2xl font-bold text-purple-600">{proposals.length}</div>
+                      </CardContent>
+                    </Card>
+                    <Card className="border-orange-200 bg-orange-50">
+                      <CardContent className="p-4">
+                        <div className="text-xs text-orange-700 font-medium">Contracts</div>
+                        <div className="text-2xl font-bold text-orange-600">{contracts.length}</div>
+                      </CardContent>
+                    </Card>
+                    <Card className="border-gray-200 bg-gray-50">
+                      <CardContent className="p-4">
+                        <div className="text-xs text-gray-700 font-medium">Files</div>
+                        <div className="text-2xl font-bold text-gray-600">{files.length}</div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Estimates */}
+                  <Card>
+                    <CardHeader className="bg-blue-50">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <FileText className="w-5 h-5 text-blue-600" />
+                          Estimates ({estimates.length})
+                        </CardTitle>
+                        <Button size="sm" onClick={() => navigate(createPageUrl('Estimates'))} variant="outline">
+                          View All
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-4">
+                      {estimates.length > 0 ? (
+                        <div className="space-y-2">
+                          {estimates.slice(0, 5).map(estimate => (
+                            <div 
+                              key={estimate.id} 
+                              className="flex items-center justify-between p-3 border rounded hover:bg-gray-50 cursor-pointer"
+                              onClick={() => navigate(createPageUrl('EstimateEditor') + '?estimate_id=' + estimate.id)}
+                            >
+                              <div>
+                                <div className="font-medium">{estimate.estimate_number}</div>
+                                <div className="text-xs text-gray-500">{format(new Date(estimate.created_date), 'MMM d, yyyy')}</div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="text-right">
+                                  <div className="font-semibold text-blue-600">${estimate.amount?.toFixed(2)}</div>
+                                  <Badge variant="outline" className="text-xs">{estimate.status}</Badge>
+                                </div>
+                                <Button size="icon" variant="ghost" onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.open(estimate.file_url || createPageUrl('EstimateEditor') + '?estimate_id=' + estimate.id, '_blank');
+                                }}>
+                                  <Eye className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                          {estimates.length > 5 && (
+                            <Button variant="link" className="w-full" onClick={() => setActiveSection('estimates')}>
+                              View all {estimates.length} estimates →
+                            </Button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-center py-6 text-gray-500 text-sm">No estimates</div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Invoices */}
+                  <Card>
+                    <CardHeader className="bg-green-50">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <Receipt className="w-5 h-5 text-green-600" />
+                          Invoices ({invoices.length})
+                        </CardTitle>
+                        <Button size="sm" onClick={() => navigate(createPageUrl('Invoices'))} variant="outline">
+                          View All
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-4">
+                      {invoices.length > 0 ? (
+                        <div className="space-y-2">
+                          {invoices.slice(0, 5).map(invoice => (
+                            <div 
+                              key={invoice.id} 
+                              className="flex items-center justify-between p-3 border rounded hover:bg-gray-50 cursor-pointer"
+                              onClick={() => navigate(createPageUrl('invoice-details') + '?id=' + invoice.id)}
+                            >
+                              <div>
+                                <div className="font-medium">{invoice.invoice_number}</div>
+                                <div className="text-xs text-gray-500">Due: {invoice.due_date ? formatDateOnly(invoice.due_date) : 'N/A'}</div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="text-right">
+                                  <div className="font-semibold text-green-600">${invoice.amount?.toFixed(2)}</div>
+                                  <Badge variant="outline" className="text-xs">{invoice.status}</Badge>
+                                </div>
+                                <Button size="icon" variant="ghost" onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(createPageUrl('invoice-details') + '?id=' + invoice.id);
+                                }}>
+                                  <Eye className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                          {invoices.length > 5 && (
+                            <Button variant="link" className="w-full" onClick={() => setActiveSection('invoices')}>
+                              View all {invoices.length} invoices →
+                            </Button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-center py-6 text-gray-500 text-sm">No invoices</div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Proposals */}
+                  <Card>
+                    <CardHeader className="bg-purple-50">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <FileSignature className="w-5 h-5 text-purple-600" />
+                          Proposals ({proposals.length})
+                        </CardTitle>
+                        <Button size="sm" onClick={() => navigate(createPageUrl('Proposals'))} variant="outline">
+                          View All
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-4">
+                      {proposals.length > 0 ? (
+                        <div className="space-y-2">
+                          {proposals.slice(0, 5).map(proposal => (
+                            <div key={proposal.id} className="flex items-center justify-between p-3 border rounded hover:bg-gray-50">
+                              <div>
+                                <div className="font-medium">{proposal.proposal_number}</div>
+                                <div className="text-xs text-gray-500">{proposal.title}</div>
+                              </div>
+                              <div className="text-right">
+                                <div className="font-semibold text-purple-600">${proposal.amount?.toFixed(2)}</div>
+                                <Badge variant="outline" className="text-xs">{proposal.status}</Badge>
+                              </div>
+                            </div>
+                          ))}
+                          {proposals.length > 5 && (
+                            <Button variant="link" className="w-full" onClick={() => setActiveSection('proposals')}>
+                              View all {proposals.length} proposals →
+                            </Button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-center py-6 text-gray-500 text-sm">No proposals</div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Contracts */}
+                  <Card>
+                    <CardHeader className="bg-orange-50">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <FileSignature className="w-5 h-5 text-orange-600" />
+                          Contracts ({contracts.length})
+                        </CardTitle>
+                        <Button size="sm" onClick={() => navigate(createPageUrl('Contracts'))} variant="outline">
+                          View All
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-4">
+                      {contracts.length > 0 ? (
+                        <div className="space-y-2">
+                          {contracts.slice(0, 5).map(contract => (
+                            <div key={contract.id} className="flex items-center justify-between p-3 border rounded hover:bg-gray-50">
+                              <div>
+                                <div className="font-medium">{contract.contract_name}</div>
+                                <div className="text-xs text-gray-500">Type: {contract.contract_type}</div>
+                              </div>
+                              <Badge variant="outline" className="text-xs">{contract.status}</Badge>
+                            </div>
+                          ))}
+                          {contracts.length > 5 && (
+                            <Button variant="link" className="w-full" onClick={() => setActiveSection('contracts')}>
+                              View all {contracts.length} contracts →
+                            </Button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-center py-6 text-gray-500 text-sm">No contracts</div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Files & Photos */}
+                  <Card>
+                    <CardHeader className="bg-gray-50">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <Image className="w-5 h-5 text-gray-600" />
+                          Files & Photos ({files.length})
+                        </CardTitle>
+                        <Button size="sm" onClick={() => setActiveSection('files')} variant="outline">
+                          View All
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-4">
+                      {files.length > 0 ? (
+                        <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+                          {files.slice(0, 10).map(file => (
+                            <div 
+                              key={file.id} 
+                              className="relative aspect-square border rounded-lg overflow-hidden hover:shadow-md cursor-pointer"
+                              onClick={() => setViewingFile(file)}
+                            >
+                              {file.file_type?.startsWith('image/') && !isHeicFile(file.document_name) ? (
+                                <img 
+                                  src={file.file_url} 
+                                  alt={file.document_name}
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                                  <FileText className="w-8 h-8 text-gray-400" />
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-6 text-gray-500 text-sm">No files</div>
+                      )}
+                      {files.length > 10 && (
+                        <Button variant="link" className="w-full mt-4" onClick={() => setActiveSection('files')}>
+                          View all {files.length} files →
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="estimates" className="mt-0">
+              {activeSection === "estimates" && (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-xl font-bold">Estimates ({estimates.length})</h2>
+                    </div>
+                    <div className="space-y-3">
+                      {estimates.map((estimate) => (
+                        <div key={estimate.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 group">
+                          <div className="flex-1 cursor-pointer" onClick={() => navigate(createPageUrl('EstimateEditor') + '?estimate_id=' + estimate.id)}>
+                            <div className="font-medium">{estimate.estimate_number}</div>
+                            <div className="text-sm text-gray-500">
+                              {estimate.created_date ? format(new Date(estimate.created_date), 'MMM d, yyyy') : ''}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <div className="font-semibold text-green-600">${estimate.amount?.toFixed(2)}</div>
+                              <Badge variant="outline" className={
+                                estimate.status === 'accepted' ? 'bg-green-100 text-green-700' :
+                                estimate.status === 'sent' ? 'bg-blue-100 text-blue-700' :
+                                estimate.status === 'declined' ? 'bg-red-100 text-red-700' :
+                                'bg-gray-100 text-gray-700'
+                              }>
+                                {estimate.status}
+                              </Badge>
+                            </div>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-red-600 hover:bg-red-50"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (window.confirm(`Delete estimate ${estimate.estimate_number}?\n\nThis action cannot be undone.`)) {
+                                  try {
+                                    await base44.entities.Estimate.delete(estimate.id);
+                                    queryClient.invalidateQueries({ queryKey: ['customer-estimates'] });
+                                    queryClient.invalidateQueries({ queryKey: ['estimates'] });
+                                    toast.success('Estimate deleted');
+                                  } catch (error) {
+                                    toast.error('Failed to delete: ' + error.message);
+                                  }
+                                }
+                              }}
+                              title="Delete estimate"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                      {estimates.length === 0 && (
+                        <div className="text-center py-12 text-gray-500">
+                          No estimates yet
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+          </div>
+        </div>
+      </Tabs>
+
+      {viewingFile && (
+        <Dialog open={!!viewingFile} onOpenChange={() => setViewingFile(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center justify-between">
+                <span>{viewingFile.document_name}</span>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleDownload(viewingFile)}
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download
+                  </Button>
+                </div>
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 pt-4">
+              {isHeicFile(viewingFile.document_name) ? (
+                <div className="text-center py-12 bg-yellow-50 rounded-lg border-2 border-yellow-200">
+                  <Image className="w-16 h-16 mx-auto mb-4 text-yellow-600" />
+                  <p className="text-yellow-800 font-semibold mb-2">⚠️ HEIC Format Not Supported</p>
+                  <p className="text-sm text-yellow-700 mb-4">
+                    HEIC is Apple's format and can't be displayed in web browsers.
+                  </p>
+                  <p className="text-sm text-yellow-700 mb-4">
+                    Please convert to JPG or PNG to view in browser.
+                  </p>
+                  <Button onClick={() => handleDownload(viewingFile)} className="bg-yellow-600 hover:bg-yellow-700">
+                    <Download className="w-4 h-4 mr-2" />
+                    Download HEIC File
+                  </Button>
+                </div>
+              ) : viewingFile.file_type?.startsWith('image/') ? (
+                <>
+                  <img 
+                    src={viewingFile.file_url} 
+                    alt={viewingFile.document_name}
+                    className="w-full h-auto rounded-lg"
+                    onError={(e) => {
+                      console.error('Modal image failed to load:', {
+                        fileUrl: typeof viewingFile.file_url === 'string' ? viewingFile.file_url : JSON.stringify(viewingFile.file_url)
+                      });
+                      e.target.style.display = 'none';
+                      e.target.nextSibling.style.display = 'block';
+                    }}
+                  />
+                  <div style={{display: 'none'}} className="text-center py-12 bg-gray-100 rounded-lg">
+                    <p className="text-red-600 mb-2">⚠️ Image failed to load</p>
+                    <p className="text-xs text-gray-500 mb-4 break-all px-4">URL: {viewingFile.file_url}</p>
+                    <Button onClick={() => handleDownload(viewingFile)}>
+                      <Download className="w-4 h-4 mr-2" />
+                      Download Instead
+                    </Button>
+                  </div>
+                </>
+              ) : viewingFile.file_type === 'application/pdf' ? (
+                <iframe 
+                  src={viewingFile.file_url} 
+                  className="w-full h-[600px] rounded-lg border"
+                  title={viewingFile.document_name}
+                />
+              ) : (
+                <div className="text-center py-12">
+                  <FileText className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                  <p className="text-gray-600 mb-4">Preview not available for this file type</p>
+                  <Button onClick={() => handleDownload(viewingFile)}>
+                    <Download className="w-4 h-4 mr-2" />
+                    Download File
+                  </Button>
+                </div>
+              )}
+              {viewingFile.description && (
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="text-sm font-medium text-gray-700 mb-1">Notes:</p>
+                  <p className="text-sm text-gray-600">{viewingFile.description}</p>
+                </div>
+              )}
+              <div className="text-xs text-gray-500">
+                Uploaded: {viewingFile.created_date ? format(new Date(viewingFile.created_date), 'PPP') : 'Unknown'}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <Dialog open={showPaymentDialog} onOpenChange={handlePaymentDialogChange}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Record Payment</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleRecordPayment} className="space-y-4">
+            <div>
+              <Label>Amount *</Label>
+              <Input
+                type="text"
+                value={paymentForm.amount}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/[^0-9.]/g, '');
+                  setPaymentForm({...paymentForm, amount: value});
+                }}
+                placeholder="0.00"
+                required
+              />
+            </div>
+
+            <div>
+              <Label>Payment Date *</Label>
+              <Input
+                type="date"
+                value={paymentForm.payment_date}
+                onChange={(e) => setPaymentForm({...paymentForm, payment_date: e.target.value})}
+                required
+              />
+            </div>
+
+            <div>
+              <Label>Payment Method *</Label>
+              <Select
+                value={paymentForm.payment_method}
+                onValueChange={(value) => setPaymentForm({...paymentForm, payment_method: value})}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select method" />
+                </SelectTrigger>
+                <SelectContent>
+                 <SelectItem value="cash">Cash</SelectItem>
+                 <SelectItem value="check">Check</SelectItem>
+                 <SelectItem value="credit_card">Credit Card</SelectItem>
+                 <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                 <SelectItem value="paypal">PayPal</SelectItem>
+                 <SelectItem value="stripe">Stripe</SelectItem>
+                 <SelectItem value="cash_app">Cash App</SelectItem>
+                 <SelectItem value="zelle">Zelle</SelectItem>
+                 <SelectItem value="venmo">Venmo</SelectItem>
+                 <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Invoice Number (Optional)</Label>
+              <Select
+                value={paymentForm.invoice_number || "none"}
+                onValueChange={(val) => {
+                  const selectedInvoiceNumber = val === "none" ? "" : val;
+                  setPaymentForm({...paymentForm, invoice_number: selectedInvoiceNumber});
+                  const invoice = invoices.find(inv => inv.invoice_number === selectedInvoiceNumber);
+                  if (invoice) {
+                    const remaining = invoice.amount - (invoice.amount_paid || 0);
+                    setPaymentForm(prev => ({...prev, amount: remaining.toFixed(2)}));
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select invoice (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {invoices
+                    .filter(inv =>
+                        ['sent', 'draft', 'viewed', 'overdue', 'partially_paid'].includes(inv.status) &&
+                        (inv.amount || 0) > (inv.amount_paid || 0)
+                    )
+                    .map(inv => (
+                      <SelectItem key={inv.id} value={inv.invoice_number}>
+                        {inv.invoice_number} - ${(inv.amount - (inv.amount_paid || 0)).toFixed(2)} due
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {paymentForm.invoice_number && (
+                <p className="text-xs text-green-600 mt-1">✓ Linked to {paymentForm.invoice_number}</p>
+              )}
+            </div>
+
+            <div>
+              <Label>Reference Number</Label>
+              <Input
+                value={paymentForm.reference_number}
+                onChange={(e) => setPaymentForm({...paymentForm, reference_number: e.target.value})}
+                placeholder="Check #, Transaction ID, etc."
+              />
+            </div>
+
+            <div>
+              <Label>Notes</Label>
+              <Textarea
+                value={paymentForm.notes}
+                onChange={(e) => setPaymentForm({...paymentForm, notes: e.target.value})}
+                placeholder="Additional notes..."
+                rows={3}
+              />
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="send_receipt"
+                checked={paymentForm.send_receipt}
+                onChange={(e) => setPaymentForm({...paymentForm, send_receipt: e.target.checked})}
+                className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              <Label htmlFor="send_receipt" className="font-normal cursor-pointer">Send receipt to customer</Label>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setShowPaymentDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="submit"
+                disabled={createPaymentMutation.isLoading}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {createPaymentMutation.isLoading ? 'Recording...' : 'Record Payment'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditPaymentDialog} onOpenChange={setShowEditPaymentDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Payment</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={(e)=>{e.preventDefault(); updatePaymentMutation.mutate();}} className="space-y-4">
+            <div>
+              <Label>Amount *</Label>
+              <Input type="text" value={editPaymentForm.amount} onChange={(e)=>setEditPaymentForm({...editPaymentForm, amount: e.target.value.replace(/[^0-9.]/g,'')})} required />
+            </div>
+            <div>
+              <Label>Payment Date *</Label>
+              <Input type="date" value={editPaymentForm.payment_date} onChange={(e)=>setEditPaymentForm({...editPaymentForm, payment_date: e.target.value})} required />
+            </div>
+            <div>
+              <Label>Payment Method *</Label>
+              <Select value={editPaymentForm.payment_method} onValueChange={(v)=>setEditPaymentForm({...editPaymentForm, payment_method: v})}>
+                <SelectTrigger><SelectValue placeholder="Select method"/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="check">Check</SelectItem>
+                  <SelectItem value="credit_card">Credit Card</SelectItem>
+                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                  <SelectItem value="paypal">PayPal</SelectItem>
+                  <SelectItem value="stripe">Stripe</SelectItem>
+                  <SelectItem value="cash_app">Cash App</SelectItem>
+                  <SelectItem value="zelle">Zelle</SelectItem>
+                  <SelectItem value="venmo">Venmo</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Invoice Number</Label>
+              <Input value={editPaymentForm.invoice_number || ''} onChange={(e)=>setEditPaymentForm({...editPaymentForm, invoice_number: e.target.value})} placeholder="e.g., INV-2032" />
+            </div>
+            <div>
+              <Label>Reference Number</Label>
+              <Input value={editPaymentForm.reference_number || ''} onChange={(e)=>setEditPaymentForm({...editPaymentForm, reference_number: e.target.value})} />
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Textarea rows={3} value={editPaymentForm.notes || ''} onChange={(e)=>setEditPaymentForm({...editPaymentForm, notes: e.target.value})} />
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={()=>setShowEditPaymentDialog(false)}>Cancel</Button>
+              <Button type="submit" className="bg-blue-600 hover:bg-blue-700">Save Changes</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialer 
+        open={showDialer} 
+        onOpenChange={setShowDialer}
+        defaultNumber={customer.phone || customer.phone_2}
+        defaultName={customer.name}
+      />
+      <EmailDialog 
+        open={showEmailDialog} 
+        onOpenChange={setShowEmailDialog}
+        defaultTo={customer.email}
+        defaultName={customer.name}
+        companyId={myCompany?.id}
+      />
+      <SMSDialog 
+        open={showSMSDialog} 
+        onOpenChange={setShowSMSDialog}
+        defaultTo={customer.phone || customer.phone_2}
+        defaultName={customer.name}
+      />
+
+      <Dialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {selectedFiles.length} File(s)</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Alert className="bg-red-50 border-red-200">
+              <AlertDescription className="text-red-900 text-sm">
+                ⚠️ You are about to delete {selectedFiles.length} file(s). This action cannot be undone.
+              </AlertDescription>
+            </Alert>
+            
+            <div>
+              <Label>Notes / Reason for deletion (optional)</Label>
+              <Textarea
+                value={bulkDeleteNotes}
+                onChange={(e) => setBulkDeleteNotes(e.target.value)}
+                placeholder="e.g., Duplicate files, poor quality, incorrect photos..."
+                rows={4}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                These notes will be added to each file before deletion for audit trail.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => {
+                  setShowBulkDeleteDialog(false);
+                  setBulkDeleteNotes('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  try {
+                    // If notes provided, update each file first
+                    if (bulkDeleteNotes.trim()) {
+                      for (const fileId of selectedFiles) {
+                        const file = files.find(f => f.id === fileId);
+                        if (file) {
+                          const timestamp = new Date().toLocaleString();
+                          const deletionNote = `[DELETED ${timestamp}] ${bulkDeleteNotes}`;
+                          const updatedDescription = file.description 
+                            ? `${file.description}\n\n${deletionNote}`
+                            : deletionNote;
+                          
+                          await base44.entities.Document.update(fileId, {
+                            description: updatedDescription
+                          });
+                        }
+                      }
+                    }
+
+                    // Then delete all selected files
+                    for (const fileId of selectedFiles) {
+                      await deleteFileMutation.mutateAsync(fileId);
+                    }
+
+                    setSelectedFiles([]);
+                    setShowBulkDeleteDialog(false);
+                    setBulkDeleteNotes('');
+                    toast.success(`✅ Deleted ${selectedFiles.length} file(s)`);
+                  } catch (error) {
+                    toast.error('Failed to delete files: ' + error.message);
+                  }
+                }}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Confirm Delete
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCheckUploadDialog} onOpenChange={setShowCheckUploadDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Camera className="w-5 h-5 text-blue-600" />
+              Scan Check Payment
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Alert className="bg-blue-50 border-blue-200">
+              <AlertDescription className="text-blue-900 text-sm">
+                📸 Take a clear photo of the check. AI will automatically extract the amount, check number, date, and payer information, then create both a payment record and save the image to this customer's files.
+              </AlertDescription>
+            </Alert>
+            
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors">
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleCheckUpload}
+                disabled={isProcessingCheck}
+                className="hidden"
+                id="check-upload-input"
+              />
+              <label htmlFor="check-upload-input" className="cursor-pointer">
+                {isProcessingCheck ? (
+                  <div className="space-y-3">
+                    <Loader2 className="w-12 h-12 mx-auto text-blue-600 animate-spin" />
+                    <p className="text-sm text-gray-600">Processing check with AI...</p>
+                    <p className="text-xs text-gray-500">This may take 10-15 seconds</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <Camera className="w-12 h-12 mx-auto text-gray-400" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Click to take photo or upload</p>
+                      <p className="text-xs text-gray-500 mt-1">Supports JPG, PNG, HEIC</p>
+                    </div>
+                  </div>
+                )}
+              </label>
+            </div>
+
+            <div className="bg-gray-50 rounded-lg p-4 text-xs text-gray-600 space-y-2">
+              <p className="font-semibold text-gray-700">📋 What happens next:</p>
+              <ul className="list-disc list-inside space-y-1 ml-2">
+                <li>AI extracts payment details from check</li>
+                <li>Payment record created automatically</li>
+                <li>Check image saved to customer files</li>
+                <li>Linked to invoice (if applicable)</li>
+              </ul>
+            </div>
+
+            <div className="bg-gray-50 rounded-lg p-4 text-xs text-gray-600 space-y-2">
+              <p className="font-semibold text-gray-700">Tips for best results:</p>
+              <ul className="list-disc list-inside space-y-1 ml-2">
+                <li>Ensure good lighting</li>
+                <li>Capture the entire check</li>
+                <li>Avoid glare and shadows</li>
+                <li>Keep the check flat and straight</li>
+              </ul>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTaskDialog} onOpenChange={setShowTaskDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Task for {customer.name}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            if (!taskForm.name) {
+              toast.error('Please enter a task title');
+              return;
+            }
+            createTaskMutation.mutate(taskForm);
+          }} className="space-y-4">
+            <div>
+              <Label>Task Title *</Label>
+              <Input
+                value={taskForm.name}
+                onChange={(e) => setTaskForm({...taskForm, name: e.target.value})}
+                placeholder="e.g., Follow up on estimate"
+                required
+              />
+            </div>
+
+            <div>
+              <Label>Description</Label>
+              <Textarea
+                value={taskForm.description}
+                onChange={(e) => setTaskForm({...taskForm, description: e.target.value})}
+                placeholder="Add task details..."
+                rows={3}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Priority</Label>
+                <Select value={taskForm.priority} onValueChange={(v) => setTaskForm({...taskForm, priority: v})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Due Date</Label>
+                <Input
+                  type="date"
+                  value={taskForm.due_date}
+                  onChange={(e) => setTaskForm({...taskForm, due_date: e.target.value})}
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label>Assign To</Label>
+              <Select value={taskForm.assigned_to} onValueChange={(v) => setTaskForm({...taskForm, assigned_to: v})}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select staff member" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={null}>Unassigned</SelectItem>
+                  {staffProfiles.map(staff => (
+                    <SelectItem key={staff.user_email} value={staff.user_email}>
+                      {staff.full_name || staff.user_email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded p-3">
+              <p className="text-sm text-blue-900">
+                <strong>📌 Auto-linked to:</strong> {customer.name}
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={() => setShowTaskDialog(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" className="bg-blue-600 hover:bg-blue-700" disabled={createTaskMutation.isLoading}>
+                {createTaskMutation.isLoading ? 'Creating...' : 'Create Task'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

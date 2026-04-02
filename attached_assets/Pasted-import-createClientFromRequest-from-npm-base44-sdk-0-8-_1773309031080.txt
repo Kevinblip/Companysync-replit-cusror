@@ -1,0 +1,429 @@
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+
+export const handleCreateWorkflow = async (base44, actualCompanyId, user, functionArgs, userPrompt) => {
+  console.log('🤖 Workflow Builder - Creating workflow', { name: functionArgs.name });
+
+  const workflowData = {
+    company_id: actualCompanyId,
+    ai_prompt: userPrompt,
+    workflow_name: functionArgs.name,
+    description: functionArgs.description || 'Created by AI Workflow Builder',
+    trigger_type: functionArgs.trigger_type,
+    trigger_conditions: functionArgs.schedule_cron ? { cron: functionArgs.schedule_cron } : {},
+    is_active: true,
+    actions: (functionArgs.actions || []).map((action, idx) => ({
+      step: idx + 1,
+      action_type: action.action_type,
+      delay_minutes: action.delay_minutes || 0,
+      recipient: action.recipient,
+      email_subject: action.email_subject,
+      email_body: action.email_body,
+      sms_message: action.sms_message,
+      task_title: action.task_title,
+      task_description: action.task_description
+    })),
+    folder: 'AI Generated'
+  };
+
+  const workflow = await base44.asServiceRole.entities.Workflow.create(workflowData);
+
+  return {
+    result: { success: true, workflow_id: workflow.id },
+    actionMessage: `✅ Created workflow: "${workflow.workflow_name}" with ${workflow.actions.length} steps`
+  };
+}
+
+export const handleUpdateWorkflow = async (base44, actualCompanyId, user, functionArgs, userPrompt) => {
+  console.log('🤖 Workflow Builder - Updating workflow', { id: functionArgs.workflow_id });
+
+  // Fetch existing to ensure ownership/existence
+  const existing = await base44.asServiceRole.entities.Workflow.filter({ id: functionArgs.workflow_id, company_id: actualCompanyId });
+  if (!existing || existing.length === 0) {
+    throw new Error('Workflow not found or access denied');
+  }
+
+  const updateData = {};
+  // If we have a new prompt from the user (and it's not just the context message), update it
+  // Note: userPrompt passed here might be the combined context message. We should extract the actual request if possible, 
+  // or rely on the frontend sending the raw user request if we change the API.
+  // For now, let's assume the frontend sends the user's request as part of the message.
+  
+  // Actually, for updates, we might want to APPEND to the prompt or Replace it?
+  // If the user says "Change X", the new "prompt" that describes the workflow is effectively "Original Prompt + Change X".
+  // But strictly speaking, if the user edits the text in the frontend, that full text IS the new prompt.
+  // Let's try to extract the user request part if it's wrapped in context, OR if the frontend sends clean prompt.
+  
+  // In the current implementation of pages/Workflows.js, we send:
+  // "Current Workflow Data: ... User Request ...: [aiPrompt]"
+  // So 'userPrompt' here is the FULL context message. That's not ideal for storage.
+  // We should pass the raw prompt separately if we want to store it clean.
+  // But for now, let's NOT update ai_prompt in handleUpdateWorkflow unless we change how it's called.
+  // Wait, if I don't update it, the next time they edit, they see the old prompt.
+  
+  // Let's modify the Deno.serve part to accept 'prompt' separately if provided, or extract it.
+  // OR, better: Update pages/Workflows.js to send 'prompt' in the body alongside 'message'.
+  
+  if (functionArgs.name) updateData.workflow_name = functionArgs.name;
+  if (functionArgs.description) updateData.description = functionArgs.description;
+  if (functionArgs.trigger_type) updateData.trigger_type = functionArgs.trigger_type;
+  if (functionArgs.schedule_cron !== undefined) updateData.trigger_conditions = { cron: functionArgs.schedule_cron };
+  
+  if (functionArgs.actions) {
+    updateData.actions = functionArgs.actions.map((action, idx) => ({
+      step: idx + 1,
+      action_type: action.action_type,
+      delay_minutes: action.delay_minutes || 0,
+      recipient: action.recipient,
+      email_subject: action.email_subject,
+      email_body: action.email_body,
+      sms_message: action.sms_message,
+      task_title: action.task_title,
+      task_description: action.task_description
+    }));
+  }
+
+  await base44.asServiceRole.entities.Workflow.update(functionArgs.workflow_id, updateData);
+
+  return {
+    result: { success: true, workflow_id: functionArgs.workflow_id },
+    actionMessage: `✅ Updated workflow: "${updateData.workflow_name || existing[0].workflow_name}"`
+  };
+}
+
+Deno.serve(async (req) => {
+  console.log('🚀 Workflow Builder Agent');
+  
+  try {
+    const base44 = createClientFromRequest(req);
+    
+    const user = await base44.auth.me();
+    if (!user) {
+      return Response.json({ error: 'Please log in to use the Workflow Builder' }, { status: 401 });
+    }
+    
+    console.log('✅ Authenticated:', user.email);
+
+    const body = await req.json();
+    const { message, companyId, user_prompt } = body; // user_prompt is the raw input from the user
+
+    // 🏢 Company Detection & Security Verification
+    const ownedCompanies = await base44.asServiceRole.entities.Company.filter({ created_by: user.email });
+    const staffProfiles = await base44.asServiceRole.entities.StaffProfile.filter({ user_email: user.email });
+    
+    // Build set of allowed company IDs
+    const allowedCompanyIds = new Set([
+      ...ownedCompanies.map(c => c.id),
+      ...staffProfiles.map(sp => sp.company_id)
+    ].filter(Boolean));
+
+    let actualCompanyId = null;
+
+    if (companyId) {
+      // SECURITY CHECK: Verify user belongs to the requested company
+      if (allowedCompanyIds.has(companyId)) {
+        actualCompanyId = companyId;
+      } else {
+        console.warn(`🚨 SECURITY ALERT: User ${user.email} attempted to access unauthorized company ${companyId}`);
+        return Response.json({ error: 'Unauthorized: You do not have access to this company.' }, { status: 403 });
+      }
+    } else {
+      // Fallback to first available company
+      actualCompanyId = ownedCompanies[0]?.id || staffProfiles[0]?.company_id;
+    }
+    
+    if (!actualCompanyId) {
+      return Response.json({
+        response: "I couldn't identify your company. Please set up your company profile first.",
+        error: 'No company found'
+      });
+    }
+
+    const companies = await base44.asServiceRole.entities.Company.filter({ id: actualCompanyId });
+    const company = companies[0];
+    
+    const openaiKey = Deno.env.get('Open_AI_Api_Key');
+    if (!openaiKey) {
+      return Response.json({ error: 'OpenAI API key not configured' }, { status: 500 });
+    }
+
+    // 📚 Build focused tool set
+    const tools = [
+      {
+        type: 'function',
+        function: {
+          name: 'create_workflow',
+          description: 'Create a new automation workflow. Use this when user wants to automate something (e.g. "when lead created, send email", "send daily email").',
+          parameters: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'Name of the workflow' },
+              description: { type: 'string' },
+              trigger_type: { 
+                type: 'string', 
+                enum: [
+                  'lead_created', 'lead_status_changed', 
+                  'customer_created', 'customer_updated',
+                  'estimate_created', 'estimate_accepted', 'estimate_declined',
+                  'invoice_created', 'invoice_paid', 'invoice_overdue',
+                  'payment_received',
+                  'project_started', 'project_completed',
+                  'appointment_created', 'appointment_completed',
+                  'task_completed',
+                  'scheduled'
+                ] 
+              },
+              schedule_cron: { type: 'string', description: 'Cron expression if trigger_type is scheduled (e.g. "0 8 * * *" for daily at 8am)' },
+              actions: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    action_type: { type: 'string', enum: ['send_email', 'send_sms', 'create_task', 'wait'] },
+                    delay_minutes: { type: 'number', description: 'Minutes to wait before this step (0 for immediate)' },
+                    recipient: { type: 'string', description: 'Email address, phone number, or "lead", "customer"' },
+                    email_subject: { type: 'string' },
+                    email_body: { type: 'string' },
+                    sms_message: { type: 'string' },
+                    task_title: { type: 'string' },
+                    task_description: { type: 'string' }
+                  },
+                  required: ['action_type']
+                }
+              }
+            },
+            required: ['name', 'trigger_type', 'actions']
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'update_workflow',
+          description: 'Update an existing automation workflow.',
+          parameters: {
+            type: 'object',
+            properties: {
+              workflow_id: { type: 'string', description: 'ID of the workflow to update' },
+              name: { type: 'string', description: 'New name (optional)' },
+              description: { type: 'string' },
+              trigger_type: { 
+                type: 'string', 
+                enum: [
+                  'lead_created', 'lead_status_changed', 
+                  'customer_created', 'customer_updated',
+                  'estimate_created', 'estimate_accepted', 'estimate_declined',
+                  'invoice_created', 'invoice_paid', 'invoice_overdue',
+                  'payment_received',
+                  'project_started', 'project_completed',
+                  'appointment_created', 'appointment_completed',
+                  'task_completed',
+                  'scheduled'
+                ] 
+              },
+              schedule_cron: { type: 'string' },
+              actions: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    action_type: { type: 'string', enum: ['send_email', 'send_sms', 'create_task', 'wait'] },
+                    delay_minutes: { type: 'number' },
+                    recipient: { type: 'string' },
+                    email_subject: { type: 'string' },
+                    email_body: { type: 'string' },
+                    sms_message: { type: 'string' },
+                    task_title: { type: 'string' },
+                    task_description: { type: 'string' }
+                  },
+                  required: ['action_type']
+                }
+              }
+            },
+            required: ['workflow_id']
+          }
+        }
+      }
+    ];
+
+    const systemPrompt = `You are the Workflow Builder Agent for ${company?.company_name || 'the company'}.
+Your SOLE purpose is to help users create automation workflows.
+
+📋 COMPANY CONTEXT:
+- Company Name: ${company?.company_name || 'Unknown'}
+
+🎯 YOUR CAPABILITIES:
+- CREATE and UPDATE AUTOMATION WORKFLOWS based on user requests.
+- Interpret natural language requests like "send an email when a lead is created" into structured workflow data.
+- Modify existing workflows when provided with current workflow data.
+
+🚨 CRITICAL RULES:
+1. If creating a NEW workflow, use create_workflow.
+2. If modifying an EXISTING workflow (user provided ID or context), use update_workflow.
+3. Be precise with the workflow triggers and actions.
+4. For "daily" or "scheduled" tasks, use trigger_type="scheduled" and generate a valid cron expression.
+`;
+    
+    // Minimal history for context
+    const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: message }
+    ];
+
+    console.log('📞 Calling OpenAI...');
+
+    const initialResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${openaiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: messages,
+        tools,
+        tool_choice: 'auto',
+        temperature: 0.7,
+        max_tokens: 2048
+      })
+    });
+
+    const initialData = await initialResponse.json();
+    const choice = initialData.choices[0];
+    const toolCalls = choice.message.tool_calls;
+
+    let finalResponse = choice.message.content;
+    const actionsExecuted = [];
+
+    // 🔍 CHECK LIMITS & TRACK USAGE
+    try {
+      const { checkSubscriptionLimit } = await import('./utils/checkSubscriptionLimit.js');
+      const limitCheck = await checkSubscriptionLimit(base44, actualCompanyId, 'lexi'); // Billing as Lexi/AI usage
+      
+      if (!limitCheck.allowed) {
+        return Response.json({
+          response: `You've reached your monthly limit for AI usage. Please upgrade to continue.`,
+          error: 'Limit reached'
+        });
+      }
+
+      // Track usage
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      const feature = 'lexi'; // Billing category
+      const costPerUnit = 0.01;
+
+      const existingUsage = await base44.asServiceRole.entities.SubscriptionUsage.filter({
+        company_id: actualCompanyId,
+        feature: feature,
+        usage_month: currentMonth
+      });
+
+      if (existingUsage && existingUsage.length > 0) {
+        const record = existingUsage[0];
+        await base44.asServiceRole.entities.SubscriptionUsage.update(record.id, {
+          credits_used: (record.credits_used || 0) + 1,
+          total_cost: (record.total_cost || 0) + costPerUnit,
+          last_used: new Date().toISOString()
+        });
+      } else {
+        await base44.asServiceRole.entities.SubscriptionUsage.create({
+          company_id: actualCompanyId,
+          feature: feature,
+          usage_month: currentMonth,
+          credits_used: 1,
+          credits_limit: 1000,
+          cost_per_unit: costPerUnit,
+          total_cost: costPerUnit,
+          last_used: new Date().toISOString()
+        });
+      }
+    } catch (e) {
+      console.error('Limit/Usage check error:', e);
+    }
+
+    if (toolCalls && toolCalls.length > 0) {
+      console.log('🔧 Executing tools:', toolCalls.length);
+      
+      const toolResponses = [];
+      
+      for (const toolCall of toolCalls) {
+        const fname = toolCall.function.name;
+        const args = JSON.parse(toolCall.function.arguments || '{}');
+        
+        console.log('🔨', fname, JSON.stringify(args));
+
+        try {
+          if (fname === 'create_workflow') {
+            // Use user_prompt if available (clean), otherwise message (which might be the prompt for creation)
+            const promptToSave = user_prompt || message;
+            const result = await handleCreateWorkflow(base44, actualCompanyId, user, args, promptToSave);
+            actionsExecuted.push({ tool_name: 'create_workflow', result: result.actionMessage });
+            toolResponses.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({ success: true, message: result.actionMessage })
+            });
+          } else if (fname === 'update_workflow') {
+            const promptToSave = user_prompt; // Only save if explicit user_prompt is sent (clean update request)
+            const result = await handleUpdateWorkflow(base44, actualCompanyId, user, args, promptToSave);
+            
+            // If we have a clean prompt, update the workflow entity with it
+            if (promptToSave && args.workflow_id) {
+               try {
+                 await base44.asServiceRole.entities.Workflow.update(args.workflow_id, { ai_prompt: promptToSave });
+               } catch (e) { console.error('Failed to update ai_prompt', e); }
+            }
+
+            actionsExecuted.push({ tool_name: 'update_workflow', result: result.actionMessage });
+            toolResponses.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({ success: true, message: result.actionMessage })
+            });
+          }
+        } catch (toolError) {
+          console.error('❌ Tool error:', fname, toolError.message);
+          toolResponses.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ error: toolError.message })
+          });
+        }
+      }
+
+      console.log('📞 Sending tool results to OpenAI...');
+
+      const followUpResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${openaiKey}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            ...messages,
+            { role: 'assistant', content: choice.message.content || '', tool_calls: toolCalls },
+            ...toolResponses
+          ],
+          temperature: 0.7,
+          max_tokens: 2048
+        })
+      });
+
+      const followUpData = await followUpResponse.json();
+      finalResponse = followUpData.choices[0].message.content;
+    }
+
+    return Response.json({
+      response: finalResponse || 'I can help you build automation workflows.',
+      actions_executed: actionsExecuted
+    });
+
+  } catch (error) {
+    console.error('❌ Error:', error.message);
+    return Response.json({ 
+      response: "I encountered an error. Please try again.",
+      error: error.message
+    }, { status: 500 });
+  }
+});

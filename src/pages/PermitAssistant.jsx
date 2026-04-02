@@ -1,0 +1,557 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+import useTranslation from "@/hooks/useTranslation";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { 
+  Upload, 
+  Sparkles, 
+  FileText, 
+  Download, 
+  Loader2,
+  CheckCircle,
+  Edit,
+  Save,
+  Eye
+} from "lucide-react";
+import { toast } from "sonner";
+import SignaturePad from "../components/SignaturePad";
+
+export default function PermitAssistant() {
+  const { t } = useTranslation();
+  const [user, setUser] = useState(null);
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [fileUrl, setFileUrl] = useState(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [extractedFields, setExtractedFields] = useState(null);
+  const [filledData, setFilledData] = useState({});
+  const [selectedCustomer, setSelectedCustomer] = useState("");
+  const [showSignature, setShowSignature] = useState(false);
+  const [signatureData, setSignatureData] = useState(null);
+  const [previewPdfUrl, setPreviewPdfUrl] = useState(null);
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
+  const [isEditingPreview, setIsEditingPreview] = useState(false);
+
+  React.useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { company: myCompany } = useCurrentCompany(user);
+
+  const { data: companySettings = [] } = useQuery({
+    queryKey: ['company-settings', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.CompanySetting.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: customers = [] } = useQuery({
+    queryKey: ['customers', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Customer.filter({ company_id: myCompany.id }, "-created_date", 1000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const mySettings = companySettings[0];
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setUploadedFile(file);
+    setExtractedFields(null);
+    setFilledData({});
+    setShowSignature(false);
+
+    try {
+      toast.info("Uploading form...");
+      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      setFileUrl(file_url);
+      toast.success("Form uploaded! Ready to analyze.");
+    } catch (error) {
+      toast.error("Failed to upload form: " + error.message);
+    }
+  };
+
+  const handleAnalyze = async () => {
+    if (!fileUrl) return;
+
+    setIsAnalyzing(true);
+    try {
+      toast.info("🤖 Analyzing form...");
+
+      const customer = customers.find(c => c.name === selectedCustomer);
+      
+      const contextData = {
+        today_date: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }),
+        company: {
+          name: mySettings?.company_name || myCompany?.company_name,
+          tagline: mySettings?.company_tagline || myCompany?.company_tagline,
+          full_address: mySettings?.company_address || myCompany?.address,
+          street: mySettings?.company_address || myCompany?.address,
+          city: myCompany?.city,
+          state: myCompany?.state,
+          zip: myCompany?.zip,
+          phone: mySettings?.phone_number || myCompany?.phone,
+          email: mySettings?.email_address || myCompany?.email,
+          website: mySettings?.company_website || myCompany?.website,
+        },
+        customer: customer ? {
+          name: customer.name,
+          company: customer.company,
+          email: customer.email,
+          phone: customer.phone,
+          phone_2: customer.phone_2,
+          full_address: [customer.street, customer.city, customer.state, customer.zip].filter(Boolean).join(', '),
+          street: customer.street,
+          city: customer.city,
+          state: customer.state,
+          zip: customer.zip,
+        } : null,
+        user: {
+          name: user?.full_name,
+          email: user?.email,
+        }
+      };
+
+      // Use a backend function to analyze the form (better for handling file access)
+      const result = await base44.functions.invoke('analyzePDFForm', {
+        pdfUrl: fileUrl,
+        contextData: contextData
+      });
+
+      setExtractedFields(result);
+      
+      const initialData = {};
+      result.fields.forEach(field => {
+        initialData[field.name] = field.suggested_value || "";
+      });
+      setFilledData(initialData);
+
+      toast.success(`✅ Found ${result.fields.length} fields!`);
+    } catch (error) {
+      console.error('Analysis error:', error);
+      toast.error("Failed: " + error.message);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+
+
+  const handleGeneratePreview = async () => {
+    if (!extractedFields || !filledData) return;
+
+    setIsGeneratingPreview(true);
+    try {
+      toast.info("📄 Generating preview...");
+
+      const response = await base44.functions.invoke('fillPDFForm', {
+        pdfUrl: fileUrl,
+        fields: filledData,
+        signatureData: null
+      });
+
+      console.log('📥 Response received:', response);
+      console.log('📥 Response type:', typeof response.data);
+      console.log('📥 Response.data constructor:', response.data?.constructor?.name);
+
+      // The backend returns raw PDF bytes
+      if (!response.data) {
+        throw new Error('No data received from PDF generator');
+      }
+
+      // Create blob from the response data
+      const pdfBlob = new Blob([response.data], { type: 'application/pdf' });
+      console.log('📦 Blob created:', pdfBlob.size, 'bytes');
+
+      if (pdfBlob.size === 0) {
+        throw new Error('Generated PDF is empty');
+      }
+
+      // Create download link
+      const url = window.URL.createObjectURL(pdfBlob);
+      console.log('🔗 Blob URL created:', url);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${uploadedFile.name.replace(/\.[^/.]+$/, '')}_preview.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }, 100);
+      
+      setPreviewPdfUrl("generated");
+
+      toast.success("✅ Preview downloaded! Check your downloads folder.");
+    } catch (error) {
+      console.error('Preview generation error:', error);
+      toast.error("Failed to generate preview: " + error.message);
+    } finally {
+      setIsGeneratingPreview(false);
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!extractedFields || !filledData) return;
+
+    try {
+      toast.info("📄 Generating final PDF...");
+
+      const response = await base44.functions.invoke('fillPDFForm', {
+        pdfUrl: fileUrl,
+        fields: filledData,
+        signatureData: signatureData
+      });
+
+      console.log('📥 Final PDF response:', response);
+
+      if (!response.data) {
+        throw new Error('No data received from PDF generator');
+      }
+
+      // Create blob from the response data
+      const pdfBlob = new Blob([response.data], { type: 'application/pdf' });
+      console.log('📦 Final blob created:', pdfBlob.size, 'bytes');
+
+      if (pdfBlob.size === 0) {
+        throw new Error('Generated PDF is empty');
+      }
+
+      const url = window.URL.createObjectURL(pdfBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${extractedFields.form_title.replace(/[^a-z0-9]/gi, '_')}_filled.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }, 100);
+
+      toast.success("✅ Filled PDF downloaded! Check your downloads folder.");
+    } catch (error) {
+      toast.error("Failed to download PDF: " + error.message);
+    }
+  };
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">🤖 {t.sidebar.permitAssistant}</h1>
+          <p className="text-gray-500 mt-1">Upload any form - Lexi fills it automatically</p>
+        </div>
+      </div>
+
+      <Alert className="bg-purple-50 border-purple-200">
+        <Sparkles className="w-4 h-4 text-purple-600" />
+        <AlertDescription>
+          <strong>How it works:</strong> Upload a permit, registration, or any form → Lexi analyzes it with AI vision → Auto-fills from your CRM data → You review & sign → Download completed form
+        </AlertDescription>
+      </Alert>
+
+      {/* Step 1: Upload Form */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Upload className="w-5 h-5" />
+            Step 1: {t.common.upload} Form
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label htmlFor="form-upload">{t.common.select} Form (PDF, PNG, JPG)</Label>
+            <Input
+              id="form-upload"
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg"
+              onChange={handleFileUpload}
+              className="mt-2"
+            />
+          </div>
+
+          {uploadedFile && (
+            <Alert className="bg-green-50 border-green-200">
+              <CheckCircle className="w-4 h-4 text-green-600" />
+              <AlertDescription>
+                <strong>Uploaded:</strong> {uploadedFile.name}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <div>
+            <Label htmlFor="customer-select">Link to {t.estimates.customer} ({t.common.optional})</Label>
+            <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
+              <SelectTrigger className="w-full mt-2">
+                <SelectValue placeholder={`-- ${t.common.select} ${t.estimates.customer} --`} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={null}>-- No {t.estimates.customer} --</SelectItem>
+                {customers.length === 0 ? (
+                  <SelectItem value={null} disabled>{t.customers.noCustomers}</SelectItem>
+                ) : (
+                  customers.map(c => (
+                    <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-500 mt-1">
+              {customers.length > 0 
+                ? `${customers.length} ${t.sidebar.customers.toLowerCase()} available - Lexi will auto-fill their info` 
+                : "No customers yet - add customers first or skip this step"}
+            </p>
+          </div>
+
+          <Button
+            onClick={handleAnalyze}
+            disabled={!fileUrl || isAnalyzing}
+            className="w-full bg-purple-600 hover:bg-purple-700"
+          >
+            {isAnalyzing ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                {t.ai.thinking}
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4 mr-2" />
+                Analyze Form with Lexi
+              </>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Form Preview - Always visible after upload */}
+      {fileUrl && (
+        <Card className="h-[600px]">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Eye className="w-5 h-5" />
+              Form {t.estimates.previewPDF.split(' ')[0]}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="h-[calc(100%-80px)]">
+            <iframe
+              src={fileUrl.toLowerCase().endsWith('.pdf') 
+                ? `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`
+                : fileUrl
+              }
+              className="w-full h-full border rounded"
+              title="Form Preview"
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step 2: Review & Edit Fields */}
+      {extractedFields && !previewPdfUrl && (
+        <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Edit className="w-5 h-5" />
+                Step 2: {t.common.edit} Fields
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert className="bg-blue-50 border-blue-200">
+                <FileText className="w-4 h-4 text-blue-600" />
+                <AlertDescription>
+                  <strong>Form Detected:</strong> {extractedFields.form_title} ({extractedFields.fields.length} fields auto-filled)
+                </AlertDescription>
+              </Alert>
+
+              <div className="space-y-3 max-h-[520px] overflow-y-auto">
+                {extractedFields.fields.map((field, idx) => (
+                  <div key={idx} className="border rounded-lg p-3 bg-gray-50">
+                    <Label className="text-sm font-semibold">{field.name}</Label>
+                    <p className="text-xs text-gray-500 mb-2">{field.type}</p>
+                    
+                    {field.type === 'checkbox' ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={filledData[field.name] === 'true' || filledData[field.name] === true}
+                          onChange={(e) => setFilledData({ ...filledData, [field.name]: e.target.checked })}
+                          className="w-4 h-4"
+                        />
+                        <span className="text-sm">Checked</span>
+                      </div>
+                    ) : field.type === 'signature' ? (
+                      <p className="text-sm text-gray-500 italic">Signature will be added in final step</p>
+                    ) : (
+                      <Textarea
+                        value={filledData[field.name] || ""}
+                        onChange={(e) => setFilledData({ ...filledData, [field.name]: e.target.value })}
+                        className="mt-2"
+                        rows={2}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <Button
+                onClick={handleGeneratePreview}
+                disabled={isGeneratingPreview}
+                className="w-full bg-green-600 hover:bg-green-700"
+              >
+                {isGeneratingPreview ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    {t.ai.generating}
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-4 h-4 mr-2" />
+                    {t.estimates.previewPDF}
+                  </>
+                )}
+              </Button>
+            </CardContent>
+            </Card>
+            )}
+
+      {/* Step 3: Preview Filled Form */}
+      {previewPdfUrl && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-green-600" />
+              Step 3: {t.estimates.previewPDF.split(' ')[0]} {t.common.completed}!
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Alert className="bg-green-50 border-green-200">
+              <CheckCircle className="w-4 h-4 text-green-600" />
+              <AlertDescription>
+                ✅ Preview generated successfully! Download it to review the filled form. If everything looks good, proceed to add your signature.
+              </AlertDescription>
+            </Alert>
+
+            <div className="bg-gray-50 p-6 rounded-lg border-2 border-dashed border-gray-300 text-center space-y-4">
+              <div className="flex justify-center">
+                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center">
+                  <CheckCircle className="w-10 h-10 text-green-600" />
+                </div>
+              </div>
+              <div>
+                <p className="text-lg font-semibold text-gray-900">Preview Downloaded!</p>
+                <p className="text-sm text-gray-500 mt-1">Check your downloads folder to review the filled form</p>
+                <p className="text-xs text-gray-400 mt-2">If everything looks correct, proceed to add your signature below</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4 border-t">
+              <Button
+                onClick={() => {
+                  setPreviewPdfUrl(null);
+                }}
+                variant="outline"
+                className="flex-1"
+              >
+                <Edit className="w-4 h-4 mr-2" />
+                {t.common.back} & {t.common.edit} Fields
+              </Button>
+              <Button
+                onClick={() => {
+                  document.getElementById('signature-section')?.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="flex-1 bg-green-600 hover:bg-green-700"
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Looks Good - {t.inspections.addSignature}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step 4: Sign & Download */}
+      {previewPdfUrl && (
+        <Card id="signature-section">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Download className="w-5 h-5" />
+              Step 4: Sign & {t.common.download}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!showSignature ? (
+              <Button
+                onClick={() => setShowSignature(true)}
+                variant="outline"
+                className="w-full"
+              >
+                <Edit className="w-4 h-4 mr-2" />
+                {t.inspections.addSignature}
+              </Button>
+            ) : (
+              <div className="border rounded-lg p-4 bg-gray-50">
+                <Label className="mb-2 block">Sign Here:</Label>
+                <SignaturePad
+                  onSave={(data) => {
+                    setSignatureData(data);
+                    setShowSignature(false);
+                    toast.success("Signature saved!");
+                  }}
+                  onSignatureChange={() => {}}
+                  onCancel={() => setShowSignature(false)}
+                />
+              </div>
+            )}
+
+            {signatureData && (
+              <Alert className="bg-green-50 border-green-200">
+                <CheckCircle className="w-4 h-4 text-green-600" />
+                <AlertDescription>
+                  ✅ {t.contracts.signed}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <Button
+              onClick={handleDownloadPDF}
+              disabled={!signatureData}
+              className="w-full bg-blue-600 hover:bg-blue-700"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              {t.estimates.downloadPDF}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Help Section */}
+      <Card className="bg-gray-50">
+        <CardHeader>
+          <CardTitle className="text-lg">💡 Tips</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-2 text-sm text-gray-700">
+            <li>✅ {t.inspections.disclaimer(mySettings?.company_name || myCompany?.company_name || 'the company').split('.')[0]}</li>
+            <li>✅ Lexi adapts to different form layouts automatically</li>
+            <li>✅ Link a {t.estimates.customer} to auto-fill their {t.common.address}, {t.common.phone}, {t.common.email}</li>
+            <li>✅ Review all fields before downloading - Lexi makes suggestions but you have final say</li>
+            <li>✅ Your signature can be reused for future forms</li>
+          </ul>
+        </CardContent>
+      </Card>
+      </div>
+    </div>
+  );
+}

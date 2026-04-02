@@ -1,0 +1,555 @@
+import React, { useState, useEffect, useMemo } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery } from "@tanstack/react-query";
+import { useRoleBasedData } from "@/components/hooks/useRoleBasedData";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  Area,
+  AreaChart
+} from 'recharts';
+import {
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  Users,
+  Target,
+  Zap,
+  Award,
+  AlertCircle,
+  Calendar
+} from "lucide-react";
+import { format, subDays, subMonths, startOfMonth, endOfMonth, eachMonthOfInterval } from "date-fns";
+
+export default function Analytics() {
+  const [dateRange, setDateRange] = useState("30days");
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecast, setForecast] = useState(null);
+
+  const { myCompany, filterCustomers, filterLeads, filterInvoices, filterEstimates, filterPayments } = useRoleBasedData();
+
+  const { data: allInvoices = [] } = useQuery({
+    queryKey: ['invoices', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Invoice.filter({ company_id: myCompany.id }, "-created_date", 10000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: allLeads = [] } = useQuery({
+    queryKey: ['leads', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Lead.filter({ company_id: myCompany.id }, "-created_date", 10000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: allCustomers = [] } = useQuery({
+    queryKey: ['customers', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Customer.filter({ company_id: myCompany.id }, "-created_date", 10000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: allEstimates = [] } = useQuery({
+    queryKey: ['estimates', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Estimate.filter({ company_id: myCompany.id }, "-created_date", 10000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: allPayments = [] } = useQuery({
+    queryKey: ['payments', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Payment.filter({ company_id: myCompany.id }, "-payment_date", 10000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const customers = useMemo(() => filterCustomers(allCustomers), [allCustomers, filterCustomers]);
+  const leads = useMemo(() => filterLeads(allLeads), [allLeads, filterLeads]);
+  const invoices = useMemo(() => filterInvoices(allInvoices, customers), [allInvoices, customers, filterInvoices]);
+  const estimates = useMemo(() => filterEstimates(allEstimates, customers), [allEstimates, customers, filterEstimates]);
+  const payments = useMemo(() => filterPayments(allPayments, customers), [allPayments, customers, filterPayments]);
+
+  const { data: users = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => base44.entities.User.list(),
+    initialData: [],
+  });
+
+  const { data: goals = [] } = useQuery({
+    queryKey: ['revenue-goals', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.RevenueGoal.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  // Date filtering helper
+  const getDateFilter = () => {
+    const now = new Date();
+    switch(dateRange) {
+      case '7days': return subDays(now, 7);
+      case '30days': return subDays(now, 30);
+      case '90days': return subDays(now, 90);
+      case 'year': return subDays(now, 365);
+      case 'thisyear': return new Date(now.getFullYear(), 0, 1); // Jan 1 of current year
+      default: return subDays(now, 30);
+    }
+  };
+
+  const filterDate = getDateFilter();
+
+  // Revenue data
+  const getRevenueData = () => {
+    const months = eachMonthOfInterval({
+      start: subMonths(new Date(), 11),
+      end: new Date()
+    });
+
+    return months.map(month => {
+      const monthPayments = payments.filter(p => {
+        if (!p.payment_date) return false;
+        const paymentDate = new Date(p.payment_date);
+        return paymentDate.getMonth() === month.getMonth() && 
+               paymentDate.getFullYear() === month.getFullYear() &&
+               p.status === 'received';
+      });
+
+      return {
+        month: format(month, 'MMM yyyy'),
+        revenue: monthPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0),
+        goal: 50000 // TODO: Get from goals entity
+      };
+    });
+  };
+
+  // Conversion funnel
+  const getFunnelData = () => {
+    const totalLeads = leads.length;
+    const qualifiedLeads = leads.filter(l => l.status === 'qualified' || l.status === 'proposal' || l.status === 'negotiation' || l.status === 'won').length;
+    const proposalsSent = estimates.length;
+    const proposalsAccepted = estimates.filter(e => e.status === 'accepted').length;
+    const customersConverted = leads.filter(l => l.status === 'won').length;
+    const totalRevenue = payments.filter(p => p.status === 'received').reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    return [
+      { stage: 'Leads', count: totalLeads, percentage: 100, color: '#3b82f6' },
+      { stage: 'Qualified', count: qualifiedLeads, percentage: totalLeads > 0 ? (qualifiedLeads / totalLeads * 100).toFixed(1) : 0, color: '#8b5cf6' },
+      { stage: 'Proposals', count: proposalsSent, percentage: totalLeads > 0 ? (proposalsSent / totalLeads * 100).toFixed(1) : 0, color: '#ec4899' },
+      { stage: 'Accepted', count: proposalsAccepted, percentage: totalLeads > 0 ? (proposalsAccepted / totalLeads * 100).toFixed(1) : 0, color: '#f59e0b' },
+      { stage: 'Customers', count: customersConverted, percentage: totalLeads > 0 ? (customersConverted / totalLeads * 100).toFixed(1) : 0, color: '#10b981' },
+      { stage: 'Revenue', count: `$${(totalRevenue / 1000).toFixed(0)}K`, percentage: 100, color: '#059669' }
+    ];
+  };
+
+  // Team performance - Sales team with commission rates or revenue
+  const getTeamPerformance = () => {
+    // Exclude non-sales employees
+    const employeeEmails = [
+      'victoriafeliciapatindol@gmail.com',
+      'raffy.vpa28@gmail.com'
+    ];
+
+    // Exclude placeholder accounts ONLY
+    const placeholderEmails = [
+      'guidatorivirtuali@gmail.com',
+      'kevinstone@yicnteam.com',
+      'luisas@base44.com',
+      'rubaitradbusiness3333@gmail.com',
+      'yourinsuranceclaimsnetwork@gmail.com'
+    ];
+
+    return users
+      .filter(u => {
+        const email = u.email?.toLowerCase() || '';
+        
+        // Exclude employees and placeholders
+        if (employeeEmails.includes(email) || placeholderEmails.includes(email)) {
+          return false;
+        }
+        
+        // Include anyone with paid invoices (Kevin, Scott, Chris, etc.)
+        const userInvoices = invoices.filter(inv => inv.created_by === email && inv.status === 'paid');
+        const hasRevenue = userInvoices.length > 0;
+        
+        return hasRevenue;
+      })
+      .map(u => {
+        const userInvoices = invoices.filter(inv => inv.created_by === u.email && inv.status === 'paid');
+        const revenue = userInvoices.reduce((sum, inv) => sum + Number(inv.amount || 0), 0);
+        const dealsCount = userInvoices.length;
+
+        return {
+          name: u.full_name,
+          email: u.email,
+          revenue,
+          deals: dealsCount,
+          avgDealSize: dealsCount > 0 ? revenue / dealsCount : 0
+        };
+      })
+      .sort((a, b) => b.revenue - a.revenue);
+  };
+
+  // AI Forecasting
+  const generateForecast = async () => {
+    setForecastLoading(true);
+    try {
+      const revenueData = getRevenueData();
+      
+      const response = await base44.integrations.Core.InvokeLLM({
+        prompt: `You are a financial analyst. Based on this revenue data, predict the next 3 months of revenue.
+
+Historical Data (last 12 months):
+${revenueData.map(d => `${d.month}: $${d.revenue.toFixed(2)}`).join('\n')}
+
+Provide:
+1. Next 3 months predicted revenue
+2. Confidence level (%)
+3. Key trends identified
+4. Recommendations
+
+Current stats:
+- Total Leads: ${leads.length}
+- Conversion Rate: ${((leads.filter(l => l.status === 'won').length / leads.length) * 100).toFixed(1)}%
+- Average Deal Size: $${(payments.reduce((sum, p) => sum + Number(p.amount || 0), 0) / payments.length).toFixed(2)}`,
+        response_json_schema: {
+          type: "object",
+          properties: {
+            predictions: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  month: { type: "string" },
+                  predicted_revenue: { type: "number" },
+                  confidence: { type: "number" }
+                }
+              }
+            },
+            trends: { type: "array", items: { type: "string" } },
+            recommendations: { type: "array", items: { type: "string" } }
+          }
+        }
+      });
+
+      setForecast(response);
+    } catch (error) {
+      console.error('Forecast error:', error);
+      alert('Failed to generate forecast: ' + error.message);
+    }
+    setForecastLoading(false);
+  };
+
+  const revenueData = getRevenueData();
+  const funnelData = getFunnelData();
+  const teamPerformance = getTeamPerformance();
+
+  // KPIs
+  const totalRevenue = payments.filter(p => p.status === 'received').reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  
+  // This Year Revenue
+  const thisYearRevenue = payments.filter(p => {
+    if (!p.payment_date) return false;
+    const paymentDate = new Date(p.payment_date);
+    return paymentDate.getFullYear() === new Date().getFullYear() && p.status === 'received';
+  }).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+  const lastMonthRevenue = payments.filter(p => {
+    if (!p.payment_date) return false;
+    const paymentDate = new Date(p.payment_date);
+    const lastMonth = subMonths(new Date(), 1);
+    return paymentDate.getMonth() === lastMonth.getMonth() && 
+           paymentDate.getFullYear() === lastMonth.getFullYear() &&
+           p.status === 'received';
+  }).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+  const twoMonthsAgoRevenue = payments.filter(p => {
+    if (!p.payment_date) return false;
+    const paymentDate = new Date(p.payment_date);
+    const twoMonthsAgo = subMonths(new Date(), 2);
+    return paymentDate.getMonth() === twoMonthsAgo.getMonth() && 
+           paymentDate.getFullYear() === twoMonthsAgo.getFullYear() &&
+           p.status === 'received';
+  }).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+  const revenueGrowth = twoMonthsAgoRevenue > 0 ? ((lastMonthRevenue - twoMonthsAgoRevenue) / twoMonthsAgoRevenue * 100).toFixed(1) : 0;
+
+  const conversionRate = leads.length > 0 ? ((leads.filter(l => l.status === 'won').length / leads.length) * 100).toFixed(1) : 0;
+  const avgDealSize = payments.length > 0 ? totalRevenue / payments.length : 0;
+
+  const currentMonthGoal = goals.find(g => 
+    g.goal_type === 'monthly' && 
+    g.year === new Date().getFullYear() && 
+    g.month === new Date().getMonth() + 1
+  );
+
+  const goalProgress = currentMonthGoal ? (lastMonthRevenue / currentMonthGoal.target_amount * 100).toFixed(1) : 0;
+
+  return (
+    <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Advanced Analytics</h1>
+          <p className="text-gray-500 mt-1">AI-powered insights and forecasting</p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Select value={dateRange} onValueChange={setDateRange}>
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7days">Last 7 Days</SelectItem>
+              <SelectItem value="30days">Last 30 Days</SelectItem>
+              <SelectItem value="90days">Last 90 Days</SelectItem>
+              <SelectItem value="thisyear">This Year</SelectItem>
+              <SelectItem value="year">Last Year</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Button 
+            onClick={generateForecast}
+            disabled={forecastLoading}
+            className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+          >
+            {forecastLoading ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                Forecasting...
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4 mr-2" />
+                AI Forecast
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-2">
+              <DollarSign className="w-8 h-8 opacity-80" />
+              <Badge className="bg-white/20 text-white border-0">
+                {revenueGrowth > 0 ? <TrendingUp className="w-3 h-3 mr-1" /> : <TrendingDown className="w-3 h-3 mr-1" />}
+                {Math.abs(revenueGrowth)}%
+              </Badge>
+            </div>
+            <h3 className="text-2xl font-bold">${lastMonthRevenue.toLocaleString()}</h3>
+            <p className="text-sm opacity-80">Last Month Revenue</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-2">
+              <Target className="w-8 h-8 opacity-80" />
+              {currentMonthGoal && (
+                <Badge className="bg-white/20 text-white border-0">
+                  {goalProgress}% of goal
+                </Badge>
+              )}
+            </div>
+            <h3 className="text-2xl font-bold">${avgDealSize.toLocaleString()}</h3>
+            <p className="text-sm opacity-80">Avg Deal Size</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-2">
+              <Users className="w-8 h-8 opacity-80" />
+              <Badge className="bg-white/20 text-white border-0">
+                {conversionRate}%
+              </Badge>
+            </div>
+            <h3 className="text-2xl font-bold">{leads.filter(l => l.status === 'won').length}</h3>
+            <p className="text-sm opacity-80">Converted Leads</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-2">
+              <Calendar className="w-8 h-8 opacity-80" />
+              <Badge className="bg-white/20 text-white border-0">
+                YTD
+              </Badge>
+            </div>
+            <h3 className="text-2xl font-bold">${thisYearRevenue.toLocaleString()}</h3>
+            <p className="text-sm opacity-80">This Year Revenue</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* AI Forecast Results */}
+      {forecast && (
+        <Card className="bg-gradient-to-br from-purple-50 to-blue-50 border-2 border-purple-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Zap className="w-5 h-5 text-purple-600" />
+              AI Revenue Forecast
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              {forecast.predictions?.map((pred, idx) => (
+                <div key={idx} className="bg-white p-4 rounded-lg shadow-sm">
+                  <p className="text-sm text-gray-600 mb-1">{pred.month}</p>
+                  <p className="text-2xl font-bold text-purple-600">
+                    ${pred.predicted_revenue.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {pred.confidence}% confidence
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-white p-4 rounded-lg">
+                <h4 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-green-600" />
+                  Key Trends
+                </h4>
+                <ul className="space-y-1">
+                  {forecast.trends?.map((trend, idx) => (
+                    <li key={idx} className="text-sm text-gray-600">• {trend}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="bg-white p-4 rounded-lg">
+                <h4 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-blue-600" />
+                  Recommendations
+                </h4>
+                <ul className="space-y-1">
+                  {forecast.recommendations?.map((rec, idx) => (
+                    <li key={idx} className="text-sm text-gray-600">• {rec}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Revenue Chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Revenue Trend (Last 12 Months)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={300}>
+            <AreaChart data={revenueData}>
+              <defs>
+                <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis />
+              <Tooltip formatter={(value) => `$${value.toLocaleString()}`} />
+              <Legend />
+              <Area type="monotone" dataKey="revenue" stroke="#10b981" fill="url(#colorRevenue)" name="Actual Revenue" />
+              <Line type="monotone" dataKey="goal" stroke="#f59e0b" strokeDasharray="5 5" name="Goal" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      {/* Conversion Funnel */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Sales Conversion Funnel</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {funnelData.map((stage, idx) => (
+              <div key={idx} className="relative">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-medium text-gray-700">{stage.stage}</span>
+                  <span className="text-sm text-gray-600">
+                    {stage.count} ({stage.percentage}%)
+                  </span>
+                </div>
+                <div className="h-12 rounded-lg overflow-hidden" style={{ backgroundColor: `${stage.color}20` }}>
+                  <div 
+                    className="h-full flex items-center justify-center text-white font-semibold transition-all duration-500"
+                    style={{ 
+                      width: `${stage.percentage}%`,
+                      backgroundColor: stage.color
+                    }}
+                  >
+                    {stage.percentage}%
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Team Performance */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Award className="w-5 h-5 text-yellow-500" />
+            Team Performance Leaderboard
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {teamPerformance.map((member, idx) => (
+              <div key={idx} className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 text-white font-bold text-lg">
+                  {idx + 1}
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-gray-900">{member.name}</p>
+                  <p className="text-sm text-gray-500">{member.email}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xl font-bold text-green-600">
+                    ${member.revenue.toLocaleString()}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    {member.deals} deals • ${member.avgDealSize.toLocaleString()} avg
+                  </p>
+                </div>
+                {idx === 0 && (
+                  <Award className="w-8 h-8 text-yellow-500" />
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

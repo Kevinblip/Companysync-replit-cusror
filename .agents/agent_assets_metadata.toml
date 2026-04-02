@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "kb4X3CGsbU37IE3OgMje-"
+uri = "file://public/CRM-Audit-Report.pdf"
+type = "pdf"
+title = "CompanySync Platform Audit Report — Corrected March 2026"

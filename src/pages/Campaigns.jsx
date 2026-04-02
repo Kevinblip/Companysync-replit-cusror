@@ -1,0 +1,857 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { toast } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
+import useTranslation from "@/hooks/useTranslation";
+import {
+  Mail,
+  MessageSquare,
+  Users,
+  Send,
+  Plus,
+  Filter,
+  TrendingUp,
+  Calendar,
+  Play,
+  Pause,
+  Target,
+  FileText,
+  Sparkles,
+  ArrowRight,
+  Eye,
+  MousePointer,
+  CheckCircle2,
+} from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { format } from "date-fns";
+import { useRoleBasedData } from "@/components/hooks/useRoleBasedData";
+
+export default function CampaignsPage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [selectedCampaign, setSelectedCampaign] = useState(null);
+  const [audiencePreview, setAudiencePreview] = useState([]);
+  const [formData, setFormData] = useState({
+    campaign_name: "",
+    campaign_type: "email",
+    target_audience: "leads",
+    audience_filters: {
+      source: [],
+      status: [],
+      tags: [],
+      city: "",
+      state: "",
+      zip: ""
+    },
+    email_template_id: "",
+    sms_template_id: "",
+    scheduled_date: "",
+    follow_up_enabled: false,
+    follow_up_workflow_id: "",
+    follow_up_days: 3,
+    notes: ""
+  });
+
+  const { myCompany, filterCustomers, filterLeads, isAdmin, hasPermission, isPermissionsReady, effectiveUserEmail } = useRoleBasedData();
+
+  const { data: rawCampaigns = [] } = useQuery({
+    queryKey: ['campaigns', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Campaign.filter({ company_id: myCompany.id }, "-created_date") : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  // 🔐 Filter campaigns by role permissions
+  // view_global → see all; view_own → only own (created_by); no view → none
+  const campaigns = React.useMemo(() => {
+    if (!isPermissionsReady) return [];
+    if (isAdmin || hasPermission('campaigns', 'view_global')) return rawCampaigns;
+    if (hasPermission('campaigns', 'view')) {
+      return rawCampaigns.filter(c => c.created_by === effectiveUserEmail);
+    }
+    return [];
+  }, [rawCampaigns, isAdmin, hasPermission, isPermissionsReady, effectiveUserEmail]);
+
+  const { data: allLeads = [], isLoading: leadsLoading } = useQuery({
+    queryKey: ['leads-campaigns', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Lead.filter({ company_id: myCompany.id }, "-created_date", 5000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: allCustomers = [], isLoading: customersLoading } = useQuery({
+    queryKey: ['customers-campaigns', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Customer.filter({ company_id: myCompany.id }, "-created_date", 5000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const customers = React.useMemo(() => filterCustomers(allCustomers), [allCustomers, filterCustomers]);
+  const leads = React.useMemo(() => filterLeads(allLeads), [allLeads, filterLeads]);
+
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['email-templates-campaigns', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.EmailTemplate.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: smsTemplates = [] } = useQuery({
+    queryKey: ['sms-templates-campaigns', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.SMSTemplate.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: workflows = [] } = useQuery({
+    queryKey: ['workflows-campaigns', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Workflow.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const createCampaignMutation = useMutation({
+    mutationFn: (data) => base44.entities.Campaign.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+      setShowCreateDialog(false);
+      resetForm();
+      toast.success('✅ Campaign created successfully!');
+    },
+    onError: (error) => {
+      toast.error('Failed to create campaign: ' + error.message);
+    }
+  });
+
+  const sendCampaignMutation = useMutation({
+    mutationFn: (campaignId) => base44.functions.invoke('sendCampaign', { campaignId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+      toast.success('🚀 Campaign sent successfully!');
+    },
+    onError: (error) => {
+      toast.error('Failed to send campaign: ' + error.message);
+    }
+  });
+
+  const resetForm = () => {
+    setFormData({
+      campaign_name: "",
+      campaign_type: "email",
+      target_audience: "leads",
+      audience_filters: {
+        source: [],
+        status: [],
+        tags: [],
+        city: "",
+        state: "",
+        zip: ""
+      },
+      email_template_id: "",
+      sms_template_id: "",
+      scheduled_date: "",
+      follow_up_enabled: false,
+      follow_up_workflow_id: "",
+      follow_up_days: 3,
+      notes: ""
+    });
+    setAudiencePreview([]);
+  };
+
+  const calculateAudiencePreview = () => {
+    let audience = [];
+    
+    if (formData.target_audience === 'leads' || formData.target_audience === 'both') {
+      audience = [...audience, ...leads];
+    }
+    
+    if (formData.target_audience === 'customers' || formData.target_audience === 'both') {
+      audience = [...audience, ...customers];
+    }
+
+    // Apply filters
+    const filters = formData.audience_filters;
+    
+    if (filters.source && filters.source.length > 0) {
+      audience = audience.filter(a => filters.source.includes(a.source));
+    }
+    
+    if (filters.status && filters.status.length > 0) {
+      audience = audience.filter(a => filters.status.includes(a.status));
+    }
+    
+    if (filters.city) {
+      audience = audience.filter(a => a.city?.toLowerCase().includes(filters.city.toLowerCase()));
+    }
+    
+    if (filters.state) {
+      audience = audience.filter(a => a.state?.toLowerCase() === filters.state.toLowerCase());
+    }
+    
+    if (filters.zip) {
+      audience = audience.filter(a => a.zip?.includes(filters.zip));
+    }
+
+    setAudiencePreview(audience);
+  };
+
+  useEffect(() => {
+    if (showCreateDialog && !leadsLoading && !customersLoading) {
+      calculateAudiencePreview();
+    }
+  }, [formData.target_audience, formData.audience_filters, showCreateDialog, leads, customers, leadsLoading, customersLoading]);
+
+  const handleCreateCampaign = async () => {
+    if (!formData.campaign_name) {
+      toast.error('Please enter a campaign name');
+      return;
+    }
+
+    if (formData.campaign_type === 'email' && !formData.email_template_id) {
+      toast.error('Please select an email template');
+      return;
+    }
+
+    if (formData.campaign_type === 'sms' && !formData.sms_template_id) {
+      toast.error('Please select an SMS template');
+      return;
+    }
+
+    const campaignData = {
+      ...formData,
+      company_id: myCompany?.id,
+      total_recipients: audiencePreview.length,
+      created_by: user?.email
+    };
+
+    createCampaignMutation.mutate(campaignData);
+  };
+
+  const handleSendCampaign = (campaignId) => {
+    if (confirm('Are you sure you want to send this campaign now?')) {
+      sendCampaignMutation.mutate(campaignId);
+    }
+  };
+
+  const getStatusColor = (status) => {
+    const colors = {
+      draft: 'bg-gray-100 text-gray-700 border-gray-200',
+      scheduled: 'bg-blue-100 text-blue-700 border-blue-200',
+      sending: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+      completed: 'bg-green-100 text-green-700 border-green-200',
+      paused: 'bg-orange-100 text-orange-700 border-orange-200',
+    };
+    return colors[status] || 'bg-gray-100 text-gray-700';
+  };
+
+  const stats = {
+    total: campaigns.length,
+    active: campaigns.filter(c => c.status === 'sending').length,
+    completed: campaigns.filter(c => c.status === 'completed').length,
+    totalSent: campaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0),
+  };
+
+  const sourceOptions = ['website', 'referral', 'storm_tracker', 'property_importer', 'social_media', 'advertisement', 'cold_call', 'walk_in'];
+  const statusOptions = ['new', 'contacted', 'qualified', 'proposal', 'negotiation', 'won', 'lost'];
+
+  return (
+    <div className="p-6 space-y-6">
+      <Toaster richColors position="top-right" />
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+            <Target className="w-8 h-8 text-blue-600" />
+            {t.sidebar.campaignManager}
+          </h1>
+          <p className="text-gray-500 mt-1">Create targeted campaigns and automate follow-ups</p>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => navigate(createPageUrl('MarcusMarketing'))}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <Sparkles className="w-4 h-4" />
+            Create Templates with Marcus
+          </Button>
+          <Button
+            onClick={() => setShowCreateDialog(true)}
+            className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            {t.common.add} {t.sidebar.campaignManager.split(' ')[0]}
+          </Button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">{t.common.total} {t.sidebar.campaignManager}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
+              </div>
+              <Target className="w-8 h-8 text-blue-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">{t.common.active}</p>
+                <p className="text-2xl font-bold text-yellow-600">{stats.active}</p>
+              </div>
+              <Play className="w-8 h-8 text-yellow-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">{t.common.completed}</p>
+                <p className="text-2xl font-bold text-green-600">{stats.completed}</p>
+              </div>
+              <CheckCircle2 className="w-8 h-8 text-green-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">{t.common.total} {t.common.sent}</p>
+                <p className="text-2xl font-bold text-purple-600">{stats.totalSent}</p>
+              </div>
+              <Send className="w-8 h-8 text-purple-500" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Campaigns List */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t.sidebar.campaignManager}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {campaigns.length === 0 ? (
+            <div className="text-center py-12">
+              <Target className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">{t.common.noResults}</h3>
+              <p className="text-gray-500 mb-4">Create your first campaign to reach leads and customers</p>
+              <Button onClick={() => setShowCreateDialog(true)} className="bg-blue-600 hover:bg-blue-700">
+                <Plus className="w-4 h-4 mr-2" />
+                {t.common.create} {t.sidebar.campaignManager.split(' ')[0]}
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {campaigns.map(campaign => (
+                <Card key={campaign.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="text-lg font-semibold">{campaign.campaign_name}</h3>
+                          <Badge variant="outline" className={getStatusColor(campaign.status)}>
+                            {campaign.status}
+                          </Badge>
+                          {campaign.campaign_type === 'email' && <Mail className="w-4 h-4 text-blue-500" />}
+                          {campaign.campaign_type === 'sms' && <MessageSquare className="w-4 h-4 text-green-500" />}
+                        </div>
+                        
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4">
+                          <div>
+                            <p className="text-xs text-gray-500">{t.common.recipients}</p>
+                            <p className="text-sm font-semibold">{campaign.total_recipients || 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500">{t.common.sent}</p>
+                            <p className="text-sm font-semibold text-blue-600">{campaign.sent_count || 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500">{t.common.delivered}</p>
+                            <p className="text-sm font-semibold text-green-600">{campaign.delivered_count || 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500">{t.common.opened}</p>
+                            <p className="text-sm font-semibold text-purple-600">{campaign.opened_count || 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500">{t.common.replied}</p>
+                            <p className="text-sm font-semibold text-orange-600">{campaign.replied_count || 0}</p>
+                          </div>
+                        </div>
+
+                        {campaign.notes && (
+                          <p className="text-sm text-gray-600 mt-3">{campaign.notes}</p>
+                        )}
+                      </div>
+
+                      <div className="flex gap-2">
+                        {campaign.status === 'draft' && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleSendCampaign(campaign.id)}
+                            disabled={sendCampaignMutation.isPending}
+                            className="bg-green-600 hover:bg-green-700"
+                          >
+                            <Send className="w-4 h-4 mr-1" />
+                            {t.communication.send} {t.common.now}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Create Campaign Dialog */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t.common.create} {t.common.new} {t.sidebar.campaignManager.split(' ')[0]}</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* Basic Info */}
+            <div className="space-y-4">
+              <div>
+                <Label>{t.common.name} *</Label>
+                <Input
+                  placeholder="e.g., Storm Damage Follow-up Q1 2024"
+                  value={formData.campaign_name}
+                  onChange={(e) => setFormData({...formData, campaign_name: e.target.value})}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>{t.calendar.type} *</Label>
+                  <Select value={formData.campaign_type} onValueChange={(v) => setFormData({...formData, campaign_type: v})}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="email">{t.common.email}</SelectItem>
+                      <SelectItem value="sms">SMS</SelectItem>
+                      <SelectItem value="postcard">Postcard (Coming Soon)</SelectItem>
+                      <SelectItem value="mixed">Mixed (Coming Soon)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Target Audience *</Label>
+                  <Select value={formData.target_audience} onValueChange={(v) => setFormData({...formData, target_audience: v})}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="leads">{t.leads.title} Only</SelectItem>
+                      <SelectItem value="customers">{t.customers.title} Only</SelectItem>
+                      <SelectItem value="both">Both {t.leads.title} & {t.customers.title}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            {/* Audience Filters */}
+            <Card className="bg-gray-50">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Filter className="w-4 h-4" />
+                  {t.common.filters}
+                  <Badge variant="outline" className="ml-auto bg-blue-100 text-blue-700">
+                    {leadsLoading || customersLoading ? t.common.loading : `${audiencePreview.length} recipients`}
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Quick Filter Buttons */}
+                <div className="flex flex-wrap gap-2 pb-4 border-b">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setFormData({
+                        ...formData,
+                        audience_filters: {
+                          ...formData.audience_filters,
+                          source: ['storm_tracker']
+                        }
+                      });
+                    }}
+                  >
+                    🌩️ {t.customers.stormTracker} {t.leads.title}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setFormData({
+                        ...formData,
+                        audience_filters: {
+                          ...formData.audience_filters,
+                          source: ['property_importer']
+                        }
+                      });
+                    }}
+                  >
+                    🏠 {t.sidebar.propertyImporter}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setFormData({
+                        ...formData,
+                        audience_filters: {
+                          ...formData.audience_filters,
+                          status: ['new']
+                        }
+                      });
+                    }}
+                  >
+                    ⭐ {t.common.new} {t.leads.title} Only
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setFormData({
+                        ...formData,
+                        audience_filters: {
+                          source: [],
+                          status: [],
+                          tags: [],
+                          city: "",
+                          state: "",
+                          zip: ""
+                        }
+                      });
+                    }}
+                  >
+                    {t.common.clearFilters}
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>{t.common.source}</Label>
+                    <Select 
+                      value="" 
+                      onValueChange={(v) => {
+                        const current = formData.audience_filters.source || [];
+                        if (!current.includes(v)) {
+                          setFormData({
+                            ...formData, 
+                            audience_filters: {...formData.audience_filters, source: [...current, v]}
+                          });
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Add source filter" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sourceOptions.map(s => (
+                          <SelectItem key={s} value={s}>{s.replace(/_/g, ' ')}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {formData.audience_filters.source?.map(s => (
+                        <Badge key={s} variant="secondary" className="cursor-pointer" onClick={() => {
+                          setFormData({
+                            ...formData,
+                            audience_filters: {
+                              ...formData.audience_filters,
+                              source: formData.audience_filters.source.filter(x => x !== s)
+                            }
+                          });
+                        }}>
+                          {s} ×
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label>{t.common.status}</Label>
+                    <Select 
+                      value="" 
+                      onValueChange={(v) => {
+                        const current = formData.audience_filters.status || [];
+                        if (!current.includes(v)) {
+                          setFormData({
+                            ...formData, 
+                            audience_filters: {...formData.audience_filters, status: [...current, v]}
+                          });
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Add status filter" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {statusOptions.map(s => (
+                          <SelectItem key={s} value={s}>{s}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {formData.audience_filters.status?.map(s => (
+                        <Badge key={s} variant="secondary" className="cursor-pointer" onClick={() => {
+                          setFormData({
+                            ...formData,
+                            audience_filters: {
+                              ...formData.audience_filters,
+                              status: formData.audience_filters.status.filter(x => x !== s)
+                            }
+                          });
+                        }}>
+                          {s} ×
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <Label>{t.common.city}</Label>
+                    <Input
+                      placeholder="e.g., Cleveland"
+                      value={formData.audience_filters.city}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        audience_filters: {...formData.audience_filters, city: e.target.value}
+                      })}
+                    />
+                  </div>
+                  <div>
+                    <Label>{t.common.state}</Label>
+                    <Input
+                      placeholder="e.g., OH"
+                      value={formData.audience_filters.state}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        audience_filters: {...formData.audience_filters, state: e.target.value}
+                      })}
+                    />
+                  </div>
+                  <div>
+                    <Label>{t.common.zip}</Label>
+                    <Input
+                      placeholder="e.g., 44101"
+                      value={formData.audience_filters.zip}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        audience_filters: {...formData.audience_filters, zip: e.target.value}
+                      })}
+                    />
+                  </div>
+                </div>
+
+                {/* Audience Preview List */}
+                {audiencePreview.length > 0 && (
+                  <div className="pt-4 border-t">
+                    <div className="flex items-center justify-between mb-3">
+                      <Label className="font-semibold">Preview Recipients</Label>
+                      <Badge variant="secondary">{audiencePreview.length} {t.common.total}</Badge>
+                    </div>
+                    <ScrollArea className="h-64 border rounded-lg p-3 bg-white">
+                      <div className="space-y-2">
+                        {audiencePreview.slice(0, 50).map((person, idx) => (
+                          <div key={idx} className="flex items-start justify-between p-2 hover:bg-gray-50 rounded text-sm">
+                            <div className="flex-1">
+                              <p className="font-medium text-gray-900">{person.name}</p>
+                              <div className="text-xs text-gray-500 space-y-0.5 mt-1">
+                                {person.email && <p>📧 {person.email}</p>}
+                                {person.phone && <p>📱 {person.phone}</p>}
+                                {(person.city || person.state) && (
+                                  <p>📍 {[person.city, person.state, person.zip].filter(Boolean).join(', ')}</p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              {person.source && (
+                                <Badge variant="outline" className="text-xs mb-1">
+                                  {person.source.replace(/_/g, ' ')}
+                                </Badge>
+                              )}
+                              {person.status && (
+                                <Badge variant="secondary" className="text-xs">
+                                  {person.status}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        {audiencePreview.length > 50 && (
+                          <p className="text-center text-sm text-gray-500 py-2">
+                            ...and {audiencePreview.length - 50} more recipients
+                          </p>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                )}
+
+                {audiencePreview.length === 0 && (
+                  <div className="pt-4 border-t text-center text-gray-500 text-sm">
+                    No recipients match your current filters. Try adjusting the filters above.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Template Selection */}
+            <div className="space-y-4">
+              {formData.campaign_type === 'email' && (
+                <div>
+                  <Label>Email Template *</Label>
+                  <Select value={formData.email_template_id} onValueChange={(v) => setFormData({...formData, email_template_id: v})}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select email template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {emailTemplates.map(t => (
+                        <SelectItem key={t.id} value={t.id}>{t.template_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {emailTemplates.length === 0 && (
+                    <p className="text-sm text-gray-500 mt-1">
+                      No templates found. <Button variant="link" className="p-0 h-auto" onClick={() => navigate(createPageUrl('MarcusMarketing'))}>Create one with Marcus</Button>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {formData.campaign_type === 'sms' && (
+                <div>
+                  <Label>SMS Template *</Label>
+                  <Select value={formData.sms_template_id} onValueChange={(v) => setFormData({...formData, sms_template_id: v})}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select SMS template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {smsTemplates.map(t => (
+                        <SelectItem key={t.id} value={t.id}>{t.template_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {smsTemplates.length === 0 && (
+                    <p className="text-sm text-gray-500 mt-1">
+                      No templates found. <Button variant="link" className="p-0 h-auto" onClick={() => navigate(createPageUrl('MarcusMarketing'))}>Create one with Marcus</Button>
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Follow-up Automation */}
+            <Card className="bg-blue-50 border-blue-200">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4" />
+                    Automated Follow-ups
+                  </CardTitle>
+                  <Checkbox
+                    checked={formData.follow_up_enabled}
+                    onCheckedChange={(checked) => setFormData({...formData, follow_up_enabled: checked})}
+                  />
+                </div>
+              </CardHeader>
+              {formData.follow_up_enabled && (
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label>Follow-up Workflow</Label>
+                    <Select value={formData.follow_up_workflow_id} onValueChange={(v) => setFormData({...formData, follow_up_workflow_id: v})}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select workflow" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {workflows.map(w => (
+                          <SelectItem key={w.id} value={w.id}>{w.workflow_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-gray-600 mt-1">Workflow will trigger for non-responders</p>
+                  </div>
+
+                  <div>
+                    <Label>Follow-up After ({t.common.daysAgo(0).split(' ')[1]})</Label>
+                    <Input
+                      type="number"
+                      value={formData.follow_up_days}
+                      onChange={(e) => setFormData({...formData, follow_up_days: parseInt(e.target.value) || 3})}
+                      min="1"
+                    />
+                  </div>
+                </CardContent>
+              )}
+            </Card>
+
+            {/* Notes */}
+            <div>
+              <Label>{t.sidebar.campaignManager.split(' ')[0]} {t.common.notes}</Label>
+              <Textarea
+                placeholder="Add any notes about this campaign..."
+                value={formData.notes}
+                onChange={(e) => setFormData({...formData, notes: e.target.value})}
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowCreateDialog(false);
+              resetForm();
+            }}>
+              {t.common.cancel}
+            </Button>
+            <Button
+              onClick={handleCreateCampaign}
+              disabled={createCampaignMutation.isPending}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {createCampaignMutation.isPending ? t.common.loading : `${t.common.create} ${t.sidebar.campaignManager.split(' ')[0]}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

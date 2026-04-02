@@ -1,0 +1,72 @@
+Twilio Integration Setup
+Connect your Twilio account to enable calling and SMS features
+
+1
+Twilio Credentials
+Get your Account SID and Auth Token from Twilio Console
+Account SID *
+AC7c4ebfe9afc8e2216f242d7eac6509a2
+Auth Token *
+••••••••••••••••••••••••••••••••
+Test Connection
+2
+Phone Numbers
+You must purchase a phone number from Twilio first: Buy a Number
+Main Company Phone Number *
++18886703112
+This is the main number customers see when you call/text them
+
+Your Personal Callback Number *
++1 (555) 123-4567
+When you make calls, the system calls YOUR phone first, then connects you to the customer
+
+Additional Numbers (Optional)
+Add Number
++12167777081
+
+Kevin Stone
+Fast Voice Test
+
+3
+Configure Twilio Webhooks
+IMPORTANT: Configure these webhooks in your Twilio Console for each phone number:
+Video Tutorial: Complete Twilio Setup
+Step-by-step guide covering account creation, phone number purchase, webhook configuration, and A2P SMS approval.
+
+▶️ Watch Twilio Setup Tutorial
+📱 SMS Webhook
+Set this under: Phone Numbers → Active Numbers → [Your Number] → Messaging → Webhook
+
+https://preview--company-sync-copy-003a6384.base44.app/api/functions/incomingSMS
+Copy
+Method: POST
+
+📞 Voice Webhook
+Set this under: Phone Numbers → Active Numbers → [Your Number] → Voice → Webhook
+
+https://preview--company-sync-copy-003a6384.base44.app/api/functions/incomingCall
+Copy
+Method: POST
+
+💡 Tip: After saving settings, go to Twilio Console and paste these URLs for each phone number.
+
+⚠️ SMS Approval Required: To send SMS, you must register with Twilio's A2P 10DLC program. See the video tutorial above for a walkthrough.
+
+⚡ Auto-Configure Sarah Voice (Beta)
+Automatically configure your Twilio number to route calls and SMS to Sarah AI. This will update your webhooks in Twilio.
+
+🚀 Connect Sarah to This Number
+4
+Features
+Enable SMS
+Send and receive text messages
+
+
+Enable Calling
+Make and receive phone calls
+
+
+Enable Call Recording
+Automatically record all calls
+
+
