@@ -16,7 +16,7 @@ PORT = "5000"
 [deployment]
 deploymentTarget = "autoscale"
 run = ["node", "./dist/index.cjs"]
-build = ["npm", "run", "build"]
+build = ["node_modules/.bin/vite", "build"]
 
 [workflows]
 runButton = "Project"
