@@ -1364,7 +1364,7 @@ export default function Leads() {
     // Apply tag filter
     if (tagFilter !== "all") {
       filtered = filtered.filter(leadItem => 
-        leadItem.tags && leadItem.tags.includes(tagFilter)
+        Array.isArray(leadItem.tags) && leadItem.tags.includes(tagFilter)
       );
     }
 
@@ -1583,9 +1583,9 @@ export default function Leads() {
                                 <DropdownMenuLabel>{t.common.type}</DropdownMenuLabel>
                                 <DropdownMenuRadioGroup value={tagFilter} onValueChange={setTagFilter}>
                                   <DropdownMenuRadioItem value="all">{t.common.all} ({leads.length})</DropdownMenuRadioItem>
-                                  <DropdownMenuRadioItem value="sales reps">Sales Reps ({leads.filter(l => l.tags?.includes('sales reps')).length})</DropdownMenuRadioItem>
-                                  <DropdownMenuRadioItem value="ladder assistants">Ladder ({leads.filter(l => l.tags?.includes('ladder assistants')).length})</DropdownMenuRadioItem>
-                                  <DropdownMenuRadioItem value="lead inspections">Inspections ({leads.filter(l => l.tags?.includes('lead inspections')).length})</DropdownMenuRadioItem>
+                                  <DropdownMenuRadioItem value="sales reps">Sales Reps ({leads.filter(l => Array.isArray(l.tags) && l.tags.includes('sales reps')).length})</DropdownMenuRadioItem>
+                                  <DropdownMenuRadioItem value="ladder assistants">Ladder ({leads.filter(l => Array.isArray(l.tags) && l.tags.includes('ladder assistants')).length})</DropdownMenuRadioItem>
+                                  <DropdownMenuRadioItem value="lead inspections">Inspections ({leads.filter(l => Array.isArray(l.tags) && l.tags.includes('lead inspections')).length})</DropdownMenuRadioItem>
                                 </DropdownMenuRadioGroup>
 
                                 <DropdownMenuSeparator />
@@ -2411,7 +2411,7 @@ export default function Leads() {
                           {visibleColumns.tags && (
                             <td className="px-4 py-3">
                               <div className="flex flex-wrap gap-1 max-w-[200px]">
-                                {lead.tags && lead.tags.length > 0 ? (
+                                {Array.isArray(lead.tags) && lead.tags.length > 0 ? (
                                   lead.tags.map(tag => (
                                     <Badge
                                       key={tag}

@@ -573,6 +573,19 @@ async function initDatabase() {
     console.error('[Migration] Error fixing assigned_to_users:', err.message);
   }
 
+  // Fix tags stored as JSONB object {} instead of array [] in leads (causes .includes crash)
+  try {
+    const tagsRes = await p.query(`
+      UPDATE leads SET tags = '[]'::jsonb
+      WHERE jsonb_typeof(tags) = 'object'
+    `);
+    if (tagsRes.rowCount > 0) {
+      console.log(`[Migration] Fixed ${tagsRes.rowCount} leads rows: converted tags {} → []`);
+    }
+  } catch (err) {
+    console.error('[Migration] Error fixing leads.tags:', err.message);
+  }
+
   // Restore 45 real job tasks from dev database that were never migrated to production
   try {
     const REAL_TASKS = [
