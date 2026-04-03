@@ -641,6 +641,12 @@ async function initDatabase() {
     if (inserted > 0) {
       console.log(`[Migration] Restored ${inserted} real job tasks to production`);
     }
+    // Verify final count of task_import_* records in production
+    const verifyRes = await p.query(
+      `SELECT COUNT(*) as total FROM tasks WHERE company_id = 'loc_mmdvp1h5_e8i9eb' AND id LIKE 'task_import_%'`
+    );
+    const finalCount = verifyRes.rows[0]?.total || 0;
+    console.log(`[Migration] task_import_* tasks now in production: ${finalCount} (expected 44)`);
   } catch (err) {
     console.error('[Migration] Error restoring tasks:', err.message);
   }
