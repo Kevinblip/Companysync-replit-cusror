@@ -551,6 +551,27 @@ async function initDatabase() {
   } catch (err) {
     console.error('[Init] Error seeding admin user:', err.message);
   }
+
+  // Fix assigned_to_users stored as JSONB object {} instead of array []
+  try {
+    const tablesToFix = ['customers', 'leads', 'tasks'];
+    for (const tbl of tablesToFix) {
+      const res = await p.query(`
+        UPDATE ${tbl}
+        SET assigned_to_users = CASE
+          WHEN assigned_to IS NOT NULL AND assigned_to != ''
+          THEN jsonb_build_array(assigned_to)
+          ELSE '[]'::jsonb
+        END
+        WHERE jsonb_typeof(assigned_to_users) = 'object'
+      `);
+      if (res.rowCount > 0) {
+        console.log(`[Migration] Fixed ${res.rowCount} ${tbl} rows: converted assigned_to_users {} → []`);
+      }
+    }
+  } catch (err) {
+    console.error('[Migration] Error fixing assigned_to_users:', err.message);
+  }
 }
 
 function generateId() {

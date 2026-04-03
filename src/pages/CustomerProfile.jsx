@@ -581,8 +581,9 @@ export default function CustomerProfile() {
       const updatedCustomer = await base44.entities.Customer.update(id, data);
 
       // 🔥 UPDATE ALL INVOICES when assignment changes
-      if (originalAssignedUsers && updatedCustomer.assigned_to_users && myCompany?.id) {
-        const assignmentChanged = JSON.stringify(originalAssignedUsers.sort()) !== JSON.stringify(updatedCustomer.assigned_to_users.sort());
+      const safeUpdatedAssignees = Array.isArray(updatedCustomer.assigned_to_users) ? updatedCustomer.assigned_to_users : (updatedCustomer.assigned_to ? [updatedCustomer.assigned_to] : []);
+      if (originalAssignedUsers && safeUpdatedAssignees && myCompany?.id) {
+        const assignmentChanged = JSON.stringify([...originalAssignedUsers].sort()) !== JSON.stringify([...safeUpdatedAssignees].sort());
         
         if (assignmentChanged) {
           console.log('💼 Customer assignment changed, updating invoices...');
@@ -594,12 +595,12 @@ export default function CustomerProfile() {
           });
           
           // 🔥 CRITICAL FIX: Create commission splits for ALL assigned users
-          if (updatedCustomer.assigned_to_users.length > 0) {
+          if (safeUpdatedAssignees.length > 0) {
             // Get all staff profiles
             const allStaffProfiles = await base44.entities.StaffProfile.filter({ company_id: myCompany.id });
             
             // Filter to only those with commission rates
-            const assignedWithCommission = updatedCustomer.assigned_to_users
+            const assignedWithCommission = safeUpdatedAssignees
               .map(email => allStaffProfiles.find(s => s.user_email === email))
               .filter(profile => profile && profile.commission_rate > 0);
             
@@ -637,7 +638,7 @@ export default function CustomerProfile() {
           }
         }
 
-        const newlyAssigned = updatedCustomer.assigned_to_users.filter(
+        const newlyAssigned = safeUpdatedAssignees.filter(
           (email) => !originalAssignedUsers.includes(email)
         );
 

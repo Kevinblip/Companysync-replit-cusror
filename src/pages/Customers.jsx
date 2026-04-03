@@ -789,7 +789,7 @@ export default function Customers() {
       notes: customer.notes || "",
       group: customer.group || "",
       assigned_to: customer.assigned_to || "",
-      assigned_to_users: customer.assigned_to_users || (customer.assigned_to ? [customer.assigned_to] : []),
+      assigned_to_users: Array.isArray(customer.assigned_to_users) ? customer.assigned_to_users : (customer.assigned_to ? [customer.assigned_to] : []),
       tags: customer.tags || [],
       insurance_company: customer.insurance_company || "",
       adjuster_name: customer.adjuster_name || "",
@@ -926,7 +926,7 @@ export default function Customers() {
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
           {paginatedCustomers.map((customer) => {
-            const assignedUsers = customer.assigned_to_users || (customer.assigned_to ? [customer.assigned_to] : []);
+            const assignedUsers = Array.isArray(customer.assigned_to_users) ? customer.assigned_to_users : (customer.assigned_to ? [customer.assigned_to] : []);
             const staffAvatars = assignedUsers.map(email => {
               const staff = uniqueStaffProfiles.find(s => s.user_email === email);
               return {
@@ -2018,7 +2018,7 @@ export default function Customers() {
                           </div>
                         )}
                         {(() => {
-                          const assignedUsers = customer.assigned_to_users || (customer.assigned_to ? [customer.assigned_to] : []);
+                          const assignedUsers = Array.isArray(customer.assigned_to_users) ? customer.assigned_to_users : (customer.assigned_to ? [customer.assigned_to] : []);
                           const staffAvatars = getStaffAvatars(assignedUsers);
 
                           if (staffAvatars.length === 0) return null;

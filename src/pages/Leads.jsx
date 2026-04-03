@@ -2360,7 +2360,7 @@ export default function Leads() {
                           {visibleColumns.assigned && (
                             <td className="px-4 py-3 whitespace-nowrap">
                               {(() => {
-                                const assignedUsers = lead.assigned_to_users || (lead.assigned_to ? [lead.assigned_to] : []);
+                                const assignedUsers = Array.isArray(lead.assigned_to_users) ? lead.assigned_to_users : (lead.assigned_to ? [lead.assigned_to] : []);
                                 const staffAvatars = assignedUsers.map(email => {
                                   const staff = uniqueStaffProfiles.find(s => s.user_email === email);
                                   return {
