@@ -1458,12 +1458,16 @@ export default function Layout({ children, currentPageName }) {
                         src={myCompany.logo_url} 
                         alt={myCompany.company_name || "Company Logo"} 
                         className="w-10 h-10 rounded-lg object-cover bg-white p-1 flex-shrink-0"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          e.target.nextSibling.style.display = 'flex';
+                        }}
                       />
-                    ) : (
-                      <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center flex-shrink-0">
-                        <Sparkles className="w-6 h-6 text-blue-600" />
-                      </div>
-                    )}
+                    ) : null}
+                    <div className="w-10 h-10 bg-white rounded-lg items-center justify-center flex-shrink-0 text-blue-700 font-bold text-sm"
+                      style={{ display: myCompany?.logo_url ? 'none' : 'flex' }}>
+                      {(myCompany?.company_name || 'CS').slice(0, 2).toUpperCase()}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <h2 className="font-bold text-white text-lg truncate flex items-center gap-2">
                         {myCompany?.company_name || "CompanySync"}
