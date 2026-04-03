@@ -6233,19 +6233,20 @@ prodDb.initDatabase().then(async () => {
     const YICN_ID = 'loc_mmdvp1h5_e8i9eb';
     const WRONG_COMPANY_ID = 'company_1773143175492_bwwge66gf';
 
-    // Set is_administrator = true for YICN admin staff (NOT Brian — he's regular staff)
+    // Set is_super_admin = true for YICN admin staff — gives full CRM access bypassing role restrictions
     // NOTE: Do NOT add stonekevin866@gmail.com here — Kevin manages that role via the CRM UI
     const yicnAdmins = [
       'victoriafeliciapatindol@gmail.com',
       'raffy.vpa28@gmail.com',
     ];
     const adminFix = await pool.query(
-      `UPDATE staff_profiles SET is_administrator = true, role = 'admin', updated_at = NOW()
-       WHERE user_email = ANY($1) AND company_id = $2 AND is_administrator = false RETURNING user_email`,
+      `UPDATE staff_profiles SET is_administrator = true, is_super_admin = true, can_access_accounting = true,
+       role = 'admin', updated_at = NOW()
+       WHERE user_email = ANY($1) AND company_id = $2 RETURNING user_email`,
       [yicnAdmins, YICN_ID]
     );
     if (adminFix.rowCount > 0) {
-      console.log(`[YICNFix] Set is_administrator=true for: ${adminFix.rows.map(r => r.user_email).join(', ')}`);
+      console.log(`[YICNFix] Set is_super_admin=true for: ${adminFix.rows.map(r => r.user_email).join(', ')}`);
     }
 
     // Ensure Brian and Virgil are NOT admin — Kevin manages their roles via CRM UI
