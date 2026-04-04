@@ -157,6 +157,8 @@ export default function InspectionCapture() {
     const [isSharingPhotos, setIsSharingPhotos] = useState(false);
     const [roofAccessories, setRoofAccessories] = useState({ vents: 0, pipe_boots: 0, chimneys: 0, drip_edge: false, ice_guard: false });
     const [accessoriesAutoSaved, setAccessoriesAutoSaved] = useState(false);
+    const [newsCardExpanded, setNewsCardExpanded] = useState(false);
+    const [uploadingNewsSlot, setUploadingNewsSlot] = useState(null);
 
     useEffect(() => {
         setIsSecureContext(window.isSecureContext);
@@ -533,6 +535,23 @@ export default function InspectionCapture() {
 
         setUploadingFiles(false);
         event.target.value = '';
+    };
+
+    const handleNewsSlotUpload = async (section, files) => {
+        if (!files || files.length === 0) return;
+        setUploadingNewsSlot(section);
+        await handleUploadWithJobCreation(async (currentJobId) => {
+            for (const file of Array.from(files)) {
+                await uploadMutation.mutateAsync({
+                    file,
+                    section,
+                    caption: file.name || section,
+                    targetJobId: currentJobId,
+                    skipAI: false,
+                });
+            }
+        });
+        setUploadingNewsSlot(null);
     };
 
     const handleOpenPhotoDetail = (item) => {
@@ -3257,6 +3276,99 @@ Write the scope now — do not include any introductory text, just the scope its
                                 </div>
                             ))}
                         </div>
+                    </CardContent>
+                </Card>
+
+                {/* ── N.E.W.S. Elevation Photo Slots ─────────────────────── */}
+                <Card>
+                    <CardContent className="p-3 md:p-4">
+                        <button
+                            onClick={() => setNewsCardExpanded(prev => !prev)}
+                            className="w-full flex items-center justify-between text-left"
+                        >
+                            <h3 className="font-semibold text-sm md:text-base flex items-center gap-2">
+                                🧭 N.E.W.S. Elevation Photos
+                                <span className="text-xs text-gray-500 font-normal">(North · East · West · South)</span>
+                                {['Front Elevation','Right Elevation','Rear Elevation','Left Elevation'].reduce((n,s) => n + media.filter(m=>m.section===s).length, 0) > 0 && (
+                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">
+                                        {['Front Elevation','Right Elevation','Rear Elevation','Left Elevation'].reduce((n,s)=>n+media.filter(m=>m.section===s).length,0)} photos
+                                    </span>
+                                )}
+                            </h3>
+                            <span className="text-gray-400 text-sm">{newsCardExpanded ? '▲' : '▼'}</span>
+                        </button>
+
+                        {newsCardExpanded && (
+                            <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                {[
+                                    { section: 'Front Elevation', compass: 'N', icon: '⬆️', color: 'bg-blue-50 border-blue-200' },
+                                    { section: 'Right Elevation', compass: 'E', icon: '➡️', color: 'bg-green-50 border-green-200' },
+                                    { section: 'Rear Elevation',  compass: 'S', icon: '⬇️', color: 'bg-orange-50 border-orange-200' },
+                                    { section: 'Left Elevation',  compass: 'W', icon: '⬅️', color: 'bg-purple-50 border-purple-200' },
+                                ].map(({ section, compass, icon, color }) => {
+                                    const slotPhotos = media.filter(m => m.section === section);
+                                    const latestPhoto = slotPhotos[slotPhotos.length - 1];
+                                    const isUploading = uploadingNewsSlot === section;
+                                    const inputId = `news-slot-${section.replace(/\s+/g,'-')}`;
+                                    return (
+                                        <div key={section} className={`border rounded-lg overflow-hidden ${color}`}>
+                                            <div className="px-2 py-1 flex items-center gap-1 border-b">
+                                                <span className="text-base">{icon}</span>
+                                                <span className="text-xs font-bold text-gray-700">{compass} — {section.replace(' Elevation','')}</span>
+                                                {slotPhotos.length > 0 && (
+                                                    <span className="ml-auto text-xs text-gray-500">{slotPhotos.length} photo{slotPhotos.length!==1?'s':''}</span>
+                                                )}
+                                            </div>
+                                            <div className="h-24 bg-white flex items-center justify-center">
+                                                {latestPhoto ? (
+                                                    <button
+                                                        onClick={() => {
+                                                            setActiveSection(section);
+                                                        }}
+                                                        className="w-full h-full"
+                                                    >
+                                                        <img
+                                                            src={latestPhoto.file_url}
+                                                            alt={section}
+                                                            className="w-full h-24 object-cover"
+                                                        />
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-xs text-gray-300">No photo yet</span>
+                                                )}
+                                            </div>
+                                            <div className="p-1 border-t bg-white">
+                                                <input
+                                                    id={inputId}
+                                                    type="file"
+                                                    accept="image/*"
+                                                    multiple
+                                                    className="hidden"
+                                                    onChange={(e) => {
+                                                        handleNewsSlotUpload(section, e.target.files);
+                                                        e.target.value = '';
+                                                    }}
+                                                />
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="w-full text-xs"
+                                                    disabled={isUploading}
+                                                    onClick={() => document.getElementById(inputId)?.click()}
+                                                    data-testid={`button-news-upload-${compass.toLowerCase()}`}
+                                                >
+                                                    {isUploading ? (
+                                                        <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Uploading…</>
+                                                    ) : (
+                                                        <><Upload className="w-3 h-3 mr-1" />Add Photo</>
+                                                    )}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
 

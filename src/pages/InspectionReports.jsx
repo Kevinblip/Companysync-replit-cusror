@@ -186,6 +186,24 @@ export default function InspectionReports() {
                                 <p>{getJobMediaCount(job.id)} {t.mobileNav.camera.toLowerCase()}</p>
                                 <p>{t.common.date}: {new Date(job.created_date).toLocaleDateString()}</p>
                             </div>
+                            {(() => {
+                              let acc = null;
+                              try { acc = job.roof_accessories ? (typeof job.roof_accessories === 'string' ? JSON.parse(job.roof_accessories) : job.roof_accessories) : null; } catch {}
+                              if (!acc) return null;
+                              const items = [
+                                acc.vents > 0 && `${acc.vents} Vent${acc.vents !== 1 ? 's' : ''}`,
+                                acc.pipe_boots > 0 && `${acc.pipe_boots} Pipe Boot${acc.pipe_boots !== 1 ? 's' : ''}`,
+                                acc.chimneys > 0 && `${acc.chimneys} Chimney${acc.chimneys !== 1 ? 's' : ''}`,
+                                acc.drip_edge && 'Drip Edge',
+                                acc.ice_guard && 'Ice Guard',
+                              ].filter(Boolean);
+                              if (!items.length) return null;
+                              return (
+                                <div className="text-xs text-gray-500 bg-gray-50 rounded px-2 py-1">
+                                  🪛 {items.join(' · ')}
+                                </div>
+                              );
+                            })()}
                             <div className="flex gap-2">
                                 <Button 
                                   asChild 

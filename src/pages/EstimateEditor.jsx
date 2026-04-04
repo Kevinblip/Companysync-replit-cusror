@@ -223,15 +223,30 @@ export default function EstimateEditor() {
     enabled: !!estimate,
   });
 
-  // N.E.W.S. - Get elevation photos for linked inspection job
+  // N.E.W.S. - Get elevation photos (from linked InspectionJob OR directly from estimate)
   const { data: newsPhotos = [], refetch: refetchNewsPhotos } = useQuery({
-    queryKey: ['news-photos', linkedInspectionJob?.id],
-    queryFn: () => linkedInspectionJob?.id ? base44.entities.JobMedia.filter({
-      related_entity_id: linkedInspectionJob.id,
-      related_entity_type: 'InspectionJob',
-      file_type: 'photo',
-    }) : [],
-    enabled: !!linkedInspectionJob?.id,
+    queryKey: ['news-photos', linkedInspectionJob?.id, estimateId],
+    queryFn: async () => {
+      const results = [];
+      if (linkedInspectionJob?.id) {
+        const jobPhotos = await base44.entities.JobMedia.filter({
+          related_entity_id: linkedInspectionJob.id,
+          related_entity_type: 'InspectionJob',
+          file_type: 'photo',
+        });
+        results.push(...jobPhotos);
+      }
+      if (estimateId) {
+        const estPhotos = await base44.entities.JobMedia.filter({
+          related_entity_id: estimateId,
+          related_entity_type: 'Estimate',
+          file_type: 'photo',
+        });
+        estPhotos.forEach(p => { if (!results.find(r => r.id === p.id)) results.push(p); });
+      }
+      return results;
+    },
+    enabled: !!(linkedInspectionJob?.id || estimateId),
     initialData: [],
   });
 
@@ -825,14 +840,16 @@ export default function EstimateEditor() {
     },
   });
 
-  // N.E.W.S. - Upload a photo to the linked inspection job
+  // N.E.W.S. - Upload a photo to the linked inspection job (or directly to estimate)
   const uploadNewsPhotoMutation = useMutation({
     mutationFn: async ({ file, section }) => {
-      if (!linkedInspectionJob?.id) throw new Error('No inspection job linked');
+      const entityId = linkedInspectionJob?.id || estimateId;
+      const entityType = linkedInspectionJob?.id ? 'InspectionJob' : 'Estimate';
+      if (!entityId) throw new Error('Save the estimate first before uploading photos');
       const { file_url } = await base44.integrations.Core.UploadFile({ file });
       return base44.entities.JobMedia.create({
-        related_entity_id: linkedInspectionJob.id,
-        related_entity_type: 'InspectionJob',
+        related_entity_id: entityId,
+        related_entity_type: entityType,
         file_url,
         file_type: 'photo',
         section,
@@ -1950,6 +1967,13 @@ export default function EstimateEditor() {
                       >
                         <Eye className="w-3 h-3" /> Street View
                       </a>
+                      <a
+                        href={createPageUrl('AIEstimator') + `?address=${encodeURIComponent(formData.property_address)}&mode=satellite`}
+                        className="text-xs text-purple-600 underline hover:text-purple-800 flex items-center gap-1 ml-auto font-medium"
+                        data-testid="link-open-xoom-drawing"
+                      >
+                        🛰️ Open Xoom Drawing Mode
+                      </a>
                     </div>
                   </div>
                 );
@@ -1957,6 +1981,33 @@ export default function EstimateEditor() {
             </CardContent>
           )}
         </Card>
+
+        {/* ── Roof Accessories (from linked Crew Cam job) ────────────── */}
+        {linkedInspectionJob?.roof_accessories && (() => {
+          let acc = null;
+          try { acc = typeof linkedInspectionJob.roof_accessories === 'string' ? JSON.parse(linkedInspectionJob.roof_accessories) : linkedInspectionJob.roof_accessories; } catch {}
+          if (!acc) return null;
+          const items = [
+            acc.vents > 0 && { label: 'Vents', value: acc.vents },
+            acc.pipe_boots > 0 && { label: 'Pipe Boots', value: acc.pipe_boots },
+            acc.chimneys > 0 && { label: 'Chimneys', value: acc.chimneys },
+            acc.drip_edge && { label: 'Drip Edge', value: 'Yes' },
+            acc.ice_guard && { label: 'Ice Guard', value: 'Yes' },
+          ].filter(Boolean);
+          if (!items.length) return null;
+          return (
+            <Card className="lg:col-span-4 border-amber-200 bg-amber-50">
+              <CardContent className="p-3 flex flex-wrap gap-3 items-center">
+                <span className="text-sm font-semibold text-amber-800">🪛 Roof Accessories</span>
+                {items.map(({ label, value }) => (
+                  <span key={label} className="text-xs bg-white border border-amber-300 text-amber-800 px-2 py-1 rounded-full font-medium">
+                    {label}: {value}
+                  </span>
+                ))}
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* ── N.E.W.S. Elevation Photos ─────────────────────────────── */}
         <Card className="lg:col-span-4">
@@ -1989,15 +2040,16 @@ export default function EstimateEditor() {
           </CardHeader>
           {newsExpanded && (
             <CardContent>
-              {!linkedInspectionJob ? (
-                <div className="text-center py-10 text-gray-400 border border-dashed rounded-lg">
-                  <Camera className="w-10 h-10 mx-auto mb-2 opacity-25" />
-                  <p className="text-sm font-medium">No inspection job linked</p>
-                  <p className="text-xs mt-1 text-gray-400">
-                    Create an inspection job in Crew Cam for this customer to enable elevation photos.
-                  </p>
-                </div>
-              ) : (
+              {linkedInspectionJob && (
+                <p className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded px-2 py-1 mb-3">
+                  📷 Photos are saved to Crew Cam job #{linkedInspectionJob.id?.slice(-6)?.toUpperCase()}
+                </p>
+              )}
+              {!linkedInspectionJob && !estimateId && (
+                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-3">
+                  ⚠️ Save the estimate first to enable photo uploads.
+                </p>
+              )}
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     {[
@@ -2089,10 +2141,11 @@ export default function EstimateEditor() {
                     })}
                   </div>
                   <p className="text-xs text-gray-400">
-                    Photos are saved to the Crew Cam inspection job. All team members can view them there.
+                    {linkedInspectionJob
+                      ? `Photos saved to Crew Cam job #${linkedInspectionJob.id?.slice(-6)?.toUpperCase()}. All team members can view them there.`
+                      : 'Photos are saved directly to this estimate.'}
                   </p>
                 </div>
-              )}
             </CardContent>
           )}
         </Card>
