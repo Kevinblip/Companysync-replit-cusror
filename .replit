@@ -1,5 +1,5 @@
 modules = ["nodejs-20", "web", "postgresql-16"]
-run = "npm run dev"
+run = "node prod-server.cjs"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
@@ -7,16 +7,16 @@ channel = "stable-24_05"
 packages = ["unzip"]
 
 [[ports]]
-localPort = 5000
+localPort = 80
 externalPort = 80
 
 [env]
-PORT = "5000"
+PORT = "80"
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["node", "./dist/index.cjs"]
-build = ["npm", "run", "build"]
+run = "node prod-server.cjs"
+build = "npm run build"
 
 [workflows]
 runButton = "Project"
@@ -36,8 +36,8 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run dev"
-waitForPort = 5000
+args = "node prod-server.cjs"
+waitForPort = 80
 
 [userenv]
 
