@@ -31,8 +31,13 @@ import {
   Shield,
   MessageSquare,
   ChevronDown,
+  ChevronUp,
   Mail,
   Phone,
+  Camera,
+  MapPin,
+  Link2,
+  X,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import LineItemEditor from "../components/estimates/LineItemEditor";
@@ -111,8 +116,23 @@ export default function EstimateEditor() {
   const [tagInput, setTagInput] = useState("");
   const [loadedEstimateId, setLoadedEstimateId] = useState(null);
 
+  // N.E.W.S. elevation photos state
+  const [newsExpanded, setNewsExpanded] = useState(false);
+  const [uploadingSection, setUploadingSection] = useState(null);
+  const [selectedNewsPhoto, setSelectedNewsPhoto] = useState(null);
+
+  // Satellite view state
+  const [satelliteExpanded, setSatelliteExpanded] = useState(false);
+  const [mapsApiKey, setMapsApiKey] = useState('');
+
   useEffect(() => {
     base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    base44.functions.invoke('getGoogleMapsApiKey')
+      .then(r => { if (r?.data?.apiKey) setMapsApiKey(r.data.apiKey); })
+      .catch(() => {});
   }, []);
 
   const { company: myCompany } = useCurrentCompany(user);
@@ -184,6 +204,35 @@ export default function EstimateEditor() {
       return res[0];
     },
     enabled: !!estimate?.lead_id
+  });
+
+  // N.E.W.S. - Find linked InspectionJob (explicit link or by customer match)
+  const { data: linkedInspectionJob } = useQuery({
+    queryKey: ['linked-inspection-job', estimate?.related_inspection_job_id, estimate?.customer_id],
+    queryFn: async () => {
+      if (estimate?.related_inspection_job_id) {
+        const jobs = await base44.entities.InspectionJob.filter({ id: estimate.related_inspection_job_id });
+        return jobs[0] || null;
+      }
+      if (estimate?.customer_id) {
+        const jobs = await base44.entities.InspectionJob.filter({ customer_id: estimate.customer_id }, '-created_date', 1);
+        return jobs[0] || null;
+      }
+      return null;
+    },
+    enabled: !!estimate,
+  });
+
+  // N.E.W.S. - Get elevation photos for linked inspection job
+  const { data: newsPhotos = [], refetch: refetchNewsPhotos } = useQuery({
+    queryKey: ['news-photos', linkedInspectionJob?.id],
+    queryFn: () => linkedInspectionJob?.id ? base44.entities.JobMedia.filter({
+      related_entity_id: linkedInspectionJob.id,
+      related_entity_type: 'InspectionJob',
+      file_type: 'photo',
+    }) : [],
+    enabled: !!linkedInspectionJob?.id,
+    initialData: [],
   });
 
   // Sync missing data from linked contact
@@ -773,6 +822,29 @@ export default function EstimateEditor() {
       setSelectedContactType(variables.type);
       setShowCreateContactDialog(false);
       alert(`✅ ${variables.type === 'customer' ? 'Customer' : 'Lead'} created successfully!`);
+    },
+  });
+
+  // N.E.W.S. - Upload a photo to the linked inspection job
+  const uploadNewsPhotoMutation = useMutation({
+    mutationFn: async ({ file, section }) => {
+      if (!linkedInspectionJob?.id) throw new Error('No inspection job linked');
+      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      return base44.entities.JobMedia.create({
+        related_entity_id: linkedInspectionJob.id,
+        related_entity_type: 'InspectionJob',
+        file_url,
+        file_type: 'photo',
+        section,
+        uploaded_by_name: user?.full_name || 'User',
+        company_id: myCompany?.id,
+      });
+    },
+    onSuccess: () => {
+      refetchNewsPhotos();
+    },
+    onError: (err) => {
+      alert('Upload failed: ' + (err.message || 'Unknown error'));
     },
   });
 
@@ -1806,6 +1878,225 @@ export default function EstimateEditor() {
           </Card>
         </div>
 
+        {/* ── Satellite View (Xoom) ─────────────────────────────────── */}
+        <Card className="lg:col-span-4">
+          <CardHeader
+            className="cursor-pointer select-none"
+            onClick={() => setSatelliteExpanded(prev => !prev)}
+          >
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MapPin className="w-5 h-5 text-blue-600" />
+                Satellite View
+                {formData.property_address && (
+                  <Badge variant="outline" className="text-xs font-normal text-gray-500">
+                    {formData.property_address.split(',')[0]}
+                  </Badge>
+                )}
+              </div>
+              {satelliteExpanded ? (
+                <ChevronUp className="w-4 h-4 text-gray-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              )}
+            </CardTitle>
+          </CardHeader>
+          {satelliteExpanded && (
+            <CardContent className="p-0">
+              {!formData.property_address ? (
+                <div className="text-center py-10 text-gray-400">
+                  <MapPin className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">Enter a property address to see the satellite view.</p>
+                </div>
+              ) : (() => {
+                const encoded = encodeURIComponent(formData.property_address);
+                const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encoded}`;
+                const streetUrl = `https://www.google.com/maps?q=${encoded}&layer=c&cbll=0,0`;
+                const embedSrc = `https://www.google.com/maps/embed/v1/place?key=${mapsApiKey}&q=${encoded}&maptype=satellite&zoom=19`;
+                return (
+                  <div>
+                    {mapsApiKey ? (
+                      <iframe
+                        title="Property Satellite View"
+                        src={embedSrc}
+                        className="w-full h-80 border-0"
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                        data-testid="iframe-satellite-view"
+                      />
+                    ) : (
+                      <div className="bg-gray-100 rounded-b-lg h-64 flex flex-col items-center justify-center gap-3">
+                        <MapPin className="w-10 h-10 text-blue-500 opacity-60" />
+                        <p className="text-sm text-gray-600 font-medium">{formData.property_address}</p>
+                        <p className="text-xs text-gray-400">Configure GOOGLE_MAPS_API_KEY in Secrets to enable satellite embed</p>
+                      </div>
+                    )}
+                    <div className="flex gap-3 p-3 border-t bg-gray-50 rounded-b-lg">
+                      <a
+                        href={mapsUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-blue-600 underline hover:text-blue-800 flex items-center gap-1"
+                        data-testid="link-open-google-maps"
+                      >
+                        <MapPin className="w-3 h-3" /> Open in Google Maps
+                      </a>
+                      <a
+                        href={streetUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-blue-600 underline hover:text-blue-800 flex items-center gap-1"
+                        data-testid="link-open-street-view"
+                      >
+                        <Eye className="w-3 h-3" /> Street View
+                      </a>
+                    </div>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          )}
+        </Card>
+
+        {/* ── N.E.W.S. Elevation Photos ─────────────────────────────── */}
+        <Card className="lg:col-span-4">
+          <CardHeader
+            className="cursor-pointer select-none"
+            onClick={() => setNewsExpanded(prev => !prev)}
+          >
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Camera className="w-5 h-5 text-blue-600" />
+                N.E.W.S. Elevation Photos
+                {linkedInspectionJob && (
+                  <Badge className="bg-green-100 text-green-700 border border-green-300 text-xs">
+                    <Link2 className="w-3 h-3 mr-1" />
+                    Linked Job #{linkedInspectionJob.id?.slice(-6)?.toUpperCase()}
+                  </Badge>
+                )}
+                {newsPhotos.length > 0 && (
+                  <Badge variant="outline" className="text-xs">
+                    {newsPhotos.length} photo{newsPhotos.length !== 1 ? 's' : ''}
+                  </Badge>
+                )}
+              </div>
+              {newsExpanded ? (
+                <ChevronUp className="w-4 h-4 text-gray-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              )}
+            </CardTitle>
+          </CardHeader>
+          {newsExpanded && (
+            <CardContent>
+              {!linkedInspectionJob ? (
+                <div className="text-center py-10 text-gray-400 border border-dashed rounded-lg">
+                  <Camera className="w-10 h-10 mx-auto mb-2 opacity-25" />
+                  <p className="text-sm font-medium">No inspection job linked</p>
+                  <p className="text-xs mt-1 text-gray-400">
+                    Create an inspection job in Crew Cam for this customer to enable elevation photos.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    {[
+                      { section: 'Front Elevation', compass: 'N', icon: '⬆️', headerClass: 'bg-blue-50' },
+                      { section: 'Right Elevation', compass: 'E', icon: '➡️', headerClass: 'bg-green-50' },
+                      { section: 'Rear Elevation',  compass: 'S', icon: '⬇️', headerClass: 'bg-orange-50' },
+                      { section: 'Left Elevation',  compass: 'W', icon: '⬅️', headerClass: 'bg-purple-50' },
+                    ].map(({ section, compass, icon, headerClass }) => {
+                      const photos = newsPhotos.filter(p => p.section === section);
+                      const isUploading = uploadingSection === section;
+                      const inputId = `news-upload-${section.replace(/\s+/g, '-')}`;
+                      return (
+                        <div key={section} className="border rounded-lg overflow-hidden flex flex-col">
+                          {/* Section header */}
+                          <div className={`${headerClass} border-b px-3 py-2 flex items-center gap-2`}>
+                            <span className="text-base">{icon}</span>
+                            <div>
+                              <p className="text-xs font-bold text-gray-800">{compass} — {section}</p>
+                            </div>
+                          </div>
+
+                          {/* Photos */}
+                          <div className="flex-1 p-2 space-y-2 bg-white min-h-[100px]">
+                            {photos.length === 0 ? (
+                              <div className="flex items-center justify-center h-20 text-gray-300 text-xs">
+                                No photos yet
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-2 gap-1">
+                                {photos.slice(0, 6).map((photo, idx) => (
+                                  <button
+                                    key={photo.id || idx}
+                                    onClick={() => setSelectedNewsPhoto(photo)}
+                                    className="block w-full aspect-square rounded overflow-hidden border hover:opacity-90 transition-opacity"
+                                    data-testid={`img-news-${section.toLowerCase().replace(/\s+/g,'-')}-${idx}`}
+                                  >
+                                    <img
+                                      src={photo.file_url}
+                                      alt={`${section} ${idx + 1}`}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </button>
+                                ))}
+                                {photos.length > 6 && (
+                                  <div className="flex items-center justify-center aspect-square rounded bg-gray-100 text-xs text-gray-500 font-medium">
+                                    +{photos.length - 6} more
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Upload button */}
+                          <div className="p-2 border-t bg-gray-50">
+                            <input
+                              id={inputId}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                setUploadingSection(section);
+                                try {
+                                  await uploadNewsPhotoMutation.mutateAsync({ file, section });
+                                } finally {
+                                  setUploadingSection(null);
+                                  e.target.value = '';
+                                }
+                              }}
+                            />
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="w-full text-xs"
+                              disabled={isUploading}
+                              onClick={() => document.getElementById(inputId)?.click()}
+                              data-testid={`button-upload-${section.toLowerCase().replace(/\s+/g,'-')}`}
+                            >
+                              {isUploading ? (
+                                <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Uploading…</>
+                              ) : (
+                                <><Upload className="w-3 h-3 mr-1" />Add Photo</>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    Photos are saved to the Crew Cam inspection job. All team members can view them there.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+
         <Card className="lg:col-span-4">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -2532,6 +2823,44 @@ export default function EstimateEditor() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* N.E.W.S. Photo Lightbox */}
+      {selectedNewsPhoto && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+          onClick={() => setSelectedNewsPhoto(null)}
+          data-testid="overlay-news-lightbox"
+        >
+          <div
+            className="relative max-w-4xl max-h-[90vh] w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setSelectedNewsPhoto(null)}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+              data-testid="button-close-lightbox"
+            >
+              <X className="w-8 h-8" />
+            </button>
+            <img
+              src={selectedNewsPhoto.file_url}
+              alt={selectedNewsPhoto.section || 'Elevation photo'}
+              className="w-full h-auto max-h-[85vh] object-contain rounded-lg"
+              data-testid="img-news-lightbox"
+            />
+            {(selectedNewsPhoto.section || selectedNewsPhoto.caption) && (
+              <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white p-3 rounded-b-lg">
+                {selectedNewsPhoto.section && (
+                  <p className="text-sm font-semibold">{selectedNewsPhoto.section}</p>
+                )}
+                {selectedNewsPhoto.caption && (
+                  <p className="text-xs text-gray-300 mt-0.5">{selectedNewsPhoto.caption}</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
