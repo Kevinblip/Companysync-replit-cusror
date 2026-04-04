@@ -4592,6 +4592,87 @@ ${strings.map(s => `<si><t>${ex(s)}</t></si>`).join('\n')}
       } catch (e) {}
     }
 
+    // Fetch full contact context (notes, claim info, open tasks) for the SMS handler
+    let contactId = null;
+    let contactType = null;
+    let contactNotes = null;
+    let contactClaimInfo = null;
+    let contactOpenTasks = [];
+    let contactServiceNeeded = null;
+
+    if (company_id && phone_number) {
+      try {
+        const last10 = (phone_number || '').replace(/\D/g, '').slice(-10);
+
+        // Check leads table
+        const lRes = await pool.query(
+          `SELECT id, name, notes, data FROM leads WHERE company_id = $1 AND phone LIKE $2 ORDER BY created_at DESC LIMIT 1`,
+          [company_id, `%${last10}%`]
+        );
+        if (lRes.rows.length > 0) {
+          const lr = lRes.rows[0];
+          contactId = lr.id;
+          contactType = 'lead';
+          if (contactName === 'Unknown' && lr.name) contactName = lr.name;
+          contactNotes = lr.notes;
+          const d = (typeof lr.data === 'object' && lr.data) ? lr.data : {};
+          contactServiceNeeded = d.service_needed || d.service_type;
+          const claimParts = [];
+          if (d.insurance_company) claimParts.push(`Insurance: ${d.insurance_company}`);
+          if (d.claim_number) claimParts.push(`Claim #: ${d.claim_number}`);
+          if (d.adjuster_name) claimParts.push(`Adjuster: ${d.adjuster_name}`);
+          if (d.claim_status) claimParts.push(`Claim status: ${d.claim_status}`);
+          if (claimParts.length > 0) contactClaimInfo = claimParts.join(', ');
+        }
+
+        // Check customers table if not found in leads
+        if (!contactId) {
+          const cRes = await pool.query(
+            `SELECT id, name, notes, data FROM customers WHERE company_id = $1 AND phone LIKE $2 ORDER BY created_at DESC LIMIT 1`,
+            [company_id, `%${last10}%`]
+          );
+          if (cRes.rows.length > 0) {
+            const cr = cRes.rows[0];
+            contactId = cr.id;
+            contactType = 'customer';
+            if (contactName === 'Unknown' && cr.name) contactName = cr.name;
+            contactNotes = cr.notes;
+            const d = (typeof cr.data === 'object' && cr.data) ? cr.data : {};
+            const claimParts = [];
+            if (d.insurance_company) claimParts.push(`Insurance: ${d.insurance_company}`);
+            if (d.claim_number) claimParts.push(`Claim #: ${d.claim_number}`);
+            if (d.adjuster_name) claimParts.push(`Adjuster: ${d.adjuster_name}`);
+            if (d.claim_status) claimParts.push(`Claim status: ${d.claim_status}`);
+            if (claimParts.length > 0) contactClaimInfo = claimParts.join(', ');
+          }
+        }
+
+        // Fetch open tasks for this contact
+        if (contactId) {
+          const tRes = await pool.query(
+            `SELECT title, name, due_date FROM tasks WHERE company_id = $1 AND status NOT IN ('completed','done','closed') AND (data->>'lead_id' = $2 OR data->>'customer_id' = $2) ORDER BY created_at DESC LIMIT 5`,
+            [company_id, contactId]
+          );
+          contactOpenTasks = tRes.rows.map(t => t.title || t.name).filter(Boolean);
+        }
+      } catch (e) {
+        console.warn('[Sarah SMS] Could not load contact context:', e.message);
+      }
+    }
+
+    // Build context block for system prompt
+    let contactContext = '';
+    if (contactName !== 'Unknown') {
+      contactContext = `\nYou are texting with: ${contactName}`;
+      if (contactServiceNeeded) contactContext += ` — previously inquired about: ${contactServiceNeeded}.`;
+      if (contactNotes) contactContext += `\nTheir notes on file: ${contactNotes}`;
+      if (contactClaimInfo) contactContext += `\nClaim info: ${contactClaimInfo}`;
+      if (contactOpenTasks.length > 0) contactContext += `\nOpen tasks: ${contactOpenTasks.join(', ')}`;
+      contactContext += `\nReference this info naturally in your replies. Don't ask for details you already have.`;
+    } else {
+      contactContext = '\nThis appears to be a new contact.';
+    }
+
     const systemPrompt = `You are Sarah, a friendly and professional AI assistant for ${companyName}, a roofing company. You handle customer inquiries via SMS/text message.
 
 IMPORTANT RULES:
@@ -4600,19 +4681,77 @@ IMPORTANT RULES:
 - If someone wants to schedule an inspection or get a quote, collect their name, address, and preferred time
 - NEVER make up pricing, service details, or company facts. Use your knowledge base. If unsure, say "Let me have someone get back to you on that."
 - Keep responses under 160 characters when possible (SMS friendly)
+- If the contact shares new details (storm date, insurance info, claim number, damage description), extract them so we can save them.
 ${knowledgeBase ? `\nKNOWLEDGE BASE — Use this to answer questions accurately:\n${knowledgeBase}` : ''}
-${contactName !== 'Unknown' ? `\nYou are texting with: ${contactName}` : '\nThis appears to be a new contact.'}`;
+${contactContext}
 
-    const response = await callGemini(apiKey, systemPrompt, message, { jsonMode: false });
+RESPONSE FORMAT: Return a JSON object with:
+- "reply": your SMS reply text (under 160 chars when possible)
+- "add_note": (optional) a factual note to save to their record if they shared new info — null if nothing new
+- "claim_update": (optional) object with any of: insurance_company, claim_number, adjuster_name, claim_status — null if none provided`;
+
+    let rawResponse = '';
+    try {
+      rawResponse = await callGemini(apiKey, systemPrompt, message, { jsonMode: true });
+    } catch (e) {
+      rawResponse = null;
+    }
+
+    let replyText = "Hi! How can I help you today?";
+    let addNote = null;
+    let claimUpdate = null;
+
+    if (rawResponse) {
+      try {
+        const parsed = typeof rawResponse === 'string' ? JSON.parse(rawResponse) : rawResponse;
+        if (parsed.reply) replyText = parsed.reply;
+        if (parsed.add_note) addNote = parsed.add_note;
+        if (parsed.claim_update && Object.keys(parsed.claim_update).length > 0) claimUpdate = parsed.claim_update;
+      } catch (e) {
+        // If JSON parsing fails, treat the whole thing as a plain text reply
+        replyText = (typeof rawResponse === 'string' ? rawResponse : '').trim() || replyText;
+      }
+    }
+
+    // Apply updates to DB if Sarah extracted new info
+    if ((addNote || claimUpdate) && company_id && phone_number) {
+      try {
+        const last10 = (phone_number || '').replace(/\D/g, '').slice(-10);
+        const timestamp = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+
+        if (addNote && contactId) {
+          const table = contactType === 'customer' ? 'customers' : 'leads';
+          const { rows: existing } = await pool.query(`SELECT notes FROM ${table} WHERE id = $1`, [contactId]);
+          const prev = existing[0]?.notes || '';
+          const combined = prev ? `${prev}\n[${timestamp}] ${addNote}` : `[${timestamp}] ${addNote}`;
+          await pool.query(`UPDATE ${table} SET notes = $1, updated_at = NOW() WHERE id = $2 AND company_id = $3`, [combined, contactId, company_id]);
+          console.log(`[Sarah SMS] Note appended to ${contactType} ${contactId}: "${addNote.substring(0, 60)}"`);
+        }
+
+        if (claimUpdate && contactId) {
+          const table = contactType === 'customer' ? 'customers' : 'leads';
+          const { rows: existing } = await pool.query(`SELECT data FROM ${table} WHERE id = $1`, [contactId]);
+          const d = (typeof existing[0]?.data === 'object' && existing[0]?.data) ? existing[0].data : {};
+          const newData = { ...d, ...claimUpdate };
+          await pool.query(`UPDATE ${table} SET data = $1, updated_at = NOW() WHERE id = $2 AND company_id = $3`, [JSON.stringify(newData), contactId, company_id]);
+          console.log(`[Sarah SMS] Claim info updated for ${contactType} ${contactId}:`, claimUpdate);
+        }
+      } catch (e) {
+        console.warn('[Sarah SMS] Could not save updates:', e.message);
+      }
+    }
 
     return {
-      response: response || "Hi! How can I help you today?",
+      response: replyText,
       debug: {
         contactName,
         isNewContact,
         companyName,
         model: 'gemini-2.5-flash',
         hasKnowledgeBase: !!knowledgeBase,
+        hasContactContext: !!contactId,
+        noteSaved: !!addNote,
+        claimUpdated: !!claimUpdate,
       }
     };
   },

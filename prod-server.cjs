@@ -1721,7 +1721,10 @@ const CRM_TOOLS = [
   { name: "send_alert", description: "Send an urgent alert to the business team.", parameters: { type: "object", properties: { message: { type: "string" }, caller_name: { type: "string" }, caller_phone: { type: "string" }, urgency: { type: "string" }, category: { type: "string" } }, required: ["message"] } },
   { name: "schedule_inspection", description: "Schedule a roof inspection appointment. Creates a calendar event and assigns it to the appropriate rep.", parameters: { type: "object", properties: { date_time: { type: "string", description: "Date and time for the inspection in ISO format or natural language" }, customer_name: { type: "string", description: "Name of the customer" }, customer_phone: { type: "string", description: "Phone number of the customer" }, address: { type: "string", description: "Property address for the inspection" }, notes: { type: "string", description: "Special notes about the inspection" }, assigned_to: { type: "string", description: "Staff member name or email to assign this inspection to" } }, required: ["date_time", "customer_name", "address"] } },
   { name: "notify_rep", description: "Send an SMS or WhatsApp notification to a specific sales rep about a new lead, appointment, or update.", parameters: { type: "object", properties: { rep_name: { type: "string", description: "Name of the rep to notify" }, rep_phone: { type: "string", description: "Phone number of the rep" }, message: { type: "string", description: "The notification message to send" }, notification_type: { type: "string", description: "Type: new_lead, inspection_scheduled, callback_request, general" } }, required: ["message"] } },
-  { name: "transfer_call", description: "Transfer the current call to a staff member's cell phone. Use when the caller asks to speak to someone by name, or when routing mode is sarah_then_transfer and you have gathered the caller's info. IMPORTANT: Only call this ONCE per conversation. If it fails, do NOT retry — help the caller directly instead.", parameters: { type: "object", properties: { reason: { type: "string", description: "Why the call is being transferred" }, target_person: { type: "string", description: "Name of the specific staff member the caller wants to speak to (e.g. 'Vicky', 'Kevin'). Leave empty to transfer to the default rep." } }, required: [] } }
+  { name: "transfer_call", description: "Transfer the current call to a staff member's cell phone. Use when the caller asks to speak to someone by name, or when routing mode is sarah_then_transfer and you have gathered the caller's info. IMPORTANT: Only call this ONCE per conversation. If it fails, do NOT retry — help the caller directly instead.", parameters: { type: "object", properties: { reason: { type: "string", description: "Why the call is being transferred" }, target_person: { type: "string", description: "Name of the specific staff member the caller wants to speak to (e.g. 'Vicky', 'Kevin'). Leave empty to transfer to the default rep." } }, required: [] } },
+  { name: "lookup_contact", description: "Look up a lead or customer's full profile including notes, claim info, and open tasks. Use when caller mentions their claim, prior work, prior conversation, or asks about their file.", parameters: { type: "object", properties: { name: { type: "string", description: "Contact's name to search for" }, phone: { type: "string", description: "Phone number to search for (optional if name provided)" } }, required: [] } },
+  { name: "update_contact_notes", description: "Append a timestamped note to an existing lead or customer record. Use whenever the caller shares important details: damage info, insurance info, scheduling preferences, or anything worth remembering.", parameters: { type: "object", properties: { contact_id: { type: "string", description: "The contact ID returned from lookup_contact (or 'caller' if no lookup done)" }, contact_type: { type: "string", enum: ["lead","customer"], description: "Whether this is a lead or customer" }, note: { type: "string", description: "The note text to add — be specific and factual" }, caller_phone: { type: "string", description: "Caller's phone number (used to find contact if contact_id not available)" } }, required: ["note"] } },
+  { name: "update_claim_info", description: "Update insurance or claim details on a lead or customer record. Use when the caller provides their claim number, insurance company name, adjuster name, or claim status update.", parameters: { type: "object", properties: { contact_id: { type: "string", description: "The contact ID returned from lookup_contact" }, contact_type: { type: "string", enum: ["lead","customer"], description: "Whether this is a lead or customer" }, insurance_company: { type: "string", description: "Name of the insurance company" }, claim_number: { type: "string", description: "Insurance claim number" }, adjuster_name: { type: "string", description: "Name of the insurance adjuster" }, claim_status: { type: "string", description: "e.g. filed, approved, denied, pending, supplement, closed" }, caller_phone: { type: "string", description: "Caller's phone number (used to find contact if contact_id not available)" } }, required: [] } }
 ];
 
 const VALID_GEMINI_VOICES = ['Aoede', 'Charon', 'Fenrir', 'Kore', 'Leda', 'Orus', 'Puck', 'Zephyr'];
@@ -1851,6 +1854,254 @@ async function handleToolCall(functionCall, companyId, context = {}) {
       console.log(`[TRANSFER-DEBUG] SUCCESS: ${resolvedName} -> ${resolvedCell}`);
       return { success: true, action: 'transfer_initiated', resolved_cell: resolvedCell, resolved_name: resolvedName };
     }
+    case 'lookup_contact': {
+      try {
+        const pool = prodDb.getPool();
+        const searchName = (parsedArgs.name || '').trim();
+        const searchPhone = (parsedArgs.phone || '').replace(/[^\d+]/g, '');
+        if (!searchName && !searchPhone) return { success: false, message: 'Provide a name or phone number to look up.' };
+
+        let contact = null;
+        let contactType = null;
+
+        // Search leads table first
+        if (searchPhone) {
+          const last10 = searchPhone.slice(-10);
+          const { rows: lr } = await pool.query(
+            `SELECT id, name, phone, email, address, notes, status, data, created_at FROM leads WHERE company_id = $1 AND phone LIKE $2 ORDER BY created_at DESC LIMIT 1`,
+            [companyId, `%${last10}%`]
+          );
+          if (lr.length > 0) { contact = lr[0]; contactType = 'lead'; }
+        }
+        if (!contact && searchName) {
+          const { rows: lr } = await pool.query(
+            `SELECT id, name, phone, email, address, notes, status, data, created_at FROM leads WHERE company_id = $1 AND LOWER(name) LIKE $2 ORDER BY created_at DESC LIMIT 1`,
+            [companyId, `%${searchName.toLowerCase()}%`]
+          );
+          if (lr.length > 0) { contact = lr[0]; contactType = 'lead'; }
+        }
+
+        // Search customers table
+        if (!contact && searchPhone) {
+          const last10 = searchPhone.slice(-10);
+          const { rows: cr } = await pool.query(
+            `SELECT id, name, phone, email, address, notes, status, created_at FROM customers WHERE company_id = $1 AND phone LIKE $2 ORDER BY created_at DESC LIMIT 1`,
+            [companyId, `%${last10}%`]
+          );
+          if (cr.length > 0) { contact = cr[0]; contactType = 'customer'; }
+        }
+        if (!contact && searchName) {
+          const { rows: cr } = await pool.query(
+            `SELECT id, name, phone, email, address, notes, status, created_at FROM customers WHERE company_id = $1 AND LOWER(name) LIKE $2 ORDER BY created_at DESC LIMIT 1`,
+            [companyId, `%${searchName.toLowerCase()}%`]
+          );
+          if (cr.length > 0) { contact = cr[0]; contactType = 'customer'; }
+        }
+
+        // Also search generic_entities for imported leads
+        if (!contact) {
+          let geQuery, geParams;
+          if (searchPhone) {
+            const last10 = searchPhone.slice(-10);
+            geQuery = `SELECT data FROM generic_entities WHERE entity_type = 'Lead' AND company_id = $1 AND (data->>'phone' LIKE $2 OR data->>'mobile_phone' LIKE $2) ORDER BY updated_date DESC LIMIT 1`;
+            geParams = [companyId, `%${last10}%`];
+          } else {
+            geQuery = `SELECT data FROM generic_entities WHERE entity_type = 'Lead' AND company_id = $1 AND LOWER(data->>'full_name') LIKE $2 ORDER BY updated_date DESC LIMIT 1`;
+            geParams = [companyId, `%${searchName.toLowerCase()}%`];
+          }
+          const { rows: ger } = await pool.query(geQuery, geParams);
+          if (ger.length > 0) {
+            const d = ger[0].data;
+            contact = {
+              id: d.id,
+              name: d.full_name || d.name,
+              phone: d.phone || d.mobile_phone,
+              email: d.email,
+              address: d.address,
+              notes: d.notes,
+              status: d.status,
+              data: d
+            };
+            contactType = 'lead';
+          }
+        }
+
+        if (!contact) return { success: false, message: `No contact found for "${searchName || searchPhone}". They may be new — use save_lead_details to create a record.` };
+
+        // Get open tasks for this contact
+        const { rows: tasks } = await pool.query(
+          `SELECT title, name, description, due_date, status FROM tasks WHERE company_id = $1 AND status NOT IN ('completed','done','closed') AND (data->>'lead_id' = $2 OR data->>'customer_id' = $2) ORDER BY created_at DESC LIMIT 5`,
+          [companyId, contact.id]
+        );
+
+        // Pull claim info from data field if available
+        const extraData = (typeof contact.data === 'object' && contact.data) ? contact.data : {};
+        const claimInfo = {
+          insurance_company: extraData.insurance_company || null,
+          claim_number: extraData.claim_number || null,
+          adjuster_name: extraData.adjuster_name || null,
+          claim_status: extraData.claim_status || null,
+        };
+
+        console.log(`[Sarah CRM] lookup_contact: found ${contactType} "${contact.name}" (${contact.id})`);
+        return {
+          success: true,
+          contact_id: contact.id,
+          contact_type: contactType,
+          name: contact.name,
+          phone: contact.phone || null,
+          email: contact.email || null,
+          address: contact.address || null,
+          status: contact.status || null,
+          notes: contact.notes || null,
+          claim: claimInfo,
+          open_tasks: tasks.map(t => ({ title: t.title || t.name, due: t.due_date, status: t.status })),
+        };
+      } catch (e) {
+        console.error('[Sarah CRM] lookup_contact error:', e.message);
+        return { success: false, message: 'Could not look up contact right now.' };
+      }
+    }
+
+    case 'update_contact_notes': {
+      try {
+        const pool = prodDb.getPool();
+        const noteText = (parsedArgs.note || '').trim();
+        if (!noteText) return { success: false, message: 'Note text is required.' };
+
+        const contactId = parsedArgs.contact_id && parsedArgs.contact_id !== 'caller' ? parsedArgs.contact_id : null;
+        const contactType = parsedArgs.contact_type || 'lead';
+        const callerPhone = (parsedArgs.caller_phone || '').replace(/[^\d+]/g, '');
+
+        const timestamp = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+        const newNote = `[${timestamp}] ${noteText}`;
+
+        let updated = false;
+
+        if (contactId) {
+          if (contactType === 'customer') {
+            const { rows } = await pool.query(`SELECT notes FROM customers WHERE id = $1 AND company_id = $2`, [contactId, companyId]);
+            if (rows.length > 0) {
+              const existing = rows[0].notes || '';
+              const combined = existing ? `${existing}\n${newNote}` : newNote;
+              await pool.query(`UPDATE customers SET notes = $1, updated_at = NOW() WHERE id = $2 AND company_id = $3`, [combined, contactId, companyId]);
+              updated = true;
+            }
+          } else {
+            // Try leads table
+            const { rows } = await pool.query(`SELECT notes FROM leads WHERE id = $1 AND company_id = $2`, [contactId, companyId]);
+            if (rows.length > 0) {
+              const existing = rows[0].notes || '';
+              const combined = existing ? `${existing}\n${newNote}` : newNote;
+              await pool.query(`UPDATE leads SET notes = $1, updated_at = NOW() WHERE id = $2 AND company_id = $3`, [combined, contactId, companyId]);
+              updated = true;
+            }
+            // Also try generic_entities (imported leads)
+            const { rows: ger } = await pool.query(`SELECT data FROM generic_entities WHERE entity_type = 'Lead' AND id = $1 AND company_id = $2`, [contactId, companyId]);
+            if (ger.length > 0) {
+              const d = typeof ger[0].data === 'string' ? JSON.parse(ger[0].data) : ger[0].data;
+              const existing = d.notes || '';
+              d.notes = existing ? `${existing}\n${newNote}` : newNote;
+              await pool.query(`UPDATE generic_entities SET data = $1, updated_date = NOW() WHERE entity_type = 'Lead' AND id = $2 AND company_id = $3`, [JSON.stringify(d), contactId, companyId]);
+              updated = true;
+            }
+          }
+        } else if (callerPhone) {
+          // Fall back to phone lookup
+          const last10 = callerPhone.slice(-10);
+          const { rows: lr } = await pool.query(`SELECT id, notes FROM leads WHERE company_id = $1 AND phone LIKE $2 LIMIT 1`, [companyId, `%${last10}%`]);
+          if (lr.length > 0) {
+            const existing = lr[0].notes || '';
+            const combined = existing ? `${existing}\n${newNote}` : newNote;
+            await pool.query(`UPDATE leads SET notes = $1, updated_at = NOW() WHERE id = $2`, [combined, lr[0].id]);
+            updated = true;
+          } else {
+            const { rows: cr } = await pool.query(`SELECT id, notes FROM customers WHERE company_id = $1 AND phone LIKE $2 LIMIT 1`, [companyId, `%${last10}%`]);
+            if (cr.length > 0) {
+              const existing = cr[0].notes || '';
+              const combined = existing ? `${existing}\n${newNote}` : newNote;
+              await pool.query(`UPDATE customers SET notes = $1, updated_at = NOW() WHERE id = $2`, [combined, cr[0].id]);
+              updated = true;
+            }
+          }
+        }
+
+        console.log(`[Sarah CRM] update_contact_notes: updated=${updated}, contact=${contactId || callerPhone}`);
+        return updated
+          ? { success: true, message: `Note saved: "${noteText.substring(0, 60)}${noteText.length > 60 ? '...' : ''}"` }
+          : { success: false, message: 'Could not find the contact to update. Note not saved.' };
+      } catch (e) {
+        console.error('[Sarah CRM] update_contact_notes error:', e.message);
+        return { success: false, message: 'Could not save note right now.' };
+      }
+    }
+
+    case 'update_claim_info': {
+      try {
+        const pool = prodDb.getPool();
+        const contactId = parsedArgs.contact_id && parsedArgs.contact_id !== 'caller' ? parsedArgs.contact_id : null;
+        const contactType = parsedArgs.contact_type || 'lead';
+        const callerPhone = (parsedArgs.caller_phone || '').replace(/[^\d+]/g, '');
+
+        const claimFields = {};
+        if (parsedArgs.insurance_company) claimFields.insurance_company = parsedArgs.insurance_company;
+        if (parsedArgs.claim_number) claimFields.claim_number = parsedArgs.claim_number;
+        if (parsedArgs.adjuster_name) claimFields.adjuster_name = parsedArgs.adjuster_name;
+        if (parsedArgs.claim_status) claimFields.claim_status = parsedArgs.claim_status;
+
+        if (Object.keys(claimFields).length === 0) return { success: false, message: 'No claim fields provided to update.' };
+
+        let updated = false;
+        const applyClaimToData = (existing) => {
+          const d = (typeof existing === 'string' ? JSON.parse(existing) : existing) || {};
+          return { ...d, ...claimFields };
+        };
+
+        if (contactId) {
+          const table = contactType === 'customer' ? 'customers' : 'leads';
+          const { rows } = await pool.query(`SELECT data FROM ${table} WHERE id = $1 AND company_id = $2`, [contactId, companyId]);
+          if (rows.length > 0) {
+            const newData = applyClaimToData(rows[0].data);
+            await pool.query(`UPDATE ${table} SET data = $1, updated_at = NOW() WHERE id = $2 AND company_id = $3`, [JSON.stringify(newData), contactId, companyId]);
+            updated = true;
+          }
+          // Also update generic_entities for imported leads
+          if (contactType !== 'customer') {
+            const { rows: ger } = await pool.query(`SELECT data FROM generic_entities WHERE entity_type = 'Lead' AND id = $1 AND company_id = $2`, [contactId, companyId]);
+            if (ger.length > 0) {
+              const newData = applyClaimToData(ger[0].data);
+              await pool.query(`UPDATE generic_entities SET data = $1, updated_date = NOW() WHERE entity_type = 'Lead' AND id = $2 AND company_id = $3`, [JSON.stringify(newData), contactId, companyId]);
+              updated = true;
+            }
+          }
+        } else if (callerPhone) {
+          const last10 = callerPhone.slice(-10);
+          const { rows: lr } = await pool.query(`SELECT id, data FROM leads WHERE company_id = $1 AND phone LIKE $2 LIMIT 1`, [companyId, `%${last10}%`]);
+          if (lr.length > 0) {
+            const newData = applyClaimToData(lr[0].data);
+            await pool.query(`UPDATE leads SET data = $1, updated_at = NOW() WHERE id = $2`, [JSON.stringify(newData), lr[0].id]);
+            updated = true;
+          } else {
+            const { rows: cr } = await pool.query(`SELECT id, data FROM customers WHERE company_id = $1 AND phone LIKE $2 LIMIT 1`, [companyId, `%${last10}%`]);
+            if (cr.length > 0) {
+              const newData = applyClaimToData(cr[0].data);
+              await pool.query(`UPDATE customers SET data = $1, updated_at = NOW() WHERE id = $2`, [JSON.stringify(newData), cr[0].id]);
+              updated = true;
+            }
+          }
+        }
+
+        const fieldSummary = Object.entries(claimFields).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join(', ');
+        console.log(`[Sarah CRM] update_claim_info: updated=${updated}, fields=${fieldSummary}`);
+        return updated
+          ? { success: true, message: `Claim info updated — ${fieldSummary}` }
+          : { success: false, message: 'Could not find the contact to update claim info.' };
+      } catch (e) {
+        console.error('[Sarah CRM] update_claim_info error:', e.message);
+        return { success: false, message: 'Could not update claim info right now.' };
+      }
+    }
+
     default: return { error: `Unknown tool: ${name}` };
   }
 }
@@ -2018,6 +2269,9 @@ CRM TOOLS — use these automatically as info comes in:
 - notify_rep: Text a rep about new leads or appointments. Use after saving a lead or booking.
 - send_alert: For complaints, emergencies, or messages for someone specific. Set urgency appropriately (urgent/high/medium). After sending, confirm to the caller.
 - transfer_call: When a caller asks to speak with a specific person by name (e.g. "Can I speak to Kevin?", "Transfer me to your manager", "Is Kevin available?"), call this function IMMEDIATELY with only their first name. Do NOT say you cannot transfer. Do NOT apologize or stall. Just call transfer_call right away. IMPORTANT: You may only call transfer_call ONCE per conversation. If it fails, do NOT retry — tell the caller that person is busy and offer to help directly (schedule, take a message, or have them call back).
+- lookup_contact: When a caller mentions their claim, prior inspection, prior conversation, or asks about their file, call this immediately using their name or phone. Then reference what you find naturally — e.g. "I see your claim is with State Farm, claim number 4892." Do NOT read out the entire file verbatim.
+- update_contact_notes: Call this whenever the caller shares any important detail — storm date, deductible amount, damage description, adjuster meeting date, scheduling preference, anything relevant. Be specific and factual. Call it DURING the conversation as info comes in, not at the end.
+- update_claim_info: Call this the moment a caller provides their insurance company, claim number, adjuster name, or claim status. Don't ask them to repeat it — save it immediately.
 - After ANY tool call, respond to the caller immediately. Never go silent.
 - NEVER make up pricing, service details, warranties, timelines, or company facts. Use your knowledge base below. If you don't know something, say "Let me have someone get back to you on that" or "I'll make sure the right person follows up with those details."
 - When a caller asks about services, pricing, or how things work, reference your knowledge base — don't guess.`;
@@ -2035,7 +2289,7 @@ const LEXI_CRM_TOOLS = [
   { name: "get_crm_data", description: "Get CRM data counts/details.", parameters: { type: "object", properties: { data_type: { type: "string", enum: ["customers","leads","estimates","invoices","tasks","projects","payments","staff","calendar_events"] } }, required: ["data_type"] } },
   { name: "get_calendar_events", description: "Get calendar events for date range.", parameters: { type: "object", properties: { start_date: { type: "string" }, end_date: { type: "string" } }, required: ["start_date"] } },
   { name: "create_calendar_event", description: "Create a calendar event.", parameters: { type: "object", properties: { title: { type: "string" }, start_time: { type: "string" }, end_time: { type: "string" }, location: { type: "string" }, description: { type: "string" }, event_type: { type: "string" }, attendees: { type: "string" } }, required: ["title","start_time"] } },
-  { name: "create_task", description: "Create a CRM task.", parameters: { type: "object", properties: { name: { type: "string" }, description: { type: "string" }, assigned_to: { type: "string" }, due_date: { type: "string" }, priority: { type: "string" } }, required: ["name"] } },
+  { name: "create_task", description: "Create a CRM task. Optionally link it to a lead or customer by passing lead_id or customer_id.", parameters: { type: "object", properties: { name: { type: "string" }, description: { type: "string" }, assigned_to: { type: "string" }, due_date: { type: "string" }, priority: { type: "string" }, lead_id: { type: "string", description: "ID of the lead this task is linked to" }, customer_id: { type: "string", description: "ID of the customer this task is linked to" } }, required: ["name"] } },
   { name: "create_lead", description: "Create a CRM lead.", parameters: { type: "object", properties: { name: { type: "string" }, email: { type: "string" }, phone: { type: "string" }, street: { type: "string" }, city: { type: "string" }, state: { type: "string" }, zip: { type: "string" }, notes: { type: "string" }, source: { type: "string" } }, required: ["name"] } },
   { name: "create_customer", description: "Create a CRM customer.", parameters: { type: "object", properties: { name: { type: "string" }, email: { type: "string" }, phone: { type: "string" }, street: { type: "string" }, city: { type: "string" }, state: { type: "string" }, zip: { type: "string" }, notes: { type: "string" } }, required: ["name"] } },
   { name: "send_email", description: "Compose email to customer/lead.", parameters: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, message: { type: "string" }, contact_name: { type: "string" } }, required: ["to","subject","message"] } },
@@ -2112,12 +2366,15 @@ async function handleLexiToolCall(functionCall, companyId, userEmail) {
           );
           if (staffRows.length) { assignedTo = staffRows[0].email; assignedName = staffRows[0].dname; }
         }
+        const taskData = {};
+        if (a.lead_id) taskData.lead_id = a.lead_id;
+        if (a.customer_id) taskData.customer_id = a.customer_id;
         await pool.query(
-          `INSERT INTO tasks (id, company_id, title, name, description, assigned_to, assigned_to_name, due_date, priority, status, created_by)
-           VALUES ($1,$2,$3,$3,$4,$5,$6,$7,$8,'pending',$9)`,
-          [id, companyId, a.name, a.description || null, assignedTo, assignedName, a.due_date || null, a.priority || 'medium', userEmail]
+          `INSERT INTO tasks (id, company_id, title, name, description, assigned_to, assigned_to_name, due_date, priority, status, created_by, data)
+           VALUES ($1,$2,$3,$3,$4,$5,$6,$7,$8,'pending',$9,$10)`,
+          [id, companyId, a.name, a.description || null, assignedTo, assignedName, a.due_date || null, a.priority || 'medium', userEmail, Object.keys(taskData).length > 0 ? JSON.stringify(taskData) : null]
         );
-        console.log(`[Lexi Tool] Task created: ${id} - ${a.name}`);
+        console.log(`[Lexi Tool] Task created: ${id} - ${a.name}${taskData.lead_id ? ` (lead: ${taskData.lead_id})` : ''}${taskData.customer_id ? ` (customer: ${taskData.customer_id})` : ''}`);
         return { success: true, id, message: `Task "${a.name}" created${assignedName ? ` and assigned to ${assignedName}` : ''}` };
       }
 
@@ -5514,26 +5771,100 @@ twilioWss.on('connection', async (twilioWs, req) => {
           if (callerPhone && callCompanyId) {
             try {
               const cleanPhone = callerPhone.replace(/[^\d+]/g, '');
+              const last10 = cleanPhone.slice(-10);
               const phoneVariants = [cleanPhone, cleanPhone.replace(/^\+1/, ''), '+1' + cleanPhone.replace(/^\+1/, '')];
-              const leadResult = await pool.query(
-                `SELECT data FROM generic_entities WHERE entity_type = 'Lead' AND company_id = $1 AND (data->>'phone' = ANY($2) OR data->>'mobile_phone' = ANY($2)) ORDER BY updated_date DESC LIMIT 1`,
-                [callCompanyId, phoneVariants]
+
+              // Check leads table first
+              let foundLeadId = null;
+              let foundLeadName = null;
+              let foundNotes = null;
+              let foundService = null;
+              let foundClaimData = {};
+
+              const leadsTableResult = await pool.query(
+                `SELECT id, name, notes, status, data FROM leads WHERE company_id = $1 AND phone LIKE $2 ORDER BY created_at DESC LIMIT 1`,
+                [callCompanyId, `%${last10}%`]
               );
-              if (leadResult.rows.length > 0) {
-                const lead = leadResult.rows[0].data;
+              if (leadsTableResult.rows.length > 0) {
+                const lr = leadsTableResult.rows[0];
+                foundLeadId = lr.id;
+                foundLeadName = lr.name;
+                foundNotes = lr.notes;
+                const d = (typeof lr.data === 'object' && lr.data) ? lr.data : {};
+                foundService = d.service_needed || d.service_type;
+                foundClaimData = {
+                  insurance_company: d.insurance_company,
+                  claim_number: d.claim_number,
+                  adjuster_name: d.adjuster_name,
+                  claim_status: d.claim_status,
+                };
+              }
+
+              // Fall back to generic_entities (imported leads)
+              if (!foundLeadName) {
+                const leadResult = await pool.query(
+                  `SELECT data FROM generic_entities WHERE entity_type = 'Lead' AND company_id = $1 AND (data->>'phone' = ANY($2) OR data->>'mobile_phone' = ANY($2)) ORDER BY updated_date DESC LIMIT 1`,
+                  [callCompanyId, phoneVariants]
+                );
+                if (leadResult.rows.length > 0) {
+                  const lead = leadResult.rows[0].data;
+                  foundLeadId = lead.id;
+                  foundLeadName = lead.full_name || lead.name;
+                  foundNotes = lead.notes;
+                  foundService = lead.service_needed || lead.service_type;
+                  foundClaimData = {
+                    insurance_company: lead.insurance_company,
+                    claim_number: lead.claim_number,
+                    adjuster_name: lead.adjuster_name,
+                    claim_status: lead.claim_status,
+                  };
+                }
+              }
+
+              // Also check customers table
+              if (!foundLeadName) {
+                const custResult = await pool.query(
+                  `SELECT id, name, notes, data FROM customers WHERE company_id = $1 AND phone LIKE $2 ORDER BY created_at DESC LIMIT 1`,
+                  [callCompanyId, `%${last10}%`]
+                );
+                if (custResult.rows.length > 0) {
+                  const cr = custResult.rows[0];
+                  foundLeadId = cr.id;
+                  foundLeadName = cr.name;
+                  foundNotes = cr.notes;
+                  const d = (typeof cr.data === 'object' && cr.data) ? cr.data : {};
+                  foundService = d.service_needed;
+                  foundClaimData = {
+                    insurance_company: d.insurance_company,
+                    claim_number: d.claim_number,
+                    adjuster_name: d.adjuster_name,
+                    claim_status: d.claim_status,
+                  };
+                }
+              }
+
+              if (foundLeadName) {
                 const commResult = await pool.query(
-                  `SELECT * FROM communications WHERE company_id = $1 AND lead_id = $2 ORDER BY created_at DESC LIMIT 3`,
-                  [callCompanyId, lead.id || '']
+                  `SELECT type, created_at FROM communications WHERE company_id = $1 AND (lead_id = $2 OR contact_phone LIKE $3) ORDER BY created_at DESC LIMIT 1`,
+                  [callCompanyId, foundLeadId || '', `%${last10}%`]
                 );
                 const lastComm = commResult.rows[0];
-                if (lead.full_name || lead.name) {
-                  returningLeadContext = `\n\nRETURNING CALLER CONTEXT: This caller (${callerPhone}) is ${lead.full_name || lead.name}. `;
-                  if (lastComm) returningLeadContext += `Last interaction: ${lastComm.type || 'contact'} on ${lastComm.date || lastComm.created_date || 'unknown date'}. `;
-                  if (lead.service_needed || lead.service_type) returningLeadContext += `They previously inquired about: ${lead.service_needed || lead.service_type}. `;
-                  if (lead.notes) returningLeadContext += `Notes: ${lead.notes}. `;
-                  returningLeadContext += `Greet them by name and reference your prior conversation. Don't ask for info you already have.`;
-                  console.log(`[${assistantName}] Returning lead detected: ${lead.full_name || lead.name}`);
-                }
+
+                // Get open tasks linked to this contact
+                const taskResult = await pool.query(
+                  `SELECT title, name, due_date FROM tasks WHERE company_id = $1 AND status NOT IN ('completed','done','closed') AND (data->>'lead_id' = $2 OR data->>'customer_id' = $2) ORDER BY created_at DESC LIMIT 3`,
+                  [callCompanyId, foundLeadId || '']
+                );
+
+                returningLeadContext = `\n\nRETURNING CALLER CONTEXT: This caller (${callerPhone}) is ${foundLeadName} (contact ID: ${foundLeadId || 'unknown'}). `;
+                if (lastComm) returningLeadContext += `Last interaction: ${lastComm.type || 'contact'} on ${new Date(lastComm.created_at).toLocaleDateString()}. `;
+                if (foundService) returningLeadContext += `Previously inquired about: ${foundService}. `;
+                if (foundNotes) returningLeadContext += `Notes: ${foundNotes}. `;
+                const claimParts = Object.entries(foundClaimData).filter(([, v]) => v).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`);
+                if (claimParts.length > 0) returningLeadContext += `Claim info — ${claimParts.join(', ')}. `;
+                if (taskResult.rows.length > 0) returningLeadContext += `Open tasks: ${taskResult.rows.map(t => t.title || t.name).join(', ')}. `;
+                returningLeadContext += `Greet them by name and reference your prior conversation. Don't ask for info you already have. Use update_contact_notes and update_claim_info to save anything new they share.`;
+                console.log(`[${assistantName}] Returning caller detected: ${foundLeadName} (${foundLeadId})`);
               }
             } catch (e) {
               console.log(`[${assistantName}] No prior history found for ${callerPhone}`);
