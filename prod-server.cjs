@@ -2342,13 +2342,16 @@ const LEXI_CRM_TOOLS = [
   { name: "get_crm_data", description: "Get CRM data counts/details.", parameters: { type: "object", properties: { data_type: { type: "string", enum: ["customers","leads","estimates","invoices","tasks","projects","payments","staff","calendar_events"] } }, required: ["data_type"] } },
   { name: "get_calendar_events", description: "Get calendar events for date range.", parameters: { type: "object", properties: { start_date: { type: "string" }, end_date: { type: "string" } }, required: ["start_date"] } },
   { name: "create_calendar_event", description: "Create a calendar event.", parameters: { type: "object", properties: { title: { type: "string" }, start_time: { type: "string" }, end_time: { type: "string" }, location: { type: "string" }, description: { type: "string" }, event_type: { type: "string" }, attendees: { type: "string" } }, required: ["title","start_time"] } },
-  { name: "create_task", description: "Create a CRM task. Optionally link it to a lead or customer by passing lead_id or customer_id.", parameters: { type: "object", properties: { name: { type: "string" }, description: { type: "string" }, assigned_to: { type: "string" }, due_date: { type: "string" }, priority: { type: "string" }, lead_id: { type: "string", description: "ID of the lead this task is linked to" }, customer_id: { type: "string", description: "ID of the customer this task is linked to" } }, required: ["name"] } },
+  { name: "create_task", description: "Create a CRM task. Optionally link it to a lead or customer by passing lead_id or customer_id (from lookup_contact) and related_to (the contact's name, so it appears in their profile).", parameters: { type: "object", properties: { name: { type: "string" }, description: { type: "string" }, assigned_to: { type: "string" }, due_date: { type: "string" }, priority: { type: "string" }, related_to: { type: "string", description: "Contact's full name — links this task to their profile view" }, lead_id: { type: "string", description: "ID of the lead this task is linked to" }, customer_id: { type: "string", description: "ID of the customer this task is linked to" } }, required: ["name"] } },
   { name: "create_lead", description: "Create a CRM lead.", parameters: { type: "object", properties: { name: { type: "string" }, email: { type: "string" }, phone: { type: "string" }, street: { type: "string" }, city: { type: "string" }, state: { type: "string" }, zip: { type: "string" }, notes: { type: "string" }, source: { type: "string" } }, required: ["name"] } },
   { name: "create_customer", description: "Create a CRM customer.", parameters: { type: "object", properties: { name: { type: "string" }, email: { type: "string" }, phone: { type: "string" }, street: { type: "string" }, city: { type: "string" }, state: { type: "string" }, zip: { type: "string" }, notes: { type: "string" } }, required: ["name"] } },
   { name: "send_email", description: "Compose email to customer/lead.", parameters: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, message: { type: "string" }, contact_name: { type: "string" } }, required: ["to","subject","message"] } },
   { name: "send_sms", description: "Compose text message.", parameters: { type: "object", properties: { to: { type: "string" }, message: { type: "string" }, contact_name: { type: "string" } }, required: ["to","message"] } },
   { name: "manage_entity", description: "CRUD any CRM entity.", parameters: { type: "object", properties: { entity_action: { type: "string", enum: ["create","update","delete","list"] }, entity_name: { type: "string" }, entity_data: { type: "object" }, entity_id: { type: "string" } }, required: ["entity_action","entity_name"] } },
-  { name: "assign_inspection", description: "Create/assign a CrewCam inspection.", parameters: { type: "object", properties: { client_name: { type: "string" }, client_phone: { type: "string" }, client_email: { type: "string" }, property_address: { type: "string" }, assigned_to_email: { type: "string" }, inspection_date: { type: "string" }, inspection_time: { type: "string" }, damage_type: { type: "string" }, special_instructions: { type: "string" }, create_calendar_event: { type: "boolean" }, create_lead: { type: "boolean" } }, required: ["client_name","property_address","assigned_to_email"] } }
+  { name: "assign_inspection", description: "Create/assign a CrewCam inspection.", parameters: { type: "object", properties: { client_name: { type: "string" }, client_phone: { type: "string" }, client_email: { type: "string" }, property_address: { type: "string" }, assigned_to_email: { type: "string" }, inspection_date: { type: "string" }, inspection_time: { type: "string" }, damage_type: { type: "string" }, special_instructions: { type: "string" }, create_calendar_event: { type: "boolean" }, create_lead: { type: "boolean" } }, required: ["client_name","property_address","assigned_to_email"] } },
+  { name: "lookup_contact", description: "Look up a lead or customer's full profile including notes, claim info, and open tasks. Use when a staff member asks about a specific person by name or phone.", parameters: { type: "object", properties: { name: { type: "string", description: "Contact's name to search for" }, phone: { type: "string", description: "Phone number to search for" } }, required: [] } },
+  { name: "update_contact_notes", description: "Append a timestamped note to a lead or customer record. Use when staff wants to log a detail, interaction, or update about a contact.", parameters: { type: "object", properties: { contact_id: { type: "string", description: "ID of the contact (from lookup_contact)" }, contact_type: { type: "string", enum: ["lead","customer"], description: "Whether this is a lead or customer" }, note: { type: "string", description: "The note to add" } }, required: ["contact_id","contact_type","note"] } },
+  { name: "update_claim_info", description: "Update insurance claim details on a lead or customer record.", parameters: { type: "object", properties: { contact_id: { type: "string", description: "ID of the contact (from lookup_contact)" }, contact_type: { type: "string", enum: ["lead","customer"] }, insurance_company: { type: "string" }, claim_number: { type: "string" }, adjuster_name: { type: "string" }, claim_status: { type: "string" } }, required: ["contact_id","contact_type"] } }
 ];
 
 async function handleLexiToolCall(functionCall, companyId, userEmail) {
@@ -2422,10 +2425,11 @@ async function handleLexiToolCall(functionCall, companyId, userEmail) {
         const taskData = {};
         if (a.lead_id) taskData.lead_id = a.lead_id;
         if (a.customer_id) taskData.customer_id = a.customer_id;
+        const relatedTo = a.related_to || null;
         await pool.query(
-          `INSERT INTO tasks (id, company_id, title, name, description, assigned_to, assigned_to_name, due_date, priority, status, created_by, data)
-           VALUES ($1,$2,$3,$3,$4,$5,$6,$7,$8,'pending',$9,$10)`,
-          [id, companyId, a.name, a.description || null, assignedTo, assignedName, a.due_date || null, a.priority || 'medium', userEmail, Object.keys(taskData).length > 0 ? JSON.stringify(taskData) : null]
+          `INSERT INTO tasks (id, company_id, title, name, description, assigned_to, assigned_to_name, due_date, priority, status, created_by, related_to, data)
+           VALUES ($1,$2,$3,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$11)`,
+          [id, companyId, a.name, a.description || null, assignedTo, assignedName, a.due_date || null, a.priority || 'medium', userEmail, relatedTo, Object.keys(taskData).length > 0 ? JSON.stringify(taskData) : null]
         );
         console.log(`[Lexi Tool] Task created: ${id} - ${a.name}${taskData.lead_id ? ` (lead: ${taskData.lead_id})` : ''}${taskData.customer_id ? ` (customer: ${taskData.customer_id})` : ''}`);
         return { success: true, id, message: `Task "${a.name}" created${assignedName ? ` and assigned to ${assignedName}` : ''}` };
@@ -2644,6 +2648,94 @@ async function handleLexiToolCall(functionCall, companyId, userEmail) {
         return { error: `Invalid action or missing data for ${a.entity_action}`, success: false };
       }
 
+      case 'lookup_contact': {
+        const searchName = (a.name || '').trim();
+        const searchPhone = (a.phone || '').replace(/[^\d+]/g, '');
+        if (!searchName && !searchPhone) return { success: false, message: 'Provide a name or phone number.' };
+        let contact = null; let contactType = null;
+        if (searchPhone) {
+          const last10 = searchPhone.slice(-10);
+          const { rows: lr } = await pool.query(`SELECT id, name, phone, email, address, notes, status, data FROM leads WHERE company_id = $1 AND phone LIKE $2 ORDER BY created_at DESC LIMIT 1`, [companyId, `%${last10}%`]);
+          if (lr.length) { contact = lr[0]; contactType = 'lead'; }
+          if (!contact) {
+            const { rows: cr } = await pool.query(`SELECT id, name, phone, email, address, notes, status, data FROM customers WHERE company_id = $1 AND phone LIKE $2 ORDER BY created_at DESC LIMIT 1`, [companyId, `%${last10}%`]);
+            if (cr.length) { contact = cr[0]; contactType = 'customer'; }
+          }
+        }
+        if (!contact && searchName) {
+          const { rows: lr } = await pool.query(`SELECT id, name, phone, email, address, notes, status, data FROM leads WHERE company_id = $1 AND LOWER(name) LIKE $2 ORDER BY created_at DESC LIMIT 1`, [companyId, `%${searchName.toLowerCase()}%`]);
+          if (lr.length) { contact = lr[0]; contactType = 'lead'; }
+        }
+        if (!contact && searchName) {
+          const { rows: cr } = await pool.query(`SELECT id, name, phone, email, address, notes, status, data FROM customers WHERE company_id = $1 AND LOWER(name) LIKE $2 ORDER BY created_at DESC LIMIT 1`, [companyId, `%${searchName.toLowerCase()}%`]);
+          if (cr.length) { contact = cr[0]; contactType = 'customer'; }
+        }
+        if (!contact) {
+          const last10 = searchPhone ? searchPhone.slice(-10) : null;
+          for (const et of ['Lead', 'Customer']) {
+            let gq, gp;
+            if (last10) { gq = `SELECT data FROM generic_entities WHERE entity_type = $1 AND company_id = $2 AND (data->>'phone' LIKE $3 OR data->>'mobile_phone' LIKE $3) LIMIT 1`; gp = [et, companyId, `%${last10}%`]; }
+            else { gq = `SELECT data FROM generic_entities WHERE entity_type = $1 AND company_id = $2 AND LOWER(data->>'full_name') LIKE $3 LIMIT 1`; gp = [et, companyId, `%${searchName.toLowerCase()}%`]; }
+            const { rows: ger } = await pool.query(gq, gp);
+            if (ger.length) { const d = ger[0].data; contact = { id: d.id, name: d.full_name || d.name, phone: d.phone || d.mobile_phone, email: d.email, address: d.address, notes: d.notes, status: d.status, data: d }; contactType = et === 'Lead' ? 'lead' : 'customer'; break; }
+          }
+        }
+        if (!contact) return { success: false, message: `No contact found for "${searchName || searchPhone}".` };
+        const cNameLower = (contact.name || '').toLowerCase();
+        const { rows: tasks } = await pool.query(
+          `SELECT title, name, description, due_date, status FROM tasks WHERE company_id = $1 AND status NOT IN ('completed','done','closed') AND (data->>'lead_id' = $2 OR data->>'customer_id' = $2 OR ($3 != '' AND LOWER(related_to) LIKE $4)) ORDER BY created_at DESC LIMIT 3`,
+          [companyId, contact.id, cNameLower, `%${cNameLower}%`]
+        );
+        const d = (typeof contact.data === 'object' && contact.data) ? contact.data : {};
+        const claimInfo = { insurance_company: d.insurance_company, claim_number: d.claim_number, adjuster_name: d.adjuster_name, claim_status: d.claim_status };
+        const hasClaimInfo = Object.values(claimInfo).some(v => v);
+        console.log(`[Lexi Tool] lookup_contact: found ${contact.name} (${contactType} ${contact.id})`);
+        return { success: true, id: contact.id, type: contactType, name: contact.name, phone: contact.phone, email: contact.email, address: contact.address, status: contact.status, notes: contact.notes || 'None', claim_info: hasClaimInfo ? claimInfo : null, open_tasks: tasks.map(t => ({ title: t.title || t.name, due: t.due_date, status: t.status })) };
+      }
+
+      case 'update_contact_notes': {
+        if (!a.contact_id || !a.contact_type || !a.note) return { success: false, message: 'contact_id, contact_type, and note are required.' };
+        const timestamp = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+        const newNote = `[${timestamp}] ${a.note}`;
+        const table = a.contact_type === 'customer' ? 'customers' : 'leads';
+        const { rows: existing } = await pool.query(`SELECT notes FROM ${table} WHERE id = $1 AND company_id = $2`, [a.contact_id, companyId]);
+        if (!existing.length) return { success: false, message: 'Contact not found.' };
+        const updatedNotes = existing[0].notes ? existing[0].notes + '\n' + newNote : newNote;
+        await pool.query(`UPDATE ${table} SET notes = $1, updated_at = NOW() WHERE id = $2 AND company_id = $3`, [updatedNotes, a.contact_id, companyId]);
+        const geType = a.contact_type === 'customer' ? 'Customer' : 'Lead';
+        const { rows: ger } = await pool.query(`SELECT data FROM generic_entities WHERE entity_type = $1 AND id = $2 AND company_id = $3`, [geType, a.contact_id, companyId]);
+        if (ger.length) {
+          const gd = (typeof ger[0].data === 'object' ? ger[0].data : {}) || {};
+          const geNotes = gd.notes ? gd.notes + '\n' + newNote : newNote;
+          await pool.query(`UPDATE generic_entities SET data = $1, updated_date = NOW() WHERE entity_type = $2 AND id = $3 AND company_id = $4`, [JSON.stringify({ ...gd, notes: geNotes }), geType, a.contact_id, companyId]);
+        }
+        console.log(`[Lexi Tool] update_contact_notes: ${a.contact_type} ${a.contact_id}`);
+        return { success: true, message: 'Note added successfully.' };
+      }
+
+      case 'update_claim_info': {
+        if (!a.contact_id || !a.contact_type) return { success: false, message: 'contact_id and contact_type are required.' };
+        const claimFields = {};
+        if (a.insurance_company) claimFields.insurance_company = a.insurance_company;
+        if (a.claim_number) claimFields.claim_number = a.claim_number;
+        if (a.adjuster_name) claimFields.adjuster_name = a.adjuster_name;
+        if (a.claim_status) claimFields.claim_status = a.claim_status;
+        if (!Object.keys(claimFields).length) return { success: false, message: 'Provide at least one claim field to update.' };
+        const table = a.contact_type === 'customer' ? 'customers' : 'leads';
+        const { rows: existing } = await pool.query(`SELECT data FROM ${table} WHERE id = $1 AND company_id = $2`, [a.contact_id, companyId]);
+        if (!existing.length) return { success: false, message: 'Contact not found.' };
+        const newData = { ...((typeof existing[0].data === 'object' && existing[0].data) ? existing[0].data : {}), ...claimFields };
+        await pool.query(`UPDATE ${table} SET data = $1, updated_at = NOW() WHERE id = $2 AND company_id = $3`, [JSON.stringify(newData), a.contact_id, companyId]);
+        const geType = a.contact_type === 'customer' ? 'Customer' : 'Lead';
+        const { rows: ger } = await pool.query(`SELECT data FROM generic_entities WHERE entity_type = $1 AND id = $2 AND company_id = $3`, [geType, a.contact_id, companyId]);
+        if (ger.length) {
+          const gd = { ...((typeof ger[0].data === 'object' && ger[0].data) ? ger[0].data : {}), ...claimFields };
+          await pool.query(`UPDATE generic_entities SET data = $1, updated_date = NOW() WHERE entity_type = $2 AND id = $3 AND company_id = $4`, [JSON.stringify(gd), geType, a.contact_id, companyId]);
+        }
+        console.log(`[Lexi Tool] update_claim_info: ${a.contact_type} ${a.contact_id}`, claimFields);
+        return { success: true, message: `Claim info updated: ${Object.keys(claimFields).join(', ')}.` };
+      }
+
       default:
         console.warn(`[Lexi Tool] Unknown tool: ${name}`);
         return { error: `Unknown tool: ${name}`, success: false };
@@ -2675,8 +2767,10 @@ ${knowledgeBase ? `Knowledge Base:\n${knowledgeBase}` : ''}
 
 YOUR CAPABILITIES (use tools for ALL of these):
 - Calendar: Create events, look up upcoming events, set reminders, schedule inspections/appointments/meetings/calls
-- Tasks: Create tasks with due dates and priorities
-- Leads & Customers: Create, update, look up contacts
+- Tasks: Create tasks with due dates, priorities, and linked contacts (use related_to for the contact name, lead_id/customer_id from lookup_contact)
+- Leads & Customers: Create contacts, or look up a full profile (notes, claim info, open tasks) by name or phone using lookup_contact
+- Notes: Add notes to any lead or customer record using update_contact_notes
+- Claim Info: Update insurance company, claim number, adjuster, or claim status using update_claim_info
 - Inspections: Schedule roof inspections with crew assignments
 - Email & SMS: Compose and send messages
 - CRM Data: Look up customers, leads, estimates, invoices, tasks, projects, payments, staff, calendar events
