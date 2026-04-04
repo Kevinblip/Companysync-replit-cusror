@@ -1722,7 +1722,7 @@ const CRM_TOOLS = [
   { name: "schedule_inspection", description: "Schedule a roof inspection appointment. Creates a calendar event and assigns it to the appropriate rep.", parameters: { type: "object", properties: { date_time: { type: "string", description: "Date and time for the inspection in ISO format or natural language" }, customer_name: { type: "string", description: "Name of the customer" }, customer_phone: { type: "string", description: "Phone number of the customer" }, address: { type: "string", description: "Property address for the inspection" }, notes: { type: "string", description: "Special notes about the inspection" }, assigned_to: { type: "string", description: "Staff member name or email to assign this inspection to" } }, required: ["date_time", "customer_name", "address"] } },
   { name: "notify_rep", description: "Send an SMS or WhatsApp notification to a specific sales rep about a new lead, appointment, or update.", parameters: { type: "object", properties: { rep_name: { type: "string", description: "Name of the rep to notify" }, rep_phone: { type: "string", description: "Phone number of the rep" }, message: { type: "string", description: "The notification message to send" }, notification_type: { type: "string", description: "Type: new_lead, inspection_scheduled, callback_request, general" } }, required: ["message"] } },
   { name: "transfer_call", description: "Transfer the current call to a staff member's cell phone. Use when the caller asks to speak to someone by name, or when routing mode is sarah_then_transfer and you have gathered the caller's info. IMPORTANT: Only call this ONCE per conversation. If it fails, do NOT retry — help the caller directly instead.", parameters: { type: "object", properties: { reason: { type: "string", description: "Why the call is being transferred" }, target_person: { type: "string", description: "Name of the specific staff member the caller wants to speak to (e.g. 'Vicky', 'Kevin'). Leave empty to transfer to the default rep." } }, required: [] } },
-  { name: "create_task", description: "Create a follow-up task for a lead or customer. Use when the caller asks to be followed up with, or when you promise to have someone call them back.", parameters: { type: "object", properties: { name: { type: "string", description: "Short task title, e.g. 'Call back John Smith Thursday'" }, description: { type: "string", description: "More detail about what needs to be done" }, due_date: { type: "string", description: "Due date in YYYY-MM-DD format" }, assigned_to: { type: "string", description: "Staff member name or email to assign this task to" }, lead_id: { type: "string", description: "ID of the lead this task is linked to (from lookup_contact)" }, customer_id: { type: "string", description: "ID of the customer this task is linked to (from lookup_contact)" } }, required: ["name"] } },
+  { name: "create_task", description: "Create a follow-up task for a lead or customer. Use when the caller asks to be followed up with, or when you promise to have someone call them back.", parameters: { type: "object", properties: { name: { type: "string", description: "Short task title, e.g. 'Call back John Smith Thursday'" }, description: { type: "string", description: "More detail about what needs to be done" }, due_date: { type: "string", description: "Due date in YYYY-MM-DD format" }, assigned_to: { type: "string", description: "Staff member name or email to assign this task to" }, contact_name: { type: "string", description: "Full name of the lead or customer this task is for" }, lead_id: { type: "string", description: "ID of the lead this task is linked to (from lookup_contact)" }, customer_id: { type: "string", description: "ID of the customer this task is linked to (from lookup_contact)" } }, required: ["name"] } },
   { name: "lookup_contact", description: "Look up a lead or customer's full profile including notes, claim info, and open tasks. Use when caller mentions their claim, prior work, prior conversation, or asks about their file.", parameters: { type: "object", properties: { name: { type: "string", description: "Contact's name to search for" }, phone: { type: "string", description: "Phone number to search for (optional if name provided)" } }, required: [] } },
   { name: "update_contact_notes", description: "Append a timestamped note to an existing lead or customer record. Use whenever the caller shares important details: damage info, insurance info, scheduling preferences, or anything worth remembering.", parameters: { type: "object", properties: { contact_id: { type: "string", description: "The contact ID returned from lookup_contact (or 'caller' if no lookup done)" }, contact_type: { type: "string", enum: ["lead","customer"], description: "Whether this is a lead or customer" }, note: { type: "string", description: "The note text to add — be specific and factual" }, caller_phone: { type: "string", description: "Caller's phone number (used to find contact if contact_id not available)" } }, required: ["note"] } },
   { name: "update_claim_info", description: "Update insurance or claim details on a lead or customer record. Use when the caller provides their claim number, insurance company name, adjuster name, or claim status update.", parameters: { type: "object", properties: { contact_id: { type: "string", description: "The contact ID returned from lookup_contact" }, contact_type: { type: "string", enum: ["lead","customer"], description: "Whether this is a lead or customer" }, insurance_company: { type: "string", description: "Name of the insurance company" }, claim_number: { type: "string", description: "Insurance claim number" }, adjuster_name: { type: "string", description: "Name of the insurance adjuster" }, claim_status: { type: "string", description: "e.g. filed, approved, denied, pending, supplement, closed" }, caller_phone: { type: "string", description: "Caller's phone number (used to find contact if contact_id not available)" } }, required: [] } }
@@ -1871,16 +1871,17 @@ async function handleToolCall(functionCall, companyId, context = {}) {
           );
           if (staffRows.length) { assignedTo = staffRows[0].email; assignedName = staffRows[0].dname; }
         }
+        const contactName = (parsedArgs.contact_name || '').trim() || null;
         const taskData = {};
         if (parsedArgs.lead_id) taskData.lead_id = parsedArgs.lead_id;
         if (parsedArgs.customer_id) taskData.customer_id = parsedArgs.customer_id;
         await pool.query(
-          `INSERT INTO tasks (id, company_id, title, name, description, assigned_to, assigned_to_name, due_date, priority, status, created_by, data)
-           VALUES ($1,$2,$3,$3,$4,$5,$6,$7,'medium','pending','sarah_voice',$8)`,
-          [taskId, companyId, taskName, parsedArgs.description || null, assignedTo, assignedName, parsedArgs.due_date || null, Object.keys(taskData).length > 0 ? JSON.stringify(taskData) : null]
+          `INSERT INTO tasks (id, company_id, title, name, description, assigned_to, assigned_to_name, due_date, priority, status, created_by, related_to, data)
+           VALUES ($1,$2,$3,$3,$4,$5,$6,$7,'medium','pending','sarah_voice',$8,$9)`,
+          [taskId, companyId, taskName, parsedArgs.description || null, assignedTo, assignedName, parsedArgs.due_date || null, contactName, Object.keys(taskData).length > 0 ? JSON.stringify(taskData) : null]
         );
-        console.log(`[Sarah CRM] create_task: ${taskId} - "${taskName}"${taskData.lead_id ? ` linked to lead ${taskData.lead_id}` : ''}`);
-        return { success: true, id: taskId, message: `Task "${taskName}" created${assignedName ? ` for ${assignedName}` : ''}` };
+        console.log(`[Sarah CRM] create_task: ${taskId} - "${taskName}"${contactName ? ` related_to="${contactName}"` : ''}${taskData.lead_id ? ` lead_id=${taskData.lead_id}` : ''}`);
+        return { success: true, id: taskId, message: `Task "${taskName}" created${assignedName ? ` for ${assignedName}` : ''}${contactName ? ` linked to ${contactName}` : ''}` };
       } catch (e) {
         console.error('[Sarah CRM] create_task error:', e.message);
         return { success: false, message: 'Could not create the task right now.' };
@@ -1971,10 +1972,11 @@ async function handleToolCall(functionCall, companyId, context = {}) {
 
         if (!contact) return { success: false, message: `No contact found for "${searchName || searchPhone}". They may be new — use save_lead_details to create a record.` };
 
-        // Get open tasks for this contact (limit 3 as specified)
+        // Get open tasks for this contact — match by ID in data JSON OR by related_to name (backwards compatible)
+        const contactNameLower = (contact.name || '').toLowerCase();
         const { rows: tasks } = await pool.query(
-          `SELECT title, name, description, due_date, status FROM tasks WHERE company_id = $1 AND status NOT IN ('completed','done','closed') AND (data->>'lead_id' = $2 OR data->>'customer_id' = $2) ORDER BY created_at DESC LIMIT 3`,
-          [companyId, contact.id]
+          `SELECT title, name, description, due_date, status FROM tasks WHERE company_id = $1 AND status NOT IN ('completed','done','closed') AND (data->>'lead_id' = $2 OR data->>'customer_id' = $2 OR ($3 != '' AND LOWER(related_to) LIKE $4)) ORDER BY created_at DESC LIMIT 3`,
+          [companyId, contact.id, contactNameLower, `%${contactNameLower}%`]
         );
 
         // Pull claim info from data field if available
@@ -2322,7 +2324,7 @@ CRM TOOLS — use these automatically as info comes in:
 - lookup_contact: When a caller mentions their claim, prior inspection, prior conversation, or asks about their file, call this immediately using their name or phone. Then reference what you find naturally — e.g. "I see your claim is with State Farm, claim number 4892." Do NOT read out the entire file verbatim.
 - update_contact_notes: Call this whenever the caller shares any important detail — storm date, deductible amount, damage description, adjuster meeting date, scheduling preference, anything relevant. Be specific and factual. Call it DURING the conversation as info comes in, not at the end.
 - update_claim_info: Call this the moment a caller provides their insurance company, claim number, adjuster name, or claim status. Don't ask them to repeat it — save it immediately.
-- create_task: When the caller asks to be called back, or you promise a follow-up, create a task immediately. Include the contact's lead_id or customer_id (from lookup_contact) to link it to their record.
+- create_task: When the caller asks to be called back, or you promise a follow-up, create a task immediately. Always include contact_name (caller's full name), and lead_id or customer_id from lookup_contact if available, so the task appears in their profile.
 - After ANY tool call, respond to the caller immediately. Never go silent.
 - NEVER make up pricing, service details, warranties, timelines, or company facts. Use your knowledge base below. If you don't know something, say "Let me have someone get back to you on that" or "I'll make sure the right person follows up with those details."
 - When a caller asks about services, pricing, or how things work, reference your knowledge base — don't guess.`;
@@ -5901,10 +5903,10 @@ twilioWss.on('connection', async (twilioWs, req) => {
                 );
                 const lastComm = commResult.rows[0];
 
-                // Get open tasks linked to this contact
+                // Get open tasks linked to this contact (by ID in data JSON OR by related_to name)
                 const taskResult = await pool.query(
-                  `SELECT title, name, due_date FROM tasks WHERE company_id = $1 AND status NOT IN ('completed','done','closed') AND (data->>'lead_id' = $2 OR data->>'customer_id' = $2) ORDER BY created_at DESC LIMIT 3`,
-                  [callCompanyId, foundLeadId || '']
+                  `SELECT title, name, due_date FROM tasks WHERE company_id = $1 AND status NOT IN ('completed','done','closed') AND (data->>'lead_id' = $2 OR data->>'customer_id' = $2 OR ($3 != '' AND LOWER(related_to) LIKE $4)) ORDER BY created_at DESC LIMIT 3`,
+                  [callCompanyId, foundLeadId || '', foundLeadName || '', '%' + (foundLeadName || '').toLowerCase() + '%']
                 );
 
                 returningLeadContext = `\n\nRETURNING CALLER CONTEXT: This caller (${callerPhone}) is ${foundLeadName} (contact ID: ${foundLeadId || 'unknown'}). `;

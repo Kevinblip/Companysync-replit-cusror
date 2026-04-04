@@ -4647,11 +4647,12 @@ ${strings.map(s => `<si><t>${ex(s)}</t></si>`).join('\n')}
           }
         }
 
-        // Fetch open tasks for this contact
+        // Fetch open tasks for this contact — by ID in data JSON OR by related_to name (backwards compatible)
         if (contactId) {
+          const cNameLower = contactName !== 'Unknown' ? contactName.toLowerCase() : '';
           const tRes = await pool.query(
-            `SELECT title, name, due_date FROM tasks WHERE company_id = $1 AND status NOT IN ('completed','done','closed') AND (data->>'lead_id' = $2 OR data->>'customer_id' = $2) ORDER BY created_at DESC LIMIT 5`,
-            [company_id, contactId]
+            `SELECT title, name, due_date FROM tasks WHERE company_id = $1 AND status NOT IN ('completed','done','closed') AND (data->>'lead_id' = $2 OR data->>'customer_id' = $2 OR ($3 != '' AND LOWER(related_to) LIKE $4)) ORDER BY created_at DESC LIMIT 5`,
+            [company_id, contactId, cNameLower, `%${cNameLower}%`]
           );
           contactOpenTasks = tRes.rows.map(t => t.title || t.name).filter(Boolean);
         }
