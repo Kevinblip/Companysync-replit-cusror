@@ -16,7 +16,7 @@ PORT = "5000"
 [deployment]
 deploymentTarget = "autoscale"
 run = ["node", "./dist/index.cjs"]
-build = ["node_modules/.bin/vite", "build"]
+build = ["bash", "-c", "npm install --include=dev && npx vite build"]
 
 [workflows]
 runButton = "Project"
