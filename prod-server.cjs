@@ -7,7 +7,6 @@ const prodAuth = require('./db/prod-auth.cjs');
 const prodIntegrations = require('./db/prod-integrations.cjs');
 const localAuth = require('./db/local-auth.cjs');
 const nodemailer = require('nodemailer');
-const { Scan } = require('lucide-react');
 
 async function sendEmail({ to, subject, html, message, from, cc }) {
   const fromAddr = from || process.env.EMAIL_FROM || 'CompanySync <noreply@resend.dev>';
