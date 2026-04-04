@@ -5099,12 +5099,10 @@ Be very thorough and extract EVERY line item you see.`,
                 accept=".pdf,.PDF,.png,.PNG,.jpg,.JPG,.jpeg,.JPEG"
                 onChange={handleUploadTrainingFile}
               />
-              {selectedMode === "document" && (
-                <Button variant="outline" onClick={() => setShowMergeDialog(true)} data-testid="button-merge-docs">
-                  <Share2 className="w-4 h-4 mr-2" />
-                  Merge Docs
-                </Button>
-              )}
+              <Button variant="outline" onClick={() => setShowMergeDialog(true)} data-testid="button-merge-docs">
+                <Share2 className="w-4 h-4 mr-2" />
+                Merge Docs
+              </Button>
               <Button variant="outline" onClick={() => setShowConfig(true)} data-testid="button-settings">
                 <Settings className="w-4 h-4 mr-2" />
                 {t.sidebar.settings}
