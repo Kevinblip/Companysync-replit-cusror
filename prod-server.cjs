@@ -117,7 +117,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const PORT = parseInt(process.env.PORT || '5000', 10);
-const DIST_DIR = path.resolve(__dirname);
+const DIST_DIR = path.resolve(__dirname, 'dist');
 const SETTINGS_FILE = path.resolve('.sarah-voice-settings.json');
 
 // Cache index.html in memory at startup for instant health-check responses
