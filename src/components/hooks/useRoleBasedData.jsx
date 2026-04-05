@@ -245,9 +245,11 @@ export function useRoleBasedData() {
     if (!effectiveUserEmail || !allItems) return [];
     if (isAdmin || hasPermission(feature, 'view_global')) return allItems;
     if (hasPermission(feature, 'view_own')) {
-      const myCustomerNames = filteredCustomers.map(c => c.name);
+      const myCustomerNames = filteredCustomers.map(c => c.name).filter(Boolean);
+      const myCustomerIds   = filteredCustomers.map(c => c.id).filter(Boolean);
       return allItems.filter(item => 
-        myCustomerNames.includes(item.customer_name) ||
+        (item.customer_name && myCustomerNames.includes(item.customer_name)) ||
+        (item.customer_id   && myCustomerIds.includes(item.customer_id))     ||
         item.created_by === effectiveUserEmail
       );
     }

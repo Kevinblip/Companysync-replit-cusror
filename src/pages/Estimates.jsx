@@ -560,6 +560,7 @@ export default function EstimatesPage() {
       valid_until: formData.valid_until,
       items: formData.items,
       notes: formData.notes,
+      created_by: user?.email,
     });
   };
 
