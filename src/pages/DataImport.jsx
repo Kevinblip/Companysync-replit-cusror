@@ -110,6 +110,20 @@ export default function DataImport() {
       { key: 'vendor_name', label: 'Vendor Name', required: false },
       { key: 'notes', label: 'Notes', required: false },
     ],
+    InspectionJob: [
+      { key: 'client_name', label: 'Client Name', required: true },
+      { key: 'property_address', label: 'Property Address', required: true },
+      { key: 'client_phone', label: 'Client Phone', required: false },
+      { key: 'client_email', label: 'Client Email', required: false },
+      { key: 'inspection_type', label: 'Inspection Type', required: false },
+      { key: 'damage_type', label: 'Damage Type', required: false },
+      { key: 'priority', label: 'Priority', required: false },
+      { key: 'status', label: 'Status', required: false },
+      { key: 'assigned_to_email', label: 'Assigned To (Email)', required: false },
+      { key: 'inspection_date', label: 'Inspection Date (YYYY-MM-DD)', required: false },
+      { key: 'inspection_time', label: 'Inspection Time', required: false },
+      { key: 'notes', label: 'Notes', required: false },
+    ],
     Task: [
       { key: 'name', label: 'Task Name', required: true },
       { key: 'description', label: 'Description', required: false },
@@ -1131,13 +1145,15 @@ export default function DataImport() {
       let imported = 0;
       let skippedDuplicates = 0;
 
-      if ((entityType === 'Lead' || entityType === 'Customer') && records.length > 0) {
+      const isBackendImportType = entityType === 'Lead' || entityType === 'Customer' || entityType === 'InspectionJob';
+
+      if (isBackendImportType && records.length > 0) {
         // DEDUP-SAFE IMPORT: full dedup check + insert handled server-side
-        const response = await base44.functions.invoke('importLeadsOrCustomers', {
-          records,
-          entity_type: entityType,
-          company_id: myCompany.id
-        });
+        const fnName = entityType === 'InspectionJob' ? 'importInspectionJobs' : 'importLeadsOrCustomers';
+        const fnParams = entityType === 'InspectionJob'
+          ? { records, company_id: myCompany.id }
+          : { records, entity_type: entityType, company_id: myCompany.id };
+        const response = await base44.functions.invoke(fnName, fnParams);
         const result = response.data || {};
         if (result.success === false) {
           setImportResult({ success: false, error: result.error || 'Import failed on the server.', imported: 0, skipped: skippedRequired, skippedDuplicates: 0, errors: processingErrors });
@@ -1406,6 +1422,7 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
                   <SelectItem value="Staff">Staff Members</SelectItem>
                   <SelectItem value="Lead">Leads</SelectItem>
                   <SelectItem value="Customer">Customers</SelectItem>
+                  <SelectItem value="InspectionJob">📷 CrewCam Inspection Jobs</SelectItem>
                   <SelectItem value="Task">Tasks</SelectItem>
                   <SelectItem value="Item">Items/Products</SelectItem>
                   <SelectItem value="SMSTemplate">📱 SMS Templates</SelectItem>

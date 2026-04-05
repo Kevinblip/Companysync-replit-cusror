@@ -2119,6 +2119,77 @@ const functionHandlers = {
     }
   },
 
+  async importInspectionJobs(params) {
+    const { records = [], company_id } = params;
+    if (!company_id) {
+      return { success: false, error: 'company_id is required', imported: 0, skippedDuplicates: 0, errors: 0, errorDetails: [] };
+    }
+    try {
+      const { getPool } = await import('./db/schema.js');
+      const pool = getPool();
+
+      // Load existing jobs as a dedup snapshot (property_address + client_name)
+      const existing = await pool.query(
+        `SELECT data->>'property_address' AS property_address, data->>'client_name' AS client_name
+         FROM generic_entities WHERE entity_type = 'InspectionJob' AND company_id = $1`,
+        [company_id]
+      );
+      const dedupSet = new Set();
+      for (const row of existing.rows) {
+        const key = `${(row.property_address || '').toLowerCase().trim()}|||${(row.client_name || '').toLowerCase().trim()}`;
+        dedupSet.add(key);
+      }
+
+      // Phase 1: filter
+      let skippedDuplicates = 0;
+      const toInsert = [];
+      for (const record of records) {
+        const addrKey = (record.property_address || '').toLowerCase().trim();
+        const nameKey = (record.client_name || '').toLowerCase().trim();
+        const key = `${addrKey}|||${nameKey}`;
+        if (addrKey && nameKey && dedupSet.has(key)) {
+          skippedDuplicates++;
+        } else {
+          toInsert.push(record);
+        }
+      }
+
+      // Phase 2: insert in batches
+      let imported = 0;
+      let errors = 0;
+      const errorDetails = [];
+      const batchSize = 10;
+
+      for (let i = 0; i < toInsert.length; i += batchSize) {
+        const batch = toInsert.slice(i, i + batchSize);
+        for (const record of batch) {
+          try {
+            const id = record.id || `local_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+            const { id: _id, company_id: _cid, ...entityData } = record;
+            await pool.query(
+              `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date)
+               VALUES ($1, 'InspectionJob', $2, $3, NOW(), NOW())
+               ON CONFLICT (id, entity_type) DO NOTHING`,
+              [id, company_id, JSON.stringify(entityData)]
+            );
+            imported++;
+          } catch (err) {
+            errors++;
+            errorDetails.push({ reason: err.message, data: record });
+          }
+        }
+        if (i + batchSize < toInsert.length) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
+
+      return { success: true, imported, skippedDuplicates, errors, errorDetails };
+    } catch (err) {
+      console.error(`[importInspectionJobs] Error:`, err.message);
+      return { success: false, error: err.message, imported: 0, skippedDuplicates: 0, errors: 0, errorDetails: [] };
+    }
+  },
+
   async getCompanyHierarchy(params) {
     const { company_id } = params;
     if (!company_id) return { parent: null, children: [], siblings: [] };

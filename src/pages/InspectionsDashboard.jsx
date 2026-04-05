@@ -5,7 +5,7 @@ import { createPageUrl } from '@/utils';
 import { Link, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Camera, Users, FileText, Settings, Video, Loader2, Eye, Send, Trash2, MoreVertical, UserPlus, CalendarDays, Search, X } from 'lucide-react';
+import { Plus, Camera, Users, FileText, Settings, Video, Loader2, Eye, Send, Trash2, MoreVertical, UserPlus, CalendarDays, Search, X, Download, Upload } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import AssignmentDialog from '../components/inspections/AssignmentDialog';
 import { Badge } from '@/components/ui/badge';
@@ -202,22 +202,47 @@ export default function InspectionsDashboard() {
     return media.filter(m => m.related_entity_id === jobId && m.file_type === 'photo').length;
   };
 
-  const handleDeleteJob = (jobId) => { // Renamed from handleDelete
+  const handleDeleteJob = (jobId) => {
     if (window.confirm(t.inspections.deleteConfirm || 'Are you sure you want to delete this inspection job?')) {
       deleteJobMutation.mutate(jobId);
     }
   };
 
+  const handleExportCSV = () => {
+    const cols = ['client_name', 'property_address', 'client_phone', 'client_email', 'inspection_type', 'damage_type', 'priority', 'status', 'assigned_to_email', 'inspection_date', 'inspection_time', 'notes'];
+    const header = cols.join(',');
+    const rows = allJobs.map(j => cols.map(c => {
+      const v = j[c] ?? '';
+      return `"${String(v).replace(/"/g, '""')}"`;
+    }).join(','));
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `crewcam-jobs-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="p-2 md:p-6 bg-gradient-to-br from-blue-50 to-indigo-50 min-h-screen">
       <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center flex-wrap gap-2">
             <h1 className="text-3xl font-bold text-gray-800">{t.sidebar.crewcamDashboard}</h1>
-            <Button asChild>
-                <Link to={createPageUrl('InspectionCapture')}>
-                    <Plus className="mr-2 h-4 w-4" /> {t.inspections.startNewJob || 'Start New Job'}
-                </Link>
-            </Button>
+            <div className="flex items-center gap-2 flex-wrap">
+                <Button variant="outline" size="sm" onClick={handleExportCSV} data-testid="button-export-crewcam">
+                    <Download className="mr-2 h-4 w-4" /> Export CSV
+                </Button>
+                <Button variant="outline" size="sm" asChild data-testid="button-import-crewcam">
+                    <Link to={createPageUrl('DataImport')}>
+                        <Upload className="mr-2 h-4 w-4" /> Import CSV
+                    </Link>
+                </Button>
+                <Button asChild>
+                    <Link to={createPageUrl('InspectionCapture')}>
+                        <Plus className="mr-2 h-4 w-4" /> {t.inspections.startNewJob || 'Start New Job'}
+                    </Link>
+                </Button>
+            </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
