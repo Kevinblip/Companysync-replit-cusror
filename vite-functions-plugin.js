@@ -2029,10 +2029,8 @@ const functionHandlers = {
         if (row.name) nameSet.add(row.name.toLowerCase().trim());
       }
 
-      let imported = 0;
       let skippedDuplicates = 0;
-      let errors = 0;
-      const errorDetails = [];
+      const toInsert = [];
 
       for (const record of records) {
         const emailKey = (record.email || '').toLowerCase().trim();
@@ -2047,28 +2045,37 @@ const functionHandlers = {
 
         if (isDuplicate) {
           skippedDuplicates++;
-          continue;
+        } else {
+          toInsert.push(record);
         }
+      }
 
-        try {
-          const id = `${entity_type.toLowerCase()}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-          const filteredEntries = [['id', id], ...Object.entries(record).filter(([k]) => allowedCols.has(k))];
-          const cols = filteredEntries.map(([k]) => `"${k}"`).join(', ');
-          const placeholders = filteredEntries.map((_, idx) => `$${idx + 1}`).join(', ');
-          const values = filteredEntries.map(([, v]) => v);
+      let imported = 0;
+      let errors = 0;
+      const errorDetails = [];
+      const batchSize = 10;
 
-          await pool.query(
-            `INSERT INTO ${tableName} (${cols}) VALUES (${placeholders})`,
-            values
-          );
-
-          imported++;
-          if (emailKey) emailSet.add(emailKey);
-          if (phoneKey) phoneSet.add(phoneKey);
-          if (nameKey) nameSet.add(nameKey);
-        } catch (err) {
-          errors++;
-          errorDetails.push({ reason: err.message, data: record });
+      for (let i = 0; i < toInsert.length; i += batchSize) {
+        const batch = toInsert.slice(i, i + batchSize);
+        for (const record of batch) {
+          try {
+            const id = `${entity_type.toLowerCase()}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+            const filteredEntries = [['id', id], ...Object.entries(record).filter(([k]) => allowedCols.has(k))];
+            const cols = filteredEntries.map(([k]) => `"${k}"`).join(', ');
+            const placeholders = filteredEntries.map((_, idx) => `$${idx + 1}`).join(', ');
+            const values = filteredEntries.map(([, v]) => v);
+            await pool.query(
+              `INSERT INTO ${tableName} (${cols}) VALUES (${placeholders})`,
+              values
+            );
+            imported++;
+          } catch (err) {
+            errors++;
+            errorDetails.push({ reason: err.message, data: record });
+          }
+        }
+        if (i + batchSize < toInsert.length) {
+          await new Promise(r => setTimeout(r, 500));
         }
       }
 
