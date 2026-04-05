@@ -1128,11 +1128,32 @@ export default function DataImport() {
 
       const apiEntityType = entityType === 'Item' ? 'PriceListItem' : entityType;
 
-      // BATCHED IMPORT WITH DELAYS
-      const batchSize = 10; // Reduced from 50 to 10
       let imported = 0;
+      let skippedDuplicates = 0;
 
-      if (records.length > 0) {
+      if ((entityType === 'Lead' || entityType === 'Customer') && records.length > 0) {
+        // DEDUP-SAFE IMPORT: routes through backend to skip existing contacts
+        const response = await base44.functions.invoke('importLeadsOrCustomers', {
+          records,
+          entity_type: entityType,
+          company_id: myCompany.id
+        });
+        const result = response.data || {};
+        imported = result.imported || 0;
+        skippedDuplicates = result.skippedDuplicates || 0;
+        processingErrors += result.errors || 0;
+        if (Array.isArray(result.errorDetails)) {
+          result.errorDetails.forEach(d => errorLog.push({ row: '?', reason: d.reason, data: JSON.stringify(d.data) }));
+        }
+        if (result.success === false && !result.imported) {
+          setImportResult({ success: false, error: result.error || 'Import failed on the server.', imported: 0, skipped: skippedRequired, skippedDuplicates: 0, errors: processingErrors });
+          setStep(4);
+          setImporting(false);
+          return;
+        }
+      } else if (records.length > 0) {
+        // REGULAR BATCHED IMPORT (no dedup) for all other entity types
+        const batchSize = 10;
         for (let i = 0; i < records.length; i += batchSize) {
           const batch = records.slice(i, i + batchSize);
           try {
@@ -1151,7 +1172,6 @@ export default function DataImport() {
               }
             }
           }
-          
           if (i + batchSize < records.length) {
             await new Promise(resolve => setTimeout(resolve, 2000));
             console.log(`Imported ${imported} of ${records.length}...`);
@@ -1168,9 +1188,9 @@ export default function DataImport() {
         file_name: file.name,
         total_rows: lines.length - 1,
         imported_count: imported,
-        skipped_count: skippedRequired,
+        skipped_count: skippedRequired + skippedDuplicates,
         error_count: processingErrors,
-        status: (skippedRequired + processingErrors) > 0 ? 'completed_with_errors' : 'completed',
+        status: (skippedRequired + skippedDuplicates + processingErrors) > 0 ? 'completed_with_errors' : 'completed',
         column_mapping: columnMapping,
         preview_data: previewRows,
         start_time: importStartTime.toISOString(),
@@ -1181,6 +1201,7 @@ export default function DataImport() {
         success: true,
         imported: imported,
         skipped: skippedRequired,
+        skippedDuplicates: skippedDuplicates,
         errors: processingErrors
       });
 
@@ -1660,13 +1681,21 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
                   </AlertDescription>
                 </Alert>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className={`grid gap-4 ${importResult.skippedDuplicates > 0 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}>
                   <Card className="bg-green-50 border-green-200">
                     <CardContent className="p-4">
                       <div className="text-3xl font-bold text-green-700">{importResult.imported}</div>
                       <div className="text-sm text-green-600">Imported</div>
                     </CardContent>
                   </Card>
+                  {importResult.skippedDuplicates > 0 && (
+                    <Card className="bg-blue-50 border-blue-200">
+                      <CardContent className="p-4">
+                        <div className="text-3xl font-bold text-blue-700">{importResult.skippedDuplicates}</div>
+                        <div className="text-sm text-blue-600">Already Exists</div>
+                      </CardContent>
+                    </Card>
+                  )}
                   <Card className="bg-yellow-50 border-yellow-200">
                     <CardContent className="p-4">
                       <div className="text-3xl font-bold text-yellow-700">{importResult.skipped}</div>

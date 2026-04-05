@@ -1997,6 +1997,88 @@ const functionHandlers = {
     }
   },
 
+  async importLeadsOrCustomers(params) {
+    const { records = [], entity_type, company_id } = params;
+    if (!company_id || !entity_type || !['Lead', 'Customer'].includes(entity_type)) {
+      return { success: false, error: 'company_id and entity_type (Lead or Customer) are required', imported: 0, skippedDuplicates: 0, errors: 0, errorDetails: [] };
+    }
+
+    const ALLOWED_LEAD_COLS = new Set(['company_id','name','email','phone','phone_2','address','street','city','state','zip','company','status','source','lead_source','assigned_to','service_needed','customer_type','lead_score','value','notes','tags','is_active','last_contact_date','next_follow_up_date','ghl_contact_id','created_by','needs_attention']);
+    const ALLOWED_CUSTOMER_COLS = new Set(['company_id','name','company_name','customer_type','email','phone','phone_2','street','city','state','zip','address','website','source','referral_source','custom_source','is_active','notes','group_name','assigned_to','insurance_company','adjuster_name','adjuster_phone','status','total_revenue','customer_number','tags']);
+
+    const allowedCols = entity_type === 'Lead' ? ALLOWED_LEAD_COLS : ALLOWED_CUSTOMER_COLS;
+    const tableName = entity_type === 'Lead' ? 'leads' : 'customers';
+
+    try {
+      const { getPool } = await import('./db/schema.js');
+      const pool = getPool();
+
+      const existing = await pool.query(
+        `SELECT name, email, phone FROM ${tableName} WHERE company_id = $1`,
+        [company_id]
+      );
+
+      const emailSet = new Set();
+      const phoneSet = new Set();
+      const nameSet = new Set();
+
+      for (const row of existing.rows) {
+        if (row.email) emailSet.add(row.email.toLowerCase().trim());
+        const digits = (row.phone || '').replace(/\D/g, '');
+        if (digits.length >= 10) phoneSet.add(digits.slice(-10));
+        if (row.name) nameSet.add(row.name.toLowerCase().trim());
+      }
+
+      let imported = 0;
+      let skippedDuplicates = 0;
+      let errors = 0;
+      const errorDetails = [];
+
+      for (const record of records) {
+        const emailKey = (record.email || '').toLowerCase().trim();
+        const digits = (record.phone || '').replace(/\D/g, '');
+        const phoneKey = digits.length >= 10 ? digits.slice(-10) : '';
+        const nameKey = (record.name || '').toLowerCase().trim();
+
+        const isDuplicate =
+          (emailKey && emailSet.has(emailKey)) ||
+          (phoneKey && phoneSet.has(phoneKey)) ||
+          (nameKey && nameSet.has(nameKey));
+
+        if (isDuplicate) {
+          skippedDuplicates++;
+          continue;
+        }
+
+        try {
+          const id = `${entity_type.toLowerCase()}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+          const filteredEntries = [['id', id], ...Object.entries(record).filter(([k]) => allowedCols.has(k))];
+          const cols = filteredEntries.map(([k]) => `"${k}"`).join(', ');
+          const placeholders = filteredEntries.map((_, idx) => `$${idx + 1}`).join(', ');
+          const values = filteredEntries.map(([, v]) => v);
+
+          await pool.query(
+            `INSERT INTO ${tableName} (${cols}) VALUES (${placeholders})`,
+            values
+          );
+
+          imported++;
+          if (emailKey) emailSet.add(emailKey);
+          if (phoneKey) phoneSet.add(phoneKey);
+          if (nameKey) nameSet.add(nameKey);
+        } catch (err) {
+          errors++;
+          errorDetails.push({ reason: err.message, data: record });
+        }
+      }
+
+      return { success: true, imported, skippedDuplicates, errors, errorDetails };
+    } catch (err) {
+      console.error(`[importLeadsOrCustomers] Error:`, err.message);
+      return { success: false, error: err.message, imported: 0, skippedDuplicates: 0, errors: 0, errorDetails: [] };
+    }
+  },
+
   async getCompanyHierarchy(params) {
     const { company_id } = params;
     if (!company_id) return { parent: null, children: [], siblings: [] };
