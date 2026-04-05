@@ -1108,6 +1108,10 @@ export default function DataImport() {
             record.customer_number = totalDataRows - i + 1;
           }
 
+          if ((entityType === 'Customer' || entityType === 'Lead') && record.is_active === undefined) {
+            record.is_active = true;
+          }
+
           // Check if row is empty (all mapped fields are empty)
           const hasData = Object.keys(record).some(key => 
             key !== 'company_id' && 

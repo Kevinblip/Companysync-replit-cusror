@@ -199,8 +199,8 @@ export default function Customers() {
   }, [allCustomers, filterCustomers, user, myCompany]);
 
   const totalCustomers = customers.length;
-  const activeCustomers = customers.filter(c => c.is_active).length;
-  const inactiveCustomers = customers.filter(c => !c.is_active).length;
+  const activeCustomers = customers.filter(c => c.is_active !== false).length;
+  const inactiveCustomers = customers.filter(c => c.is_active === false).length;
   const contactsLoggedInToday = 0;
 
   const handleFormChange = useCallback((field, value) => {
@@ -734,7 +734,7 @@ export default function Customers() {
       customer.insurance_company || '',
       customer.adjuster_name || '',
       customer.adjuster_phone || '',
-      customer.is_active ? 'Yes' : 'No',
+      customer.is_active !== false ? 'Yes' : 'No',
       new Date(customer.created_date).toLocaleDateString(),
       customer.notes || ''
     ]);
@@ -842,9 +842,9 @@ export default function Customers() {
   );
 
   if (filters.status === 'active') {
-    filteredCustomers = filteredCustomers.filter(c => c.is_active);
+    filteredCustomers = filteredCustomers.filter(c => c.is_active !== false);
   } else if (filters.status === 'inactive') {
-    filteredCustomers = filteredCustomers.filter(c => !c.is_active);
+    filteredCustomers = filteredCustomers.filter(c => c.is_active === false);
   }
 
   if (filters.group !== 'all') {
@@ -1055,7 +1055,7 @@ export default function Customers() {
                 {visibleColumns.active && (
                   <td className="px-4 py-3 whitespace-nowrap">
                     <Switch
-                      checked={customer.is_active}
+                      checked={customer.is_active !== false}
                       onCheckedChange={() => handleToggleActive(customer)}
                     />
                   </td>
@@ -2073,8 +2073,8 @@ export default function Customers() {
                         })()}
                       </div>
                       <div className="flex flex-col items-end gap-1">
-                        <Badge variant="outline" className={customer.is_active ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-50 text-gray-700"}>
-                          {customer.is_active ? t.customers.active : t.customers.inactive}
+                        <Badge variant="outline" className={customer.is_active !== false ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-50 text-gray-700"}>
+                          {customer.is_active !== false ? t.customers.active : t.customers.inactive}
                         </Badge>
                         {customer.customer_type && (
                           <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 text-xs">
