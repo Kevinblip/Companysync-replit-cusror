@@ -336,6 +336,27 @@ export default function Items() {
     setSelectedItems([]);
   };
 
+  const handleDeleteTabItems = async () => {
+    const tabLabel = activeTab === 'xactimate' ? 'Xactimate'
+      : activeTab === 'xactimate_new' ? 'Xactimate New'
+      : activeTab === 'symbility' ? 'Symbility'
+      : activeTab === 'custom' ? 'Custom'
+      : null;
+    if (!tabLabel) return;
+    const toDelete = tabFilteredItems;
+    if (!toDelete.length) { alert('No items to delete in this tab.'); return; }
+    if (!window.confirm(`⚠️ Delete all ${toDelete.length} ${tabLabel} items?\n\nThis action cannot be undone.`)) return;
+    const BATCH = 20;
+    let deleted = 0;
+    for (let i = 0; i < toDelete.length; i += BATCH) {
+      const batch = toDelete.slice(i, i + BATCH);
+      await Promise.all(batch.map(item => base44.entities.PriceListItem.delete(item.id)));
+      deleted += batch.length;
+    }
+    queryClient.invalidateQueries({ queryKey: ['price-list-items'] });
+    alert(`✅ Deleted ${deleted} ${tabLabel} items.`);
+  };
+
   const handleAddToEstimate = () => {
     const itemsToAdd = allItems.filter(item => selectedItems.includes(item.id));
 
@@ -811,6 +832,17 @@ export default function Items() {
                     <Sparkles className="w-4 h-4 mr-2" />
                     Auto-Categorize
                   </Button>
+
+                  {activeTab !== 'all' && tabFilteredItems.length > 0 && (
+                    <Button
+                      variant="outline"
+                      className="border-red-300 text-red-700 hover:bg-red-50"
+                      onClick={handleDeleteTabItems}
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete {activeTab === 'xactimate' ? 'Xactimate' : activeTab === 'xactimate_new' ? 'Xactimate New' : activeTab === 'symbility' ? 'Symbility' : 'Custom'} ({tabFilteredItems.length})
+                    </Button>
+                  )}
 
                   <Button
                     variant="destructive"
