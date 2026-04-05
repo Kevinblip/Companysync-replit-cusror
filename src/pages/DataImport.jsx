@@ -123,7 +123,6 @@ export default function DataImport() {
       { key: 'inspection_date', label: 'Inspection Date (YYYY-MM-DD)', required: false },
       { key: 'inspection_time', label: 'Inspection Time', required: false },
       { key: 'notes', label: 'Notes', required: false },
-      { key: 'photo_urls', label: 'Photo URLs (migrate from old system)', required: false },
     ],
     Task: [
       { key: 'name', label: 'Task Name', required: true },
@@ -452,7 +451,6 @@ export default function DataImport() {
       assigned_to_email: ['assigned to', 'inspector', 'assigned inspector', 'assignee', 'assigned to email', 'inspector email'],
       inspection_date: ['inspection date', 'scheduled date', 'job date', 'date of inspection', 'scheduled'],
       inspection_time: ['inspection time', 'time', 'scheduled time', 'time of inspection'],
-      photo_urls: ['photo urls', 'photos', 'photo url', 'image urls', 'images', 'photo links', 'photo files'],
     };
 
     if (entityType === 'Item') {

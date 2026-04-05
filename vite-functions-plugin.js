@@ -2183,35 +2183,11 @@ const functionHandlers = {
         }
       }
 
-      // Helper: fetch a remote photo and store it in file_uploads, return new local URL
-      const migratePhoto = async (remoteUrl) => {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 15000);
-          const resp = await fetch(remoteUrl, { signal: controller.signal });
-          clearTimeout(timeout);
-          if (!resp.ok) return null;
-          const contentType = resp.headers.get('content-type') || 'image/jpeg';
-          const buffer = Buffer.from(await resp.arrayBuffer());
-          const ext = contentType.includes('png') ? 'png' : contentType.includes('gif') ? 'gif' : contentType.includes('webp') ? 'webp' : 'jpg';
-          const newId = `insp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
-          const origName = remoteUrl.split('/').pop().split('?')[0] || newId;
-          await pool.query(
-            `INSERT INTO file_uploads (id, original_filename, mime_type, file_size, file_data)
-             VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
-            [newId, origName, contentType, buffer.length, buffer]
-          );
-          return `/uploads/${newId}`;
-        } catch (_) {
-          return null;
-        }
-      };
-
-      // Phase 2: insert in batches (with photo migration)
+      // Phase 2: insert in batches
       let imported = 0;
       let errors = 0;
       const errorDetails = [];
-      const batchSize = 5;
+      const batchSize = 10;
 
       for (let i = 0; i < toInsert.length; i += batchSize) {
         const batch = toInsert.slice(i, i + batchSize);
@@ -2219,21 +2195,10 @@ const functionHandlers = {
           try {
             const id = record.id || `local_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
             const { id: _id, company_id: _cid, ...entityData } = record;
-
-            // Migrate photos if photo_urls field is present
-            if (entityData.photo_urls) {
-              const rawUrls = String(entityData.photo_urls)
-                .split(/[\n,|]+/)
-                .map(u => u.trim())
-                .filter(u => u.startsWith('http'));
-              if (rawUrls.length > 0) {
-                const newUrls = await Promise.all(rawUrls.map(migratePhoto));
-                const kept = newUrls.filter(Boolean);
-                entityData.photo_urls = kept.length > 0 ? kept.join(',') : entityData.photo_urls;
-                entityData.photo_count = kept.length;
-              }
-            }
-
+            // Strip photo/video columns — handle photos separately via zip upload
+            delete entityData.photo_urls;
+            delete entityData.photo_count;
+            delete entityData.video_count;
             await pool.query(
               `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date)
                VALUES ($1, 'InspectionJob', $2, $3, NOW(), NOW())
@@ -2247,7 +2212,7 @@ const functionHandlers = {
           }
         }
         if (i + batchSize < toInsert.length) {
-          await new Promise(r => setTimeout(r, 300));
+          await new Promise(r => setTimeout(r, 500));
         }
       }
 
