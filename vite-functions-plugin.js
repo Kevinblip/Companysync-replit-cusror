@@ -1997,10 +1997,10 @@ const functionHandlers = {
     }
   },
 
-  async filterDuplicateContacts(params) {
+  async importLeadsOrCustomers(params) {
     const { records = [], entity_type, company_id } = params;
     if (!company_id || !entity_type || !['Lead', 'Customer'].includes(entity_type)) {
-      return { success: false, error: 'company_id and entity_type (Lead or Customer) are required', skippedDuplicates: 0, recordsToInsert: records };
+      return { success: false, error: 'company_id and entity_type (Lead or Customer) are required', imported: 0, skippedDuplicates: 0, errors: 0, errorDetails: [] };
     }
 
     const tableName = entity_type === 'Lead' ? 'leads' : 'customers';
@@ -2009,15 +2009,14 @@ const functionHandlers = {
       const { getPool } = await import('./db/schema.js');
       const pool = getPool();
 
+      // Load existing records as a dedup snapshot
       const existing = await pool.query(
         `SELECT name, email, phone FROM ${tableName} WHERE company_id = $1`,
         [company_id]
       );
-
       const emailSet = new Set();
       const phoneSet = new Set();
       const nameSet = new Set();
-
       for (const row of existing.rows) {
         if (row.email) emailSet.add(row.email.toLowerCase().trim());
         const digits = (row.phone || '').replace(/\D/g, '');
@@ -2025,31 +2024,98 @@ const functionHandlers = {
         if (row.name) nameSet.add(row.name.toLowerCase().trim());
       }
 
-      let skippedDuplicates = 0;
-      const recordsToInsert = [];
+      // Get actual table columns from information_schema (same approach as prod-db universalCreate)
+      const colResult = await pool.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+        [tableName]
+      );
+      const tableColumns = new Set(colResult.rows.map(r => r.column_name));
 
+      // Phase 1: filter duplicates (dedup set is a snapshot — never updated during loop)
+      let skippedDuplicates = 0;
+      const toInsert = [];
       for (const record of records) {
         const emailKey = (record.email || '').toLowerCase().trim();
         const digits = (record.phone || '').replace(/\D/g, '');
         const phoneKey = digits.length >= 10 ? digits.slice(-10) : '';
         const nameKey = (record.name || '').toLowerCase().trim();
-
         const isDuplicate =
           (emailKey && emailSet.has(emailKey)) ||
           (phoneKey && phoneSet.has(phoneKey)) ||
           (nameKey && nameSet.has(nameKey));
-
         if (isDuplicate) {
           skippedDuplicates++;
         } else {
-          recordsToInsert.push(record);
+          toInsert.push(record);
         }
       }
 
-      return { success: true, skippedDuplicates, recordsToInsert };
+      // Phase 2: insert non-duplicates in batches, placing unknown fields into data JSONB
+      let imported = 0;
+      let errors = 0;
+      const errorDetails = [];
+      const batchSize = 10;
+
+      for (let i = 0; i < toInsert.length; i += batchSize) {
+        const batch = toInsert.slice(i, i + batchSize);
+        for (const record of batch) {
+          try {
+            const id = record.id || `local_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+            const directCols = ['id'];
+            const directVals = [id];
+            const extraData = {};
+
+            for (const [key, val] of Object.entries(record)) {
+              if (key === 'id') continue;
+              if (tableColumns.has(key)) {
+                directCols.push(`"${key}"`);
+                directVals.push(val);
+              } else {
+                extraData[key] = val;
+              }
+            }
+
+            // Merge extra fields into data JSONB if table has that column
+            if (Object.keys(extraData).length > 0 && tableColumns.has('data')) {
+              const existingDataIdx = directCols.indexOf('"data"');
+              if (existingDataIdx !== -1) {
+                const existing = typeof directVals[existingDataIdx] === 'string'
+                  ? JSON.parse(directVals[existingDataIdx])
+                  : (directVals[existingDataIdx] || {});
+                directVals[existingDataIdx] = JSON.stringify({ ...existing, ...extraData });
+              } else {
+                directCols.push('"data"');
+                directVals.push(JSON.stringify(extraData));
+              }
+            }
+
+            if (!directCols.includes('"created_at"') && tableColumns.has('created_at')) {
+              directCols.push('"created_at"'); directVals.push(new Date());
+            }
+            if (!directCols.includes('"updated_at"') && tableColumns.has('updated_at')) {
+              directCols.push('"updated_at"'); directVals.push(new Date());
+            }
+
+            const placeholders = directVals.map((_, idx) => `$${idx + 1}`).join(', ');
+            await pool.query(
+              `INSERT INTO ${tableName} (${directCols.join(', ')}) VALUES (${placeholders})`,
+              directVals
+            );
+            imported++;
+          } catch (err) {
+            errors++;
+            errorDetails.push({ reason: err.message, data: record });
+          }
+        }
+        if (i + batchSize < toInsert.length) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
+
+      return { success: true, imported, skippedDuplicates, errors, errorDetails };
     } catch (err) {
-      console.error(`[filterDuplicateContacts] Error:`, err.message);
-      return { success: false, error: err.message, skippedDuplicates: 0, recordsToInsert: records };
+      console.error(`[importLeadsOrCustomers] Error:`, err.message);
+      return { success: false, error: err.message, imported: 0, skippedDuplicates: 0, errors: 0, errorDetails: [] };
     }
   },
 
