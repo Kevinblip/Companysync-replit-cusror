@@ -258,6 +258,13 @@ export default function DataImport() {
     ],
   };
 
+  // Detect section title rows like "=== CREWCAM JOB ASSIGNMENTS ===" that are not real headers
+  const isTitleRow = (line) => {
+    const t = (line || '').trim();
+    return (t.startsWith('===') || t.startsWith('---') || t.startsWith('***')) ||
+           (t.startsWith('==') && t.endsWith('=='));
+  };
+
   const parseCSV = (text) => {
     // Normalize line endings to handle \r, \n, and \r\n
     const normalizedText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -325,21 +332,25 @@ export default function DataImport() {
       return result;
     };
 
-    const headers = parseLine(lines[0]);
+    // Skip title/section rows (e.g., "=== CREWCAM JOB ASSIGNMENTS ===")
+    let headerLineIdx = 0;
+    if (isTitleRow(lines[0])) headerLineIdx = 1;
+
+    const headers = parseLine(lines[headerLineIdx]);
     const rows = [];
 
-    for (let i = 1; i < Math.min(lines.length, 6); i++) {
-      if (!lines[i].trim()) continue;
+    for (let i = headerLineIdx + 1; i < Math.min(lines.length, headerLineIdx + 6); i++) {
+      if (!lines[i] || !lines[i].trim()) continue;
       const values = parseLine(lines[i]);
       const row = {};
       headers.forEach((header, idx) => {
-        // Handle case where row has fewer columns than header
         row[header] = values[idx] || '';
       });
       rows.push(row);
     }
 
-    return { headers, rows, totalRows: lines.length - 1, delimiter };
+    const skippedTitleRows = headerLineIdx;
+    return { headers, rows, totalRows: lines.length - 1 - skippedTitleRows, delimiter };
   };
 
   const smartAutoMap = (headers, entityType) => {
@@ -430,6 +441,16 @@ export default function DataImport() {
       total_deductions: ['total deductions', 'deductions', 'total deduction'],
       ladder_assist: ['ladder assist', 'ladder', 'assist'],
       net_commission: ['net commission', 'net comm', 'net', 'commission'],
+      // InspectionJob / CrewCam fields
+      client_name: ['client name', 'client', 'homeowner', 'customer name', 'contact name'],
+      property_address: ['property address', 'address', 'job address', 'location', 'site address', 'property'],
+      client_phone: ['client phone', 'client phone number', 'homeowner phone', 'contact phone'],
+      client_email: ['client email', 'homeowner email', 'contact email'],
+      inspection_type: ['inspection type', 'job type', 'type of inspection', 'inspection'],
+      damage_type: ['damage type', 'damage', 'claim type', 'damage description'],
+      assigned_to_email: ['assigned to', 'inspector', 'assigned inspector', 'assignee', 'assigned to email', 'inspector email'],
+      inspection_date: ['inspection date', 'scheduled date', 'job date', 'date of inspection', 'scheduled'],
+      inspection_time: ['inspection time', 'time', 'scheduled time', 'time of inspection'],
     };
 
     if (entityType === 'Item') {
@@ -546,12 +567,16 @@ export default function DataImport() {
         return result;
       };
 
-      const csvHeaders = parseLine(lines[0]);
+      // Skip title/section rows (e.g., "=== CREWCAM JOB ASSIGNMENTS ===")
+      let headerLineIdx = 0;
+      if (isTitleRow(lines[0])) headerLineIdx = 1;
+
+      const csvHeaders = parseLine(lines[headerLineIdx]);
 
       // SPECIAL CASE FOR STAFF IMPORT
       if (entityType === 'Staff') {
         const staffRecords = [];
-        for (let i = 1; i < lines.length; i++) {
+        for (let i = headerLineIdx + 1; i < lines.length; i++) {
           const values = parseLine(lines[i]);
           const record = {};
           csvHeaders.forEach((header, idx) => {
@@ -631,7 +656,7 @@ export default function DataImport() {
         let errors = 0;
         const errorLog = [];
 
-        for (let i = 1; i < lines.length; i++) {
+        for (let i = headerLineIdx + 1; i < lines.length; i++) {
           try {
             const values = parseLine(lines[i]);
             const record = {};
@@ -737,7 +762,7 @@ export default function DataImport() {
         let skippedRows = 0;
         const localErrorLog = [];
 
-        for (let i = 1; i < lines.length; i++) {
+        for (let i = headerLineIdx + 1; i < lines.length; i++) {
           try {
             const values = parseLine(lines[i]);
             const currentRow = {};
@@ -900,7 +925,7 @@ export default function DataImport() {
         let processingErrors = 0;
         const errorLog = [];
         
-        for (let i = 1; i < lines.length; i++) {
+        for (let i = headerLineIdx + 1; i < lines.length; i++) {
           try {
             const values = parseLine(lines[i]);
             const record = { company_id: myCompany.id };
@@ -1020,9 +1045,9 @@ export default function DataImport() {
       let processingErrors = 0;
       const errorLog = [];
       
-      const totalDataRows = lines.length - 1;
+      const totalDataRows = lines.length - 1 - headerLineIdx;
 
-      for (let i = 1; i < lines.length; i++) {
+      for (let i = headerLineIdx + 1; i < lines.length; i++) {
         try {
           const values = parseLine(lines[i]);
           const record = { company_id: myCompany.id };
