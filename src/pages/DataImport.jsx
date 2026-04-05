@@ -1150,6 +1150,7 @@ export default function DataImport() {
         processingErrors += result.errors || 0;
         if (Array.isArray(result.errorDetails)) {
           result.errorDetails.forEach(d => errorLog.push({ row: '?', reason: d.reason, data: JSON.stringify(d.data) }));
+          setErrorDetails([...errorLog]);
         }
       } else if (records.length > 0) {
         // REGULAR BATCHED IMPORT for all other entity types
