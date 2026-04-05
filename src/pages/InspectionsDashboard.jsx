@@ -202,6 +202,11 @@ export default function InspectionsDashboard() {
     return media.filter(m => m.related_entity_id === jobId && m.file_type === 'photo').length;
   };
 
+  const getImportedPhotoUrls = (job) => {
+    if (!job.photo_urls) return [];
+    return String(job.photo_urls).split(/[\n,|]+/).map(u => u.trim()).filter(Boolean);
+  };
+
   const handleDeleteJob = (jobId) => {
     if (window.confirm(t.inspections.deleteConfirm || 'Are you sure you want to delete this inspection job?')) {
       deleteJobMutation.mutate(jobId);
@@ -300,9 +305,12 @@ export default function InspectionsDashboard() {
                     {filteredJobs.map(job => {
                         const assignee = getAssigneeInfo(job);
                         const photoCount = getJobPhotoCount(job.id);
+                        const importedPhotoUrls = getImportedPhotoUrls(job);
+                        const totalPhotoCount = photoCount + importedPhotoUrls.length;
                         
                         return (
-                            <div key={job.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                            <div key={job.id} className="border rounded-lg hover:bg-gray-50 transition-colors">
+                              <div className="flex items-center justify-between p-4">
                                 <div className="flex-1">
                                     <h3 className="font-semibold text-gray-900">
                                         {job.property_address || t.inspections.unassignedInspection || 'Unassigned Inspection'}
@@ -313,10 +321,10 @@ export default function InspectionsDashboard() {
                                     <div className="flex items-center gap-4 mt-1 flex-wrap">
                                         <p className="text-sm text-gray-600">{job.client_name || t.inspections.noClientSpecified || 'No client specified'}</p>
 
-                                        {photoCount > 0 && (
+                                        {totalPhotoCount > 0 && (
                                             <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-1 rounded-md">
                                                 <Camera className="w-3.5 h-3.5 text-blue-600" />
-                                                <span className="text-xs font-semibold text-blue-700">{photoCount} {photoCount !== 1 ? t.inspections.photos : (t.inspections.photo || 'photo')}</span>
+                                                <span className="text-xs font-semibold text-blue-700">{totalPhotoCount} {totalPhotoCount !== 1 ? t.inspections.photos : (t.inspections.photo || 'photo')}</span>
                                             </div>
                                         )}
 
@@ -427,6 +435,24 @@ export default function InspectionsDashboard() {
                                         </DropdownMenuContent>
                                     </DropdownMenu>
                                 </div>
+                              </div>
+                              {importedPhotoUrls.length > 0 && (
+                                <div className="px-4 pb-3 border-t pt-3">
+                                  <p className="text-xs text-gray-500 mb-2 font-medium">Imported Photos ({importedPhotoUrls.length})</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {importedPhotoUrls.map((url, idx) => (
+                                      <a key={idx} href={url} target="_blank" rel="noopener noreferrer">
+                                        <img
+                                          src={url}
+                                          alt={`Inspection photo ${idx + 1}`}
+                                          className="w-20 h-20 object-cover rounded-md border border-gray-200 hover:opacity-80 transition-opacity cursor-pointer"
+                                          onError={e => { e.target.style.display = 'none'; }}
+                                        />
+                                      </a>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                         );
                     })}
