@@ -461,6 +461,8 @@ export default function DataImport() {
       patterns.amount = patterns.amount.filter(p => !['price', 'rate', 'unit price', 'price per unit', 'item price'].includes(p));
     }
     
+    if (!fields || !Array.isArray(fields)) return mapping;
+
     headers.forEach(header => {
       const headerLower = header.toLowerCase().trim();
       
@@ -1502,13 +1504,13 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
               </AlertDescription>
             </Alert>
 
-            {entityFields[entityType].filter(f => f.required).length > 0 && (
+            {(entityFields[entityType] || []).filter(f => f.required).length > 0 && (
               <Alert className="bg-blue-50 border-blue-200">
                 <AlertCircle className="w-4 h-4 text-blue-600" />
                 <AlertDescription>
                   <strong>⚠️ IMPORTANT:</strong> You must map the required fields (marked with *) or all rows will be skipped!
                   <br />
-                  <strong>Required for {entityType}:</strong> {entityFields[entityType].filter(f => f.required).map(f => f.label).join(', ')}
+                  <strong>Required for {entityType}:</strong> {(entityFields[entityType] || []).filter(f => f.required).map(f => f.label).join(', ')}
                 </AlertDescription>
               </Alert>
             )}
@@ -1522,7 +1524,7 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
             )}
 
             {(() => {
-              const requiredFields = entityFields[entityType].filter(f => f.required);
+              const requiredFields = (entityFields[entityType] || []).filter(f => f.required);
               const mappedRequiredFields = requiredFields.filter(f =>
                 Object.values(columnMapping).includes(f.key)
               );
@@ -1565,7 +1567,7 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
                 <tbody>
                   {headers.map((header, idx) => {
                     const mappedFieldKey = columnMapping[header];
-                    const fieldInfo = entityFields[entityType].find(f => f.key === mappedFieldKey);
+                    const fieldInfo = (entityFields[entityType] || []).find(f => f.key === mappedFieldKey);
                     const isRequired = fieldInfo?.required;
 
                     return (
@@ -1592,7 +1594,7 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="skip">❌ Skip this column</SelectItem>
-                              {entityFields[entityType].map(field => (
+                              {(entityFields[entityType] || []).map(field => (
                                 <SelectItem key={field.key} value={field.key}>
                                   {field.label} {field.required && <span className="text-red-500">*</span>}
                                   {field.help && <span className="text-xs text-gray-500 ml-2">({field.help})</span>}
@@ -1614,7 +1616,7 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
               </Button>
               <Button
                 onClick={() => {
-                  const requiredFields = entityFields[entityType].filter(f => f.required);
+                  const requiredFields = (entityFields[entityType] || []).filter(f => f.required);
                   const missingRequiredFields = requiredFields.filter(f =>
                     !Object.values(columnMapping).includes(f.key)
                   );
@@ -1656,7 +1658,7 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
                     <tr>
                       {Object.keys(columnMapping).filter(k => columnMapping[k]).map(header => (
                         <th key={header} className="px-3 py-2 text-left font-medium text-gray-700">
-                          {entityFields[entityType].find(f => f.key === columnMapping[header])?.label}
+                          {(entityFields[entityType] || []).find(f => f.key === columnMapping[header])?.label}
                         </th>
                       ))}
                     </tr>

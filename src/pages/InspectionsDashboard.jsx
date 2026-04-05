@@ -70,7 +70,10 @@ export default function InspectionsDashboard() {
   });
 
   // 🔐 Filter jobs using hook's canonical filter
-  const jobs = React.useMemo(() => filterJobs(allJobs), [allJobs, filterJobs]);
+  const jobs = React.useMemo(() => {
+    const result = filterJobs(allJobs);
+    return Array.isArray(result) ? result : [];
+  }, [allJobs, filterJobs]);
 
   const { data: media = [], isLoading: isLoadingMedia } = useQuery({
     queryKey: ['inspectionMedia', myCompany?.id, isAdmin],
@@ -200,19 +203,20 @@ export default function InspectionsDashboard() {
   });
 
   const myJobs = React.useMemo(() => {
-    if (!jobs.length || !user) return jobs;
+    if (!Array.isArray(jobs) || !jobs.length || !user) return Array.isArray(jobs) ? jobs : [];
     if (isAdmin) return jobs;
     return jobs.filter(j => j.assigned_to_email === user.email);
   }, [jobs, user, isAdmin]);
 
-  const completedJobs = myJobs.filter(j => j.status === 'completed').length;
+  const completedJobs = Array.isArray(myJobs) ? myJobs.filter(j => j.status === 'completed').length : 0;
   const totalPhotos = media.filter(m => m.file_type === 'photo').length;
   const totalVideos = media.filter(m => m.file_type === 'video').length;
 
   const filteredJobs = React.useMemo(() => {
-    if (!searchTerm.trim()) return myJobs;
+    const safeJobs = Array.isArray(myJobs) ? myJobs : [];
+    if (!searchTerm.trim()) return safeJobs;
     const q = searchTerm.toLowerCase();
-    return myJobs.filter(j =>
+    return safeJobs.filter(j =>
       (j.client_name || '').toLowerCase().includes(q) ||
       (j.customer_name || '').toLowerCase().includes(q) ||
       (j.property_address || '').toLowerCase().includes(q) ||
