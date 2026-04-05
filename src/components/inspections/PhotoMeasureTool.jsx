@@ -1,418 +1,473 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { Ruler, Trash2, Plus, Check, X, Move, RotateCcw } from 'lucide-react';
+import { Ruler, Trash2, Check, X, ChevronDown, ChevronUp, Plus } from 'lucide-react';
 
 const CATEGORIES = [
-  { value: 'siding_height',    label: 'Exterior – Siding Height',   color: '#3b82f6' },
-  { value: 'gutter_run',       label: 'Exterior – Gutter Run',      color: '#10b981' },
-  { value: 'wall_width',       label: 'Exterior – Wall Width',      color: '#f59e0b' },
-  { value: 'fascia_length',    label: 'Exterior – Fascia Length',   color: '#8b5cf6' },
-  { value: 'drywall_segment',  label: 'Interior – Drywall Segment', color: '#ef4444' },
-  { value: 'floor_perimeter',  label: 'Interior – Floor Perimeter', color: '#ec4899' },
-  { value: 'ceiling_height',   label: 'Interior – Ceiling Height',  color: '#06b6d4' },
-  { value: 'custom',           label: 'Custom',                     color: '#6b7280' },
+  { value: 'shingle_length',   label: 'Shingle Length',    color: '#3b82f6',  unit: 'in' },
+  { value: 'shingle_width',    label: 'Shingle Width',     color: '#06b6d4',  unit: 'in' },
+  { value: 'shingle_exposure', label: 'Shingle Exposure',  color: '#8b5cf6',  unit: 'in' },
+  { value: 'ridge_length',     label: 'Ridge',             color: '#ef4444',  unit: 'ft' },
+  { value: 'eave_length',      label: 'Eave / Rake',       color: '#f59e0b',  unit: 'ft' },
+  { value: 'valley_length',    label: 'Valley',            color: '#10b981',  unit: 'ft' },
+  { value: 'hip_length',       label: 'Hip',               color: '#ec4899',  unit: 'ft' },
+  { value: 'slope_width',      label: 'Slope Width',       color: '#f97316',  unit: 'ft' },
+  { value: 'slope_height',     label: 'Slope Height',      color: '#a855f7',  unit: 'ft' },
+  { value: 'flashing',         label: 'Flashing',          color: '#64748b',  unit: 'ft' },
+  { value: 'custom',           label: 'Other / Custom',    color: '#6b7280',  unit: 'ft' },
 ];
-const UNITS = ['ft', 'LF', 'in', 'm', 'sq ft'];
+
+const UNIT_OPTIONS = ['in', 'ft', 'LF', 'sq ft'];
+
+const SHINGLE_QUICK_VALUES = [
+  { label: '12"',    value: '12',    unit: 'in' },
+  { label: '36"',    value: '36',    unit: 'in' },
+  { label: '39⅜"',  value: '39.375', unit: 'in' },
+  { label: '5½" exp', value: '5.5',  unit: 'in' },
+];
 
 function getCategoryMeta(cat) {
   return CATEGORIES.find(c => c.value === cat) || CATEGORIES[CATEGORIES.length - 1];
 }
 
-export default function PhotoMeasureTool({ photoUrl, existingMeasurements = [], onSave, onClose }) {
-  const imgRef = useRef(null);
-  const containerRef = useRef(null);
-  const [imgRect, setImgRect] = useState(null);
+function px(norm, total) { return norm * total; }
 
+export default function PhotoMeasureTool({ photoUrl, existingMeasurements = [], onSave, onClose }) {
+  const imgRef  = useRef(null);
+  const svgRef  = useRef(null);
+  const wrapRef = useRef(null);
+
+  const [imgBox,   setImgBox]   = useState(null);   // {left, top, width, height} relative to wrap
+  const [drawStep, setDrawStep] = useState('idle'); // idle | pointA | pointB
+  const [ptA,      setPtA]      = useState(null);   // {x,y} 0-1
+  const [live,     setLive]     = useState(null);   // {x,y} 0-1 cursor while drawing
+  const [draft,    setDraft]    = useState(null);   // {x1,y1,x2,y2}
+  const [showForm, setShowForm] = useState(false);
+  const [showList, setShowList] = useState(false);
+  const [category, setCategory] = useState('shingle_length');
+  const [value,    setValue]    = useState('');
+  const [unit,     setUnit]     = useState('in');
+  const [label,    setLabel]    = useState('');
   const [measurements, setMeasurements] = useState(
     (existingMeasurements || []).map((m, i) => ({ ...m, id: m.id || `m-${Date.now()}-${i}` }))
   );
-  const [drawState, setDrawState] = useState('idle'); // idle | first | second
-  const [pendingPt, setPendingPt] = useState(null);   // {x, y} normalized 0-1
-  const [cursorPt, setCursorPt] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [draftLine, setDraftLine] = useState(null);   // {x1,y1,x2,y2} normalized
-  const [form, setForm] = useState({ label: '', value: '', unit: 'ft', category: 'siding_height' });
 
-  const updateRect = useCallback(() => {
-    if (imgRef.current) {
-      const r = imgRef.current.getBoundingClientRect();
-      setImgRect(r);
-    }
+  const measureCount = measurements.length;
+
+  const updateBox = useCallback(() => {
+    if (!imgRef.current || !wrapRef.current) return;
+    const ir = imgRef.current.getBoundingClientRect();
+    const wr = wrapRef.current.getBoundingClientRect();
+    setImgBox({ left: ir.left - wr.left, top: ir.top - wr.top, width: ir.width, height: ir.height });
   }, []);
 
   useEffect(() => {
-    updateRect();
-    window.addEventListener('resize', updateRect);
-    return () => window.removeEventListener('resize', updateRect);
-  }, [updateRect]);
+    updateBox();
+    window.addEventListener('resize', updateBox);
+    return () => window.removeEventListener('resize', updateBox);
+  }, [updateBox]);
 
   useEffect(() => {
-    if (imgRef.current) {
-      const img = imgRef.current;
-      if (img.complete) updateRect();
-      else img.onload = updateRect;
-    }
-  }, [photoUrl, updateRect]);
+    if (!imgRef.current) return;
+    if (imgRef.current.complete) updateBox();
+    else imgRef.current.onload = updateBox;
+  }, [photoUrl, updateBox]);
 
-  const toNorm = (clientX, clientY) => {
-    if (!imgRect) return null;
+  const toNorm = useCallback((clientX, clientY) => {
+    if (!imgRef.current) return null;
+    const r = imgRef.current.getBoundingClientRect();
     return {
-      x: Math.max(0, Math.min(1, (clientX - imgRect.left) / imgRect.width)),
-      y: Math.max(0, Math.min(1, (clientY - imgRect.top) / imgRect.height)),
+      x: Math.max(0, Math.min(1, (clientX - r.left) / r.width)),
+      y: Math.max(0, Math.min(1, (clientY - r.top)  / r.height)),
     };
-  };
+  }, []);
 
-  const handleMouseMove = (e) => {
-    if (drawState === 'idle' || !imgRect) return;
-    const pt = toNorm(e.clientX, e.clientY);
-    setCursorPt(pt);
-  };
-
-  const handleTouchMove = (e) => {
-    if (drawState === 'idle' || !imgRect) return;
-    const t = e.touches[0];
-    const pt = toNorm(t.clientX, t.clientY);
-    setCursorPt(pt);
-  };
-
-  const handleClick = (e) => {
-    if (drawState === 'idle' || showForm) return;
-    updateRect();
-    const pt = toNorm(e.clientX, e.clientY);
+  const handlePointerDown = (e) => {
+    if (showForm || drawStep === 'idle') return;
+    e.preventDefault();
+    updateBox();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const pt = toNorm(clientX, clientY);
     if (!pt) return;
 
-    if (drawState === 'first') {
-      setPendingPt(pt);
-      setDrawState('second');
-    } else if (drawState === 'second') {
-      setDraftLine({ x1: pendingPt.x, y1: pendingPt.y, x2: pt.x, y2: pt.y });
-      setPendingPt(null);
-      setCursorPt(null);
-      setDrawState('idle');
+    if (drawStep === 'pointA') {
+      setPtA(pt);
+      setDrawStep('pointB');
+    } else if (drawStep === 'pointB' && ptA) {
+      setDraft({ x1: ptA.x, y1: ptA.y, x2: pt.x, y2: pt.y });
+      setPtA(null);
+      setLive(null);
+      setDrawStep('idle');
       setShowForm(true);
     }
   };
 
-  const handleTouchEnd = (e) => {
-    if (drawState === 'idle' || showForm) return;
-    const t = e.changedTouches[0];
-    updateRect();
-    const pt = toNorm(t.clientX, t.clientY);
-    if (!pt) return;
-
-    if (drawState === 'first') {
-      setPendingPt(pt);
-      setDrawState('second');
-    } else if (drawState === 'second') {
-      setDraftLine({ x1: pendingPt.x, y1: pendingPt.y, x2: pt.x, y2: pt.y });
-      setPendingPt(null);
-      setCursorPt(null);
-      setDrawState('idle');
-      setShowForm(true);
-    }
-  };
-
-  const commitMeasurement = () => {
-    if (!draftLine || !form.value) return;
-    const newM = {
-      id: `m-${Date.now()}`,
-      ...draftLine,
-      label: form.label || getCategoryMeta(form.category).label,
-      value: parseFloat(form.value),
-      unit: form.unit,
-      category: form.category,
-      recorded_at: new Date().toISOString(),
-    };
-    setMeasurements(prev => [...prev, newM]);
-    setDraftLine(null);
-    setShowForm(false);
-    setForm(f => ({ ...f, label: '', value: '' }));
-  };
-
-  const cancelDraft = () => {
-    setDraftLine(null);
-    setShowForm(false);
-    setPendingPt(null);
-    setCursorPt(null);
-    setDrawState('idle');
-  };
-
-  const deleteMeasurement = (id) => {
-    setMeasurements(prev => prev.filter(m => m.id !== id));
-  };
-
-  const handleSave = () => {
-    onSave(measurements);
+  const handlePointerMove = (e) => {
+    if (drawStep === 'idle') return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const pt = toNorm(clientX, clientY);
+    if (pt) setLive(pt);
   };
 
   const startDraw = () => {
-    setDrawState('first');
-    setPendingPt(null);
-    setCursorPt(null);
+    setDrawStep('pointA');
+    setPtA(null);
+    setLive(null);
+    setShowList(false);
   };
 
   const cancelDraw = () => {
-    setDrawState('idle');
-    setPendingPt(null);
-    setCursorPt(null);
+    setDrawStep('idle');
+    setPtA(null);
+    setLive(null);
   };
 
-  const pct = (v) => `${(v * 100).toFixed(2)}%`;
-  const svgPct = (v) => v * 100;
+  const cancelForm = () => {
+    setDraft(null);
+    setShowForm(false);
+    setValue('');
+    setLabel('');
+  };
+
+  const commitMeasurement = () => {
+    if (!draft || !value) return;
+    const meta = getCategoryMeta(category);
+    setMeasurements(prev => [...prev, {
+      id: `m-${Date.now()}`,
+      ...draft,
+      label: label.trim() || meta.label,
+      value: parseFloat(value),
+      unit,
+      category,
+      recorded_at: new Date().toISOString(),
+    }]);
+    setDraft(null);
+    setShowForm(false);
+    setValue('');
+    setLabel('');
+  };
+
+  const applyQuick = (q) => {
+    setValue(q.value);
+    setUnit(q.unit);
+  };
+
+  const deleteMeasurement = (id) => setMeasurements(prev => prev.filter(m => m.id !== id));
+
+  const handleSave = () => onSave(measurements);
+
+  const meta = getCategoryMeta(category);
+
+  const svgW = imgBox?.width  || 0;
+  const svgH = imgBox?.height || 0;
 
   return (
-    <div className="fixed inset-0 z-[200] bg-black/90 flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 bg-black/80 border-b border-gray-700 flex-shrink-0">
+    <div className="fixed inset-0 z-[200] bg-black flex flex-col select-none">
+
+      {/* ── Top bar ─────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-3 py-2 bg-gray-950 border-b border-gray-800 flex-shrink-0">
         <div className="flex items-center gap-2">
-          <Ruler className="w-5 h-5 text-blue-400" />
-          <span className="text-white font-semibold text-sm">Measure Mode</span>
-          {drawState !== 'idle' && (
-            <Badge className="bg-blue-600 text-white text-xs">
-              {drawState === 'first' ? 'Tap Point A' : 'Tap Point B'}
-            </Badge>
-          )}
+          <Ruler className="w-4 h-4 text-blue-400 flex-shrink-0" />
+          <span className="text-white font-semibold text-sm">Shingle Measure</span>
         </div>
         <div className="flex items-center gap-2">
-          {drawState !== 'idle' ? (
-            <Button size="sm" variant="outline" onClick={cancelDraw} className="border-gray-600 text-gray-200 text-xs">
-              <X className="w-3 h-3 mr-1" /> Cancel Line
-            </Button>
+          <button
+            onClick={() => { setShowList(v => !v); setShowForm(false); }}
+            className="flex items-center gap-1 text-xs text-gray-300 bg-gray-800 hover:bg-gray-700 px-2 py-1.5 rounded-lg"
+          >
+            <span>{measureCount} line{measureCount !== 1 ? 's' : ''}</span>
+            {showList ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+          <button
+            onClick={handleSave}
+            className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg"
+            data-testid="button-save-measurements"
+          >
+            <Check className="w-3.5 h-3.5" /> Save
+          </button>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-white p-1.5 rounded-lg"
+            data-testid="button-close-measure"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Measurements list (toggle) ──────────────────── */}
+      {showList && (
+        <div className="bg-gray-900 border-b border-gray-800 flex-shrink-0 max-h-48 overflow-y-auto">
+          {measurements.length === 0 ? (
+            <p className="text-gray-500 text-xs text-center py-4">No measurements yet</p>
           ) : (
-            <Button size="sm" onClick={startDraw} className="bg-blue-600 hover:bg-blue-700 text-white text-xs"
-              data-testid="button-start-measure">
-              <Plus className="w-3 h-3 mr-1" /> New Line
-            </Button>
-          )}
-          <Button size="sm" onClick={handleSave} className="bg-green-600 hover:bg-green-700 text-white text-xs"
-            data-testid="button-save-measurements">
-            <Check className="w-3 h-3 mr-1" /> Save
-          </Button>
-          <Button size="sm" variant="outline" onClick={onClose} className="border-gray-600 text-gray-200 text-xs"
-            data-testid="button-close-measure">
-            <X className="w-3 h-3" />
-          </Button>
-        </div>
-      </div>
-
-      {/* Main content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Photo + SVG overlay */}
-        <div
-          ref={containerRef}
-          className="flex-1 flex items-center justify-center relative overflow-hidden p-2"
-          style={{ cursor: drawState !== 'idle' ? 'crosshair' : 'default' }}
-          onClick={handleClick}
-          onMouseMove={handleMouseMove}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-        >
-          <div className="relative w-full h-full flex items-center justify-center">
-            <img
-              ref={imgRef}
-              src={photoUrl}
-              alt="Measure photo"
-              className="max-w-full max-h-full object-contain select-none pointer-events-none"
-              onLoad={updateRect}
-              draggable={false}
-            />
-
-            {/* SVG overlay — matches the rendered image exactly */}
-            {imgRect && (
-              <svg
-                className="absolute pointer-events-none"
-                style={{
-                  left: imgRef.current ? imgRef.current.getBoundingClientRect().left - containerRef.current.getBoundingClientRect().left : 0,
-                  top: imgRef.current ? imgRef.current.getBoundingClientRect().top - containerRef.current.getBoundingClientRect().top : 0,
-                  width: imgRect.width,
-                  height: imgRect.height,
-                }}
-                viewBox={`0 0 100 100`}
-                preserveAspectRatio="none"
-              >
-                {/* Saved measurements */}
-                {measurements.map(m => {
-                  const meta = getCategoryMeta(m.category);
-                  const midX = (m.x1 + m.x2) / 2;
-                  const midY = (m.y1 + m.y2) / 2;
-                  return (
-                    <g key={m.id}>
-                      <line
-                        x1={svgPct(m.x1)} y1={svgPct(m.y1)}
-                        x2={svgPct(m.x2)} y2={svgPct(m.y2)}
-                        stroke={meta.color} strokeWidth="0.5" strokeLinecap="round"
-                      />
-                      <circle cx={svgPct(m.x1)} cy={svgPct(m.y1)} r="1" fill={meta.color} />
-                      <circle cx={svgPct(m.x2)} cy={svgPct(m.y2)} r="1" fill={meta.color} />
-                      <rect
-                        x={svgPct(midX) - 8} y={svgPct(midY) - 2.5}
-                        width="16" height="5" rx="1"
-                        fill="rgba(0,0,0,0.7)"
-                      />
-                      <text
-                        x={svgPct(midX)} y={svgPct(midY) + 1.5}
-                        textAnchor="middle" fill="white"
-                        fontSize="2.5" fontFamily="monospace" fontWeight="bold"
-                      >
-                        {m.value} {m.unit}
-                      </text>
-                    </g>
-                  );
-                })}
-
-                {/* Draft line while drawing */}
-                {drawState === 'second' && pendingPt && cursorPt && (
-                  <g>
-                    <line
-                      x1={svgPct(pendingPt.x)} y1={svgPct(pendingPt.y)}
-                      x2={svgPct(cursorPt.x)} y2={svgPct(cursorPt.y)}
-                      stroke="#facc15" strokeWidth="0.4" strokeDasharray="2,1"
-                    />
-                    <circle cx={svgPct(pendingPt.x)} cy={svgPct(pendingPt.y)} r="1.2" fill="#facc15" />
-                    <circle cx={svgPct(cursorPt.x)} cy={svgPct(cursorPt.y)} r="0.8" fill="#facc15" fillOpacity="0.7" />
-                  </g>
-                )}
-                {drawState === 'first' && cursorPt && (
-                  <circle cx={svgPct(cursorPt.x)} cy={svgPct(cursorPt.y)} r="1" fill="#facc15" fillOpacity="0.7" />
-                )}
-              </svg>
-            )}
-          </div>
-
-          {/* Draw instructions overlay */}
-          {drawState !== 'idle' && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 text-yellow-300 text-xs px-3 py-1.5 rounded-full font-medium pointer-events-none">
-              {drawState === 'first' ? '📍 Tap Point A (start of measurement)' : '📍 Tap Point B (end of measurement)'}
-            </div>
-          )}
-        </div>
-
-        {/* Sidebar — measurements list */}
-        <div className="w-60 bg-gray-900 border-l border-gray-700 flex flex-col flex-shrink-0 overflow-y-auto p-3 gap-3">
-          <p className="text-gray-400 text-xs uppercase tracking-wider font-semibold">Measurements</p>
-          {measurements.length === 0 && (
-            <p className="text-gray-500 text-xs">None yet. Click "New Line" then tap two points on the photo.</p>
-          )}
-          {measurements.map(m => {
-            const meta = getCategoryMeta(m.category);
-            return (
-              <div key={m.id} className="bg-gray-800 rounded p-2 text-xs space-y-1">
-                <div className="flex items-start justify-between gap-1">
-                  <div>
-                    <div className="font-semibold text-white">{m.value} {m.unit}</div>
-                    <div className="text-gray-400">{m.label}</div>
+            <div className="p-2 space-y-1.5">
+              {measurements.map(m => {
+                const mc = getCategoryMeta(m.category);
+                return (
+                  <div key={m.id} className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: mc.color }} />
+                      <span className="text-white text-sm font-semibold">{m.value} {m.unit}</span>
+                      <span className="text-gray-400 text-xs">{m.label}</span>
+                    </div>
+                    <button
+                      onClick={() => deleteMeasurement(m.id)}
+                      className="text-red-400 hover:text-red-300 p-1"
+                      data-testid={`button-delete-measurement-${m.id}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-5 w-5 text-red-400 hover:text-red-300 hover:bg-red-900/30 flex-shrink-0"
-                    onClick={(e) => { e.stopPropagation(); deleteMeasurement(m.id); }}
-                    data-testid={`button-delete-measurement-${m.id}`}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
-                <span
-                  className="inline-block px-1.5 py-0.5 rounded text-white text-[10px]"
-                  style={{ background: meta.color }}
-                >
-                  {meta.label}
-                </span>
-              </div>
-            );
-          })}
-
-          {measurements.length > 0 && (
-            <div className="mt-auto pt-2 border-t border-gray-700">
-              <p className="text-gray-500 text-[10px]">These measurements are saved on this photo and can be used to pre-fill quantities on estimates.</p>
+                );
+              })}
             </div>
           )}
         </div>
+      )}
+
+      {/* ── Photo canvas ────────────────────────────────── */}
+      <div
+        ref={wrapRef}
+        className="flex-1 relative overflow-hidden flex items-center justify-center"
+        style={{ cursor: drawStep !== 'idle' ? 'crosshair' : 'default', touchAction: drawStep !== 'idle' ? 'none' : 'auto' }}
+        onMouseDown={handlePointerDown}
+        onMouseMove={handlePointerMove}
+        onTouchStart={handlePointerDown}
+        onTouchMove={handlePointerMove}
+      >
+        <img
+          ref={imgRef}
+          src={photoUrl}
+          alt="Measure"
+          className="max-w-full max-h-full object-contain pointer-events-none"
+          onLoad={updateBox}
+          draggable={false}
+        />
+
+        {imgBox && (svgW > 0) && (
+          <svg
+            ref={svgRef}
+            className="absolute pointer-events-none"
+            style={{ left: imgBox.left, top: imgBox.top, width: svgW, height: svgH }}
+          >
+            {/* Saved measurements */}
+            {measurements.map(m => {
+              const mc = getCategoryMeta(m.category);
+              const x1 = px(m.x1, svgW), y1 = px(m.y1, svgH);
+              const x2 = px(m.x2, svgW), y2 = px(m.y2, svgH);
+              const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+              const lbl = `${m.value}${m.unit}`;
+              const lblW = Math.max(lbl.length * 7 + 12, 40);
+              return (
+                <g key={m.id}>
+                  <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={mc.color} strokeWidth="2.5" strokeLinecap="round" />
+                  <circle cx={x1} cy={y1} r="6" fill={mc.color} stroke="white" strokeWidth="1.5" />
+                  <circle cx={x2} cy={y2} r="6" fill={mc.color} stroke="white" strokeWidth="1.5" />
+                  <rect x={mx - lblW / 2} y={my - 11} width={lblW} height="22" rx="5" fill="rgba(0,0,0,0.82)" />
+                  <text x={mx} y={my + 5} textAnchor="middle" fill="white" fontSize="11" fontFamily="monospace" fontWeight="bold">
+                    {lbl}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Point A placed — live rubber-band line */}
+            {drawStep === 'pointB' && ptA && live && (
+              <g>
+                <line
+                  x1={px(ptA.x, svgW)} y1={px(ptA.y, svgH)}
+                  x2={px(live.x, svgW)} y2={px(live.y, svgH)}
+                  stroke="#facc15" strokeWidth="2" strokeDasharray="8,4"
+                />
+                <circle cx={px(ptA.x, svgW)} cy={px(ptA.y, svgH)} r="10" fill="#facc15" stroke="white" strokeWidth="2" />
+                <text x={px(ptA.x, svgW)} y={px(ptA.y, svgH) + 4.5} textAnchor="middle" fill="black" fontSize="11" fontWeight="bold">A</text>
+                <circle cx={px(live.x, svgW)} cy={px(live.y, svgH)} r="8" fill="#facc15" fillOpacity="0.5" stroke="white" strokeWidth="1.5" />
+              </g>
+            )}
+
+            {/* Point A just placed, no live yet */}
+            {drawStep === 'pointB' && ptA && !live && (
+              <circle cx={px(ptA.x, svgW)} cy={px(ptA.y, svgH)} r="10" fill="#facc15" stroke="white" strokeWidth="2" />
+            )}
+
+            {/* Crosshair for first tap */}
+            {drawStep === 'pointA' && live && (
+              <g>
+                <circle cx={px(live.x, svgW)} cy={px(live.y, svgH)} r="14" fill="rgba(250,204,21,0.2)" stroke="#facc15" strokeWidth="1.5" />
+                <circle cx={px(live.x, svgW)} cy={px(live.y, svgH)} r="3" fill="#facc15" />
+              </g>
+            )}
+          </svg>
+        )}
+
+        {/* ── Step instructions overlay ─────────────────── */}
+        {drawStep === 'pointA' && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black/80 text-yellow-300 font-semibold text-sm px-4 py-2 rounded-full shadow-lg pointer-events-none">
+            👆 Tap Point A — start of measurement
+          </div>
+        )}
+        {drawStep === 'pointB' && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black/80 text-yellow-300 font-semibold text-sm px-4 py-2 rounded-full shadow-lg pointer-events-none">
+            👆 Tap Point B — end of measurement
+          </div>
+        )}
+
+        {/* ── Idle prompt ───────────────────────────────── */}
+        {drawStep === 'idle' && !showForm && measurements.length === 0 && (
+          <div className="absolute bottom-24 left-1/2 -translate-x-1/2 text-center pointer-events-none">
+            <div className="bg-black/70 text-gray-300 text-sm px-4 py-3 rounded-xl">
+              Tap <span className="text-yellow-300 font-semibold">+ New Line</span> to start measuring
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Measurement value form — shown after drawing a line */}
+      {/* ── Bottom action bar ────────────────────────────── */}
+      <div className="bg-gray-950 border-t border-gray-800 px-4 py-3 flex-shrink-0 flex items-center justify-center gap-3">
+        {drawStep === 'idle' ? (
+          <button
+            onClick={startDraw}
+            className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-base px-6 py-3 rounded-2xl shadow-lg"
+            data-testid="button-start-measure"
+          >
+            <Plus className="w-5 h-5" />
+            New Line
+          </button>
+        ) : (
+          <button
+            onClick={cancelDraw}
+            className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold text-sm px-5 py-3 rounded-2xl"
+          >
+            <X className="w-4 h-4" /> Cancel
+          </button>
+        )}
+      </div>
+
+      {/* ── Measurement form modal ───────────────────────── */}
       {showForm && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60"
-          onClick={(e) => e.stopPropagation()}>
-          <div className="bg-white rounded-xl shadow-2xl p-5 w-80 space-y-4">
-            <div className="flex items-center gap-2">
-              <Ruler className="w-5 h-5 text-blue-600" />
-              <h3 className="font-semibold text-gray-900">Enter Measurement</h3>
+        <div className="absolute inset-0 z-30 flex items-end justify-center bg-black/60"
+          onClick={(e) => { if (e.target === e.currentTarget) cancelForm(); }}>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl shadow-2xl p-5 space-y-4">
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Ruler className="w-5 h-5 text-blue-600" />
+                <h3 className="font-bold text-gray-900 text-base">What did you measure?</h3>
+              </div>
+              <button onClick={cancelForm} className="text-gray-400 hover:text-gray-600 p-1">
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <Label className="text-xs">Type</Label>
-                <Select value={form.category} onValueChange={(v) => setForm(f => ({ ...f, category: v, label: '' }))}>
-                  <SelectTrigger className="h-8 text-xs" data-testid="select-measure-category">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CATEGORIES.map(c => (
-                      <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            {/* Category chips */}
+            <div>
+              <p className="text-xs text-gray-500 font-medium mb-2">Type</p>
+              <div className="flex flex-wrap gap-2">
+                {CATEGORIES.map(c => (
+                  <button
+                    key={c.value}
+                    onClick={() => { setCategory(c.value); setUnit(c.unit); }}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border-2 transition-all ${
+                      category === c.value
+                        ? 'text-white border-transparent'
+                        : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
+                    }`}
+                    style={category === c.value ? { background: c.color, borderColor: c.color } : {}}
+                  >
+                    {c.label}
+                  </button>
+                ))}
               </div>
+            </div>
 
+            {/* Quick values for shingle measurements */}
+            {(category === 'shingle_length' || category === 'shingle_width' || category === 'shingle_exposure') && (
+              <div>
+                <p className="text-xs text-gray-500 font-medium mb-2">Quick Values</p>
+                <div className="flex gap-2 flex-wrap">
+                  {SHINGLE_QUICK_VALUES.map(q => (
+                    <button
+                      key={q.label}
+                      onClick={() => applyQuick(q)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-semibold border-2 transition-all ${
+                        value === q.value && unit === q.unit
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-gray-50 text-gray-800 border-gray-200 hover:border-blue-400'
+                      }`}
+                    >
+                      {q.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Value + unit */}
+            <div>
+              <p className="text-xs text-gray-500 font-medium mb-2">Measurement</p>
               <div className="flex gap-2">
-                <div className="flex-1">
-                  <Label className="text-xs">Distance</Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    placeholder="e.g. 40.5"
-                    value={form.value}
-                    onChange={(e) => setForm(f => ({ ...f, value: e.target.value }))}
-                    className="h-8 text-sm"
-                    autoFocus
-                    data-testid="input-measure-value"
-                    onKeyDown={(e) => { if (e.key === 'Enter') commitMeasurement(); }}
-                  />
-                </div>
-                <div className="w-20">
-                  <Label className="text-xs">Unit</Label>
-                  <Select value={form.unit} onValueChange={(v) => setForm(f => ({ ...f, unit: v }))}>
-                    <SelectTrigger className="h-8 text-xs" data-testid="select-measure-unit">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-xs">Label (optional)</Label>
                 <Input
-                  placeholder={getCategoryMeta(form.category).label}
-                  value={form.label}
-                  onChange={(e) => setForm(f => ({ ...f, label: e.target.value }))}
-                  className="h-8 text-sm"
-                  data-testid="input-measure-label"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  placeholder="e.g. 36"
+                  value={value}
+                  onChange={e => setValue(e.target.value)}
+                  className="flex-1 h-12 text-lg font-bold"
+                  autoFocus
+                  data-testid="input-measure-value"
+                  onKeyDown={e => { if (e.key === 'Enter') commitMeasurement(); }}
                 />
+                <div className="flex gap-1">
+                  {UNIT_OPTIONS.map(u => (
+                    <button
+                      key={u}
+                      onClick={() => setUnit(u)}
+                      className={`px-3 py-2 rounded-lg text-sm font-semibold border-2 transition-all ${
+                        unit === u ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
+                      }`}
+                    >
+                      {u}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="flex gap-2 pt-1">
-              <Button variant="outline" className="flex-1 h-8 text-xs" onClick={cancelDraft}
-                data-testid="button-measure-cancel">
+            {/* Optional label */}
+            <div>
+              <p className="text-xs text-gray-500 font-medium mb-1">Label <span className="text-gray-400">(optional)</span></p>
+              <Input
+                placeholder={getCategoryMeta(category).label}
+                value={label}
+                onChange={e => setLabel(e.target.value)}
+                className="h-10"
+                data-testid="input-measure-label"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={cancelForm}
+                className="flex-1 h-12 rounded-xl border-2 border-gray-200 text-gray-700 font-semibold text-sm hover:bg-gray-50"
+                data-testid="button-measure-cancel"
+              >
                 Cancel
-              </Button>
-              <Button
-                className="flex-1 h-8 text-xs bg-blue-600 hover:bg-blue-700"
+              </button>
+              <button
                 onClick={commitMeasurement}
-                disabled={!form.value}
+                disabled={!value}
+                className="flex-1 h-12 rounded-xl text-white font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-40"
+                style={{ background: meta.color }}
                 data-testid="button-measure-confirm"
               >
-                <Check className="w-3 h-3 mr-1" /> Add
-              </Button>
+                <Check className="w-4 h-4" />
+                Add Measurement
+              </button>
             </div>
           </div>
         </div>
