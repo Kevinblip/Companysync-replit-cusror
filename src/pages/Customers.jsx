@@ -91,6 +91,8 @@ export default function Customers() {
   const [selectedCustomers, setSelectedCustomers] = useState([]);
   const [pageSize, setPageSize] = useState(25);
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortBy, setSortBy] = useState('created_date');
+  const [sortOrder, setSortOrder] = useState('desc');
   const [showFilters, setShowFilters] = useState(false);
   const [duplicateLead, setDuplicateLead] = useState(null);
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
@@ -858,6 +860,16 @@ export default function Customers() {
     filteredCustomers = filteredCustomers.filter(c => c.customer_type === filters.customer_type);
   }
 
+  filteredCustomers = [...filteredCustomers].sort((a, b) => {
+    if (sortBy === 'customer_number') {
+      const na = a.customer_number || 0, nb = b.customer_number || 0;
+      return sortOrder === 'desc' ? nb - na : na - nb;
+    }
+    const da = new Date(a.created_date || 0).getTime();
+    const db = new Date(b.created_date || 0).getTime();
+    return sortOrder === 'desc' ? db - da : da - db;
+  });
+
   const uniqueGroups = [...new Set(customers.map(c => c.group).filter(Boolean))];
   const uniqueSources = [...new Set(customers.map(c => c.source).filter(Boolean))];
 
@@ -893,14 +905,25 @@ export default function Customers() {
                   <DropdownMenuTrigger asChild>
                     <button className="flex items-center gap-1 hover:text-gray-700 ml-auto focus:outline-none">
                       <span className="text-[10px] font-normal lowercase text-gray-400">
-                        Newest
+                        {sortBy === 'customer_number'
+                          ? (sortOrder === 'desc' ? '# ↓' : '# ↑')
+                          : (sortOrder === 'desc' ? 'Newest' : 'Oldest')}
                       </span>
                       <Filter className="w-3 h-3 text-gray-400" />
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => queryClient.invalidateQueries({ queryKey: ['customers'] })}>
+                    <DropdownMenuItem onClick={() => { setSortBy('created_date'); setSortOrder('desc'); }}>
                       🆕 Newest First
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setSortBy('created_date'); setSortOrder('asc'); }}>
+                      📅 Oldest First
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setSortBy('customer_number'); setSortOrder('desc'); }}>
+                      # High → Low
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setSortBy('customer_number'); setSortOrder('asc'); }}>
+                      # Low → High
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
