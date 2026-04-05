@@ -121,6 +121,26 @@ export default function InspectionsDashboard() {
     },
   });
 
+  const deleteAllJobsMutation = useMutation({
+    mutationFn: async () => {
+      const result = await base44.functions.invoke('deleteAllInspectionJobs', { company_id: myCompany.id });
+      if (!result.success) throw new Error(result.error || 'Delete failed');
+      return result;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['inspectionJobs'] });
+      queryClient.invalidateQueries({ queryKey: ['inspectionMedia'] });
+      alert(`Deleted ${data.deleted} inspection jobs.`);
+    },
+    onError: (err) => alert('Delete failed: ' + err.message),
+  });
+
+  const handleDeleteAllJobs = () => {
+    if (window.confirm(`⚠️ This will permanently delete ALL ${allJobs.length} inspection jobs. This cannot be undone. Continue?`)) {
+      deleteAllJobsMutation.mutate();
+    }
+  };
+
   const addToCalendarMutation = useMutation({
     mutationFn: async (job) => {
       const dateStr = job.inspection_date || job.scheduled_date || (job.created_date ? job.created_date.slice(0, 10) : null);
@@ -242,6 +262,19 @@ export default function InspectionsDashboard() {
                         <Upload className="mr-2 h-4 w-4" /> Import CSV
                     </Link>
                 </Button>
+                {allJobs.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDeleteAllJobs}
+                    disabled={deleteAllJobsMutation.isPending}
+                    className="border-red-300 text-red-600 hover:bg-red-50"
+                    data-testid="button-delete-all-jobs"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {deleteAllJobsMutation.isPending ? 'Deleting...' : `Delete All (${allJobs.length})`}
+                  </Button>
+                )}
                 <Button asChild>
                     <Link to={createPageUrl('InspectionCapture')}>
                         <Plus className="mr-2 h-4 w-4" /> {t.inspections.startNewJob || 'Start New Job'}

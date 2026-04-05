@@ -2119,6 +2119,23 @@ const functionHandlers = {
     }
   },
 
+  async deleteAllInspectionJobs(params) {
+    const { company_id } = params;
+    if (!company_id) return { success: false, error: 'company_id is required' };
+    try {
+      const { getPool } = await import('./db/schema.js');
+      const pool = getPool();
+      const result = await pool.query(
+        `DELETE FROM generic_entities WHERE entity_type = 'InspectionJob' AND company_id = $1`,
+        [company_id]
+      );
+      return { success: true, deleted: result.rowCount };
+    } catch (err) {
+      console.error('[deleteAllInspectionJobs] Error:', err.message);
+      return { success: false, error: err.message };
+    }
+  },
+
   async importInspectionJobs(params) {
     const { records = [], company_id } = params;
     if (!company_id) {
