@@ -2120,15 +2120,27 @@ const functionHandlers = {
   },
 
   async deleteAllInspectionJobs(params) {
-    const { company_id } = params;
+    const { company_id, today_only = false } = params;
     if (!company_id) return { success: false, error: 'company_id is required' };
     try {
       const { getPool } = await import('./db/schema.js');
       const pool = getPool();
-      const result = await pool.query(
-        `DELETE FROM generic_entities WHERE entity_type = 'InspectionJob' AND company_id = $1`,
-        [company_id]
-      );
+      let result;
+      if (today_only) {
+        result = await pool.query(
+          `DELETE FROM generic_entities
+           WHERE entity_type = 'InspectionJob'
+             AND company_id = $1
+             AND created_date >= CURRENT_DATE
+             AND created_date < CURRENT_DATE + INTERVAL '1 day'`,
+          [company_id]
+        );
+      } else {
+        result = await pool.query(
+          `DELETE FROM generic_entities WHERE entity_type = 'InspectionJob' AND company_id = $1`,
+          [company_id]
+        );
+      }
       return { success: true, deleted: result.rowCount };
     } catch (err) {
       console.error('[deleteAllInspectionJobs] Error:', err.message);

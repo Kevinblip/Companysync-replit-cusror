@@ -122,8 +122,8 @@ export default function InspectionsDashboard() {
   });
 
   const deleteAllJobsMutation = useMutation({
-    mutationFn: async () => {
-      const result = await base44.functions.invoke('deleteAllInspectionJobs', { company_id: myCompany.id });
+    mutationFn: async (today_only) => {
+      const result = await base44.functions.invoke('deleteAllInspectionJobs', { company_id: myCompany.id, today_only });
       if (!result.success) throw new Error(result.error || 'Delete failed');
       return result;
     },
@@ -135,9 +135,22 @@ export default function InspectionsDashboard() {
     onError: (err) => alert('Delete failed: ' + err.message),
   });
 
+  const todayJobs = allJobs.filter(j => {
+    const d = j.created_date ? new Date(j.created_date) : null;
+    if (!d) return false;
+    const today = new Date();
+    return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+  });
+
+  const handleDeleteTodayJobs = () => {
+    if (window.confirm(`Delete ${todayJobs.length} inspection job(s) created today? Your older jobs will NOT be affected.`)) {
+      deleteAllJobsMutation.mutate(true);
+    }
+  };
+
   const handleDeleteAllJobs = () => {
-    if (window.confirm(`⚠️ This will permanently delete ALL ${allJobs.length} inspection jobs. This cannot be undone. Continue?`)) {
-      deleteAllJobsMutation.mutate();
+    if (window.confirm(`⚠️ WARNING: This will permanently delete ALL ${allJobs.length} inspection jobs including your historical records. This cannot be undone. Type OK to confirm.`)) {
+      deleteAllJobsMutation.mutate(false);
     }
   };
 
@@ -262,17 +275,30 @@ export default function InspectionsDashboard() {
                         <Upload className="mr-2 h-4 w-4" /> Import CSV
                     </Link>
                 </Button>
-                {allJobs.length > 0 && (
+                {todayJobs.length > 0 && (
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={handleDeleteAllJobs}
+                    onClick={handleDeleteTodayJobs}
                     disabled={deleteAllJobsMutation.isPending}
                     className="border-red-300 text-red-600 hover:bg-red-50"
-                    data-testid="button-delete-all-jobs"
+                    data-testid="button-delete-today-jobs"
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
-                    {deleteAllJobsMutation.isPending ? 'Deleting...' : `Delete All (${allJobs.length})`}
+                    {deleteAllJobsMutation.isPending ? 'Deleting...' : `Delete Today's (${todayJobs.length})`}
+                  </Button>
+                )}
+                {isAdmin && allJobs.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleDeleteAllJobs}
+                    disabled={deleteAllJobsMutation.isPending}
+                    className="text-red-400 hover:text-red-600 hover:bg-red-50"
+                    data-testid="button-delete-all-jobs"
+                  >
+                    <Trash2 className="mr-1 h-3 w-3" />
+                    Delete All
                   </Button>
                 )}
                 <Button asChild>
