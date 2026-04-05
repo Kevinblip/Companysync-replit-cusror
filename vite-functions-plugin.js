@@ -1997,16 +1997,12 @@ const functionHandlers = {
     }
   },
 
-  async importLeadsOrCustomers(params) {
+  async filterDuplicateContacts(params) {
     const { records = [], entity_type, company_id } = params;
     if (!company_id || !entity_type || !['Lead', 'Customer'].includes(entity_type)) {
-      return { success: false, error: 'company_id and entity_type (Lead or Customer) are required', imported: 0, skippedDuplicates: 0, errors: 0, errorDetails: [] };
+      return { success: false, error: 'company_id and entity_type (Lead or Customer) are required', skippedDuplicates: 0, recordsToInsert: records };
     }
 
-    const ALLOWED_LEAD_COLS = new Set(['company_id','name','email','phone','phone_2','address','street','city','state','zip','company','status','source','lead_source','assigned_to','service_needed','customer_type','lead_score','value','notes','tags','is_active','last_contact_date','next_follow_up_date','ghl_contact_id','created_by','needs_attention']);
-    const ALLOWED_CUSTOMER_COLS = new Set(['company_id','name','company_name','customer_type','email','phone','phone_2','street','city','state','zip','address','website','source','referral_source','custom_source','is_active','notes','group_name','assigned_to','insurance_company','adjuster_name','adjuster_phone','status','total_revenue','customer_number','tags']);
-
-    const allowedCols = entity_type === 'Lead' ? ALLOWED_LEAD_COLS : ALLOWED_CUSTOMER_COLS;
     const tableName = entity_type === 'Lead' ? 'leads' : 'customers';
 
     try {
@@ -2030,7 +2026,7 @@ const functionHandlers = {
       }
 
       let skippedDuplicates = 0;
-      const toInsert = [];
+      const recordsToInsert = [];
 
       for (const record of records) {
         const emailKey = (record.email || '').toLowerCase().trim();
@@ -2046,43 +2042,14 @@ const functionHandlers = {
         if (isDuplicate) {
           skippedDuplicates++;
         } else {
-          toInsert.push(record);
+          recordsToInsert.push(record);
         }
       }
 
-      let imported = 0;
-      let errors = 0;
-      const errorDetails = [];
-      const batchSize = 10;
-
-      for (let i = 0; i < toInsert.length; i += batchSize) {
-        const batch = toInsert.slice(i, i + batchSize);
-        for (const record of batch) {
-          try {
-            const id = `${entity_type.toLowerCase()}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-            const filteredEntries = [['id', id], ...Object.entries(record).filter(([k]) => allowedCols.has(k))];
-            const cols = filteredEntries.map(([k]) => `"${k}"`).join(', ');
-            const placeholders = filteredEntries.map((_, idx) => `$${idx + 1}`).join(', ');
-            const values = filteredEntries.map(([, v]) => v);
-            await pool.query(
-              `INSERT INTO ${tableName} (${cols}) VALUES (${placeholders})`,
-              values
-            );
-            imported++;
-          } catch (err) {
-            errors++;
-            errorDetails.push({ reason: err.message, data: record });
-          }
-        }
-        if (i + batchSize < toInsert.length) {
-          await new Promise(r => setTimeout(r, 500));
-        }
-      }
-
-      return { success: true, imported, skippedDuplicates, errors, errorDetails };
+      return { success: true, skippedDuplicates, recordsToInsert };
     } catch (err) {
-      console.error(`[importLeadsOrCustomers] Error:`, err.message);
-      return { success: false, error: err.message, imported: 0, skippedDuplicates: 0, errors: 0, errorDetails: [] };
+      console.error(`[filterDuplicateContacts] Error:`, err.message);
+      return { success: false, error: err.message, skippedDuplicates: 0, recordsToInsert: records };
     }
   },
 

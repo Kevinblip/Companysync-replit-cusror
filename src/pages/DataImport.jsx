@@ -1131,31 +1131,25 @@ export default function DataImport() {
       let imported = 0;
       let skippedDuplicates = 0;
 
+      // For Lead/Customer: filter out existing contacts on the backend before inserting
+      let recordsToImport = records;
       if ((entityType === 'Lead' || entityType === 'Customer') && records.length > 0) {
-        // DEDUP-SAFE IMPORT: routes through backend to skip existing contacts
-        const response = await base44.functions.invoke('importLeadsOrCustomers', {
+        const filterResponse = await base44.functions.invoke('filterDuplicateContacts', {
           records,
           entity_type: entityType,
           company_id: myCompany.id
         });
-        const result = response.data || {};
-        imported = result.imported || 0;
-        skippedDuplicates = result.skippedDuplicates || 0;
-        processingErrors += result.errors || 0;
-        if (Array.isArray(result.errorDetails)) {
-          result.errorDetails.forEach(d => errorLog.push({ row: '?', reason: d.reason, data: JSON.stringify(d.data) }));
-        }
-        if (result.success === false && !result.imported) {
-          setImportResult({ success: false, error: result.error || 'Import failed on the server.', imported: 0, skipped: skippedRequired, skippedDuplicates: 0, errors: processingErrors });
-          setStep(4);
-          setImporting(false);
-          return;
-        }
-      } else if (records.length > 0) {
-        // REGULAR BATCHED IMPORT (no dedup) for all other entity types
+        const filterResult = filterResponse.data || {};
+        skippedDuplicates = filterResult.skippedDuplicates || 0;
+        recordsToImport = Array.isArray(filterResult.recordsToInsert) ? filterResult.recordsToInsert : records;
+        console.log(`[Import] Dedup: ${skippedDuplicates} duplicates skipped, ${recordsToImport.length} to insert`);
+      }
+
+      // BATCHED IMPORT WITH DELAYS (all entity types)
+      if (recordsToImport.length > 0) {
         const batchSize = 10;
-        for (let i = 0; i < records.length; i += batchSize) {
-          const batch = records.slice(i, i + batchSize);
+        for (let i = 0; i < recordsToImport.length; i += batchSize) {
+          const batch = recordsToImport.slice(i, i + batchSize);
           try {
             await base44.entities[apiEntityType].bulkCreate(batch);
             imported += batch.length;
@@ -1172,9 +1166,9 @@ export default function DataImport() {
               }
             }
           }
-          if (i + batchSize < records.length) {
+          if (i + batchSize < recordsToImport.length) {
             await new Promise(resolve => setTimeout(resolve, 2000));
-            console.log(`Imported ${imported} of ${records.length}...`);
+            console.log(`Imported ${imported} of ${recordsToImport.length}...`);
           }
         }
       }
