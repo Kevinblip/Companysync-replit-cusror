@@ -1,4 +1,4 @@
-const CACHE_NAME = 'companysync-v3';
+const CACHE_NAME = 'companysync-v4';
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_URLS = [
