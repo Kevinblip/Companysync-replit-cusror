@@ -5723,6 +5723,7 @@ async function writeTransferLog(data) {
 
 twilioWss.on('connection', async (twilioWs, req) => {
   console.log('[Sarah] Twilio media stream connected');
+  const wsUpgradeHost = req.headers?.host || '';
   let geminiWs = null;
   let currentStreamSid = null;
   let setupComplete = false;
@@ -5759,6 +5760,7 @@ twilioWss.on('connection', async (twilioWs, req) => {
   let echoGateFailsafeTimer = null;
   let recordingStarted = false;
   let recordingRetryTimer = null;
+  let geminiReconnectAttempted = false;
 
   let geminiApiKey = process.env.GOOGLE_GEMINI_API_KEY;
 
@@ -6210,10 +6212,18 @@ twilioWss.on('connection', async (twilioWs, req) => {
                     await writeTransferLog({ ..._xferBase, step: 'no_cell_phone_error' });
                   } else if (tSid && tToken) {
                     const authStr = Buffer.from(`${tSid}:${tToken}`).toString('base64');
-                    const transferHost = getPublicHost(null);
+                    let transferHost = getPublicHost(null);
+                    if (!transferHost || transferHost.includes('localhost')) {
+                      transferHost = wsUpgradeHost || (process.env.REPLIT_DOMAINS || '').split(',')[0] || '';
+                      console.warn(`[TRANSFER-DEBUG] getPublicHost returned invalid host, using fallback: ${transferHost}`);
+                    }
+                    if (!transferHost || transferHost.includes('localhost')) {
+                      console.error('[TRANSFER-FATAL] Cannot resolve public host for transfer TwiML URL');
+                      await writeTransferLog({ ..._xferBase, step: 'no_public_host_error' });
+                    }
                     const transferUrl = `https://${transferHost}/twiml/transfer?cellPhone=${encodeURIComponent(transferCellPhone)}&callerId=${encodeURIComponent(callerIdNum || calledTwilioNumber || '')}&repName=${encodeURIComponent(transferRepName || forwardedRepName)}&callerPhone=${encodeURIComponent(callerPhone || '')}`;
-                    await writeTransferLog({ ..._xferBase, step: 'calling_twilio_api', transferUrl, acctSidPrefix: tSid.slice(0, 8) });
-                    console.log(`[TRANSFER-DEBUG] Calling Twilio API: SID=${tSid}, callSid=${callSid}, transferUrl=${transferUrl}`);
+                    await writeTransferLog({ ..._xferBase, step: 'calling_twilio_api', transferUrl, transferHost, acctSidPrefix: tSid.slice(0, 8) });
+                    console.log(`[TRANSFER-DEBUG] Calling Twilio API: SID=${tSid}, callSid=${callSid}, transferHost=${transferHost}, transferUrl=${transferUrl}`);
                     try {
                       const updateResp = await fetch(
                         `https://api.twilio.com/2010-04-01/Accounts/${tSid}/Calls/${callSid}.json`,
@@ -6317,13 +6327,40 @@ twilioWss.on('connection', async (twilioWs, req) => {
       } catch (err) { console.error('[Sarah] Gemini msg error:', err.message); }
     });
 
-    geminiWs.on('close', () => {
+    geminiWs.on('close', async () => {
       if (geminiKeepaliveInterval) clearInterval(geminiKeepaliveInterval);
-      if (twilioWs.readyState === WebSocket.OPEN && callSid) {
-        console.log('[Sarah] Gemini disconnected while call active - triggering bailout');
+      if (twilioWs.readyState === WebSocket.OPEN && callSid && !geminiReconnectAttempted) {
+        geminiReconnectAttempted = true;
+        console.log('[Sarah] Gemini disconnected while call active — attempting reconnect...');
         try {
-          const twilioSid = process.env.TWILIO_ACCOUNT_SID;
-          const twilioToken = process.env.TWILIO_AUTH_TOKEN;
+          await connectGemini();
+          console.log('[Sarah] Gemini reconnected successfully');
+          return;
+        } catch (reconnErr) {
+          console.error('[Sarah] Gemini reconnect failed:', reconnErr.message);
+        }
+      }
+      if (twilioWs.readyState === WebSocket.OPEN && callSid) {
+        console.log('[Sarah] Gemini disconnected (no reconnect possible) - triggering bailout');
+        try {
+          let twilioSid = '';
+          let twilioToken = '';
+          if (callCompanyId) {
+            try {
+              const pool = prodDb.getPool();
+              const { rows: twRows } = await pool.query(
+                `SELECT data FROM generic_entities WHERE entity_type = 'TwilioSettings' AND company_id = $1 LIMIT 1`,
+                [callCompanyId]
+              );
+              const twData = twRows[0]?.data || {};
+              twilioSid = twData.account_sid || '';
+              twilioToken = twData.auth_token || '';
+            } catch (dbErr) { console.error('[Sarah] Bailout DB lookup failed:', dbErr.message); }
+          }
+          if (!twilioSid || !twilioToken) {
+            twilioSid = process.env.TWILIO_ACCOUNT_SID || '';
+            twilioToken = process.env.TWILIO_AUTH_TOKEN || '';
+          }
           if (twilioSid && twilioToken) {
             const bailoutMsg = "I'm having a technical glitch. I'll have a human manager call you right back. Thank you for your patience!";
             const twiml = `<Response><Say voice="Polly.Joanna">${bailoutMsg}</Say><Hangup/></Response>`;
@@ -6333,6 +6370,9 @@ twilioWss.on('connection', async (twilioWs, req) => {
               method: 'POST',
               headers: { 'Authorization': `Basic ${authB64}`, 'Content-Type': 'application/x-www-form-urlencoded' },
               body: `Twiml=${encodeURIComponent(twiml)}`
+            }).then(resp => {
+              if (!resp.ok) console.error(`[Sarah] Bailout TwiML update HTTP ${resp.status}`);
+              else console.log('[Sarah] Bailout TwiML update sent successfully');
             }).catch(e => console.error('[Sarah] Bailout TwiML update failed:', e.message));
             if (callCompanyId) {
               const notifId = `notif_bailout_${Date.now()}`;
@@ -6351,6 +6391,8 @@ twilioWss.on('connection', async (twilioWs, req) => {
                 })]
               ).catch(e => console.error('[Sarah] Bailout notification DB save failed:', e.message));
             }
+          } else {
+            console.error('[Sarah] Bailout FAILED: no Twilio credentials found (DB or env) for company', callCompanyId);
           }
         } catch (bailoutErr) {
           console.error('[Sarah] Bailout handler error:', bailoutErr.message);
