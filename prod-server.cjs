@@ -6722,7 +6722,7 @@ prodDb.initDatabase().then(async () => {
       'raffy.vpa28@gmail.com',
     ];
     const adminFix = await pool.query(
-      `UPDATE staff_profiles SET is_administrator = true, is_super_admin = true, can_access_accounting = true,
+      `UPDATE staff_profiles SET is_administrator = true, is_super_admin = true,
        role = 'admin', updated_at = NOW()
        WHERE user_email = ANY($1) AND company_id = $2 RETURNING user_email`,
       [yicnAdmins, YICN_ID]
