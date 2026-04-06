@@ -2848,9 +2848,13 @@ const server = http.createServer(async (req, res) => {
           console.log(`[proxy-pdf] DB lookup for ${fileName}: ${result.rows.length} rows`);
           if (result.rows.length > 0) {
             const { file_data, mime_type } = result.rows[0];
-            res.writeHead(200, { ...fileHeaders, 'Content-Type': mime_type || mimeType });
-            res.end(file_data);
-            servedFromDb = true;
+            if (file_data && file_data.length > 0) {
+              res.writeHead(200, { ...fileHeaders, 'Content-Type': mime_type || mimeType });
+              res.end(file_data);
+              servedFromDb = true;
+            } else {
+              console.warn(`[proxy-pdf] DB row exists but file_data is empty for: ${fileName}`);
+            }
           }
         } catch (e) {
           console.error(`[proxy-pdf] DB error: ${e.message}`);

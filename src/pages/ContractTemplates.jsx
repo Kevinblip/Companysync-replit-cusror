@@ -747,6 +747,30 @@ export default function ContractTemplates() {
                   <Edit className="w-4 h-4 mr-1" />
                   Edit
                 </Button>
+                <label className="cursor-pointer">
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        const { file_url } = await base44.integrations.Core.UploadFile({ file });
+                        await base44.entities.ContractTemplate.update(template.id, { original_file_url: file_url });
+                        queryClient.invalidateQueries({ queryKey: ['contract-templates'] });
+                        alert('PDF updated successfully!');
+                      } catch (err) {
+                        alert('Re-upload failed: ' + err.message);
+                      }
+                      e.target.value = '';
+                    }}
+                    data-testid={`reupload-pdf-${template.id}`}
+                  />
+                  <Button size="sm" variant="outline" className="text-orange-600 hover:bg-orange-50" asChild>
+                    <span><Upload className="w-4 h-4 mr-1" />Re-upload</span>
+                  </Button>
+                </label>
                 <Button
                   size="sm"
                   variant="ghost"

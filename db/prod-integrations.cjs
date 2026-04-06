@@ -51,7 +51,7 @@ function readJsonBody(req) {
 }
 
 function parseMultipartFormData(buffer, contentType) {
-  const boundaryMatch = contentType.match(/boundary=(.+)/);
+  const boundaryMatch = contentType.match(/boundary=([^\s;]+)/);
   if (!boundaryMatch) return null;
   const boundary = boundaryMatch[1].replace(/^["']|["']$/g, '');
   const boundaryBuffer = Buffer.from(`--${boundary}`);
@@ -167,6 +167,7 @@ async function handleUpload(req, res) {
     const parts = parseMultipartFormData(rawBody, contentType);
     const filePart = parts?.find(p => p.filename);
     if (!filePart) { sendJson(res, { error: 'No file found' }, 400); return; }
+    if (!filePart.data || filePart.data.length === 0) { sendJson(res, { error: 'File is empty (0 bytes)' }, 400); return; }
     if (filePart.data.length > 50 * 1024 * 1024) { sendJson(res, { error: 'File too large (50MB max)' }, 400); return; }
     const ALLOWED = new Set(['.jpg','.jpeg','.png','.gif','.webp','.svg','.pdf','.doc','.docx','.xls','.xlsx','.csv','.txt','.heic','.heif','.bmp','.tiff','.tif']);
     const ext = path.extname(filePart.filename).toLowerCase();
@@ -1756,14 +1757,17 @@ async function serveUploadedFile(req, res, pathname) {
     const result = await pool.query('SELECT file_data, mime_type FROM file_uploads WHERE id = $1', [fileName]);
     if (result.rows.length > 0) {
       const { file_data, mime_type } = result.rows[0];
-      // Write to disk cache for faster subsequent requests
-      try {
-        if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-        fs.writeFileSync(path.join(UPLOADS_DIR, fileName), file_data);
-      } catch (e) {}
-      res.writeHead(200, { ...headers, 'Content-Type': mime_type || mimeType });
-      res.end(file_data);
-      return true;
+      if (file_data && file_data.length > 0) {
+        try {
+          if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+          fs.writeFileSync(path.join(UPLOADS_DIR, fileName), file_data);
+        } catch (e) {}
+        res.writeHead(200, { ...headers, 'Content-Type': mime_type || mimeType });
+        res.end(file_data);
+        return true;
+      } else {
+        console.warn(`[serveUploadedFile] DB row exists but file_data is empty for: ${fileName}`);
+      }
     }
   } catch (e) {
     console.error('[serveUploadedFile] DB lookup error:', e.message);
