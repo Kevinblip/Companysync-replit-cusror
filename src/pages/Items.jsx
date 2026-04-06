@@ -48,6 +48,7 @@ export default function Items() {
   });
   const [isImportingExcel, setIsImportingExcel] = useState(false);
   const [isImportingCodes, setIsImportingCodes] = useState(false);
+  const [deleteTabProgress, setDeleteTabProgress] = useState(null);
   const fileInputRef = React.useRef(null);
   const codesCsvInputRef = React.useRef(null);
 
@@ -346,13 +347,16 @@ export default function Items() {
     const toDelete = tabFilteredItems;
     if (!toDelete.length) { alert('No items to delete in this tab.'); return; }
     if (!window.confirm(`⚠️ Delete all ${toDelete.length} ${tabLabel} items?\n\nThis action cannot be undone.`)) return;
-    const BATCH = 20;
+    const BATCH = 50;
     let deleted = 0;
+    setDeleteTabProgress({ deleted: 0, total: toDelete.length, label: tabLabel });
     for (let i = 0; i < toDelete.length; i += BATCH) {
       const batch = toDelete.slice(i, i + BATCH);
       await Promise.all(batch.map(item => base44.entities.PriceListItem.delete(item.id)));
       deleted += batch.length;
+      setDeleteTabProgress({ deleted, total: toDelete.length, label: tabLabel });
     }
+    setDeleteTabProgress(null);
     queryClient.invalidateQueries({ queryKey: ['price-list-items'] });
     alert(`✅ Deleted ${deleted} ${tabLabel} items.`);
   };
@@ -838,9 +842,19 @@ export default function Items() {
                       variant="outline"
                       className="border-red-300 text-red-700 hover:bg-red-50"
                       onClick={handleDeleteTabItems}
+                      disabled={!!deleteTabProgress}
                     >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Delete {activeTab === 'xactimate' ? 'Xactimate' : activeTab === 'xactimate_new' ? 'Xactimate New' : activeTab === 'symbility' ? 'Symbility' : 'Custom'} ({tabFilteredItems.length})
+                      {deleteTabProgress ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Deleting {deleteTabProgress.deleted}/{deleteTabProgress.total}...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete {activeTab === 'xactimate' ? 'Xactimate' : activeTab === 'xactimate_new' ? 'Xactimate New' : activeTab === 'symbility' ? 'Symbility' : 'Custom'} ({tabFilteredItems.length})
+                        </>
+                      )}
                     </Button>
                   )}
 
