@@ -641,17 +641,47 @@ Choose your mode: Upload documents OR use satellite measurements!`,
   };
 
   const handleSatelliteAddressSelect = async (address, details) => {
-    if (!details?.geometry?.location) {
+    let lat, lng;
+
+    if (details?.geometry?.location) {
+      lat = typeof details.geometry.location.lat === 'function'
+        ? details.geometry.location.lat()
+        : details.geometry.location.lat;
+      lng = typeof details.geometry.location.lng === 'function'
+        ? details.geometry.location.lng()
+        : details.geometry.location.lng;
+    }
+
+    if (!lat || !lng) {
+      if (address && window.google?.maps?.Geocoder) {
+        try {
+          const geocoder = new window.google.maps.Geocoder();
+          const result = await new Promise((resolve, reject) => {
+            geocoder.geocode({ address }, (results, status) => {
+              if (status === 'OK' && results?.[0]?.geometry?.location) {
+                resolve(results[0]);
+              } else {
+                reject(new Error(status));
+              }
+            });
+          });
+          lat = result.geometry.location.lat();
+          lng = result.geometry.location.lng();
+          address = result.formatted_address || address;
+        } catch (geoErr) {
+          console.error('Geocoding fallback failed:', geoErr);
+        }
+      }
+    }
+
+    if (!lat || !lng) {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `❌ Could not get location details for the address. Please try again.`,
+        content: `❌ Could not get location details for the address. Please select an address from the dropdown suggestions.`,
         timestamp: new Date().toISOString()
       }]);
       return;
     }
-
-    const lat = details.geometry.location.lat();
-    const lng = details.geometry.location.lng();
 
     console.log('📍 Selected address:', address);
     console.log('🗺️ Coordinates:', { lat, lng });

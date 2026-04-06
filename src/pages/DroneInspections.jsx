@@ -472,8 +472,24 @@ export default function DroneInspections() {
   const handleAddressSelect = async (address, details) => {
     console.log('🎯 handleAddressSelect called with:', address, details);
     
-    if (!details?.geometry?.location) {
-      toast.error('Could not get location details. Please try again.');
+    let resolvedDetails = details;
+    if (!resolvedDetails?.geometry?.location && address && window.google?.maps?.Geocoder) {
+      try {
+        const geocoder = new window.google.maps.Geocoder();
+        resolvedDetails = await new Promise((resolve, reject) => {
+          geocoder.geocode({ address }, (results, status) => {
+            if (status === 'OK' && results?.[0]) resolve(results[0]);
+            else reject(new Error(status));
+          });
+        });
+        address = resolvedDetails.formatted_address || address;
+      } catch (geoErr) {
+        console.error('Geocoding fallback failed:', geoErr);
+      }
+    }
+
+    if (!resolvedDetails?.geometry?.location) {
+      toast.error('Could not get location details. Please select an address from the dropdown.');
       return;
     }
 
