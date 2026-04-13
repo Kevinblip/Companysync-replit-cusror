@@ -547,12 +547,14 @@ export default function Calendar() {
         console.error('Failed to create notification (non-critical):', notifError);
       }
 
-      // 📧📱 Send immediate email/SMS notification
       try {
         await base44.functions.invoke('sendEventChangeNotification', {
           eventId: event.id,
           changeType: 'created',
-          newTime: format(new Date(event.start_time), 'MMM d, h:mm a')
+          newTime: format(new Date(event.start_time), 'MMM d, h:mm a'),
+          companyId: myCompany?.id,
+          createdByEmail: user?.email,
+          createdByName: user?.full_name || user?.email
         });
       } catch (notifError) {
         console.log('Failed to send change notification (non-critical):', notifError.message);
@@ -660,12 +662,14 @@ export default function Calendar() {
           });
           playNotificationSound(); // 🔔 Play ding sound
 
-          // 📧📱 Send immediate email/SMS notification
           await base44.functions.invoke('sendEventChangeNotification', {
             eventId: id,
             changeType: 'rescheduled',
             oldTime: oldTime,
-            newTime: newTime
+            newTime: newTime,
+            companyId: myCompany?.id,
+            createdByEmail: user?.email,
+            createdByName: user?.full_name || user?.email
           });
         } catch (notifError) {
           console.error('Failed to send notifications (non-critical):', notifError);
@@ -719,12 +723,14 @@ export default function Calendar() {
           });
           playNotificationSound(); // 🔔 Play ding sound
 
-          // 📧📱 Send immediate email/SMS notification
           await base44.functions.invoke('sendEventChangeNotification', {
             eventId: id,
             changeType: 'rescheduled',
             oldTime: oldTime,
-            newTime: newTime
+            newTime: newTime,
+            companyId: myCompany?.id,
+            createdByEmail: user?.email,
+            createdByName: user?.full_name || user?.email
           });
         } catch (notifError) {
           console.error('Failed to send notifications (non-critical):', notifError);
@@ -769,11 +775,13 @@ export default function Calendar() {
           });
           playNotificationSound(); // 🔔 Play ding sound
 
-          // 📧📱 Send immediate email/SMS notification
           await base44.functions.invoke('sendEventChangeNotification', {
             eventId: event.id,
             changeType: 'deleted',
-            oldTime: format(new Date(event.start_time), 'MMM d, h:mm a')
+            oldTime: format(new Date(event.start_time), 'MMM d, h:mm a'),
+            companyId: myCompany?.id,
+            createdByEmail: user?.email,
+            createdByName: user?.full_name || user?.email
           });
         } catch (notifError) {
           console.error('Failed to send notifications (non-critical):', notifError);

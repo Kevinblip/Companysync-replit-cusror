@@ -7668,59 +7668,132 @@ Return JSON:
   },
 
   async sendEventChangeNotification(params) {
-    const { eventId, changeType, oldTime, newTime } = params;
+    const { eventId, changeType, oldTime, newTime, companyId, createdByEmail, createdByName } = params;
     if (!eventId) return { success: true, message: 'No eventId provided' };
 
     const pool = getPool();
     try {
       const eventRes = await pool.query(`SELECT * FROM calendar_events WHERE id = $1`, [eventId]);
-      if (eventRes.rows.length === 0) return { success: true, message: 'Event not found' };
-      const event = eventRes.rows[0];
-      const eventData = { ...event, ...(event.data || {}) };
+      const event = eventRes.rows.length > 0 ? eventRes.rows[0] : null;
+      const eventData = event ? { ...event, ...(event.data || {}) } : {};
       const title = eventData.title || 'Calendar Event';
-      const attendees = eventData.attendees || [];
+      const eventLocation = eventData.location || '';
+      const eventType = eventData.event_type || '';
+      const assignedTo = eventData.assigned_to || '';
 
-      const emailRecipients = attendees
-        .map(a => typeof a === 'string' ? a : a.email)
-        .filter(Boolean);
+      const cId = companyId || eventData.company_id;
+      if (!cId) return { success: true, message: 'No company ID' };
 
-      if (emailRecipients.length === 0) return { success: true, message: 'No attendees to notify' };
+      const staffRes = await pool.query(
+        `SELECT user_email, full_name, phone, role, is_administrator, is_super_admin 
+         FROM staff_profiles 
+         WHERE company_id = $1 AND is_active IS NOT FALSE`,
+        [cId]
+      );
 
-      let subject, body;
-      if (changeType === 'created') {
-        subject = `New Event: ${title}`;
-        body = `<p>A new event has been scheduled: <strong>${title}</strong></p><p><strong>Time:</strong> ${newTime || 'TBD'}</p>`;
-      } else if (changeType === 'rescheduled') {
-        subject = `Event Rescheduled: ${title}`;
-        body = `<p>The event <strong>${title}</strong> has been rescheduled.</p><p><strong>Old Time:</strong> ${oldTime || 'N/A'}</p><p><strong>New Time:</strong> ${newTime || 'TBD'}</p>`;
-      } else if (changeType === 'cancelled') {
-        subject = `Event Cancelled: ${title}`;
-        body = `<p>The event <strong>${title}</strong> has been cancelled.</p>`;
-      } else {
-        subject = `Event Updated: ${title}`;
-        body = `<p>The event <strong>${title}</strong> has been updated.</p>`;
+      const recipientMap = new Map();
+      for (const s of staffRes.rows) {
+        if (!s.user_email) continue;
+        const isAdmin = s.is_super_admin === true || s.is_administrator === true || s.role === 'admin' || s.role === 'owner';
+        const isAssigned = assignedTo && (s.user_email === assignedTo || (s.full_name && assignedTo.toLowerCase().includes(s.full_name.toLowerCase())));
+        if (isAdmin || isAssigned) {
+          recipientMap.set(s.user_email, { email: s.user_email, name: s.full_name || s.user_email, phone: s.phone || '' });
+        }
       }
+
+      const attendees = eventData.attendees || [];
+      for (const a of attendees) {
+        const email = typeof a === 'string' ? a : a?.email;
+        if (email && !recipientMap.has(email)) {
+          recipientMap.set(email, { email, name: email, phone: '' });
+        }
+      }
+
+      if (recipientMap.size === 0) {
+        console.log('[EventNotify] No admins, assigned, or attendees found for company', cId);
+        return { success: true, message: 'No recipients found' };
+      }
+
+      const byLine = createdByName ? `<p><strong>Created by:</strong> ${createdByName}</p>` : '';
+      const locationLine = eventLocation ? `<p><strong>Location:</strong> ${eventLocation}</p>` : '';
+      const typeLine = eventType ? `<p><strong>Type:</strong> ${eventType}</p>` : '';
+
+      let subject, body, smsText;
+      if (changeType === 'created') {
+        subject = `New Appointment: ${title}`;
+        body = `<p>A new appointment has been scheduled: <strong>${title}</strong></p><p><strong>Time:</strong> ${newTime || 'TBD'}</p>${locationLine}${typeLine}${byLine}`;
+        smsText = `New appt: ${title} - ${newTime || 'TBD'}${eventLocation ? ' at ' + eventLocation : ''}${createdByName ? ' (by ' + createdByName + ')' : ''}`;
+      } else if (changeType === 'rescheduled') {
+        subject = `Appointment Rescheduled: ${title}`;
+        body = `<p>The appointment <strong>${title}</strong> has been rescheduled.</p><p><strong>Old Time:</strong> ${oldTime || 'N/A'}</p><p><strong>New Time:</strong> ${newTime || 'TBD'}</p>${byLine}`;
+        smsText = `Appt rescheduled: ${title} - was ${oldTime || 'N/A'}, now ${newTime || 'TBD'}${createdByName ? ' (by ' + createdByName + ')' : ''}`;
+      } else if (changeType === 'cancelled' || changeType === 'deleted') {
+        subject = `Appointment Cancelled: ${title}`;
+        body = `<p>The appointment <strong>${title}</strong> has been cancelled.</p><p><strong>Was scheduled:</strong> ${oldTime || newTime || 'N/A'}</p>${byLine}`;
+        smsText = `Appt cancelled: ${title}${oldTime ? ' (was ' + oldTime + ')' : ''}${createdByName ? ' by ' + createdByName : ''}`;
+      } else {
+        subject = `Appointment Updated: ${title}`;
+        body = `<p>The appointment <strong>${title}</strong> has been updated.</p>${byLine}`;
+        smsText = `Appt updated: ${title}${createdByName ? ' (by ' + createdByName + ')' : ''}`;
+      }
+
+      const companyRes = await pool.query(`SELECT data FROM generic_entities WHERE entity_type = 'CompanyProfile' AND company_id = $1 LIMIT 1`, [cId]);
+      const companyName = companyRes.rows[0]?.data?.name || 'CompanySync';
 
       const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px">
         <div style="background:linear-gradient(135deg,#1e40af,#3b82f6);border-radius:12px 12px 0 0;padding:24px;text-align:center">
-          <h1 style="color:white;margin:0;font-size:20px">CompanySync</h1>
+          <h1 style="color:white;margin:0;font-size:20px">${companyName}</h1>
         </div>
         <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;padding:24px">
           ${body}
           <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>
-          <p style="color:#9ca3af;font-size:12px;margin:0">This is an automated notification from CompanySync.</p>
+          <p style="color:#9ca3af;font-size:12px;margin:0">This is an automated notification from ${companyName}.</p>
         </div>
       </div>`;
 
-      for (const email of emailRecipients) {
+      let emailsSent = 0, smsSent = 0;
+
+      for (const [email, recipient] of recipientMap) {
         try {
           await functionHandlers.sendEmailWithResend({ to: email, subject, html });
+          emailsSent++;
+          console.log(`[EventNotify] Email sent to ${recipient.name} (${email})`);
         } catch (e) {
           console.error(`[EventNotify] Failed to email ${email}:`, e.message);
         }
+
+        if (recipient.phone) {
+          try {
+            const tc = await getCompanyTwilioConfig(cId);
+            if (tc.accountSid && tc.authToken && tc.phoneNumber) {
+              const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${tc.accountSid}/Messages.json`;
+              const twilioAuth = Buffer.from(`${tc.accountSid}:${tc.authToken}`).toString('base64');
+              await fetch(twilioUrl, {
+                method: 'POST',
+                headers: { 'Authorization': `Basic ${twilioAuth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ To: recipient.phone, From: tc.phoneNumber, Body: smsText }).toString()
+              });
+              smsSent++;
+              console.log(`[EventNotify] SMS sent to ${recipient.name} (${recipient.phone})`);
+            }
+          } catch (smsErr) {
+            console.error(`[EventNotify] Failed to SMS ${recipient.phone}:`, smsErr.message);
+          }
+        }
+
+        try {
+          await pool.query(
+            `INSERT INTO notifications (id, user_email, type, title, message, link_url, is_read, created_date, company_id)
+             VALUES ($1, $2, $3, $4, $5, '/calendar', false, NOW(), $6)`,
+            [`notif_${Date.now()}_${Math.random().toString(36).slice(2,8)}`, email, 'event_' + changeType, subject, smsText, cId]
+          );
+        } catch (bellErr) {
+          console.log(`[EventNotify] Bell notification insert failed for ${email}:`, bellErr.message);
+        }
       }
 
-      return { success: true, notified: emailRecipients.length };
+      console.log(`[EventNotify] Done: ${emailsSent} emails, ${smsSent} SMS sent for "${title}" (${changeType})`);
+      return { success: true, emailsSent, smsSent, recipients: recipientMap.size };
     } catch (err) {
       console.error('[sendEventChangeNotification] Error:', err.message);
       return { success: false, error: err.message };
