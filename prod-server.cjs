@@ -6,6 +6,7 @@ const prodDb = require('./db/prod-db.cjs');
 const prodAuth = require('./db/prod-auth.cjs');
 const prodIntegrations = require('./db/prod-integrations.cjs');
 const localAuth = require('./db/local-auth.cjs');
+const googleAuth = require('./db/google-auth.cjs');
 const nodemailer = require('nodemailer');
 
 async function sendEmail({ to, subject, html, message, from, cc }) {
@@ -4191,85 +4192,16 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === '/api/auth/google') {
     setCorsHeaders(res, req);
-    const host = req.headers.host;
-    const callbackUrl = `https://${host}/api/auth/google/callback`;
-    const params = new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      redirect_uri: callbackUrl,
-      response_type: 'code',
-      scope: 'profile email',
-      access_type: 'offline',
-      prompt: 'consent'
-    });
-    res.writeHead(302, { Location: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` });
-    res.end();
+    googleAuth.handleGoogleStart(req, res);
     return;
   }
 
   if (pathname === '/api/auth/google/callback') {
     setCorsHeaders(res, req);
-    try {
-      const code = url.searchParams.get('code');
-      const host = req.headers.host;
-      const callbackUrl = `https://${host}/api/auth/google/callback`;
-
-      const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          code,
-          client_id: process.env.GOOGLE_CLIENT_ID,
-          client_secret: process.env.GOOGLE_CLIENT_SECRET,
-          redirect_uri: callbackUrl,
-          grant_type: 'authorization_code'
-        })
-      });
-
-      const tokens = await tokenResp.json();
-      if (!tokens.access_token) throw new Error('Failed to get access token');
-
-      const userinfoResp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: { 'Authorization': `Bearer ${tokens.access_token}` }
-      });
-      const profile = await userinfoResp.json();
-
-      const claims = {
-        sub: profile.sub,
-        email: profile.email,
-        first_name: profile.given_name,
-        last_name: profile.family_name,
-        profile_image_url: profile.picture
-      };
-
-      const pool = prodDb.getPool();
-      await pool.query(
-        `INSERT INTO users (id, email, first_name, last_name, profile_image_url, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-         ON CONFLICT (id) DO UPDATE SET
-           email = COALESCE($2, users.email),
-           first_name = COALESCE($3, users.first_name),
-           last_name = COALESCE($4, users.last_name),
-           profile_image_url = COALESCE($5, users.profile_image_url),
-           updated_at = NOW()`,
-        [claims.sub, claims.email, claims.first_name, claims.last_name, claims.profile_image_url]
-      );
-
-      const sessionData = {
-        cookie: { originalMaxAge: 7 * 24 * 60 * 60 * 1000, expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), httpOnly: true, secure: true, sameSite: 'lax', path: '/' },
-        passport: { user: { claims } }
-      };
-
-      const sid = await prodAuth.createSession(pool, sessionData);
-      const signedSid = require('crypto').createHmac('sha256', process.env.SESSION_SECRET).update(sid).digest('base64').replace(/=+$/, '');
-      const cookieValue = `connect.sid=${encodeURIComponent('s:' + sid + '.' + signedSid)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}`;
-
-      res.writeHead(302, { Location: '/', 'Set-Cookie': cookieValue });
-      res.end();
-    } catch (err) {
-      console.error('[GoogleAuth] Callback error:', err.message);
-      res.writeHead(302, { Location: '/login?error=google_auth_failed' });
-      res.end();
-    }
+    await googleAuth.handleGoogleCallback(req, res, {
+      pool: prodDb.getPool(),
+      createSession: prodAuth.createSession,
+    });
     return;
   }
 

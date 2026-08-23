@@ -1,12 +1,15 @@
 import * as client from "openid-client";
 import { Strategy } from "openid-client/passport";
-import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import passport from "passport";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import memoize from "memoizee";
 import pkg from "pg";
+import { createRequire } from "module";
 const { Pool } = pkg;
+const require = createRequire(import.meta.url);
+const googleAuth = require('./db/google-auth.cjs');
+const prodAuth = require('./db/prod-auth.cjs');
 
 function getPool() {
   if (!getPool._pool) {
@@ -33,31 +36,15 @@ function updateUserSession(user, tokens) {
 }
 
 async function upsertUser(claims) {
+  if (!claims?.email) return null;
   const pool = getPool();
-  const existing = await pool.query('SELECT id FROM users WHERE email = $1', [claims.email]);
-  if (existing.rows.length > 0) {
-    await pool.query(
-      `UPDATE users SET
-         first_name = COALESCE($2, first_name),
-         last_name = COALESCE($3, last_name),
-         profile_image_url = COALESCE($4, profile_image_url),
-         updated_at = NOW()
-       WHERE email = $1`,
-      [claims.email, claims.first_name, claims.last_name, claims.profile_image_url]
-    );
-  } else {
-    await pool.query(
-      `INSERT INTO users (id, email, first_name, last_name, profile_image_url, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-       ON CONFLICT (id) DO UPDATE SET
-         email = COALESCE($2, users.email),
-         first_name = COALESCE($3, users.first_name),
-         last_name = COALESCE($4, users.last_name),
-         profile_image_url = COALESCE($5, users.profile_image_url),
-         updated_at = NOW()`,
-      [claims.sub, claims.email, claims.first_name, claims.last_name, claims.profile_image_url]
-    );
-  }
+  return googleAuth.upsertGoogleUser(pool, {
+    sub: claims.sub,
+    email: claims.email,
+    given_name: claims.first_name,
+    family_name: claims.last_name,
+    picture: claims.profile_image_url,
+  });
 }
 
 function parseBodyMiddleware(req, res, next) {
@@ -109,26 +96,6 @@ export default function authPlugin() {
 
         passport.serializeUser((user, cb) => cb(null, user));
         passport.deserializeUser((user, cb) => cb(null, user));
-
-        if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-          passport.use(new GoogleStrategy({
-            clientID: process.env.GOOGLE_CLIENT_ID,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-            callbackURL: "/api/auth/google/callback",
-            scope: ['profile', 'email'],
-            proxy: true
-          }, async (accessToken, refreshToken, profile, done) => {
-            const claims = {
-              sub: profile.id,
-              email: profile.emails?.[0]?.value,
-              first_name: profile.name?.givenName,
-              last_name: profile.name?.familyName,
-              profile_image_url: profile.photos?.[0]?.value
-            };
-            await upsertUser(claims);
-            done(null, { claims });
-          }));
-        }
 
         const sessionTtl = 7 * 24 * 60 * 60 * 1000;
         const pgStore = connectPg(session);
@@ -192,8 +159,6 @@ export default function authPlugin() {
 
         let localAuth = null;
         try {
-          const { createRequire } = await import('module');
-          const require = createRequire(import.meta.url);
           localAuth = require('./db/local-auth.cjs');
           console.log('[Auth] Local auth module loaded (signup, login-local, confirm-email, change-password)');
         } catch (e) {
@@ -222,14 +187,14 @@ export default function authPlugin() {
           }
 
           if (url === '/api/auth/google') {
-            return passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+            return googleAuth.handleGoogleStart(req, res);
           }
 
           if (url === '/api/auth/google/callback') {
-            return passport.authenticate('google', {
-              successRedirect: '/',
-              failureRedirect: '/login'
-            })(req, res, next);
+            return googleAuth.handleGoogleCallback(req, res, {
+              pool: getPool(),
+              createSession: prodAuth.createSession,
+            });
           }
 
           if (localAuth && url === '/api/change-password' && req.method === 'POST') {
