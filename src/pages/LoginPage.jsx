@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { setLastUsedCompanyId } from "@/lib/activeCompanySelection";
+import { googleLoginErrorMessage } from "@/lib/googleLoginErrors";
 
 export default function LoginPage() {
   const [searchParams] = useSearchParams();
@@ -13,15 +14,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const oauthErrorParam = searchParams.get("error");
-  const googleErrorInitial =
-    oauthErrorParam === "google_auth_failed"
-      ? "Google sign-in failed. Make sure pop-ups aren't blocked and try again. If the problem continues, sign in with your email and password instead."
-      : oauthErrorParam === "access_denied"
-      ? "Google sign-in was cancelled."
-      : "";
-  const [error, setError] = useState(googleErrorInitial);
+  const [error, setError] = useState(() => googleLoginErrorMessage(searchParams.get("error")));
 
   const handleLogin = async (e) => {
     e.preventDefault();
