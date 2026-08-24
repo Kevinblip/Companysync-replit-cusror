@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { createStripeHandlers } from './vite-stripe-plugin.js';
 
 const __require = createRequire(import.meta.url);
+const { createGhlHandlers } = __require('./db/ghl-functions.cjs');
 
 async function logIntegrationActivity(service, action, status, details = {}) {
   try {
@@ -931,6 +932,8 @@ async function executeWorkflowAction(pool, action, entityData, companyId, entity
       console.warn(`[Workflows] Unknown action type: ${actionType}`);
   }
 }
+
+const ghlFunctionHandlers = createGhlHandlers({ getPool, getUserFromRequest, generateEntityId });
 
 const functionHandlers = {
 
@@ -4017,174 +4020,31 @@ If you cannot determine pitch at all: use "refinedPitch": "${currentPitch || 'un
   },
 
   async syncGHLContacts(params, apiKey, req) {
-    const pool = getPool();
-    const user = req ? await getUserFromRequest(req) : null;
-    let companyId = params.company_id;
-    if (!companyId && user) {
-      const s = await pool.query('SELECT company_id FROM staff_profiles WHERE user_email = $1 LIMIT 1', [user.email]);
-      companyId = s.rows[0]?.company_id;
-      if (!companyId) {
-        const c = await pool.query('SELECT id FROM companies WHERE created_by = $1 LIMIT 1', [user.email]);
-        companyId = c.rows[0]?.id;
-      }
-    }
-    if (!companyId) throw new Error('Company ID required');
-
-    const settingsRes = await pool.query(
-      `SELECT data FROM generic_entities WHERE entity_type = 'IntegrationSetting' AND company_id = $1 AND data->>'integration_name' = 'gohighlevel' LIMIT 1`,
-      [companyId]
-    );
-    const settings = settingsRes.rows[0]?.data || {};
-    if (!settings.is_enabled && settings.is_enabled !== undefined) {
-      return { error: 'GHL integration not enabled for this company' };
-    }
-    const config = settings.config || {};
-    const ghlApiKey = config.api_key || process.env.GHL_API_KEY;
-    const locationId = params.locationId || config.location_id;
-
-    if (!ghlApiKey) return { error: 'GHL_API_KEY not configured. Add it in environment secrets or integration settings.' };
-
-    let ghlUrl = 'https://rest.gohighlevel.com/v1/contacts/?limit=100';
-    if (locationId) ghlUrl += `&locationId=${locationId}`;
-
-    const ghlResp = await fetch(ghlUrl, {
-      headers: { 'Authorization': `Bearer ${ghlApiKey}`, 'Content-Type': 'application/json', 'Version': '2021-07-28' }
-    });
-    if (!ghlResp.ok) throw new Error(`GHL API failed: ${ghlResp.status} ${await ghlResp.text()}`);
-
-    const ghlData = await ghlResp.json();
-    const contacts = ghlData.contacts || [];
-    console.log(`[GHL] Syncing ${contacts.length} contacts for company ${companyId}`);
-
-    let created = 0, updated = 0;
-    const ownerEmail = user?.email || null;
-
-    for (const contact of contacts) {
-      const ghlId = contact.id;
-      const name = contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Unknown';
-      const email = contact.email || null;
-
-      const existing = await pool.query(
-        `SELECT id, data FROM generic_entities WHERE entity_type = 'Lead' AND company_id = $1 AND (data->>'ghl_contact_id' = $2 OR (data->>'email' = $3 AND $3 IS NOT NULL)) LIMIT 1`,
-        [companyId, ghlId, email]
-      );
-
-      const payload = { name, email, phone: contact.phone || contact.phoneNumber || null, ghl_contact_id: ghlId, lead_source: 'GoHighLevel', source: 'gohighlevel', company_id: companyId };
-
-      if (existing.rows.length > 0) {
-        await pool.query(
-          `UPDATE generic_entities SET data = data || $1::jsonb, updated_date = NOW() WHERE id = $2`,
-          [JSON.stringify(payload), existing.rows[0].id]
-        );
-        updated++;
-      } else {
-        const newId = generateEntityId('lead');
-        await pool.query(
-          `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date) VALUES ($1, 'Lead', $2, $3::jsonb, NOW(), NOW())`,
-          [newId, companyId, JSON.stringify({ ...payload, status: 'new', assigned_to: ownerEmail, notes: `Imported from GoHighLevel. GHL ID: ${ghlId}` })]
-        );
-        created++;
-      }
-    }
-
-    console.log(`[GHL] Sync complete: ${created} created, ${updated} updated`);
-    return { success: true, created, updated, total: contacts.length, message: `Synced ${contacts.length} GHL contacts (${created} new, ${updated} updated)` };
+    return ghlFunctionHandlers.syncGHLContacts(params, apiKey, req);
   },
 
   async pushToGHL(params, apiKey, req) {
-    const pool = getPool();
-    const user = req ? await getUserFromRequest(req) : null;
-    const { entityType, entityId, action = 'create' } = params;
-
-    if (!entityType || !entityId) throw new Error('entityType and entityId are required');
-
-    const entityRes = await pool.query(
-      `SELECT id, company_id, data FROM generic_entities WHERE id = $1 AND entity_type = $2 LIMIT 1`,
-      [entityId, entityType]
-    );
-    if (entityRes.rows.length === 0) throw new Error(`${entityType} not found: ${entityId}`);
-    const entity = entityRes.rows[0];
-    const companyId = entity.company_id;
-    const lead = entity.data;
-
-    const settingsRes = await pool.query(
-      `SELECT data FROM generic_entities WHERE entity_type = 'IntegrationSetting' AND company_id = $1 AND data->>'integration_name' = 'gohighlevel' LIMIT 1`,
-      [companyId]
-    );
-    const config = settingsRes.rows[0]?.data?.config || {};
-    const ghlApiKey = config.api_key || process.env.GHL_API_KEY;
-    const locationId = config.location_id;
-
-    if (!ghlApiKey) return { success: false, error: 'GHL_API_KEY not configured' };
-    if (!locationId) return { success: false, message: 'Location ID not configured in GHL settings' };
-
-    const [firstName, ...rest] = (lead.name || '').split(' ');
-    const ghlContact = {
-      firstName: firstName || '',
-      lastName: rest.join(' ') || '',
-      email: lead.email || '',
-      phone: lead.phone || '',
-      address1: lead.street || lead.address || '',
-      city: lead.city || '',
-      state: lead.state || '',
-      postalCode: lead.zip || lead.postal_code || '',
-      companyName: lead.company || '',
-      source: lead.source || 'CRM',
-      tags: lead.tags || [],
-      locationId
-    };
-
-    if (action === 'create') {
-      const resp = await fetch('https://rest.gohighlevel.com/v1/contacts/', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${ghlApiKey}`, 'Content-Type': 'application/json', 'Version': '2021-07-28' },
-        body: JSON.stringify(ghlContact)
-      });
-      if (!resp.ok) { const err = await resp.text(); return { success: false, error: `GHL create failed: ${err}` }; }
-      const ghlData = await resp.json();
-      const ghlId = ghlData.contact?.id;
-      await pool.query(
-        `UPDATE generic_entities SET data = data || $1::jsonb, updated_date = NOW() WHERE id = $2`,
-        [JSON.stringify({ ghl_contact_id: ghlId }), entityId]
-      );
-      console.log(`[GHL] Contact created in GHL: ${ghlId} for entity ${entityId}`);
-      return { success: true, ghlContactId: ghlId, message: 'Contact created in GoHighLevel' };
-    } else if (action === 'update') {
-      const ghlId = lead.ghl_contact_id;
-      if (!ghlId) return { success: false, message: 'No GHL contact ID found. Create it first.' };
-      const resp = await fetch(`https://rest.gohighlevel.com/v1/contacts/${ghlId}`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${ghlApiKey}`, 'Content-Type': 'application/json', 'Version': '2021-07-28' },
-        body: JSON.stringify(ghlContact)
-      });
-      if (!resp.ok) { const err = await resp.text(); return { success: false, error: `GHL update failed: ${err}` }; }
-      console.log(`[GHL] Contact updated in GHL: ${ghlId}`);
-      return { success: true, ghlContactId: ghlId, message: 'Contact updated in GoHighLevel' };
-    }
-    return { success: false, message: 'Unsupported action. Use create or update.' };
+    return ghlFunctionHandlers.pushToGHL(params, apiKey, req);
   },
 
-  async ghlAutoSyncCron(params) {
-    const pool = getPool();
-    const enabledSettings = await pool.query(
-      `SELECT company_id, data FROM generic_entities WHERE entity_type = 'IntegrationSetting' AND data->>'integration_name' = 'gohighlevel' AND data->>'is_enabled' = 'true'`
-    );
-    const results = [];
-    for (const row of enabledSettings.rows) {
-      try {
-        const result = await functionHandlers.syncGHLContacts({ company_id: row.company_id });
-        results.push({ companyId: row.company_id, ...result });
-      } catch (e) {
-        console.error(`[GHL] Auto-sync failed for ${row.company_id}:`, e.message);
-        results.push({ companyId: row.company_id, error: e.message });
-      }
-    }
-    console.log(`[GHL] Auto-sync complete: ${results.length} companies processed`);
-    return { success: true, results };
+  async ghlAutoSyncCron(params, apiKey, req) {
+    return ghlFunctionHandlers.ghlAutoSyncCron(params, apiKey, req);
   },
 
   async testSyncOneGHL(params, apiKey, req) {
-    return await functionHandlers.syncGHLContacts(params, apiKey, req);
+    return ghlFunctionHandlers.testSyncOneGHL(params, apiKey, req);
+  },
+
+  async getGHLStatus(params, apiKey, req) {
+    return ghlFunctionHandlers.getGHLStatus(params, apiKey, req);
+  },
+
+  async saveGHLSettings(params, apiKey, req) {
+    return ghlFunctionHandlers.saveGHLSettings(params, apiKey, req);
+  },
+
+  async testGHLWebhook(params, apiKey, req) {
+    return ghlFunctionHandlers.testGHLWebhook(params, apiKey, req);
   },
 
   async deleteUserAccount(params) {

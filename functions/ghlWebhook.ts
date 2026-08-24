@@ -40,10 +40,16 @@ Deno.serve(async (req) => {
             // For now, let's assume the GHL setup instructions tell them to append ?company_id=... 
             // OR we fetch all companies and check their IntegrationSetting (expensive but accurate)
             
-            const settings = await base44.asServiceRole.entities.IntegrationSetting.filter({ 
-                integration_name: 'GoHighLevel',
+            let settings = await base44.asServiceRole.entities.IntegrationSetting.filter({ 
+                integration_name: 'gohighlevel',
                 is_enabled: true
             });
+            if (!settings.length) {
+                settings = await base44.asServiceRole.entities.IntegrationSetting.filter({ 
+                    integration_name: 'GoHighLevel',
+                    is_enabled: true
+                });
+            }
             
             const match = settings.find(s => s.config?.location_id === locationId);
             if (match) {

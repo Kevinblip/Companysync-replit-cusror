@@ -576,6 +576,19 @@ export default function Leads() {
         } catch (error) {
           console.error('⚠️ Workflow trigger failed:', error);
         }
+
+        if (!newLead.ghl_contact_id) {
+          try {
+            await base44.functions.invoke('pushToGHL', {
+              entityType: 'Lead',
+              entityId: newLead.id,
+              action: 'create',
+              company_id: myCompanyData.id
+            });
+          } catch (error) {
+            console.error('⚠️ GoHighLevel push failed:', error);
+          }
+        }
       }
     },
   });
