@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>CompanySync photo-assembled house</title>
+  <style>
+    html, body { margin: 0; background: #e8edf2; font-family: ui-sans-serif, system-ui, sans-serif; }
+    header { padding: 12px 20px 8px; background: #fff; border-bottom: 1px solid #d5dee8; }
+    h1 { margin: 0; font-size: 16px; color: #0f172a; }
+    p { margin: 4px 0 0; font-size: 12px; color: #64748b; }
+    #stage { display: block; width: 1400px; height: 720px; background: #eef1f5; }
+    #elev { display: flex; gap: 10px; padding: 10px 20px 16px; background: #fff; border-top: 1px solid #d5dee8; }
+    .el { width: 240px; }
+    .el img { width: 100%; height: 88px; object-fit: cover; border-radius: 6px; border: 1px solid #cbd5e1; display: block; }
+    .el span { display: block; font-size: 11px; color: #334155; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Estimator 3D from uploaded facade photos</h1>
+    <p>One assembled house · roof attached to walls · Front/Right/Back/Left photos as wall textures · not Hover</p>
+  </header>
+  <canvas id="stage" width="1400" height="720"></canvas>
+  <div id="elev"></div>
+  <script type="module">
+    import { assembleEstimatorHouse, toViewerModel } from '../src/lib/houseGeometry.js';
+
+    function paintFacade(kind) {
+      const c = document.createElement('canvas');
+      c.width = 720; c.height = 480;
+      const ctx = c.getContext('2d');
+      const sky = ctx.createLinearGradient(0, 0, 0, 140);
+      sky.addColorStop(0, '#8ec4ee'); sky.addColorStop(1, '#d5e6f4');
+      ctx.fillStyle = sky; ctx.fillRect(0, 0, 720, 140);
+      ctx.fillStyle = '#6a8750'; ctx.fillRect(0, 400, 720, 80);
+      const wallTop = 72, wallBot = 400;
+
+      function windows(list) {
+        for (const [x, y, w, h] of list) {
+          ctx.fillStyle = '#f4f0e6'; ctx.fillRect(x - 6, y - 6, w + 12, h + 14);
+          ctx.fillStyle = '#7eb6dd'; ctx.fillRect(x, y, w, h);
+          ctx.strokeStyle = '#f4f0e6'; ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(x + w / 2, y); ctx.lineTo(x + w / 2, y + h);
+          ctx.moveTo(x, y + h / 2); ctx.lineTo(x + w, y + h / 2);
+          ctx.stroke();
+        }
+      }
+
+      if (kind === 'front') {
+        ctx.fillStyle = '#cbb892';
+        ctx.beginPath();
+        ctx.moveTo(40, wallTop); ctx.lineTo(360, 16); ctx.lineTo(680, wallTop);
+        ctx.lineTo(680, 255); ctx.lineTo(40, 255); ctx.closePath(); ctx.fill();
+        for (let y = wallTop; y < 255; y += 10) {
+          ctx.strokeStyle = 'rgba(80,60,30,0.22)';
+          ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(680, y); ctx.stroke();
+        }
+        for (let row = 0; row < 9; row++) {
+          for (let col = 0; col < 13; col++) {
+            const x = 46 + col * 50 + (row % 2 ? 16 : 0);
+            const y = 258 + row * 15;
+            ctx.fillStyle = (col + row) % 2 ? '#8a6846' : '#6e5032';
+            ctx.fillRect(x, y, 46, 13);
+            ctx.strokeStyle = '#4a3422'; ctx.strokeRect(x, y, 46, 13);
+          }
+        }
+        ctx.fillStyle = '#3c291c'; ctx.fillRect(328, 248, 64, 152);
+        ctx.fillStyle = '#c9a227'; ctx.beginPath(); ctx.arc(380, 328, 4, 0, Math.PI * 2); ctx.fill();
+        windows([[90, 168, 72, 72], [198, 168, 72, 72], [450, 168, 72, 72], [558, 168, 72, 72], [90, 290, 70, 52], [558, 290, 70, 52]]);
+        ctx.fillStyle = '#2a2a2e'; ctx.beginPath();
+        ctx.moveTo(28, wallTop); ctx.lineTo(360, 4); ctx.lineTo(692, wallTop); ctx.lineTo(680, wallTop); ctx.lineTo(360, 16); ctx.lineTo(40, wallTop); ctx.closePath(); ctx.fill();
+      } else if (kind === 'left') {
+        ctx.fillStyle = '#8a4a3a'; ctx.fillRect(50, wallTop, 620, wallBot - wallTop);
+        for (let row = 0; row < 22; row++) {
+          for (let col = 0; col < 16; col++) {
+            const x = 54 + col * 38 + (row % 2 ? 16 : 0);
+            const y = wallTop + 6 + row * 14;
+            ctx.fillStyle = (col + row) % 3 === 0 ? '#9a5544' : '#7a3f32';
+            ctx.fillRect(x, y, 34, 12);
+          }
+        }
+        windows([[160, 168, 80, 90], [480, 168, 80, 90]]);
+      } else {
+        ctx.fillStyle = '#d2c09a'; ctx.fillRect(40, wallTop, 640, wallBot - wallTop);
+        for (let y = wallTop; y < wallBot; y += 9) {
+          ctx.strokeStyle = 'rgba(90,70,40,0.28)';
+          ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(680, y); ctx.stroke();
+        }
+        windows(kind === 'back'
+          ? [[80, 168, 90, 80], [300, 168, 90, 80], [520, 168, 90, 80], [80, 290, 90, 70], [520, 290, 90, 70]]
+          : [[70, 160, 80, 85], [230, 160, 80, 85], [410, 160, 80, 85], [560, 160, 80, 85]]);
+        ctx.fillStyle = '#2a2a2e'; ctx.fillRect(30, 62, 660, 14);
+      }
+      const cropped = document.createElement('canvas');
+      cropped.width = 640;
+      cropped.height = 330;
+      cropped.getContext('2d').drawImage(c, 40, 70, 640, 330, 0, 0, 640, 330);
+      return cropped;
+    }
+
+    function load(c) {
+      return new Promise(res => {
+        const img = new Image();
+        img.onload = () => res(img);
+        img.src = c.toDataURL('image/jpeg', 0.92);
+      });
+    }
+
+    const canvases = {
+      front: paintFacade('front'),
+      right: paintFacade('right'),
+      back: paintFacade('back'),
+      left: paintFacade('left'),
+    };
+    const photos = [
+      { label: 'Front', url: canvases.front.toDataURL('image/jpeg', 0.92) },
+      { label: 'Right Side', url: canvases.right.toDataURL('image/jpeg', 0.92) },
+      { label: 'Back', url: canvases.back.toDataURL('image/jpeg', 0.92) },
+      { label: 'Left Side', url: canvases.left.toDataURL('image/jpeg', 0.92) },
+    ];
+    const imgs = {
+      front: await load(canvases.front),
+      right: await load(canvases.right),
+      back: await load(canvases.back),
+      left: await load(canvases.left),
+    };
+
+    const house = assembleEstimatorHouse({
+      photos,
+      photoAnalysis: {
+        building_length_ft: 42,
+        building_width_ft: 36,
+        story_count: 2,
+        story_height_ft: 18,
+        siding_material: 'vinyl',
+        per_photo_breakdown: [
+          { label: 'Front', primary_cladding: 'siding', secondary_cladding: 'stone', secondary_cladding_region: 'lower', secondary_height_ft: 8 },
+          { label: 'Right Side', primary_cladding: 'siding' },
+          { label: 'Back', primary_cladding: 'siding' },
+          { label: 'Left Side', primary_cladding: 'brick' },
+        ],
+      },
+      satelliteAnalysis: { pitch: '7/12', roof_type: 'gable' },
+    });
+    const model = toViewerModel(house, { photos });
+
+    const elev = document.getElementById('elev');
+    for (const el of model.elevations) {
+      const wrap = document.createElement('div');
+      wrap.className = 'el';
+      wrap.innerHTML = `<img src="${el.photoUrl}" alt="${el.label}" /><span>${el.label} — ${el.caption} · ${el.width_ft} × ${el.height_ft} ft</span>`;
+      elev.appendChild(wrap);
+    }
+
+    const fp = model.footprint;
+    const W = fp.width_ft, L = fp.length_ft, H = fp.eave_height_ft;
+    const pitch12 = 7;
+    const rise = (W / 2) * (pitch12 / 12);
+
+    const canvas = document.getElementById('stage');
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#eef1f5';
+    ctx.fillRect(0, 0, 1400, 720);
+    const lawn = ctx.createLinearGradient(0, 480, 0, 720);
+    lawn.addColorStop(0, '#d7e0c8'); lawn.addColorStop(1, '#b7c59a');
+    ctx.fillStyle = lawn; ctx.fillRect(0, 430, 1400, 290);
+
+    const originX = 700, originY = 500, s = 9.6;
+    function iso(x, y, z) {
+      const rx = y, ry = -x;
+      return {
+        x: originX + (rx - ry) * Math.cos(Math.PI / 6) * s,
+        y: originY - z * s + (rx + ry) * Math.sin(Math.PI / 6) * s,
+      };
+    }
+    function drawImageAffine(img, p0, p1, p2) {
+      const w = img.width || 1;
+      const h = img.height || 1;
+      ctx.save();
+      ctx.setTransform(
+        (p1.x - p0.x) / w,
+        (p1.y - p0.y) / w,
+        (p2.x - p0.x) / h,
+        (p2.y - p0.y) / h,
+        p0.x,
+        p0.y,
+      );
+      ctx.drawImage(img, 0, 0);
+      ctx.restore();
+    }
+    function poly(pts, fill, stroke) {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.closePath();
+      if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+      ctx.strokeStyle = stroke || 'rgba(20,20,20,0.35)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    const hx = W / 2, hy = L / 2;
+    // Ground slab
+    poly([iso(-hx - 2, -hy - 2, 0), iso(hx + 2, -hy - 2, 0), iso(hx + 2, hy + 2, 0), iso(-hx - 2, hy + 2, 0)], '#c5d0b8', '#9aaa88');
+
+    // Draw order: left (west) wall, back not visible, right wall, front wall, roof
+    const leftBl = iso(-hx, hy, 0), leftBr = iso(-hx, -hy, 0), leftTr = iso(-hx, -hy, H);
+    drawImageAffine(imgs.left, leftBr, leftBl, leftTr);
+
+    const rightBl = iso(hx, -hy, 0), rightBr = iso(hx, hy, 0), rightTl = iso(hx, -hy, H);
+    drawImageAffine(imgs.right, rightBl, rightBr, rightTl);
+
+    const frontBl = iso(-hx, -hy, 0), frontBr = iso(hx, -hy, 0), frontTl = iso(-hx, -hy, H);
+    drawImageAffine(imgs.front, frontBl, frontBr, frontTl);
+
+    const ridgeF = iso(0, -hy, H + rise), ridgeB = iso(0, hy, H + rise);
+    poly([iso(-hx, -hy, H), iso(hx, -hy, H), ridgeF], '#c4b089', '#5c4a32');
+
+    // Roof planes (left / right of ridge) — attached at eave
+    const roofL = [iso(-hx, -hy, H), iso(-hx, hy, H), ridgeB, ridgeF];
+    const roofR = [iso(hx, -hy, H), iso(hx, hy, H), ridgeB, ridgeF];
+    poly(roofL, '#2f3034', '#1a1a1c');
+    poly(roofR, '#3a3b40', '#1a1a1c');
+    // shingle rows
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.strokeStyle = '#111';
+    for (let i = 1; i < 8; i++) {
+      const t = i / 8;
+      const a = { x: iso(-hx, -hy, H).x + (ridgeF.x - iso(-hx, -hy, H).x) * t, y: iso(-hx, -hy, H).y + (ridgeF.y - iso(-hx, -hy, H).y) * t };
+      const b = { x: iso(-hx, hy, H).x + (ridgeB.x - iso(-hx, hy, H).x) * t, y: iso(-hx, hy, H).y + (ridgeB.y - iso(-hx, hy, H).y) * t };
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      const c = { x: iso(hx, -hy, H).x + (ridgeF.x - iso(hx, -hy, H).x) * t, y: iso(hx, -hy, H).y + (ridgeF.y - iso(hx, -hy, H).y) * t };
+      const d = { x: iso(hx, hy, H).x + (ridgeB.x - iso(hx, hy, H).x) * t, y: iso(hx, hy, H).y + (ridgeB.y - iso(hx, hy, H).y) * t };
+      ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.stroke();
+    }
+    ctx.restore();
+
+    // Labels
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '600 15px ui-sans-serif, system-ui';
+    ctx.fillText(`Assembled ${W} × ${L} ft · ${H} ft eave · ${model.faces.filter(f => f.type === 'WALL' && f.photoUrl).length} textured walls · roof attached`, 24, 36);
+    ctx.font = '12px ui-sans-serif, system-ui';
+    ctx.fillStyle = '#475569';
+    ctx.fillText(model.assembled ? 'isHouseAssembled: true  ·  source: ' + model.source : 'NOT assembled', 24, 56);
+
+    window.__HOUSE_READY__ = true;
+    window.__HOUSE_ASSEMBLED__ = model.assembled;
+  </script>
+</body>
+</html>

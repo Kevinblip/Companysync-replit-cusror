@@ -59,6 +59,8 @@ import Dialer from "@/components/communication/Dialer";
 import EmailDialog from "@/components/communication/EmailDialog";
 import SMSDialog from "@/components/communication/SMSDialog";
 import useRoleBasedData from "@/components/hooks/useRoleBasedData";
+import PropertyHouseModel from "@/components/property/PropertyHouseModel";
+import { photosFromLeadDocuments } from "@/lib/houseGeometry";
 
 export default function LeadProfile() {
   const navigate = useNavigate();
@@ -461,6 +463,8 @@ export default function LeadProfile() {
     { value: "invoice", label: "Invoice", icon: "🧾" },
     { value: "other", label: "Other", icon: "📸" }
   ];
+
+  const housePhotosFromFiles = photosFromLeadDocuments(documents);
 
   if (leadLoading) {
     return (
@@ -867,6 +871,27 @@ export default function LeadProfile() {
                     <Label className="text-gray-500 text-xs">Notes</Label>
                     <p className="mt-2 text-gray-700 whitespace-pre-wrap">{lead.notes}</p>
                   </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card id="property-3d-section" data-testid="lead-property-3d">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Camera className="w-5 h-5" />
+                  Property 3D
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <PropertyHouseModel
+                  address={[lead.street, lead.city, lead.state, lead.zip].filter(Boolean).join(', ')}
+                  photos={housePhotosFromFiles}
+                />
+                {housePhotosFromFiles.length === 0 && (
+                  <p className="text-sm text-gray-500">
+                    Upload Front / Rear / Left Elevation / Right Elevation photos in Files & Photos
+                    to texture this house. The model is assembled from those photos — not a Hover job.
+                  </p>
                 )}
               </CardContent>
             </Card>
