@@ -267,6 +267,7 @@ export default function AIEstimator() {
   const urlParams = new URLSearchParams(location.search);
   const inspectionJobIdFromUrl = urlParams.get('inspection_job_id');
   const leadIdFromUrl = urlParams.get('lead_id');
+  const [hoverJobId, setHoverJobId] = useState(() => urlParams.get('hover_job_id') || urlParams.get('hoverJobId') || '');
 
   useEffect(() => {
     let retryTimeout = null;
@@ -5026,6 +5027,7 @@ Be very thorough and extract EVERY line item you see.`,
     handleAnalyzeSiding,
     convertSidingMeasurementsToLineItems,
     base44, t, user, myCompany,
+    hoverJobId, setHoverJobId,
     showConfig, setShowConfig,
     isInsuranceJob, setIsInsuranceJob,
     setPricingSource,

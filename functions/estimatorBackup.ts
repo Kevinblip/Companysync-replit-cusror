@@ -19,6 +19,7 @@ const ESTIMATOR_FILES = [
   'exportToXactimate',
   'aiRoofMeasurement',
   'analyzeRoofWithGoogleSolar',
+  'getHoverHouseModel',
 
   // PDFs / Reports
   'generateEstimatePDF',

@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
+import PropertyHouseModel from "@/components/property/PropertyHouseModel";
 import {
   User,
   Phone,
@@ -870,6 +871,30 @@ export default function LeadProfile() {
                 )}
               </CardContent>
             </Card>
+
+            {(lead.street || lead.city || lead.address || lead.data?.hover_job_id) && (
+              <Card id="house-3d-section" data-testid="lead-house-3d">
+                <CardHeader>
+                  <CardTitle>Property 3D model</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <PropertyHouseModel
+                    address={[lead.street, lead.city, lead.state, lead.zip].filter(Boolean).join(', ') || lead.address}
+                    hoverJobId={lead.hover_job_id || lead.data?.hover_job_id || ''}
+                    onHoverJobIdChange={async (id) => {
+                      try {
+                        await base44.entities.Lead.update(lead.id, {
+                          hover_job_id: id,
+                          data: { ...(lead.data || {}), hover_job_id: id },
+                        });
+                      } catch (err) {
+                        console.warn('Could not save Hover job id on lead', err);
+                      }
+                    }}
+                  />
+                </CardContent>
+              </Card>
+            )}
 
             {/* Score History */}
             {leadScore && leadScore.score_history && leadScore.score_history.length > 0 && (
