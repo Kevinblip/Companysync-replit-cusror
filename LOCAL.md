@@ -48,7 +48,10 @@ npm run dev
 
 Vite listens on **`0.0.0.0:5000`** with `strictPort: true`. Open [http://localhost:5000](http://localhost:5000).
 
-`@base44/sdk` and the Base44 Vite plugin stay in the project. They do not block `npm run dev`. The optional flag `BASE44_LEGACY_SDK_IMPORTS=true` is only for leftover legacy SDK imports; leave it unset/`false`.
+`@base44/sdk` and the Base44 Vite plugin stay in the project. They do not block `npm run dev`. You may see `[base44] Proxy not enabled (VITE_BASE44_APP_BASE_URL not set)` — that is expected locally. Optional flags:
+
+- `BASE44_LEGACY_SDK_IMPORTS=true` — only if leftover code still imports the legacy SDK; leave unset/`false`
+- `VITE_BASE44_APP_BASE_URL` — enables the Base44 proxy; not required for the local Postgres path
 
 Replit OIDC (`REPL_ID`) is optional locally. Email/password (`/api/login-local`) and Google OAuth still register without it.
 
