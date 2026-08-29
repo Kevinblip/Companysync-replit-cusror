@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import crypto from 'crypto';
 import { createRequire } from 'node:module';
 import { createStripeHandlers } from './vite-stripe-plugin.js';
+import { buildHoverHouseModel } from './src/lib/hoverHouseModel.js';
 
 const __require = createRequire(import.meta.url);
 
@@ -11890,6 +11891,10 @@ try {
 }
 functionHandlers.adminBulkSyncCalendars = functionHandlers.bulkSyncAllCalendars;
 functionHandlers.adminDisconnectUserCalendar = functionHandlers.disconnectUserGoogleCalendar;
+
+functionHandlers.getHoverHouseModel = async (params) => {
+  return buildHoverHouseModel(params || {}, process.env);
+};
 
 export { functionHandlers, executeWorkflowAction };
 

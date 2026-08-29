@@ -15,6 +15,7 @@ import { useState } from "react";
   import InteractiveRoofMap from "../satellite/InteractiveRoofMap";
   import StreetViewPanel from "../satellite/StreetViewPanel";
   import { getPitchMultiplier } from "@/lib/satelliteUtils";
+  import PropertyHouseModel from "@/components/property/PropertyHouseModel";
 
   export default function SatelliteMeasurementPanel({ ctx }) {
     const {
@@ -74,6 +75,7 @@ import { useState } from "react";
       handleAnalyzeSiding,
       convertSidingMeasurementsToLineItems,
       base44, t, user, myCompany,
+      hoverJobId = '', setHoverJobId = () => {},
     } = ctx;
 
     const [calibrations, setCalibrations] = useState([]);
@@ -1988,6 +1990,20 @@ import { useState } from "react";
                     </Button>
                   </div>
                 </div>
+
+                {satelliteAddress && (
+                  <div className="border border-slate-200 rounded-lg p-4 bg-white space-y-3">
+                    <PropertyHouseModel
+                      address={satelliteAddress.address}
+                      latitude={satelliteAddress.coordinates?.lat}
+                      longitude={satelliteAddress.coordinates?.lng}
+                      hoverJobId={hoverJobId}
+                      onHoverJobIdChange={setHoverJobId}
+                      building={sidingMeasurements || satelliteAnalysis}
+                      photos={[...(housePhotos || []), ...(elevationImages || [])]}
+                    />
+                  </div>
+                )}
 
                 {/* ELEVATION VIEWS PANEL */}
                 {satelliteAddress?.coordinates && (
