@@ -68,7 +68,21 @@ export default function authPlugin() {
     name: 'replit-auth',
     async configureServer(server) {
       try {
-        const config = await getOidcConfig();
+        if (!process.env.DATABASE_URL || !process.env.SESSION_SECRET) {
+          console.warn('[Auth] DATABASE_URL or SESSION_SECRET missing — auth routes not registered');
+          return;
+        }
+
+        let oidcConfig = null;
+        try {
+          if (process.env.REPL_ID) {
+            oidcConfig = await getOidcConfig();
+          } else {
+            console.warn('[Auth] REPL_ID not set — Replit OIDC login disabled; local email/password and Google still work');
+          }
+        } catch (oidcErr) {
+          console.warn('[Auth] Replit OIDC init skipped:', oidcErr.message);
+        }
 
         const verify = async (tokens, verified) => {
           const user = {};
@@ -78,12 +92,13 @@ export default function authPlugin() {
         };
 
         const ensureStrategy = (domain) => {
+          if (!oidcConfig) return;
           const strategyName = `replitauth:${domain}`;
           if (!registeredStrategies.has(strategyName)) {
             const strategy = new Strategy(
               {
                 name: strategyName,
-                config,
+                config: oidcConfig,
                 scope: "openid email profile offline_access",
                 callbackURL: `https://${domain}/api/callback`,
               },
@@ -216,6 +231,11 @@ export default function authPlugin() {
           }
 
           if (url === '/api/login') {
+            if (!oidcConfig) {
+              res.writeHead(302, { Location: '/login' });
+              res.end();
+              return;
+            }
             const domain = req.headers.host;
             ensureStrategy(domain);
             return passport.authenticate(`replitauth:${domain}`, {
@@ -225,6 +245,11 @@ export default function authPlugin() {
           }
 
           if (url === '/api/callback') {
+            if (!oidcConfig) {
+              res.writeHead(302, { Location: '/login' });
+              res.end();
+              return;
+            }
             const domain = req.headers.host;
             ensureStrategy(domain);
             return passport.authenticate(`replitauth:${domain}`, {
@@ -238,7 +263,12 @@ export default function authPlugin() {
             const postLogoutUri = `https://${req.headers.host}`;
             const doRedirect = () => {
               try {
-                const redirectUrl = client.buildEndSessionUrl(config, {
+                if (!oidcConfig) {
+                  res.writeHead(302, { Location: '/', 'Set-Cookie': clearCookieHeader });
+                  res.end();
+                  return;
+                }
+                const redirectUrl = client.buildEndSessionUrl(oidcConfig, {
                   client_id: process.env.REPL_ID,
                   post_logout_redirect_uri: postLogoutUri,
                 }).href;
@@ -316,8 +346,8 @@ export default function authPlugin() {
         });
 
         authReady = true;
-        console.log('[Auth] Replit Auth plugin loaded');
-        console.log('[Auth] Login: /api/login');
+        console.log('[Auth] Auth plugin loaded (Replit OIDC:', oidcConfig ? 'enabled' : 'disabled', ')');
+        console.log('[Auth] Login: /api/login-local, /api/auth/google' + (oidcConfig ? ', /api/login' : ''));
         console.log('[Auth] Logout: /api/logout');
         console.log('[Auth] User info: /api/auth/user');
       } catch (err) {

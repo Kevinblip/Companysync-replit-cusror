@@ -2,6 +2,14 @@
 
 Roofing business management platform (CRM, estimates, invoicing, crew ops, and AI inspection).
 
+## Local development (Cursor)
+
+Open this repo in Cursor and run it on your machine. Hosting can stay on Replit / [getcompanysync.com](https://getcompanysync.com) until you move it.
+
+See **[LOCAL.md](./LOCAL.md)** for clone, `.env`, Postgres, `npm install`, `npm run dev` (Vite on `0.0.0.0:5000`), and `npm start` after a build.
+
+`npm run build` is a normal Vite build. It does **not** force-push `main`. The old auto-deploy helper is optional: `npm run deploy:replit` only.
+
 ## Google subscriber sign-in (production)
 
 Production login at `https://getcompanysync.com/login` uses a **full-page redirect** to Google OAuth (not a pop-up).

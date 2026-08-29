@@ -11833,47 +11833,53 @@ functionHandlers.testTwilioCredentials = async function(params) {
 };
 
 try {
-  const stripeHandlers = createStripeHandlers(getPool());
+  // Lazy pool: creating a pg.Pool at import time keeps `vite build` from exiting.
+  let stripeHandlers;
+  const getStripeHandlers = () => {
+    if (!stripeHandlers) stripeHandlers = createStripeHandlers(getPool());
+    return stripeHandlers;
+  };
   const getUserEmail = (req) => req?.session?.passport?.user?.email || req?.session?.user?.email || req?.user?.email || null;
 
   functionHandlers.createCheckoutSession = async (params, apiKey, req) => {
     const email = getUserEmail(req);
     if (!email) throw new Error('Authentication required');
-    return stripeHandlers.createCheckoutSession(params, email);
+    return getStripeHandlers().createCheckoutSession(params, email);
   };
   functionHandlers.cancelSubscription = async (params, apiKey, req) => {
     const email = getUserEmail(req);
     if (!email) throw new Error('Authentication required');
-    return stripeHandlers.cancelSubscription(params, email);
+    return getStripeHandlers().cancelSubscription(params, email);
   };
   functionHandlers.purchaseCredits = async (params, apiKey, req) => {
     const email = getUserEmail(req);
     if (!email) throw new Error('Authentication required');
-    return stripeHandlers.purchaseCredits(params, email);
+    return getStripeHandlers().purchaseCredits(params, email);
   };
   functionHandlers.createConnectedAccount = async (params, apiKey, req) => {
     const email = getUserEmail(req);
     if (!email) throw new Error('Authentication required');
-    return stripeHandlers.createConnectedAccount(params, email);
+    return getStripeHandlers().createConnectedAccount(params, email);
   };
   functionHandlers.checkStripeAccountStatus = async (params, apiKey, req) => {
     const email = getUserEmail(req);
     if (!email) throw new Error('Authentication required');
-    return stripeHandlers.checkStripeAccountStatus(params, email);
+    return getStripeHandlers().checkStripeAccountStatus(params, email);
   };
   functionHandlers.createPaymentLinkForInvoice = async (params, apiKey, req) => {
     const email = getUserEmail(req);
     if (!email) throw new Error('Authentication required');
-    return stripeHandlers.createPaymentLinkForInvoice(params, email);
+    return getStripeHandlers().createPaymentLinkForInvoice(params, email);
   };
   functionHandlers.getStripePublishableKey = async () => {
-    return stripeHandlers.getStripePublishableKey();
+    return getStripeHandlers().getStripePublishableKey();
   };
   functionHandlers.createInvoiceCheckout = async (params, apiKey, req) => {
     const email = getUserEmail(req);
     if (!email) throw new Error('Authentication required');
-    if (stripeHandlers.createInvoiceCheckout) {
-      return stripeHandlers.createInvoiceCheckout(params, email);
+    const handlers = getStripeHandlers();
+    if (handlers.createInvoiceCheckout) {
+      return handlers.createInvoiceCheckout(params, email);
     }
     return { success: false, error: 'Stripe checkout not configured' };
   };
