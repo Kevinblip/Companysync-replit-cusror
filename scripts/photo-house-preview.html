@@ -2,107 +2,76 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>CompanySync photo-assembled house preview</title>
+  <title>CompanySync photo-assembled house</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #eef1f5; font-family: ui-sans-serif, system-ui, sans-serif; }
-    #wrap { display: grid; grid-template-rows: auto 1fr; height: 100%; }
-    header { padding: 10px 16px; background: #fff; border-bottom: 1px solid #dde3ea; }
-    header h1 { margin: 0; font-size: 15px; color: #1e293b; }
-    header p { margin: 2px 0 0; font-size: 12px; color: #64748b; }
-    #view { position: relative; }
-    canvas.webgl { display: block; width: 100%; height: 100%; }
-    #elev { display: flex; gap: 8px; padding: 8px 16px; background: #fff; border-top: 1px solid #dde3ea; }
-    #elev img { height: 72px; border-radius: 6px; border: 1px solid #cbd5e1; }
+    html, body { margin: 0; background: #e8edf2; font-family: ui-sans-serif, system-ui, sans-serif; }
+    header { padding: 12px 20px 8px; background: #fff; border-bottom: 1px solid #d5dee8; }
+    h1 { margin: 0; font-size: 16px; color: #0f172a; }
+    p { margin: 4px 0 0; font-size: 12px; color: #64748b; }
+    #stage { display: block; width: 1400px; height: 720px; background: #eef1f5; }
+    #elev { display: flex; gap: 10px; padding: 10px 20px 16px; background: #fff; border-top: 1px solid #d5dee8; }
+    .el { width: 240px; }
+    .el img { width: 100%; height: 88px; object-fit: cover; border-radius: 6px; border: 1px solid #cbd5e1; display: block; }
+    .el span { display: block; font-size: 11px; color: #334155; margin-top: 4px; }
   </style>
 </head>
 <body>
-  <div id="wrap">
-    <header>
-      <h1>AI Estimator 3D from uploaded facade photos</h1>
-      <p>One assembled house · roof on walls · Front/Right/Back/Left photos as wall textures · not Hover</p>
-    </header>
-    <div id="view"></div>
-    <div id="elev"></div>
-  </div>
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://unpkg.com/three@0.171.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.171.0/examples/jsm/"
-      }
-    }
-  </script>
+  <header>
+    <h1>AI Estimator 3D from uploaded facade photos</h1>
+    <p>One assembled house · roof attached to walls · Front/Right/Back/Left photos as wall textures · not Hover</p>
+  </header>
+  <canvas id="stage" width="1400" height="720"></canvas>
+  <div id="elev"></div>
   <script type="module">
-    import * as THREE from 'three';
-    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-    import { assembleEstimatorHouse, toViewerModel, materialColor } from '../src/lib/houseGeometry.js';
+    import { assembleEstimatorHouse, toViewerModel } from '../src/lib/houseGeometry.js';
 
     function paintFacade(kind) {
       const c = document.createElement('canvas');
-      c.width = 720;
-      c.height = 480;
+      c.width = 720; c.height = 480;
       const ctx = c.getContext('2d');
-      // sky / lawn
       const sky = ctx.createLinearGradient(0, 0, 0, 140);
-      sky.addColorStop(0, '#9ec9ef');
-      sky.addColorStop(1, '#d7e7f5');
-      ctx.fillStyle = sky;
-      ctx.fillRect(0, 0, 720, 140);
-      ctx.fillStyle = '#6d8a55';
-      ctx.fillRect(0, 400, 720, 80);
+      sky.addColorStop(0, '#8ec4ee'); sky.addColorStop(1, '#d5e6f4');
+      ctx.fillStyle = sky; ctx.fillRect(0, 0, 720, 140);
+      ctx.fillStyle = '#6a8750'; ctx.fillRect(0, 400, 720, 80);
+      const wallTop = 72, wallBot = 400;
 
-      const wallTop = 70;
-      const wallBot = 400;
-      const eave = 155;
-
-      if (kind === 'front') {
-        // upper siding
-        ctx.fillStyle = '#cbb892';
-        ctx.fillRect(40, wallTop, 640, eave - wallTop + 90);
-        for (let y = wallTop; y < eave + 90; y += 10) {
-          ctx.strokeStyle = 'rgba(90,70,40,0.25)';
-          ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(680, y); ctx.stroke();
-        }
-        // stone wainscot
-        ctx.fillStyle = '#7a5a3a';
-        ctx.fillRect(40, 260, 640, wallBot - 260);
-        for (let row = 0; row < 8; row++) {
-          for (let col = 0; col < 12; col++) {
-            const x = 48 + col * 52 + (row % 2 ? 18 : 0);
-            const y = 268 + row * 16;
-            ctx.fillStyle = row % 2 ? '#8d6b48' : '#6b4e32';
-            ctx.fillRect(x, y, 46, 13);
-            ctx.strokeStyle = '#4a3422';
-            ctx.strokeRect(x, y, 46, 13);
-          }
-        }
-        // door
-        ctx.fillStyle = '#3d2a1c';
-        ctx.fillRect(330, 250, 60, 150);
-        ctx.fillStyle = '#c9a227';
-        ctx.beginPath(); ctx.arc(380, 330, 4, 0, Math.PI * 2); ctx.fill();
-        // windows
-        const windows = [[90, 175, 70, 70], [200, 175, 70, 70], [450, 175, 70, 70], [560, 175, 70, 70], [90, 290, 70, 55], [560, 290, 70, 55]];
-        for (const [x, y, w, h] of windows) {
-          ctx.fillStyle = '#f4f1e8';
-          ctx.fillRect(x - 6, y - 6, w + 12, h + 12);
-          ctx.fillStyle = '#8ec4e6';
-          ctx.fillRect(x, y, w, h);
-          ctx.strokeStyle = '#f4f1e8';
-          ctx.lineWidth = 3;
+      function windows(list) {
+        for (const [x, y, w, h] of list) {
+          ctx.fillStyle = '#f4f0e6'; ctx.fillRect(x - 6, y - 6, w + 12, h + 14);
+          ctx.fillStyle = '#7eb6dd'; ctx.fillRect(x, y, w, h);
+          ctx.strokeStyle = '#f4f0e6'; ctx.lineWidth = 3;
           ctx.beginPath();
           ctx.moveTo(x + w / 2, y); ctx.lineTo(x + w / 2, y + h);
           ctx.moveTo(x, y + h / 2); ctx.lineTo(x + w, y + h / 2);
           ctx.stroke();
         }
-        // gable peak
+      }
+
+      if (kind === 'front') {
         ctx.fillStyle = '#cbb892';
         ctx.beginPath();
-        ctx.moveTo(40, wallTop); ctx.lineTo(360, 18); ctx.lineTo(680, wallTop); ctx.closePath();
-        ctx.fill();
+        ctx.moveTo(40, wallTop); ctx.lineTo(360, 16); ctx.lineTo(680, wallTop);
+        ctx.lineTo(680, 255); ctx.lineTo(40, 255); ctx.closePath(); ctx.fill();
+        for (let y = wallTop; y < 255; y += 10) {
+          ctx.strokeStyle = 'rgba(80,60,30,0.22)';
+          ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(680, y); ctx.stroke();
+        }
+        for (let row = 0; row < 9; row++) {
+          for (let col = 0; col < 13; col++) {
+            const x = 46 + col * 50 + (row % 2 ? 16 : 0);
+            const y = 258 + row * 15;
+            ctx.fillStyle = (col + row) % 2 ? '#8a6846' : '#6e5032';
+            ctx.fillRect(x, y, 46, 13);
+            ctx.strokeStyle = '#4a3422'; ctx.strokeRect(x, y, 46, 13);
+          }
+        }
+        ctx.fillStyle = '#3c291c'; ctx.fillRect(328, 248, 64, 152);
+        ctx.fillStyle = '#c9a227'; ctx.beginPath(); ctx.arc(380, 328, 4, 0, Math.PI * 2); ctx.fill();
+        windows([[90, 168, 72, 72], [198, 168, 72, 72], [450, 168, 72, 72], [558, 168, 72, 72], [90, 290, 70, 52], [558, 290, 70, 52]]);
+        ctx.fillStyle = '#2a2a2e'; ctx.beginPath();
+        ctx.moveTo(28, wallTop); ctx.lineTo(360, 4); ctx.lineTo(692, wallTop); ctx.lineTo(680, wallTop); ctx.lineTo(360, 16); ctx.lineTo(40, wallTop); ctx.closePath(); ctx.fill();
       } else if (kind === 'left') {
-        ctx.fillStyle = '#8a4a3a';
-        ctx.fillRect(50, wallTop, 620, wallBot - wallTop);
+        ctx.fillStyle = '#8a4a3a'; ctx.fillRect(50, wallTop, 620, wallBot - wallTop);
         for (let row = 0; row < 22; row++) {
           for (let col = 0; col < 16; col++) {
             const x = 54 + col * 38 + (row % 2 ? 16 : 0);
@@ -111,49 +80,51 @@
             ctx.fillRect(x, y, 34, 12);
           }
         }
-        ctx.fillStyle = '#f4f1e8';
-        ctx.fillRect(160, 170, 80, 90);
-        ctx.fillRect(480, 170, 80, 90);
-        ctx.fillStyle = '#8ec4e6';
-        ctx.fillRect(166, 176, 68, 78);
-        ctx.fillRect(486, 176, 68, 78);
+        windows([[160, 168, 80, 90], [480, 168, 80, 90]]);
       } else {
-        ctx.fillStyle = '#d2c09a';
-        ctx.fillRect(40, wallTop, 640, wallBot - wallTop);
+        ctx.fillStyle = '#d2c09a'; ctx.fillRect(40, wallTop, 640, wallBot - wallTop);
         for (let y = wallTop; y < wallBot; y += 9) {
           ctx.strokeStyle = 'rgba(90,70,40,0.28)';
           ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(680, y); ctx.stroke();
         }
-        const windows = kind === 'back'
-          ? [[80, 170, 90, 80], [300, 170, 90, 80], [520, 170, 90, 80], [80, 290, 90, 70], [520, 290, 90, 70]]
-          : [[70, 165, 80, 85], [230, 165, 80, 85], [410, 165, 80, 85], [560, 165, 80, 85]];
-        for (const [x, y, w, h] of windows) {
-          ctx.fillStyle = '#f7f3ea';
-          ctx.fillRect(x - 5, y - 5, w + 10, h + 10);
-          ctx.fillStyle = '#7eb7de';
-          ctx.fillRect(x, y, w, h);
-        }
+        windows(kind === 'back'
+          ? [[80, 168, 90, 80], [300, 168, 90, 80], [520, 168, 90, 80], [80, 290, 90, 70], [520, 290, 90, 70]]
+          : [[70, 160, 80, 85], [230, 160, 80, 85], [410, 160, 80, 85], [560, 160, 80, 85]]);
+        ctx.fillStyle = '#2a2a2e'; ctx.fillRect(30, 62, 660, 14);
       }
-      // roof fascia
-      ctx.fillStyle = '#2a2a2e';
-      ctx.fillRect(30, 62, 660, 14);
-      return c.toDataURL('image/jpeg', 0.92);
+      const cropped = document.createElement('canvas');
+      cropped.width = 640;
+      cropped.height = 330;
+      cropped.getContext('2d').drawImage(c, 40, 70, 640, 330, 0, 0, 640, 330);
+      return cropped;
     }
 
+    function load(c) {
+      return new Promise(res => {
+        const img = new Image();
+        img.onload = () => res(img);
+        img.src = c.toDataURL('image/jpeg', 0.92);
+      });
+    }
+
+    const canvases = {
+      front: paintFacade('front'),
+      right: paintFacade('right'),
+      back: paintFacade('back'),
+      left: paintFacade('left'),
+    };
     const photos = [
-      { label: 'Front', url: paintFacade('front') },
-      { label: 'Right Side', url: paintFacade('right') },
-      { label: 'Back', url: paintFacade('back') },
-      { label: 'Left Side', url: paintFacade('left') },
+      { label: 'Front', url: canvases.front.toDataURL('image/jpeg', 0.92) },
+      { label: 'Right Side', url: canvases.right.toDataURL('image/jpeg', 0.92) },
+      { label: 'Back', url: canvases.back.toDataURL('image/jpeg', 0.92) },
+      { label: 'Left Side', url: canvases.left.toDataURL('image/jpeg', 0.92) },
     ];
-
-    const elev = document.getElementById('elev');
-    for (const p of photos) {
-      const img = document.createElement('img');
-      img.src = p.url;
-      img.alt = p.label;
-      elev.appendChild(img);
-    }
+    const imgs = {
+      front: await load(canvases.front),
+      right: await load(canvases.right),
+      back: await load(canvases.back),
+      left: await load(canvases.left),
+    };
 
     const house = assembleEstimatorHouse({
       photos,
@@ -174,116 +145,108 @@
     });
     const model = toViewerModel(house, { photos });
 
-    const view = document.getElementById('view');
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xeef1f5);
-    const camera = new THREE.PerspectiveCamera(45, view.clientWidth / view.clientHeight, 0.1, 2000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-    renderer.setPixelRatio(2);
-    renderer.setSize(view.clientWidth, view.clientHeight);
-    renderer.domElement.className = 'webgl';
-    view.appendChild(renderer.domElement);
-
-    scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.95);
-    sun.position.set(40, 80, 35);
-    scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xcfe8ff, 0.4);
-    fill.position.set(-40, 20, -30);
-    scene.add(fill);
-
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(400, 400),
-      new THREE.MeshStandardMaterial({ color: 0xd5deC8, roughness: 1 }),
-    );
-    ground.rotation.x = -Math.PI / 2;
-    scene.add(ground);
-
-    const loader = new THREE.TextureLoader();
-    const texByUrl = {};
-    await Promise.all(photos.map(p => new Promise(res => {
-      loader.load(p.url, t => { t.colorSpace = THREE.SRGBColorSpace; texByUrl[p.url] = t; res(); });
-    })));
-
-    const shingle = document.createElement('canvas');
-    shingle.width = 256; shingle.height = 256;
-    const sctx = shingle.getContext('2d');
-    sctx.fillStyle = '#2c2c30'; sctx.fillRect(0, 0, 256, 256);
-    for (let row = 0; row < 16; row++) {
-      const y = row * 16, offset = row % 2 ? 16 : 0;
-      for (let col = -1; col < 10; col++) {
-        const x = col * 32 + offset;
-        const shade = 38 + ((row * 7 + col * 13) % 18);
-        sctx.fillStyle = `rgb(${shade},${shade},${shade + 4})`;
-        sctx.fillRect(x + 1, y + 1, 30, 14);
-      }
+    const elev = document.getElementById('elev');
+    for (const el of model.elevations) {
+      const wrap = document.createElement('div');
+      wrap.className = 'el';
+      wrap.innerHTML = `<img src="${el.photoUrl}" alt="${el.label}" /><span>${el.label} — ${el.caption} · ${el.width_ft} × ${el.height_ft} ft</span>`;
+      elev.appendChild(wrap);
     }
-    const roofTex = new THREE.CanvasTexture(shingle);
-    roofTex.wrapS = roofTex.wrapT = THREE.RepeatWrapping;
-    roofTex.repeat.set(6, 4);
-    roofTex.colorSpace = THREE.SRGBColorSpace;
 
-    const group = new THREE.Group();
-    for (const face of model.faces) {
-      const verts = face.vertices;
-      if (!verts || verts.length < 3) continue;
-      const pts = verts.map(v => new THREE.Vector3(v.x, v.z, -v.y));
-      const geom = new THREE.BufferGeometry();
-      const arr = [];
-      const uv = [];
-      const box = {
-        minX: Math.min(...verts.map(v => v.x)), maxX: Math.max(...verts.map(v => v.x)),
-        minY: Math.min(...verts.map(v => v.y)), maxY: Math.max(...verts.map(v => v.y)),
-        minZ: Math.min(...verts.map(v => v.z)), maxZ: Math.max(...verts.map(v => v.z)),
+    const fp = model.footprint;
+    const W = fp.width_ft, L = fp.length_ft, H = fp.eave_height_ft;
+    const pitch12 = 7;
+    const rise = (W / 2) * (pitch12 / 12);
+
+    const canvas = document.getElementById('stage');
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#eef1f5';
+    ctx.fillRect(0, 0, 1400, 720);
+    const lawn = ctx.createLinearGradient(0, 480, 0, 720);
+    lawn.addColorStop(0, '#d7e0c8'); lawn.addColorStop(1, '#b7c59a');
+    ctx.fillStyle = lawn; ctx.fillRect(0, 430, 1400, 290);
+
+    const originX = 700, originY = 500, s = 9.6;
+    function iso(x, y, z) {
+      const rx = y, ry = -x;
+      return {
+        x: originX + (rx - ry) * Math.cos(Math.PI / 6) * s,
+        y: originY - z * s + (rx + ry) * Math.sin(Math.PI / 6) * s,
       };
-      const useY = (box.maxY - box.minY) >= (box.maxX - box.minX);
-      const width = useY ? (box.maxY - box.minY) : (box.maxX - box.minX) || 1;
-      const height = (box.maxZ - box.minZ) || 1;
-      const uvRect = face.uv || { u0: 0, v0: 0, u1: 1, v1: 1 };
-      for (let i = 1; i < pts.length - 1; i++) {
-        const tri = [verts[0], verts[i], verts[i + 1]];
-        for (const v of [pts[0], pts[i], pts[i + 1]]) arr.push(v.x, v.y, v.z);
-        for (const v of tri) {
-          const uLin = useY ? (v.y - box.minY) / width : (v.x - box.minX) / width;
-          const vLin = (v.z - box.minZ) / height;
-          uv.push(uvRect.u0 + uLin * (uvRect.u1 - uvRect.u0), uvRect.v0 + vLin * (uvRect.v1 - uvRect.v0));
-        }
-      }
-      geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arr), 3));
-      geom.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2));
-      geom.computeVertexNormals();
-      const isRoof = String(face.type).includes('ROOF');
-      const map = isRoof ? roofTex : texByUrl[face.photoUrl] || null;
-      const mat = new THREE.MeshStandardMaterial({
-        color: map ? 0xffffff : materialColor(face.material),
-        map,
-        roughness: isRoof ? 0.92 : 0.7,
-        side: THREE.DoubleSide,
-      });
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geom), new THREE.LineBasicMaterial({ color: 0x1a1a1a, opacity: 0.25, transparent: true })));
-      group.add(mesh);
     }
-    scene.add(group);
-
-    const box = new THREE.Box3().setFromObject(group);
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
-    const r = Math.max(size.x, size.y, size.z, 10);
-    camera.position.set(center.x + r * 1.25, center.y + r * 0.72, center.z + r * 1.45);
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.copy(center);
-    controls.update();
-
-    function tick() {
-      controls.update();
-      renderer.render(scene, camera);
-      requestAnimationFrame(tick);
+    function drawImageAffine(img, p0, p1, p2) {
+      const w = img.width || 1;
+      const h = img.height || 1;
+      ctx.save();
+      ctx.setTransform(
+        (p1.x - p0.x) / w,
+        (p1.y - p0.y) / w,
+        (p2.x - p0.x) / h,
+        (p2.y - p0.y) / h,
+        p0.x,
+        p0.y,
+      );
+      ctx.drawImage(img, 0, 0);
+      ctx.restore();
     }
-    tick();
+    function poly(pts, fill, stroke) {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.closePath();
+      if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+      ctx.strokeStyle = stroke || 'rgba(20,20,20,0.35)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    const hx = W / 2, hy = L / 2;
+    // Ground slab
+    poly([iso(-hx - 2, -hy - 2, 0), iso(hx + 2, -hy - 2, 0), iso(hx + 2, hy + 2, 0), iso(-hx - 2, hy + 2, 0)], '#c5d0b8', '#9aaa88');
+
+    // Draw order: left (west) wall, back not visible, right wall, front wall, roof
+    const leftBl = iso(-hx, hy, 0), leftBr = iso(-hx, -hy, 0), leftTr = iso(-hx, -hy, H);
+    drawImageAffine(imgs.left, leftBr, leftBl, leftTr);
+
+    const rightBl = iso(hx, -hy, 0), rightBr = iso(hx, hy, 0), rightTl = iso(hx, -hy, H);
+    drawImageAffine(imgs.right, rightBl, rightBr, rightTl);
+
+    const frontBl = iso(-hx, -hy, 0), frontBr = iso(hx, -hy, 0), frontTl = iso(-hx, -hy, H);
+    drawImageAffine(imgs.front, frontBl, frontBr, frontTl);
+
+    const ridgeF = iso(0, -hy, H + rise), ridgeB = iso(0, hy, H + rise);
+    poly([iso(-hx, -hy, H), iso(hx, -hy, H), ridgeF], '#c4b089', '#5c4a32');
+
+    // Roof planes (left / right of ridge) — attached at eave
+    const roofL = [iso(-hx, -hy, H), iso(-hx, hy, H), ridgeB, ridgeF];
+    const roofR = [iso(hx, -hy, H), iso(hx, hy, H), ridgeB, ridgeF];
+    poly(roofL, '#2f3034', '#1a1a1c');
+    poly(roofR, '#3a3b40', '#1a1a1c');
+    // shingle rows
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.strokeStyle = '#111';
+    for (let i = 1; i < 8; i++) {
+      const t = i / 8;
+      const a = { x: iso(-hx, -hy, H).x + (ridgeF.x - iso(-hx, -hy, H).x) * t, y: iso(-hx, -hy, H).y + (ridgeF.y - iso(-hx, -hy, H).y) * t };
+      const b = { x: iso(-hx, hy, H).x + (ridgeB.x - iso(-hx, hy, H).x) * t, y: iso(-hx, hy, H).y + (ridgeB.y - iso(-hx, hy, H).y) * t };
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      const c = { x: iso(hx, -hy, H).x + (ridgeF.x - iso(hx, -hy, H).x) * t, y: iso(hx, -hy, H).y + (ridgeF.y - iso(hx, -hy, H).y) * t };
+      const d = { x: iso(hx, hy, H).x + (ridgeB.x - iso(hx, hy, H).x) * t, y: iso(hx, hy, H).y + (ridgeB.y - iso(hx, hy, H).y) * t };
+      ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.stroke();
+    }
+    ctx.restore();
+
+    // Labels
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '600 15px ui-sans-serif, system-ui';
+    ctx.fillText(`Assembled ${W} × ${L} ft · ${H} ft eave · ${model.faces.filter(f => f.type === 'WALL' && f.photoUrl).length} textured walls · roof attached`, 24, 36);
+    ctx.font = '12px ui-sans-serif, system-ui';
+    ctx.fillStyle = '#475569';
+    ctx.fillText(model.assembled ? 'isHouseAssembled: true  ·  source: ' + model.source : 'NOT assembled', 24, 56);
+
     window.__HOUSE_READY__ = true;
     window.__HOUSE_ASSEMBLED__ = model.assembled;
-    window.__HOUSE_PHOTO_WALLS__ = model.faces.filter(f => f.type === 'WALL' && f.photoUrl).length;
   </script>
 </body>
 </html>
