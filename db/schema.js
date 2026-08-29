@@ -444,6 +444,37 @@ export async function initDatabase() {
       created_at TIMESTAMP DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE,
+      first_name TEXT,
+      last_name TEXT,
+      profile_image_url TEXT,
+      password_hash TEXT,
+      is_local_auth BOOLEAN DEFAULT false,
+      must_change_password BOOLEAN DEFAULT false,
+      company_id TEXT,
+      platform_role TEXT DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      sid TEXT PRIMARY KEY,
+      sess JSONB NOT NULL,
+      expire TIMESTAMP NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS pending_signups (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      company_name TEXT NOT NULL,
+      verification_token TEXT NOT NULL UNIQUE,
+      token_expires_at TIMESTAMP NOT NULL,
+      is_confirmed BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS file_uploads (
       id TEXT PRIMARY KEY,
       original_filename TEXT,
@@ -492,6 +523,7 @@ export async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_signing_token ON signing_sessions(signing_token);
     CREATE INDEX IF NOT EXISTS idx_signing_company ON signing_sessions(company_id);
     CREATE INDEX IF NOT EXISTS idx_signing_base44 ON signing_sessions(base44_session_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expire);
   `);
 
   await p.query(`
