@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>CompanySync photo-assembled house preview</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #eef1f5; font-family: ui-sans-serif, system-ui, sans-serif; }
+    #wrap { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+    header { padding: 10px 16px; background: #fff; border-bottom: 1px solid #dde3ea; }
+    header h1 { margin: 0; font-size: 15px; color: #1e293b; }
+    header p { margin: 2px 0 0; font-size: 12px; color: #64748b; }
+    #view { position: relative; }
+    canvas.webgl { display: block; width: 100%; height: 100%; }
+    #elev { display: flex; gap: 8px; padding: 8px 16px; background: #fff; border-top: 1px solid #dde3ea; }
+    #elev img { height: 72px; border-radius: 6px; border: 1px solid #cbd5e1; }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <header>
+      <h1>AI Estimator 3D from uploaded facade photos</h1>
+      <p>One assembled house · roof on walls · Front/Right/Back/Left photos as wall textures · not Hover</p>
+    </header>
+    <div id="view"></div>
+    <div id="elev"></div>
+  </div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.171.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.171.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { assembleEstimatorHouse, toViewerModel, materialColor } from '../src/lib/houseGeometry.js';
+
+    function paintFacade(kind) {
+      const c = document.createElement('canvas');
+      c.width = 720;
+      c.height = 480;
+      const ctx = c.getContext('2d');
+      // sky / lawn
+      const sky = ctx.createLinearGradient(0, 0, 0, 140);
+      sky.addColorStop(0, '#9ec9ef');
+      sky.addColorStop(1, '#d7e7f5');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, 720, 140);
+      ctx.fillStyle = '#6d8a55';
+      ctx.fillRect(0, 400, 720, 80);
+
+      const wallTop = 70;
+      const wallBot = 400;
+      const eave = 155;
+
+      if (kind === 'front') {
+        // upper siding
+        ctx.fillStyle = '#cbb892';
+        ctx.fillRect(40, wallTop, 640, eave - wallTop + 90);
+        for (let y = wallTop; y < eave + 90; y += 10) {
+          ctx.strokeStyle = 'rgba(90,70,40,0.25)';
+          ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(680, y); ctx.stroke();
+        }
+        // stone wainscot
+        ctx.fillStyle = '#7a5a3a';
+        ctx.fillRect(40, 260, 640, wallBot - 260);
+        for (let row = 0; row < 8; row++) {
+          for (let col = 0; col < 12; col++) {
+            const x = 48 + col * 52 + (row % 2 ? 18 : 0);
+            const y = 268 + row * 16;
+            ctx.fillStyle = row % 2 ? '#8d6b48' : '#6b4e32';
+            ctx.fillRect(x, y, 46, 13);
+            ctx.strokeStyle = '#4a3422';
+            ctx.strokeRect(x, y, 46, 13);
+          }
+        }
+        // door
+        ctx.fillStyle = '#3d2a1c';
+        ctx.fillRect(330, 250, 60, 150);
+        ctx.fillStyle = '#c9a227';
+        ctx.beginPath(); ctx.arc(380, 330, 4, 0, Math.PI * 2); ctx.fill();
+        // windows
+        const windows = [[90, 175, 70, 70], [200, 175, 70, 70], [450, 175, 70, 70], [560, 175, 70, 70], [90, 290, 70, 55], [560, 290, 70, 55]];
+        for (const [x, y, w, h] of windows) {
+          ctx.fillStyle = '#f4f1e8';
+          ctx.fillRect(x - 6, y - 6, w + 12, h + 12);
+          ctx.fillStyle = '#8ec4e6';
+          ctx.fillRect(x, y, w, h);
+          ctx.strokeStyle = '#f4f1e8';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(x + w / 2, y); ctx.lineTo(x + w / 2, y + h);
+          ctx.moveTo(x, y + h / 2); ctx.lineTo(x + w, y + h / 2);
+          ctx.stroke();
+        }
+        // gable peak
+        ctx.fillStyle = '#cbb892';
+        ctx.beginPath();
+        ctx.moveTo(40, wallTop); ctx.lineTo(360, 18); ctx.lineTo(680, wallTop); ctx.closePath();
+        ctx.fill();
+      } else if (kind === 'left') {
+        ctx.fillStyle = '#8a4a3a';
+        ctx.fillRect(50, wallTop, 620, wallBot - wallTop);
+        for (let row = 0; row < 22; row++) {
+          for (let col = 0; col < 16; col++) {
+            const x = 54 + col * 38 + (row % 2 ? 16 : 0);
+            const y = wallTop + 6 + row * 14;
+            ctx.fillStyle = (col + row) % 3 === 0 ? '#9a5544' : '#7a3f32';
+            ctx.fillRect(x, y, 34, 12);
+          }
+        }
+        ctx.fillStyle = '#f4f1e8';
+        ctx.fillRect(160, 170, 80, 90);
+        ctx.fillRect(480, 170, 80, 90);
+        ctx.fillStyle = '#8ec4e6';
+        ctx.fillRect(166, 176, 68, 78);
+        ctx.fillRect(486, 176, 68, 78);
+      } else {
+        ctx.fillStyle = '#d2c09a';
+        ctx.fillRect(40, wallTop, 640, wallBot - wallTop);
+        for (let y = wallTop; y < wallBot; y += 9) {
+          ctx.strokeStyle = 'rgba(90,70,40,0.28)';
+          ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(680, y); ctx.stroke();
+        }
+        const windows = kind === 'back'
+          ? [[80, 170, 90, 80], [300, 170, 90, 80], [520, 170, 90, 80], [80, 290, 90, 70], [520, 290, 90, 70]]
+          : [[70, 165, 80, 85], [230, 165, 80, 85], [410, 165, 80, 85], [560, 165, 80, 85]];
+        for (const [x, y, w, h] of windows) {
+          ctx.fillStyle = '#f7f3ea';
+          ctx.fillRect(x - 5, y - 5, w + 10, h + 10);
+          ctx.fillStyle = '#7eb7de';
+          ctx.fillRect(x, y, w, h);
+        }
+      }
+      // roof fascia
+      ctx.fillStyle = '#2a2a2e';
+      ctx.fillRect(30, 62, 660, 14);
+      return c.toDataURL('image/jpeg', 0.92);
+    }
+
+    const photos = [
+      { label: 'Front', url: paintFacade('front') },
+      { label: 'Right Side', url: paintFacade('right') },
+      { label: 'Back', url: paintFacade('back') },
+      { label: 'Left Side', url: paintFacade('left') },
+    ];
+
+    const elev = document.getElementById('elev');
+    for (const p of photos) {
+      const img = document.createElement('img');
+      img.src = p.url;
+      img.alt = p.label;
+      elev.appendChild(img);
+    }
+
+    const house = assembleEstimatorHouse({
+      photos,
+      photoAnalysis: {
+        building_length_ft: 42,
+        building_width_ft: 36,
+        story_count: 2,
+        story_height_ft: 18,
+        siding_material: 'vinyl',
+        per_photo_breakdown: [
+          { label: 'Front', primary_cladding: 'siding', secondary_cladding: 'stone', secondary_cladding_region: 'lower', secondary_height_ft: 8 },
+          { label: 'Right Side', primary_cladding: 'siding' },
+          { label: 'Back', primary_cladding: 'siding' },
+          { label: 'Left Side', primary_cladding: 'brick' },
+        ],
+      },
+      satelliteAnalysis: { pitch: '7/12', roof_type: 'gable' },
+    });
+    const model = toViewerModel(house, { photos });
+
+    const view = document.getElementById('view');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xeef1f5);
+    const camera = new THREE.PerspectiveCamera(45, view.clientWidth / view.clientHeight, 0.1, 2000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(2);
+    renderer.setSize(view.clientWidth, view.clientHeight);
+    renderer.domElement.className = 'webgl';
+    view.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.95);
+    sun.position.set(40, 80, 35);
+    scene.add(sun);
+    const fill = new THREE.DirectionalLight(0xcfe8ff, 0.4);
+    fill.position.set(-40, 20, -30);
+    scene.add(fill);
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(400, 400),
+      new THREE.MeshStandardMaterial({ color: 0xd5deC8, roughness: 1 }),
+    );
+    ground.rotation.x = -Math.PI / 2;
+    scene.add(ground);
+
+    const loader = new THREE.TextureLoader();
+    const texByUrl = {};
+    await Promise.all(photos.map(p => new Promise(res => {
+      loader.load(p.url, t => { t.colorSpace = THREE.SRGBColorSpace; texByUrl[p.url] = t; res(); });
+    })));
+
+    const shingle = document.createElement('canvas');
+    shingle.width = 256; shingle.height = 256;
+    const sctx = shingle.getContext('2d');
+    sctx.fillStyle = '#2c2c30'; sctx.fillRect(0, 0, 256, 256);
+    for (let row = 0; row < 16; row++) {
+      const y = row * 16, offset = row % 2 ? 16 : 0;
+      for (let col = -1; col < 10; col++) {
+        const x = col * 32 + offset;
+        const shade = 38 + ((row * 7 + col * 13) % 18);
+        sctx.fillStyle = `rgb(${shade},${shade},${shade + 4})`;
+        sctx.fillRect(x + 1, y + 1, 30, 14);
+      }
+    }
+    const roofTex = new THREE.CanvasTexture(shingle);
+    roofTex.wrapS = roofTex.wrapT = THREE.RepeatWrapping;
+    roofTex.repeat.set(6, 4);
+    roofTex.colorSpace = THREE.SRGBColorSpace;
+
+    const group = new THREE.Group();
+    for (const face of model.faces) {
+      const verts = face.vertices;
+      if (!verts || verts.length < 3) continue;
+      const pts = verts.map(v => new THREE.Vector3(v.x, v.z, -v.y));
+      const geom = new THREE.BufferGeometry();
+      const arr = [];
+      const uv = [];
+      const box = {
+        minX: Math.min(...verts.map(v => v.x)), maxX: Math.max(...verts.map(v => v.x)),
+        minY: Math.min(...verts.map(v => v.y)), maxY: Math.max(...verts.map(v => v.y)),
+        minZ: Math.min(...verts.map(v => v.z)), maxZ: Math.max(...verts.map(v => v.z)),
+      };
+      const useY = (box.maxY - box.minY) >= (box.maxX - box.minX);
+      const width = useY ? (box.maxY - box.minY) : (box.maxX - box.minX) || 1;
+      const height = (box.maxZ - box.minZ) || 1;
+      const uvRect = face.uv || { u0: 0, v0: 0, u1: 1, v1: 1 };
+      for (let i = 1; i < pts.length - 1; i++) {
+        const tri = [verts[0], verts[i], verts[i + 1]];
+        for (const v of [pts[0], pts[i], pts[i + 1]]) arr.push(v.x, v.y, v.z);
+        for (const v of tri) {
+          const uLin = useY ? (v.y - box.minY) / width : (v.x - box.minX) / width;
+          const vLin = (v.z - box.minZ) / height;
+          uv.push(uvRect.u0 + uLin * (uvRect.u1 - uvRect.u0), uvRect.v0 + vLin * (uvRect.v1 - uvRect.v0));
+        }
+      }
+      geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arr), 3));
+      geom.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2));
+      geom.computeVertexNormals();
+      const isRoof = String(face.type).includes('ROOF');
+      const map = isRoof ? roofTex : texByUrl[face.photoUrl] || null;
+      const mat = new THREE.MeshStandardMaterial({
+        color: map ? 0xffffff : materialColor(face.material),
+        map,
+        roughness: isRoof ? 0.92 : 0.7,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geom), new THREE.LineBasicMaterial({ color: 0x1a1a1a, opacity: 0.25, transparent: true })));
+      group.add(mesh);
+    }
+    scene.add(group);
+
+    const box = new THREE.Box3().setFromObject(group);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const r = Math.max(size.x, size.y, size.z, 10);
+    camera.position.set(center.x + r * 1.25, center.y + r * 0.72, center.z + r * 1.45);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.copy(center);
+    controls.update();
+
+    function tick() {
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+    }
+    tick();
+    window.__HOUSE_READY__ = true;
+    window.__HOUSE_ASSEMBLED__ = model.assembled;
+    window.__HOUSE_PHOTO_WALLS__ = model.faces.filter(f => f.type === 'WALL' && f.photoUrl).length;
+  </script>
+</body>
+</html>
