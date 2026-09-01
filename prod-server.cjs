@@ -9,6 +9,26 @@ const localAuth = require('./db/local-auth.cjs');
 const googleAuth = require('./db/google-auth.cjs');
 const nodemailer = require('nodemailer');
 
+function loadLegalPages() {
+  const candidates = [
+    path.join(__dirname, 'legalPages.cjs'),
+    path.join(__dirname, 'src/lib/legalPages.cjs'),
+    path.join(__dirname, '../src/lib/legalPages.cjs'),
+  ];
+  for (const file of candidates) {
+    if (fs.existsSync(file)) {
+      try {
+        return require(file);
+      } catch (e) {
+        console.warn('[Legal] Failed to load', file, e.message);
+      }
+    }
+  }
+  console.warn('[Legal] legalPages.cjs not found');
+  return null;
+}
+const legalPages = loadLegalPages();
+
 async function sendEmail({ to, subject, html, message, from, cc }) {
   const fromAddr = from || process.env.EMAIL_FROM || 'CompanySync <noreply@resend.dev>';
   const toArr = Array.isArray(to) ? to : [to];
@@ -5629,6 +5649,19 @@ Rules:
     console.warn(`[Server] 404 API route not found: ${req.method} ${pathname}`);
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
+    return;
+  }
+
+  const legalPageKey = legalPages?.matchLegalRoute(pathname);
+  if (legalPageKey) {
+    const html = legalPages.renderLegalHtml(legalPageKey);
+    const body = Buffer.from(html, 'utf8');
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': body.length,
+      'Cache-Control': 'no-cache',
+    });
+    res.end(body);
     return;
   }
 
