@@ -179,6 +179,11 @@ export default function LoginPage() {
                 Sign up
               </Link>
             </div>
+            <div className="text-xs text-slate-400 pt-2">
+              <Link to="/privacy" className="hover:text-blue-600" data-testid="link-privacy">Privacy Policy</Link>
+              <span className="mx-2">·</span>
+              <Link to="/terms" className="hover:text-blue-600" data-testid="link-terms">Terms</Link>
+            </div>
           </div>
         </div>
       </div>

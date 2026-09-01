@@ -19,6 +19,8 @@ const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const SignupPage = lazy(() => import('@/pages/SignupPage'));
 const ForgotPasswordPage = lazy(() => import('@/pages/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('@/pages/ResetPasswordPage'));
+const PrivacyPolicy = lazy(() => import('@/pages/PrivacyPolicy'));
+const TermsOfService = lazy(() => import('@/pages/TermsOfService'));
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -124,6 +126,15 @@ const AppRouter = () => {
   return (
     <Suspense fallback={<PageFallback />}>
       <Routes>
+        <Route path="/privacy" element={
+          <ErrorBoundary><PrivacyPolicy /></ErrorBoundary>
+        } />
+        <Route path="/privacy-policy" element={
+          <ErrorBoundary><PrivacyPolicy /></ErrorBoundary>
+        } />
+        <Route path="/terms" element={
+          <ErrorBoundary><TermsOfService /></ErrorBoundary>
+        } />
         <Route path="/login" element={
           <ErrorBoundary><LoginPage /></ErrorBoundary>
         } />

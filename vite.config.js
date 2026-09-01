@@ -14,6 +14,7 @@ import functionsPlugin from "./vite-functions-plugin.js"
 import integrationsPlugin from "./vite-integrations-plugin.js"
 import cronPlugin from "./vite-cron-plugin.js"
 import stripePlugin from "./vite-stripe-plugin.js"
+import legalPagesPlugin from "./vite-legal-pages-plugin.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -43,6 +44,11 @@ function copyProdServer() {
         if (fs.existsSync(pluginSrc)) {
           fs.copyFileSync(pluginSrc, pluginDest);
         }
+      }
+      const legalSrc = path.resolve(__dirname, 'src/lib/legalPages.cjs');
+      const legalDest = path.resolve(__dirname, 'dist', 'legalPages.cjs');
+      if (fs.existsSync(legalSrc)) {
+        fs.copyFileSync(legalSrc, legalDest);
       }
       console.log('[Build] Copied plugin files -> dist/');
 
@@ -100,6 +106,7 @@ export default defineConfig({
     signingProxyPlugin(),
     cronPlugin(),
     stripePlugin(),
+    legalPagesPlugin(),
     copyProdServer(),
     viteStaticCopy({
       targets: [
