@@ -5,6 +5,7 @@ const { WebSocketServer, WebSocket } = require('ws');
 const prodDb = require('./db/prod-db.cjs');
 const prodAuth = require('./db/prod-auth.cjs');
 const prodIntegrations = require('./db/prod-integrations.cjs');
+const voiceFlow = require('./lib/voice-call-flow.cjs');
 const localAuth = require('./db/local-auth.cjs');
 const googleAuth = require('./db/google-auth.cjs');
 const nodemailer = require('nodemailer');
@@ -1726,7 +1727,8 @@ const CRM_TOOLS = [
   { name: "create_task", description: "Create a follow-up task for a lead or customer. Use when the caller asks to be followed up with, or when you promise to have someone call them back.", parameters: { type: "object", properties: { name: { type: "string", description: "Short task title, e.g. 'Call back John Smith Thursday'" }, description: { type: "string", description: "More detail about what needs to be done" }, due_date: { type: "string", description: "Due date in YYYY-MM-DD format" }, assigned_to: { type: "string", description: "Staff member name or email to assign this task to" }, contact_name: { type: "string", description: "Full name of the lead or customer this task is for" }, lead_id: { type: "string", description: "ID of the lead this task is linked to (from lookup_contact)" }, customer_id: { type: "string", description: "ID of the customer this task is linked to (from lookup_contact)" } }, required: ["name"] } },
   { name: "lookup_contact", description: "Look up a lead or customer's full profile including notes, claim info, and open tasks. Use when caller mentions their claim, prior work, prior conversation, or asks about their file.", parameters: { type: "object", properties: { name: { type: "string", description: "Contact's name to search for" }, phone: { type: "string", description: "Phone number to search for (optional if name provided)" } }, required: [] } },
   { name: "update_contact_notes", description: "Append a timestamped note to an existing lead or customer record. Use whenever the caller shares important details: damage info, insurance info, scheduling preferences, or anything worth remembering.", parameters: { type: "object", properties: { contact_id: { type: "string", description: "The contact ID returned from lookup_contact (or 'caller' if no lookup done)" }, contact_type: { type: "string", enum: ["lead","customer"], description: "Whether this is a lead or customer" }, note: { type: "string", description: "The note text to add — be specific and factual" }, caller_phone: { type: "string", description: "Caller's phone number (used to find contact if contact_id not available)" } }, required: ["note"] } },
-  { name: "update_claim_info", description: "Update insurance or claim details on a lead or customer record. Use when the caller provides their claim number, insurance company name, adjuster name, or claim status update.", parameters: { type: "object", properties: { contact_id: { type: "string", description: "The contact ID returned from lookup_contact" }, contact_type: { type: "string", enum: ["lead","customer"], description: "Whether this is a lead or customer" }, insurance_company: { type: "string", description: "Name of the insurance company" }, claim_number: { type: "string", description: "Insurance claim number" }, adjuster_name: { type: "string", description: "Name of the insurance adjuster" }, claim_status: { type: "string", description: "e.g. filed, approved, denied, pending, supplement, closed" }, caller_phone: { type: "string", description: "Caller's phone number (used to find contact if contact_id not available)" } }, required: [] } }
+  { name: "update_claim_info", description: "Update insurance or claim details on a lead or customer record. Use when the caller provides their claim number, insurance company name, adjuster name, or claim status update.", parameters: { type: "object", properties: { contact_id: { type: "string", description: "The contact ID returned from lookup_contact" }, contact_type: { type: "string", enum: ["lead","customer"], description: "Whether this is a lead or customer" }, insurance_company: { type: "string", description: "Name of the insurance company" }, claim_number: { type: "string", description: "Insurance claim number" }, adjuster_name: { type: "string", description: "Name of the insurance adjuster" }, claim_status: { type: "string", description: "e.g. filed, approved, denied, pending, supplement, closed" }, caller_phone: { type: "string", description: "Caller's phone number (used to find contact if contact_id not available)" } }, required: [] } },
+  { name: "end_call", description: "End the phone call after a short goodbye. Use only when the caller says goodbye or the conversation is finished. Say the goodbye sentence first, then call this. Do not use it to interrupt a question.", parameters: { type: "object", properties: { reason: { type: "string", description: "Why the call is ending" } }, required: [] } }
 ];
 
 const VALID_GEMINI_VOICES = ['Aoede', 'Charon', 'Fenrir', 'Kore', 'Leda', 'Orus', 'Puck', 'Zephyr'];
@@ -1806,6 +1808,7 @@ async function handleToolCall(functionCall, companyId, context = {}) {
   try { parsedArgs = typeof args === 'string' ? JSON.parse(args) : (args || {}); } catch (e) { parsedArgs = {}; }
   console.log(`[Sarah CRM] Tool: ${name}`, JSON.stringify(parsedArgs));
   switch (name) {
+    case 'end_call': return { success: true, action: 'end_call', message: 'Goodbye noted. Do not say anything else after your closing sentence.' };
     case 'save_lead_details': return callBase44API('saveLead', companyId, parsedArgs);
     case 'check_availability': return callBase44API('checkAvailability', companyId);
     case 'book_appointment': return callBase44API('bookAppointment', companyId, parsedArgs);
@@ -2348,6 +2351,12 @@ VOICE RULES (non-negotiable):
 - Never say "I am an AI" or "I'm an artificial intelligence" or reference being a bot.
 - Never say "How can I assist you further today?" or similar robotic closers.
 - Vary your responses. Don't repeat greetings, phrases, or patterns.
+- Ask at most ONE question, then stop talking and wait for the caller. Never add another sentence after a question.
+- Never say "got it", "saved", or that you have their number, email, or booking unless they actually said it or the tool result in this turn confirms it.
+- Do not promise a confirmation email unless an appointment or inspection was booked AND you collected an email address.
+- Do not promise a confirmation text unless an appointment or inspection was booked AND you collected a phone number.
+- If nothing was booked, do not say a confirmation is coming. Say someone from the team will follow up, and confirm the callback number (the number they are calling from is fine if they agree).
+- When the caller says goodbye or the conversation is finished, say one short goodbye and call end_call. Do not keep talking after that.
 
 CRM TOOLS — use these automatically as info comes in:
 - save_lead_details: Save as soon as caller shares name, phone, or what they need. Don't wait. Include service_needed describing their issue. Every caller should be tracked.
@@ -2360,7 +2369,8 @@ CRM TOOLS — use these automatically as info comes in:
 - update_contact_notes: Call this whenever the caller shares any important detail — storm date, deductible amount, damage description, adjuster meeting date, scheduling preference, anything relevant. Be specific and factual. Call it DURING the conversation as info comes in, not at the end.
 - update_claim_info: Call this the moment a caller provides their insurance company, claim number, adjuster name, or claim status. Don't ask them to repeat it — save it immediately.
 - create_task: When the caller asks to be called back, or you promise a follow-up, create a task immediately. Always include contact_name (caller's full name), and lead_id or customer_id from lookup_contact if available, so the task appears in their profile.
-- After ANY tool call, respond to the caller immediately. Never go silent.
+- end_call: After you have said a short goodbye, call this once to hang up. Never call it while you are still waiting on a question.
+- After a tool result, tell the caller the result in one short sentence. If you still need something from them, ask one question and wait. Never invent an answer they did not give.
 - NEVER make up pricing, service details, warranties, timelines, or company facts. Use your knowledge base below. If you don't know something, say "Let me have someone get back to you on that" or "I'll make sure the right person follows up with those details."
 - When a caller asks about services, pricing, or how things work, reference your knowledge base — don't guess.`;
 
@@ -2821,6 +2831,171 @@ TOOL RULES:
 - If a tool returns { "success": true }, confirm the action to the user naturally.
 
 Greet ${userName} warmly.`;
+}
+
+function phoneLookupVariants(calledNumber) {
+  const raw = calledNumber || '';
+  const digits = raw.replace(/[^\d]/g, '');
+  const e164 = digits.length === 10 ? `+1${digits}` : (digits.length === 11 && digits.startsWith('1') ? `+${digits}` : raw);
+  const bare = String(e164).replace(/^\+1/, '');
+  return [...new Set([raw, e164, bare, digits].filter(Boolean))];
+}
+
+async function resolveCompanyByCalledNumber(calledNumber) {
+  const pool = prodDb.getPool();
+  const variants = phoneLookupVariants(calledNumber);
+  if (!variants.length) return null;
+  try {
+    const localLookup = await pool.query(
+      `SELECT company_id FROM call_routing_cache WHERE phone_number = ANY($1::text[]) LIMIT 1`,
+      [variants]
+    );
+    if (localLookup.rows[0]) return localLookup.rows[0].company_id;
+  } catch (e) {
+    console.warn('[Sarah] call_routing_cache lookup failed:', e.message);
+  }
+  try {
+    const twilioLookup = await pool.query(
+      `SELECT company_id FROM generic_entities
+       WHERE entity_type = 'TwilioSettings'
+         AND (
+           data->>'main_phone_number' = ANY($1::text[])
+           OR (
+             jsonb_typeof(data->'available_numbers') = 'array'
+             AND EXISTS (
+               SELECT 1 FROM jsonb_array_elements(data->'available_numbers') elem
+               WHERE elem->>'phone_number' = ANY($1::text[])
+             )
+           )
+         )
+       LIMIT 1`,
+      [variants]
+    );
+    if (twilioLookup.rows[0]) return twilioLookup.rows[0].company_id;
+  } catch (e) {
+    console.warn('[Sarah] TwilioSettings lookup failed:', e.message);
+  }
+  try {
+    const staffLookup = await pool.query(
+      `SELECT company_id FROM staff_profiles WHERE twilio_number = ANY($1::text[]) LIMIT 1`,
+      [variants]
+    );
+    if (staffLookup.rows[0]) return staffLookup.rows[0].company_id;
+  } catch (e) {
+    console.warn('[Sarah] staff twilio lookup failed:', e.message);
+  }
+  if (BASE44_API_URL) {
+    try {
+      const lookup = await callBase44API('lookupByPhone', null, { phone_number: calledNumber });
+      if (lookup?.success && lookup.company_id) return lookup.company_id;
+    } catch (e) { /* best effort */ }
+  }
+  return null;
+}
+
+async function processSarahStatusCallback(parsed) {
+  const kind = parsed?.kind || 'ignore';
+  console.log(`[Sarah] Status callback: status=${parsed?.callStatus || ''} kind=${kind} sid=${parsed?.callSid || ''} from=${parsed?.callerPhone || ''}`);
+  if (kind === 'completed' && parsed.callSid) {
+    try {
+      const pool = prodDb.getPool();
+      const secs = parseInt(parsed.callDuration, 10);
+      const mins = Number.isFinite(secs) && secs > 0 ? Math.max(1, Math.ceil(secs / 60)) : null;
+      await pool.query(
+        `UPDATE communications
+         SET status = 'completed',
+             duration_minutes = COALESCE($2, duration_minutes),
+             data = jsonb_set(COALESCE(data, '{}'::jsonb), '{twilio_call_status}', to_jsonb($3::text), true),
+             updated_at = NOW()
+         WHERE data->>'call_sid' = $1`,
+        [parsed.callSid, mins, parsed.callStatus || 'completed']
+      );
+    } catch (e) {
+      console.warn('[Sarah] Completed-call status stamp failed:', e.message);
+    }
+    return;
+  }
+  if (kind !== 'missed') return;
+
+  const callerPhone = parsed.callerPhone || '';
+  const calledNumber = parsed.calledNumber || '';
+  const callSid = parsed.callSid || '';
+  const callStatus = parsed.callStatus || '';
+  const resolvedCompanyId = await resolveCompanyByCalledNumber(calledNumber);
+  if (!resolvedCompanyId) {
+    console.log(`[Sarah] Missed call from ${callerPhone} but no company for ${calledNumber}`);
+    return;
+  }
+  console.log(`[Sarah] Missed call: from=${callerPhone}, status=${callStatus}, company=${resolvedCompanyId}`);
+  try {
+    const pool2 = prodDb.getPool();
+    const variants = phoneLookupVariants(calledNumber);
+    const { rows: mcAdminRows } = await pool2.query(
+      `SELECT user_email, full_name, cell_phone FROM staff_profiles WHERE company_id = $1 AND is_administrator = true LIMIT 5`,
+      [resolvedCompanyId]
+    );
+    const { rows: mcRepRows } = await pool2.query(
+      `SELECT user_email, full_name, cell_phone FROM staff_profiles WHERE company_id = $1 AND twilio_number = ANY($2::text[]) LIMIT 1`,
+      [resolvedCompanyId, variants.length ? variants : ['']]
+    );
+    const { rows: twMcRows } = await pool2.query(
+      `SELECT data FROM generic_entities WHERE entity_type = 'TwilioSettings' AND company_id = $1 LIMIT 1`,
+      [resolvedCompanyId]
+    );
+    const twMc = twMcRows[0]?.data || {};
+    const twMcSid = twMc.account_sid || process.env.TWILIO_ACCOUNT_SID;
+    const twMcToken = twMc.auth_token || process.env.TWILIO_AUTH_TOKEN;
+    const twMcFrom = twMc.main_phone_number || process.env.TWILIO_PHONE_NUMBER;
+    const mcRep = mcRepRows[0] || null;
+    const mcSeenEmails = new Set();
+    const mcTargets = [];
+    for (const r of [...mcRepRows, ...mcAdminRows]) {
+      if (r.user_email && !mcSeenEmails.has(r.user_email)) {
+        mcSeenEmails.add(r.user_email);
+        mcTargets.push(r);
+      }
+    }
+    const mcTitle = `📵 Missed call from ${callerPhone}`;
+    const mcMessage = `A call from ${callerPhone} went unanswered${mcRep ? ' on ' + mcRep.full_name + "'s line" : ''} (${calledNumber}). Status: ${callStatus}.`;
+    for (const target of mcTargets) {
+      const nId = `notif_missed_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      await pool2.query(
+        `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date) VALUES ($1, 'Notification', $2, $3, NOW(), NOW()) ON CONFLICT DO NOTHING`,
+        [nId, resolvedCompanyId, JSON.stringify({
+          id: nId, type: 'missed_call', title: mcTitle, message: mcMessage,
+          user_email: target.user_email, is_read: false,
+          caller_phone: callerPhone, called_number: calledNumber, call_status: callStatus,
+          created_at: new Date().toISOString(),
+        })]
+      );
+      try {
+        await sendEmail({ to: target.user_email, subject: mcTitle, html: `<h2 style="color:#dc2626">${mcTitle}</h2><p style="font-family:sans-serif;font-size:14px">${mcMessage}</p><p style="font-family:sans-serif;font-size:12px;color:#9ca3af;margin-top:24px">CompanySync — YICN Roofing</p>` });
+      } catch (emailErr) { console.warn('[Sarah] Missed call email error:', emailErr.message); }
+      if (target.cell_phone && twMcSid && twMcToken && twMcFrom) {
+        try {
+          const authStr = Buffer.from(`${twMcSid}:${twMcToken}`).toString('base64');
+          await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twMcSid}/Messages.json`, {
+            method: 'POST',
+            headers: { 'Authorization': `Basic ${authStr}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ To: target.cell_phone, From: twMcFrom, Body: `📵 Missed call from ${callerPhone} on ${calledNumber}. Status: ${callStatus}.` }).toString()
+          });
+        } catch (smsErr) { console.warn('[Sarah] Missed call cell SMS error:', smsErr.message); }
+      }
+    }
+    console.log(`[Sarah] Missed call: notified ${mcTargets.length} user(s) (bell+email+SMS)`);
+  } catch (mcErr) { console.warn('[Sarah] Missed call notification error:', mcErr.message); }
+
+  try {
+    const msgSettings = await callBase44API('getMessagingSettings', resolvedCompanyId);
+    if (msgSettings?.missed_call_followup_enabled !== true) {
+      console.log('[Sarah] Missed call follow-up disabled');
+      return;
+    }
+    await callBase44API('sendMissedCallFollowup', resolvedCompanyId, {
+      caller_phone: callerPhone, called_number: calledNumber, call_sid: callSid, call_status: callStatus, channel: msgSettings.missed_call_channel || 'sms'
+    });
+    console.log(`[Sarah] Missed call follow-up sent to ${callerPhone}`);
+  } catch (e) { console.error('[Sarah] Missed call follow-up error:', e.message); }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -4996,121 +5171,10 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === '/api/sarah-missed-call') {
     setCorsHeaders(res);
-    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-    try {
-      const body = await readBody(req);
-      const params = new URLSearchParams(body);
-      const callStatus = params.get('CallStatus') || '';
-      const callerPhone = params.get('From') || params.get('Caller') || '';
-      const calledNumber = params.get('To') || params.get('Called') || '';
-      const callSid = params.get('CallSid') || '';
-      if (callStatus !== 'no-answer' && callStatus !== 'busy' && callStatus !== 'failed') { res.writeHead(200); res.end('OK'); return; }
-      console.log(`[Sarah] Missed call: from=${callerPhone}, status=${callStatus}`);
-      const pool = prodDb.getPool();
-      let resolvedCompanyId = null;
-      try {
-        const localLookup = await pool.query(
-          `SELECT company_id FROM call_routing_cache WHERE phone_number = $1 LIMIT 1`,
-          [calledNumber]
-        );
-        if (localLookup.rows[0]) resolvedCompanyId = localLookup.rows[0].company_id;
-        if (!resolvedCompanyId) {
-          const twilioLookup = await pool.query(
-            `SELECT g.company_id FROM generic_entities g
-             JOIN companies c ON c.id = g.company_id OR c.base44_id = g.company_id
-             WHERE g.entity_type = 'TwilioSettings'
-               AND (g.data->>'main_phone_number' = $1 OR g.data->>'main_phone_number' = $2
-                 OR EXISTS (SELECT 1 FROM jsonb_array_elements(g.data->'available_numbers') elem WHERE elem->>'phone_number' = $1 OR elem->>'phone_number' = $2))
-             LIMIT 1`,
-            [calledNumber, calledNumber.replace(/^\+1/, '')]
-          );
-          if (twilioLookup.rows[0]) resolvedCompanyId = twilioLookup.rows[0].company_id;
-        }
-        if (!resolvedCompanyId) {
-          const staffLookup = await pool.query(
-            `SELECT company_id FROM staff_profiles WHERE twilio_number = $1 OR twilio_number = $2 LIMIT 1`,
-            [calledNumber, calledNumber.replace(/^\+1/, '')]
-          );
-          if (staffLookup.rows[0]) resolvedCompanyId = staffLookup.rows[0].company_id;
-        }
-      } catch (e) {}
-      if (!resolvedCompanyId && BASE44_API_URL) {
-        try { const lookup = await callBase44API('lookupByPhone', null, { phone_number: calledNumber }); if (lookup?.success && lookup.company_id) resolvedCompanyId = lookup.company_id; } catch (e) {}
-      }
-      if (!resolvedCompanyId) { res.writeHead(200); res.end('OK'); return; }
-
-      // Always notify rep + admins about the missed call (bell + email + SMS to cell)
-      try {
-        const pool2 = prodDb.getPool();
-        const { rows: mcAdminRows } = await pool2.query(
-          `SELECT user_email, full_name, cell_phone FROM staff_profiles WHERE company_id = $1 AND is_administrator = true LIMIT 5`,
-          [resolvedCompanyId]
-        );
-        const { rows: mcRepRows } = await pool2.query(
-          `SELECT user_email, full_name, cell_phone FROM staff_profiles WHERE company_id = $1 AND (twilio_number = $2 OR twilio_number = $3) LIMIT 1`,
-          [resolvedCompanyId, calledNumber, calledNumber.replace(/^\+1/, '')]
-        );
-        const { rows: twMcRows } = await pool2.query(
-          `SELECT data FROM generic_entities WHERE entity_type = 'TwilioSettings' AND company_id = $1 LIMIT 1`,
-          [resolvedCompanyId]
-        );
-        const twMc = twMcRows[0]?.data || {};
-        const twMcSid = twMc.account_sid || process.env.TWILIO_ACCOUNT_SID;
-        const twMcToken = twMc.auth_token || process.env.TWILIO_AUTH_TOKEN;
-        const twMcFrom = twMc.main_phone_number || process.env.TWILIO_PHONE_NUMBER;
-
-        const mcRep = mcRepRows[0] || null;
-        const mcSeenEmails = new Set();
-        const mcTargets = [];
-        for (const r of [...mcRepRows, ...mcAdminRows]) {
-          if (r.user_email && !mcSeenEmails.has(r.user_email)) {
-            mcSeenEmails.add(r.user_email);
-            mcTargets.push(r);
-          }
-        }
-
-        const mcTitle = `📵 Missed call from ${callerPhone}`;
-        const mcMessage = `A call from ${callerPhone} went unanswered${mcRep ? ' on ' + mcRep.full_name + "'s line" : ''} (${calledNumber}). Status: ${callStatus}.`;
-
-        for (const target of mcTargets) {
-          // 1. Bell notification
-          const nId = `notif_missed_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-          await pool2.query(
-            `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date) VALUES ($1, 'Notification', $2, $3, NOW(), NOW()) ON CONFLICT DO NOTHING`,
-            [nId, resolvedCompanyId, JSON.stringify({
-              id: nId, type: 'missed_call', title: mcTitle, message: mcMessage,
-              user_email: target.user_email, is_read: false,
-              caller_phone: callerPhone, called_number: calledNumber, call_status: callStatus,
-              created_at: new Date().toISOString(),
-            })]
-          );
-          // 2. Email
-          try {
-            await sendEmail({ to: target.user_email, subject: mcTitle, html: `<h2 style="color:#dc2626">${mcTitle}</h2><p style="font-family:sans-serif;font-size:14px">${mcMessage}</p><p style="font-family:sans-serif;font-size:12px;color:#9ca3af;margin-top:24px">CompanySync — YICN Roofing</p>` });
-          } catch (emailErr) { console.warn('[Sarah] Missed call email error:', emailErr.message); }
-          // 3. SMS to personal cell
-          if (target.cell_phone && twMcSid && twMcToken && twMcFrom) {
-            try {
-              const authStr = Buffer.from(`${twMcSid}:${twMcToken}`).toString('base64');
-              await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twMcSid}/Messages.json`, {
-                method: 'POST',
-                headers: { 'Authorization': `Basic ${authStr}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({ To: target.cell_phone, From: twMcFrom, Body: `📵 Missed call from ${callerPhone} on ${calledNumber}. Status: ${callStatus}.` }).toString()
-              });
-            } catch (smsErr) { console.warn('[Sarah] Missed call cell SMS error:', smsErr.message); }
-          }
-        }
-        console.log(`[Sarah] Missed call: notified ${mcTargets.length} user(s) (bell+email+SMS)`);
-      } catch (mcErr) { console.warn('[Sarah] Missed call notification error:', mcErr.message); }
-
-      try {
-        const msgSettings = await callBase44API('getMessagingSettings', resolvedCompanyId);
-        if (msgSettings?.missed_call_followup_enabled !== true) { console.log(`[Sarah] Missed call follow-up disabled`); res.writeHead(200); res.end('OK'); return; }
-        await callBase44API('sendMissedCallFollowup', resolvedCompanyId, { caller_phone: callerPhone, called_number: calledNumber, call_sid: callSid, call_status: callStatus, channel: msgSettings.missed_call_channel || 'sms' });
-        console.log(`[Sarah] Missed call follow-up sent to ${callerPhone}`);
-      } catch (e) { console.error('[Sarah] Missed call follow-up error:', e.message); }
-      res.writeHead(200); res.end('OK');
-    } catch (e) { res.writeHead(200); res.end('OK'); }
+    await voiceFlow.handleMissedCallRequest(req, res, {
+      queryString: url.searchParams.toString(),
+      processCall: processSarahStatusCallback,
+    });
     return;
   }
 
@@ -5724,6 +5788,12 @@ twilioWss.on('connection', async (twilioWs, req) => {
   let isSarahSpeaking = false;
   let echoGateCooldownTimer = null;
   let echoGateFailsafeTimer = null;
+  let callEnding = false;
+  let voiceState = voiceFlow.createVoiceTurnState();
+  let toolChain = Promise.resolve();
+  let hangupFallbackTimer = null;
+  let hangupMarkTimer = null;
+  let hangupStarted = false;
   let recordingStarted = false;
   let recordingRetryTimer = null;
   let geminiReconnectAttempted = false;
@@ -5812,6 +5882,133 @@ twilioWss.on('connection', async (twilioWs, req) => {
     }
   }
 
+  function clearPlayback() {
+    if (currentStreamSid && twilioWs.readyState === WebSocket.OPEN) {
+      try { twilioWs.send(JSON.stringify({ event: 'clear', streamSid: currentStreamSid })); } catch (e) {}
+    }
+  }
+
+  async function loadCallTwilioCreds() {
+    let tSid = '';
+    let tToken = '';
+    if (callCompanyId) {
+      try {
+        const pool = prodDb.getPool();
+        const { rows } = await pool.query(
+          `SELECT data FROM generic_entities WHERE entity_type = 'TwilioSettings' AND company_id = $1 LIMIT 1`,
+          [callCompanyId]
+        );
+        const tw = rows[0]?.data || {};
+        tSid = tw.account_sid || '';
+        tToken = tw.auth_token || '';
+      } catch (e) { /* fall through to env */ }
+    }
+    if (!tSid || !tToken) {
+      tSid = process.env.TWILIO_ACCOUNT_SID || '';
+      tToken = process.env.TWILIO_AUTH_TOKEN || '';
+    }
+    return { tSid, tToken };
+  }
+
+  function armCallHangup(reason) {
+    voiceState.pendingHangup = true;
+    console.log(`[Sarah] Hangup armed (${reason})`);
+    if (hangupStarted || hangupFallbackTimer) return;
+    hangupFallbackTimer = setTimeout(() => {
+      hangupFallbackTimer = null;
+      if (!hangupStarted && !voiceState.hungUp) fallbackGoodbyeAndHangup();
+    }, 12000);
+  }
+
+  function sendHangupMark() {
+    if (hangupStarted || voiceState.hungUp) return;
+    if (!currentStreamSid || twilioWs.readyState !== WebSocket.OPEN) {
+      fallbackGoodbyeAndHangup();
+      return;
+    }
+    hangupStarted = true;
+    if (hangupFallbackTimer) { clearTimeout(hangupFallbackTimer); hangupFallbackTimer = null; }
+    try {
+      twilioWs.send(JSON.stringify({ event: 'mark', streamSid: currentStreamSid, mark: { name: 'cs-hangup' } }));
+      console.log('[Sarah] Hangup mark sent; waiting until the closing line finishes playing');
+    } catch (e) {
+      completeHangup('mark-send-failed');
+      return;
+    }
+    hangupMarkTimer = setTimeout(() => completeHangup('mark-timeout'), 8000);
+  }
+
+  async function completeHangup(why) {
+    if (voiceState.hungUp) return;
+    voiceState.hungUp = true;
+    callEnding = true;
+    hangupStarted = true;
+    if (hangupFallbackTimer) { clearTimeout(hangupFallbackTimer); hangupFallbackTimer = null; }
+    if (hangupMarkTimer) { clearTimeout(hangupMarkTimer); hangupMarkTimer = null; }
+    console.log(`[Sarah] Ending call (${why}) sid=${callSid}`);
+    try {
+      const { tSid, tToken } = await loadCallTwilioCreds();
+      if (tSid && tToken && callSid) {
+        const authStr = Buffer.from(`${tSid}:${tToken}`).toString('base64');
+        const resp = await fetch(
+          `https://api.twilio.com/2010-04-01/Accounts/${tSid}/Calls/${callSid}.json`,
+          {
+            method: 'POST',
+            headers: { 'Authorization': `Basic ${authStr}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'Status=completed',
+          }
+        );
+        if (!resp.ok) {
+          const txt = await resp.text();
+          console.warn(`[Sarah] Hangup API ${resp.status}: ${txt.slice(0, 200)}`);
+        } else {
+          console.log('[Sarah] Call marked completed via Twilio API');
+        }
+      }
+    } catch (e) {
+      console.warn('[Sarah] Hangup API error:', e.message);
+    }
+    try { if (geminiWs?.readyState === WebSocket.OPEN) geminiWs.close(); } catch (e) {}
+    try { if (twilioWs.readyState === WebSocket.OPEN) twilioWs.close(); } catch (e) {}
+  }
+
+  async function fallbackGoodbyeAndHangup() {
+    if (voiceState.hungUp || hangupStarted) return;
+    hangupStarted = true;
+    callEnding = true;
+    if (hangupFallbackTimer) { clearTimeout(hangupFallbackTimer); hangupFallbackTimer = null; }
+    console.log('[Sarah] Fallback goodbye — Say then Hangup');
+    try {
+      const { tSid, tToken } = await loadCallTwilioCreds();
+      if (tSid && tToken && callSid) {
+        const twiml = '<Response><Say voice="Polly.Joanna">Thanks for calling. Goodbye.</Say><Hangup/></Response>';
+        const authStr = Buffer.from(`${tSid}:${tToken}`).toString('base64');
+        const resp = await fetch(
+          `https://api.twilio.com/2010-04-01/Accounts/${tSid}/Calls/${callSid}.json`,
+          {
+            method: 'POST',
+            headers: { 'Authorization': `Basic ${authStr}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `Twiml=${encodeURIComponent(twiml)}`,
+          }
+        );
+        if (!resp.ok) {
+          const txt = await resp.text();
+          console.warn(`[Sarah] Fallback goodbye HTTP ${resp.status}: ${txt.slice(0, 200)}`);
+          hangupStarted = false;
+          completeHangup('fallback-failed');
+          return;
+        }
+        voiceState.hungUp = true;
+        try { if (geminiWs?.readyState === WebSocket.OPEN) geminiWs.close(); } catch (e) {}
+        return;
+      }
+    } catch (e) {
+      console.warn('[Sarah] Fallback goodbye failed:', e.message);
+    }
+    hangupStarted = false;
+    completeHangup('fallback-no-creds');
+  }
+
   try {
     const companyKey = await prodDb.getCompanyGeminiKey(callCompanyId);
     if (companyKey) geminiApiKey = companyKey;
@@ -5854,6 +6051,7 @@ twilioWss.on('connection', async (twilioWs, req) => {
     geminiWs.on('open', () => {
       const forwardedInfo = isForwardedCall ? { isForwarded: true, repName: forwardedRepName, repEmail: forwardedRepEmail, repPhone: forwardedRepPhone } : null;
       let prompt = buildSystemPrompt(companyName, assistantName, isOutboundCall, outboundLeadName, outboundLeadService, subscriberSystemPrompt, companyDescription, companyKnowledge, forwardedInfo);
+      prompt += voiceFlow.callerIdPrompt(callerPhone);
       if (schedulingDefaults) {
         const schedStart = formatHour12(schedulingDefaults.business_hours_start ?? 9);
         const schedEnd = formatHour12(schedulingDefaults.business_hours_end ?? 17);
@@ -5900,6 +6098,7 @@ twilioWss.on('connection', async (twilioWs, req) => {
               let foundService = null;
               let foundClaimData = {};
 
+              const pool = prodDb.getPool();
               const leadsTableResult = await pool.query(
                 `SELECT id, name, notes, status, data FROM leads WHERE company_id = $1 AND phone LIKE $2 ORDER BY created_at DESC LIMIT 1`,
                 [callCompanyId, `%${last10}%`]
@@ -6057,21 +6256,23 @@ twilioWss.on('connection', async (twilioWs, req) => {
 
         if (data.toolCall) {
           const fcs = data.toolCall.functionCalls || [];
-          const responses = [];
-          if (geminiWs.readyState === WebSocket.OPEN) {
-            geminiWs.send(JSON.stringify({
-              client_content: {
-                turns: [{ role: "user", parts: [{ text: "[System: Tool call in progress. Say a brief filler like 'One sec, let me check on that' or 'Sure, pulling that up now' while waiting. Keep it under 8 words.]" }] }],
-                turn_complete: true
-              }
-            }));
+          if (fcs.some((fc) => fc.name === 'end_call')) {
+            const end = voiceFlow.onEndCallTool(voiceState);
+            armCallHangup('end_call');
+            if (end.sendHangupMark) sendHangupMark();
           }
+          toolChain = toolChain.then(async () => {
+          const responses = [];
 
           for (const fc of fcs) {
+            let toolArgs = {};
+            try { toolArgs = typeof fc.args === 'string' ? JSON.parse(fc.args) : (fc.args || {}); } catch (e) { toolArgs = {}; }
+            toolArgs = voiceFlow.prepareToolArgs(fc.name, toolArgs, callerPhone || voiceState.callerId);
+            const callable = { id: fc.id, name: fc.name, args: toolArgs };
             let result;
             try {
-              const toolContext = { staffCellPhone, forwardedRepName };
-              const toolPromise = handleToolCall(fc, callCompanyId, toolContext);
+              const toolContext = { staffCellPhone, forwardedRepName, callerPhone: callerPhone || voiceState.callerId };
+              const toolPromise = handleToolCall(callable, callCompanyId, toolContext);
               const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Tool call timed out after 8s')), 8000));
               result = await Promise.race([toolPromise, timeoutPromise]);
             } catch (err) {
@@ -6079,7 +6280,9 @@ twilioWss.on('connection', async (twilioWs, req) => {
               result = { error: err.message, status: 'failed' };
             }
             toolCallsMade.push(fc.name);
-            if (fc.name === 'save_lead_details' && fc.args?.name) collectedCallerName = fc.args.name;
+            if (fc.name === 'save_lead_details' && toolArgs.name) collectedCallerName = toolArgs.name;
+            voiceFlow.noteToolResult(voiceState, fc.name, toolArgs, result);
+            if (fc.name === 'end_call') armCallHangup('end_call');
             if (fc.name === 'transfer_call') {
               console.log(`[TRANSFER-DEBUG] WS handler: result=${JSON.stringify(result)}, callSid=${callSid}, callCompanyId=${callCompanyId}`);
               writeTransferLog({ companyId: callCompanyId, callSid, step: 'tool_result', success: result?.success, resolved_cell: result?.resolved_cell, resolved_name: result?.resolved_name, callCompanyId, calledNumber: calledTwilioNumber });
@@ -6217,50 +6420,57 @@ twilioWss.on('connection', async (twilioWs, req) => {
                 }
               }, 2000);
             }
-            responses.push({ id: fc.id, name: fc.name, response: typeof result === 'object' ? result : { output: String(result) } });
+            responses.push({ id: fc.id, name: fc.name, response: voiceFlow.enrichToolResponse(voiceState, fc.name, result) });
           }
-          if (geminiWs.readyState === WebSocket.OPEN) {
-            geminiWs.send(JSON.stringify({ tool_response: { function_responses: responses } }));
-
-            const toolNames = fcs.map(fc => fc.name).join(', ');
-            geminiWs.send(JSON.stringify({
-              client_content: {
-                turns: [{
-                  role: "user",
-                  parts: [{ text: `[System: ${toolNames} completed. Now respond to the caller naturally with the result. Keep it brief and conversational.]` }]
-                }],
-                turn_complete: true
-              }
-            }));
+          if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
+            geminiWs.send(JSON.stringify(voiceFlow.buildGeminiToolMessage(responses)));
           }
+          }).catch((err) => console.error('[Sarah] Tool batch error:', err.message));
         }
 
-        if (data.serverContent?.modelTurn?.parts) {
-          for (const part of data.serverContent.modelTurn.parts) {
+        if (data.serverContent?.inputTranscript) {
+          const callerText = data.serverContent.inputTranscript;
+          conversationLog.push({ role: 'Caller', text: callerText });
+          const heard = voiceFlow.onCallerTranscript(voiceState, callerText);
+          if (heard.clearPlayback) clearPlayback();
+          if (heard.armHangup) armCallHangup('caller-goodbye');
+        }
+        if (data.serverContent?.interrupted) {
+          isSarahSpeaking = false;
+          voiceFlow.onInterrupted(voiceState);
+          clearPlayback();
+        }
+        if (data.serverContent?.outputTranscript) {
+          const spoken = data.serverContent.outputTranscript;
+          conversationLog.push({ role: assistantName, text: spoken });
+          const said = voiceFlow.onAssistantTranscript(voiceState, spoken);
+          if (said.clearPlayback) clearPlayback();
+        }
+
+        const modelParts = data.serverContent?.modelTurn?.parts || null;
+        if (modelParts) {
+          for (const part of modelParts) {
             if (part.text) {
               const isThinking = /\*\*/.test(part.text) || part.text.includes("I'm starting") || part.text.includes("I've formulated");
-              if (!isThinking) conversationLog.push({ role: assistantName, text: part.text });
-            }
-            if (part.inlineData?.mimeType?.startsWith("audio/")) {
-              isSarahSpeaking = true;
-              if (echoGateCooldownTimer) { clearTimeout(echoGateCooldownTimer); echoGateCooldownTimer = null; }
-              if (!echoGateFailsafeTimer) {
-                echoGateFailsafeTimer = setTimeout(() => {
-                  echoGateFailsafeTimer = null;
-                  if (isSarahSpeaking) {
-                    console.warn(`[${assistantName}] Echo gate failsafe fired — forcing isSarahSpeaking=false`);
-                    isSarahSpeaking = false;
-                    if (echoGateCooldownTimer) { clearTimeout(echoGateCooldownTimer); echoGateCooldownTimer = null; }
-                  }
-                }, 5000);
-              }
-              if (waitingForOutboundGreeting) {
-                waitingForOutboundGreeting = false;
-                if (outboundGreetingGateTimer) { clearTimeout(outboundGreetingGateTimer); outboundGreetingGateTimer = null; }
-                console.log(`[${assistantName}] Outbound gate: Gemini started speaking — opening caller mic`);
+              if (!isThinking) {
+                conversationLog.push({ role: assistantName, text: part.text });
+                const said = voiceFlow.onAssistantTranscript(voiceState, part.text);
+                if (said.clearPlayback) clearPlayback();
               }
             }
-            if (part.inlineData?.mimeType?.startsWith("audio/") && currentStreamSid && twilioWs.readyState === WebSocket.OPEN) {
+          }
+          for (const part of modelParts) {
+            if (!part.inlineData?.mimeType?.startsWith("audio/")) continue;
+            if (waitingForOutboundGreeting) {
+              waitingForOutboundGreeting = false;
+              if (outboundGreetingGateTimer) { clearTimeout(outboundGreetingGateTimer); outboundGreetingGateTimer = null; }
+              console.log(`[${assistantName}] Outbound gate: Gemini started speaking — opening caller mic`);
+            }
+            const play = voiceFlow.onModelAudio(voiceState);
+            if (play.clearPlayback) clearPlayback();
+            if (!play.forward) continue;
+            isSarahSpeaking = true;
+            if (currentStreamSid && twilioWs.readyState === WebSocket.OPEN) {
               const mulawB64 = geminiToTwilio(part.inlineData.data);
               const CHUNK = 160;
               for (let off = 0; off < mulawB64.length; off += CHUNK) {
@@ -6271,30 +6481,19 @@ twilioWss.on('connection', async (twilioWs, req) => {
         }
 
         if (data.serverContent?.turnComplete) {
-          if (echoGateFailsafeTimer) { clearTimeout(echoGateFailsafeTimer); echoGateFailsafeTimer = null; }
-          echoGateCooldownTimer = setTimeout(() => { isSarahSpeaking = false; echoGateCooldownTimer = null; }, 300);
-        }
-
-        if (data.serverContent?.interrupted) {
           isSarahSpeaking = false;
-          if (echoGateCooldownTimer) { clearTimeout(echoGateCooldownTimer); echoGateCooldownTimer = null; }
-          if (echoGateFailsafeTimer) { clearTimeout(echoGateFailsafeTimer); echoGateFailsafeTimer = null; }
-          if (currentStreamSid && twilioWs.readyState === WebSocket.OPEN) {
-            twilioWs.send(JSON.stringify({ event: 'clear', streamSid: currentStreamSid }));
-          }
-        }
-
-        if (data.serverContent?.inputTranscript) {
-          conversationLog.push({ role: 'Caller', text: data.serverContent.inputTranscript });
-        }
-        if (data.serverContent?.outputTranscript) {
-          conversationLog.push({ role: assistantName, text: data.serverContent.outputTranscript });
+          const turn = voiceFlow.onTurnComplete(voiceState);
+          if (turn.sendHangupMark) sendHangupMark();
         }
       } catch (err) { console.error('[Sarah] Gemini msg error:', err.message); }
     });
 
     geminiWs.on('close', async () => {
       if (geminiKeepaliveInterval) clearInterval(geminiKeepaliveInterval);
+      if (callEnding) {
+        saveCallToBase44();
+        return;
+      }
       if (twilioWs.readyState === WebSocket.OPEN && callSid && !geminiReconnectAttempted) {
         geminiReconnectAttempted = true;
         console.log('[Sarah] Gemini disconnected while call active — attempting reconnect...');
@@ -6376,6 +6575,7 @@ twilioWss.on('connection', async (twilioWs, req) => {
         currentStreamSid = msg.start?.streamSid;
         const customParams = msg.start?.customParameters || {};
         callerPhone = customParams.callerPhone || customParams.from || '';
+        voiceState.callerId = callerPhone || '';
         callCompanyId = customParams.companyId || DEFAULT_COMPANY_ID;
         callSid = msg.start?.callSid || customParams.callSid || '';
         console.log(`[Sarah] Stream start: callSid=${callSid}, company=${callCompanyId}, caller=${callerPhone}`);
@@ -6396,11 +6596,17 @@ twilioWss.on('connection', async (twilioWs, req) => {
         connectGemini();
         setTimeout(() => startCallRecording(), 2000);
       }
-      if (msg.event === 'media' && setupComplete && !waitingForOutboundGreeting && !isSarahSpeaking && geminiWs?.readyState === WebSocket.OPEN) {
+      if (msg.event === 'media' && setupComplete && !waitingForOutboundGreeting && geminiWs?.readyState === WebSocket.OPEN) {
         const pcmB64 = twilioToGemini(msg.media.payload);
         geminiWs.send(JSON.stringify({ realtime_input: { media_chunks: [{ data: pcmB64, mime_type: "audio/pcm;rate=16000" }] } }));
       }
+      if (msg.event === 'mark' && msg.mark?.name === 'cs-hangup') {
+        completeHangup('playback-finished');
+      }
       if (msg.event === 'stop') {
+        callEnding = true;
+        if (hangupFallbackTimer) { clearTimeout(hangupFallbackTimer); hangupFallbackTimer = null; }
+        if (hangupMarkTimer) { clearTimeout(hangupMarkTimer); hangupMarkTimer = null; }
         if (recordingRetryTimer) { clearTimeout(recordingRetryTimer); recordingRetryTimer = null; }
         if (echoGateCooldownTimer) { clearTimeout(echoGateCooldownTimer); echoGateCooldownTimer = null; }
         if (echoGateFailsafeTimer) { clearTimeout(echoGateFailsafeTimer); echoGateFailsafeTimer = null; }
@@ -6412,6 +6618,9 @@ twilioWss.on('connection', async (twilioWs, req) => {
   });
 
   twilioWs.on('close', () => {
+    callEnding = true;
+    if (hangupFallbackTimer) { clearTimeout(hangupFallbackTimer); hangupFallbackTimer = null; }
+    if (hangupMarkTimer) { clearTimeout(hangupMarkTimer); hangupMarkTimer = null; }
     if (geminiWs?.readyState === WebSocket.OPEN) geminiWs.close();
     if (geminiKeepaliveInterval) clearInterval(geminiKeepaliveInterval);
     saveCallToBase44();
