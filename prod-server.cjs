@@ -6,6 +6,7 @@ const prodDb = require('./db/prod-db.cjs');
 const prodAuth = require('./db/prod-auth.cjs');
 const prodIntegrations = require('./db/prod-integrations.cjs');
 const voiceFlow = require('./lib/voice-call-flow.cjs');
+const repRouting = require('./lib/rep-call-routing.cjs');
 const localAuth = require('./db/local-auth.cjs');
 const googleAuth = require('./db/google-auth.cjs');
 const nodemailer = require('nodemailer');
@@ -290,6 +291,8 @@ async function refreshCacheFromAPI() {
             twilioToken: sub.twilio_token || '',
             twilioPhone: sub.twilio_phone || '',
             availabilityStatus: sub.availability_status || 'available',
+            hours: sub.hours || repRouting.hoursFromStaffData({}),
+            timeZone: sub.time_zone || sub.timeZone || 'America/New_York',
           });
         }
       }
@@ -509,6 +512,52 @@ async function readBody(req) {
     req.on('end', () => resolve(body));
     req.on('error', reject);
   });
+}
+
+function twilioFormParams(body) {
+  const params = new URLSearchParams(body || '');
+  return Object.fromEntries(params.entries());
+}
+
+function twilioSignatureOk(req, params, extraTokens = []) {
+  const tokens = [process.env.TWILIO_AUTH_TOKEN, ...extraTokens].filter(Boolean);
+  if (!tokens.length) {
+    console.warn(`[Twilio] No auth token configured; signature not checked for ${req.url}`);
+    return true;
+  }
+  const signature = req.headers['x-twilio-signature'] || '';
+  const urls = repRouting.webhookUrlCandidates({
+    pathAndQuery: req.url,
+    hosts: [req.headers['x-forwarded-host'], req.headers.host, getPublicHost(req.headers)],
+  });
+  const ok = repRouting.twilioSignatureMatches({ tokens, signature, urls, params: params || {} });
+  if (!ok) console.warn(`[Twilio] Invalid signature for ${req.url} (checked ${urls.length} url candidate(s))`);
+  return ok;
+}
+
+function rejectInvalidTwilioSignature(req, res, params, extraTokens) {
+  if (twilioSignatureOk(req, params, extraTokens)) return false;
+  if (!res.headersSent) res.writeHead(403, { 'Content-Type': 'text/plain' });
+  res.end('Invalid Twilio signature');
+  return true;
+}
+
+async function companyTwilioAuthTokens(companyId) {
+  if (!companyId) return [];
+  try {
+    const { rows } = await prodDb.getPool().query(
+      `SELECT data->>'auth_token' AS auth_token
+       FROM generic_entities
+       WHERE entity_type = 'TwilioSettings' AND company_id = $1
+         AND COALESCE(data->>'auth_token', '') <> ''
+       LIMIT 3`,
+      [companyId]
+    );
+    return [...new Set(rows.map((row) => row.auth_token).filter(Boolean))];
+  } catch (e) {
+    console.warn('[Twilio] Could not load company auth token:', e.message);
+    return [];
+  }
 }
 
 async function localGetSettings(companyId) {
@@ -764,28 +813,38 @@ RULES:
           })]
         );
 
-        // 2. Email
-        try {
-          const emailSubject = notifTitle;
-          const emailBody = `<h2 style="color:#1e40af">${notifTitle}</h2>
+        // 2. Email, then SMS. SMS to a Philippines cell from this US long code
+        // fails with Twilio 21612, so a failure is logged and email is the fallback.
+        let emailed = false;
+        const emailSubject = notifTitle;
+        const emailBody = `<h2 style="color:#1e40af">${notifTitle}</h2>
 <p style="font-family:sans-serif;font-size:14px"><strong>From:</strong> ${from}</p>
 <p style="font-family:sans-serif;font-size:14px"><strong>Message:</strong> ${body}</p>
 ${reply ? `<p style="font-family:sans-serif;font-size:14px;color:#6b7280"><strong>Sarah replied:</strong> ${reply}</p>` : ''}
-<p style="font-family:sans-serif;font-size:12px;color:#9ca3af;margin-top:24px">CompanySync — YICN Roofing</p>`;
+<p style="font-family:sans-serif;font-size:12px;color:#9ca3af;margin-top:24px">CompanySync</p>`;
+        try {
           await sendEmail({ to: target.user_email, subject: emailSubject, html: emailBody });
+          emailed = true;
         } catch (emailErr) { console.warn('[LocalSMS] Email error:', emailErr.message); }
 
-        // 3. SMS to rep's personal cell phone
-        if (target.cell_phone && twNotifSid && twNotifToken && twNotifFrom) {
-          try {
-            const cellSmsBody = `${channelIcon} New ${channelLabel} to your YICN line from ${from}:\n"${body.substring(0, 120)}"`;
-            const authStr = Buffer.from(`${twNotifSid}:${twNotifToken}`).toString('base64');
-            await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twNotifSid}/Messages.json`, {
-              method: 'POST',
-              headers: { 'Authorization': `Basic ${authStr}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: new URLSearchParams({ To: target.cell_phone, From: twNotifFrom, Body: cellSmsBody }).toString()
-            });
-          } catch (cellSmsErr) { console.warn('[LocalSMS] Cell SMS error:', cellSmsErr.message); }
+        if (target.cell_phone) {
+          const cellSmsBody = repRouting.buildRepSmsBody({
+            callerPhone: from,
+            message: body,
+            companyName: companyName || 'CompanySync',
+          });
+          await sendRepNotificationSms({
+            to: target.cell_phone,
+            from: twNotifFrom,
+            body: cellSmsBody,
+            accountSid: twNotifSid,
+            authToken: twNotifToken,
+            email: target.user_email,
+            emailSubject,
+            emailHtml: emailBody,
+            logLabel: 'LocalSMS',
+            emailAlreadySent: emailed,
+          });
         }
       }
       console.log(`[LocalSMS] Notified ${notifTargets.length} staff (bell+email+SMS) for inbound ${channel} from ${from}`);
@@ -985,22 +1044,88 @@ ${transcript ? `<h3 style="color:#374151;margin-top:20px">Transcript</h3><pre st
       } catch (emailErr) { console.warn('[PostCall] Email error:', emailErr.message); }
     }
 
-    // 4. SMS to rep's cell (if available and Twilio configured)
-    if (repCell && twilioSid && twilioToken && twilioFrom) {
-      try {
-        const smsBody = `📞 ${companyName}: ${assistantName} handled a call from ${callerLabel} (${durationLabel}).${transcript && transcript.length > 20 ? ' Transcript saved in CompanySync.' : ''}`;
-        const authStr = Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64');
-        const smsResp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
-          method: 'POST',
-          headers: { 'Authorization': `Basic ${authStr}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ To: repCell, From: twilioFrom, Body: smsBody }).toString()
-        });
-        if (smsResp.ok) console.log(`[PostCall] SMS sent to rep ${repCell}`);
-        else console.warn('[PostCall] SMS failed:', smsResp.status);
-      } catch (smsErr) { console.warn('[PostCall] SMS error:', smsErr.message); }
+    // 4. SMS to rep's cell. Include the caller's name, number, and message.
+    // A US long code cannot text +63; log Twilio 21612 and keep the email already sent.
+    if (repCell) {
+      const message = repRouting.callerMessageFromTranscript(transcript) || `${assistantName} handled a ${durationLabel} call.`;
+      const smsBody = repRouting.buildRepSmsBody({
+        callerName, callerPhone, message, companyName,
+      });
+      await sendRepNotificationSms({
+        to: repCell,
+        from: twilioFrom,
+        body: smsBody,
+        accountSid: twilioSid,
+        authToken: twilioToken,
+        email: repEmail,
+        emailSubject: `[${companyName}] Message from ${callerLabel}`,
+        emailHtml: `<p style="font-family:sans-serif">${smsBody}</p>`,
+        logLabel: 'PostCall',
+        emailAlreadySent: !!(repEmail && emailTargets.some((t) => t.email === repEmail)),
+      });
     }
   } catch (err) {
     console.error('[PostCall] Notification error:', err.message);
+  }
+}
+
+async function sendRepNotificationSms({ to, from, body, accountSid, authToken, email, emailSubject, emailHtml, logLabel, emailAlreadySent }) {
+  const label = logLabel || 'RepSMS';
+  const plan = repRouting.planSmsDelivery({ to, from });
+  async function emailFallback(reason) {
+    if (!email) {
+      console.error(`[${label}] ${reason}; no email on file for ${to || 'rep'}`);
+      return false;
+    }
+    if (emailAlreadySent) {
+      console.warn(`[${label}] ${reason}; email already sent to ${email}`);
+      return true;
+    }
+    try {
+      await sendEmail({ to: email, subject: emailSubject || 'New message', html: emailHtml || `<p>${body}</p>` });
+      console.log(`[${label}] Email fallback sent to ${email}`);
+      return true;
+    } catch (e) {
+      console.error(`[${label}] Email fallback failed:`, e.message);
+      return false;
+    }
+  }
+  if (!to) {
+    const emailed = await emailFallback('No cell phone on file');
+    return { sms: false, email: emailed, code: null };
+  }
+  if (plan.skipSms) {
+    console.warn(`[${label}] ${plan.reason}. to=${to} from=${from || ''}`);
+    const emailed = await emailFallback(plan.reason);
+    return { sms: false, email: emailed, code: plan.code };
+  }
+  if (!accountSid || !authToken || !from) {
+    console.warn(`[${label}] Twilio SMS is not configured for ${to}`);
+    const emailed = await emailFallback('Twilio SMS is not configured');
+    return { sms: false, email: emailed, code: null };
+  }
+  try {
+    const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
+    });
+    const text = await resp.text();
+    if (!resp.ok) {
+      const code = repRouting.twilioErrorCode(text);
+      console.error(`[${label}] SMS failed to ${to}: HTTP ${resp.status} Twilio code ${code || 'unknown'} ${text.slice(0, 300)}`);
+      const emailed = await emailFallback(`Twilio SMS error ${code || resp.status}`);
+      return { sms: false, email: emailed, code };
+    }
+    console.log(`[${label}] SMS sent to ${to}`);
+    return { sms: true, email: !!emailAlreadySent, code: null };
+  } catch (e) {
+    console.error(`[${label}] SMS request error for ${to}:`, e.message);
+    const emailed = await emailFallback(e.message);
+    return { sms: false, email: emailed, code: null };
   }
 }
 
@@ -1490,13 +1615,22 @@ async function callBase44API(action, companyId, data = null) {
     try {
       const pool = prodDb.getPool();
       const tw = data?.twilio_number || '';
+      const variants = repRouting.phoneLookupVariants(tw);
+      const digits = repRouting.comparableDigits(tw);
       const { rows } = await pool.query(
-        `SELECT full_name, user_email, cell_phone, call_routing_mode, availability_status FROM staff_profiles WHERE twilio_number = $1 OR twilio_number = $2 LIMIT 1`,
-        [tw, tw.replace(/^\+/, '')]
+        `SELECT full_name, user_email, cell_phone, phone, call_routing_mode, availability_status, data
+         FROM staff_profiles
+         WHERE company_id = $1
+           AND (
+             twilio_number = ANY($2::text[])
+             OR regexp_replace(COALESCE(twilio_number, ''), '[^0-9]', '', 'g') = ANY($3::text[])
+           )
+         LIMIT 1`,
+        [companyId, variants.length ? variants : [''], digits.length ? digits : ['']]
       );
       if (rows[0]) {
         console.log(`[Sarah CRM] lookupStaffByTwilioNumber LOCAL: ${tw} -> ${rows[0].full_name}`);
-        return { success: true, staff: { full_name: rows[0].full_name, email: rows[0].user_email, cell_phone: rows[0].cell_phone, call_routing_mode: rows[0].call_routing_mode, availability_status: rows[0].availability_status } };
+        return { success: true, staff: { full_name: rows[0].full_name, email: rows[0].user_email, cell_phone: rows[0].cell_phone, phone: rows[0].phone, call_routing_mode: rows[0].call_routing_mode, availability_status: rows[0].availability_status, data: rows[0].data || {} } };
       }
     } catch (e) { console.warn('[Sarah CRM] Local lookupStaffByTwilioNumber error:', e.message); }
     return { success: false };
@@ -1522,8 +1656,9 @@ async function callBase44API(action, companyId, data = null) {
       const pool = prodDb.getPool();
       const { rows: staffRows } = await pool.query(
         `SELECT sp.company_id, sp.full_name, sp.user_email, sp.cell_phone, sp.twilio_number,
-                sp.call_routing_mode, sp.availability_status,
+                sp.call_routing_mode, sp.availability_status, sp.data AS staff_data,
                 COALESCE(a.data->>'brand_short_name', c.name) as company_name,
+                COALESCE(NULLIF(c.timezone, ''), NULLIF(c.data->>'timezone', ''), NULLIF(c.settings->>'time_zone', ''), 'America/New_York') AS time_zone,
                 ts.data as twilio_settings
          FROM staff_profiles sp
          JOIN companies c ON c.id = sp.company_id AND (c.is_deleted IS NULL OR c.is_deleted = false)
@@ -1539,6 +1674,8 @@ async function callBase44API(action, companyId, data = null) {
           repName: row.full_name || '', repEmail: row.user_email || '',
           cellPhone: row.cell_phone || '', routingMode: row.call_routing_mode || 'sarah_answers',
           availabilityStatus: row.availability_status || 'available',
+          hours: repRouting.hoursFromStaffData(row.staff_data),
+          timeZone: row.time_zone || 'America/New_York',
           twilioSid: row.twilio_settings?.account_sid || '',
           twilioToken: row.twilio_settings?.auth_token || '',
         };
@@ -1556,6 +1693,8 @@ async function callBase44API(action, companyId, data = null) {
           cell_phone: row.cell_phone || '',
           routing_mode: row.call_routing_mode || 'sarah_answers',
           availability_status: row.availability_status || 'available',
+          hours: repRouting.hoursFromStaffData(row.staff_data),
+          time_zone: row.time_zone || 'America/New_York',
           twilio_sid: row.twilio_settings?.account_sid || '',
           twilio_token: row.twilio_settings?.auth_token || '',
         });
@@ -1624,19 +1763,67 @@ async function callBase44API(action, companyId, data = null) {
     } catch (e) { console.warn('[Sarah CRM] Local trackCallMinutes error:', e.message); }
   }
 
-  // Local: notifyRep
+  // Local: notifyRep — bell, SMS (name + number + message), email if SMS cannot be delivered
   if (action === 'notifyRep' && companyId) {
     try {
       const pool = prodDb.getPool();
-      const { rows: compRows } = await pool.query(`SELECT id FROM companies WHERE id = $1 OR base44_id = $1 LIMIT 1`, [companyId]);
+      const { rows: compRows } = await pool.query(`SELECT id, name FROM companies WHERE id = $1 OR base44_id = $1 LIMIT 1`, [companyId]);
       const localId = compRows[0]?.id || companyId;
+      const companyName = compRows[0]?.name || 'CompanySync';
+      const callerName = data?.caller_name || '';
+      const callerPhone = data?.caller_phone || '';
+      const message = data?.message || '';
+      const smsBody = repRouting.buildRepSmsBody({ callerName, callerPhone, message, companyName });
       const notifId = `notif_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       await pool.query(
         `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date) VALUES ($1, 'Notification', $2, $3, NOW(), NOW()) ON CONFLICT DO NOTHING`,
-        [notifId, localId, JSON.stringify({ type: 'new_lead', title: data?.title || 'New lead from Sarah', message: data?.message || '', is_read: false, created_at: new Date().toISOString() })]
+        [notifId, localId, JSON.stringify({
+          type: 'new_lead',
+          title: data?.title || `Message from ${callerName || callerPhone || 'a caller'}`,
+          message: smsBody,
+          caller_name: callerName,
+          caller_phone: callerPhone,
+          is_read: false,
+          created_at: new Date().toISOString(),
+        })]
       );
-      console.log(`[Sarah CRM] notifyRep LOCAL for ${localId}`);
-      return { success: true };
+      let repPhone = data?.rep_phone || '';
+      let repEmail = data?.rep_email || '';
+      if ((!repPhone || !repEmail) && (data?.rep_name || repEmail)) {
+        const { rows: staffRows } = await pool.query(
+          `SELECT cell_phone, user_email, full_name FROM staff_profiles
+           WHERE company_id = $1 AND (
+             ($2 <> '' AND (LOWER(user_email) = LOWER($2) OR LOWER(email) = LOWER($2)))
+             OR ($3 <> '' AND LOWER(COALESCE(full_name, name, '')) LIKE $4)
+           )
+           LIMIT 1`,
+          [localId, repEmail || '', data?.rep_name || '', `%${String(data?.rep_name || '').toLowerCase()}%`]
+        );
+        if (staffRows[0]) {
+          repPhone = repPhone || staffRows[0].cell_phone || '';
+          repEmail = repEmail || staffRows[0].user_email || '';
+        }
+      }
+      const { rows: twRows } = await pool.query(
+        `SELECT data FROM generic_entities WHERE entity_type = 'TwilioSettings' AND company_id = $1 LIMIT 1`,
+        [localId]
+      );
+      const tw = twRows[0]?.data || {};
+      const html = `<p style="font-family:sans-serif">${smsBody}</p>`;
+      const delivery = await sendRepNotificationSms({
+        to: repPhone,
+        from: tw.main_phone_number || process.env.TWILIO_PHONE_NUMBER,
+        body: smsBody,
+        accountSid: tw.account_sid || process.env.TWILIO_ACCOUNT_SID,
+        authToken: tw.auth_token || process.env.TWILIO_AUTH_TOKEN,
+        email: repEmail,
+        emailSubject: `Message from ${callerName || callerPhone || 'a caller'}`,
+        emailHtml: html,
+        logLabel: 'NotifyRep',
+        emailAlreadySent: false,
+      });
+      console.log(`[Sarah CRM] notifyRep LOCAL for ${localId} sms=${delivery.sms} email=${delivery.email} code=${delivery.code || ''}`);
+      return { success: true, sms: delivery.sms, email: delivery.email };
     } catch (e) { console.warn('[Sarah CRM] Local notifyRep error:', e.message); }
   }
 
@@ -1814,50 +2001,43 @@ async function handleToolCall(functionCall, companyId, context = {}) {
     case 'book_appointment': return callBase44API('bookAppointment', companyId, parsedArgs);
     case 'send_alert': return callBase44API('sendAlert', companyId, parsedArgs);
     case 'schedule_inspection': return callBase44API('scheduleInspection', companyId, parsedArgs);
-    case 'notify_rep': return callBase44API('notifyRep', companyId, parsedArgs);
+    case 'notify_rep': return callBase44API('notifyRep', companyId, {
+      ...parsedArgs,
+      caller_name: parsedArgs.caller_name || context.callerName || '',
+      caller_phone: parsedArgs.caller_phone || context.callerPhone || '',
+      rep_email: parsedArgs.rep_email || context.forwardedRepEmail || '',
+      rep_phone: parsedArgs.rep_phone || context.staffCellPhone || '',
+      rep_name: parsedArgs.rep_name || context.forwardedRepName || '',
+    });
     case 'transfer_call': {
       const targetPerson = (parsedArgs.target_person || '').trim();
       const fallbackCell = context.staffCellPhone || '';
       const fallbackName = context.forwardedRepName || '';
-      console.log(`[TRANSFER-DEBUG] transfer_call fired. companyId=${companyId}, targetPerson="${targetPerson}", fallbackCell="${fallbackCell}", fallbackName="${fallbackName}"`);
-      let resolvedCell = '';
-      let resolvedName = '';
-      const normalizeToE164 = (num) => {
-        if (!num) return '';
-        const digits = num.replace(/[^\d]/g, '');
-        if (digits.length === 10) return `+1${digits}`;
-        if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
-        return num.startsWith('+') ? num : `+${digits}`;
-      };
+      console.log(`[TRANSFER-DEBUG] transfer_call fired. companyId=${companyId}, targetPerson="${targetPerson}", fallbackCell="${fallbackCell}", fallbackName="${fallbackName}", called=${context.calledNumber || ''}`);
+      let subs = [];
       try {
         const allRouting = await callBase44API('getAllSubscriberRouting', null);
-        const subs = allRouting?.subscribers || [];
+        subs = allRouting?.subscribers || [];
         console.log(`[TRANSFER-DEBUG] getAllSubscriberRouting returned ${subs.length} subscribers`);
-        if (subs.length > 0) {
-          if (targetPerson) {
-            const matched = companyId
-              ? subs.find(s => s.company_id === companyId && s.rep_name && nameMatchesSearch(s.rep_name, targetPerson))
-              : subs.find(s => s.rep_name && nameMatchesSearch(s.rep_name, targetPerson));
-            console.log(`[TRANSFER-DEBUG] Company-scoped match for "${targetPerson}": ${matched ? matched.rep_name : 'NONE'}`);
-            if (matched) { resolvedCell = normalizeToE164(matched.cell_phone || ''); resolvedName = matched.rep_name; }
-          } else if (companyId) {
-            const defaultRep = subs.find(s => s.company_id === companyId && s.cell_phone);
-            if (defaultRep) { resolvedCell = normalizeToE164(defaultRep.cell_phone); resolvedName = defaultRep.rep_name; }
-          }
-        }
       } catch (e) { console.warn('[TRANSFER-DEBUG] getAllSubscriberRouting failed:', e.message); }
-      if (!resolvedCell && fallbackCell) {
-        resolvedCell = normalizeToE164(fallbackCell);
-        resolvedName = resolvedName || fallbackName;
-        console.log(`[TRANSFER-DEBUG] Using fallback cell: ${resolvedCell} (${resolvedName})`);
-      }
-      console.log(`[TRANSFER-DEBUG] Final: resolvedCell="${resolvedCell}", resolvedName="${resolvedName}"`);
-      if (!resolvedCell) {
-        console.warn(`[TRANSFER-DEBUG] FAIL: no cell resolved for "${targetPerson || '(default)'}" in company "${companyId}"`);
+      const target = repRouting.resolveTransferTarget({
+        targetPerson,
+        subscribers: subs,
+        companyId,
+        dialedOwner: {
+          cell: fallbackCell,
+          name: fallbackName,
+          email: context.forwardedRepEmail || '',
+          twilioNumber: context.calledNumber || '',
+        },
+        nameMatches: nameMatchesSearch,
+      });
+      console.log(`[TRANSFER-DEBUG] Final: ${target ? `${target.name} -> ${target.cell} (${target.source})` : 'none'}`);
+      if (!target?.cell) {
+        console.warn(`[TRANSFER-DEBUG] FAIL: no cell resolved for "${targetPerson || '(dialed number owner)'}" in company "${companyId}"`);
         return { success: false, message: `I wasn't able to connect you right now. Let me take a message and have someone call you right back.` };
       }
-      console.log(`[TRANSFER-DEBUG] SUCCESS: ${resolvedName} -> ${resolvedCell}`);
-      return { success: true, action: 'transfer_initiated', resolved_cell: resolvedCell, resolved_name: resolvedName };
+      return { success: true, action: 'transfer_initiated', resolved_cell: target.cell, resolved_name: target.name, resolved_email: target.email };
     }
     case 'create_task': {
       try {
@@ -2834,60 +3014,133 @@ Greet ${userName} warmly.`;
 }
 
 function phoneLookupVariants(calledNumber) {
-  const raw = calledNumber || '';
-  const digits = raw.replace(/[^\d]/g, '');
-  const e164 = digits.length === 10 ? `+1${digits}` : (digits.length === 11 && digits.startsWith('1') ? `+${digits}` : raw);
-  const bare = String(e164).replace(/^\+1/, '');
-  return [...new Set([raw, e164, bare, digits].filter(Boolean))];
+  return repRouting.phoneLookupVariants(calledNumber);
 }
 
-async function resolveCompanyByCalledNumber(calledNumber) {
-  const pool = prodDb.getPool();
-  const variants = phoneLookupVariants(calledNumber);
-  if (!variants.length) return null;
+async function findCompanyIdForNumber(pool, variants, digits, companyHint) {
+  const ids = [];
   try {
-    const localLookup = await pool.query(
-      `SELECT company_id FROM call_routing_cache WHERE phone_number = ANY($1::text[]) LIMIT 1`,
-      [variants]
-    );
-    if (localLookup.rows[0]) return localLookup.rows[0].company_id;
-  } catch (e) {
-    console.warn('[Sarah] call_routing_cache lookup failed:', e.message);
-  }
-  try {
-    const twilioLookup = await pool.query(
+    const settings = await pool.query(
       `SELECT company_id FROM generic_entities
        WHERE entity_type = 'TwilioSettings'
          AND (
-           data->>'main_phone_number' = ANY($1::text[])
+           regexp_replace(COALESCE(data->>'main_phone_number', ''), '[^0-9]', '', 'g') = ANY($1::text[])
+           OR data->>'main_phone_number' = ANY($2::text[])
            OR (
              jsonb_typeof(data->'available_numbers') = 'array'
              AND EXISTS (
                SELECT 1 FROM jsonb_array_elements(data->'available_numbers') elem
-               WHERE elem->>'phone_number' = ANY($1::text[])
+               WHERE regexp_replace(COALESCE(elem->>'phone_number', ''), '[^0-9]', '', 'g') = ANY($1::text[])
+                  OR elem->>'phone_number' = ANY($2::text[])
              )
            )
          )
-       LIMIT 1`,
-      [variants]
+       LIMIT 5`,
+      [digits, variants]
     );
-    if (twilioLookup.rows[0]) return twilioLookup.rows[0].company_id;
+    settings.rows.forEach((row) => { if (row.company_id) ids.push(row.company_id); });
   } catch (e) {
     console.warn('[Sarah] TwilioSettings lookup failed:', e.message);
   }
+  if (!ids.length) {
+    try {
+      const cache = await pool.query(
+        `SELECT company_id FROM call_routing_cache
+         WHERE phone_number = ANY($1::text[])
+            OR regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g') = ANY($2::text[])
+         LIMIT 5`,
+        [variants, digits]
+      );
+      cache.rows.forEach((row) => { if (row.company_id) ids.push(row.company_id); });
+    } catch (e) {
+      console.warn('[Sarah] call_routing_cache lookup failed:', e.message);
+    }
+  }
+  if (!ids.length) {
+    try {
+      const assistant = await pool.query(
+        `SELECT company_id FROM generic_entities
+         WHERE entity_type = 'AssistantSettings'
+           AND (
+             data->>'sarah_inbound_phone' = ANY($1::text[])
+             OR regexp_replace(COALESCE(data->>'sarah_inbound_phone', ''), '[^0-9]', '', 'g') = ANY($2::text[])
+           )
+         LIMIT 5`,
+        [variants, digits]
+      );
+      assistant.rows.forEach((row) => { if (row.company_id) ids.push(row.company_id); });
+    } catch (e) { /* custom inbound phone is optional */ }
+  }
+  const chosen = repRouting.chooseCompanyRow(ids.map((company_id) => ({ company_id })), companyHint);
+  return chosen?.company_id || null;
+}
+
+async function lookupInboundNumber(pool, calledNumber, companyHint) {
+  const variants = phoneLookupVariants(calledNumber);
+  const digits = repRouting.comparableDigits(calledNumber);
+  if (!digits.length) return null;
   try {
-    const staffLookup = await pool.query(
-      `SELECT company_id FROM staff_profiles WHERE twilio_number = ANY($1::text[]) LIMIT 1`,
-      [variants]
+    const staff = await pool.query(
+      `SELECT sp.company_id, sp.full_name, sp.user_email, sp.cell_phone, sp.twilio_number,
+              sp.call_routing_mode, sp.availability_status, sp.data AS staff_data,
+              COALESCE(NULLIF(c.timezone, ''), NULLIF(c.data->>'timezone', ''), NULLIF(c.settings->>'time_zone', ''), 'America/New_York') AS time_zone
+       FROM staff_profiles sp
+       LEFT JOIN companies c ON c.id = sp.company_id
+       WHERE sp.is_active = true
+         AND (
+           sp.twilio_number = ANY($1::text[])
+           OR regexp_replace(COALESCE(sp.twilio_number, ''), '[^0-9]', '', 'g') = ANY($2::text[])
+         )
+       ORDER BY sp.updated_at DESC NULLS LAST
+       LIMIT 5`,
+      [variants, digits]
     );
-    if (staffLookup.rows[0]) return staffLookup.rows[0].company_id;
+    if (staff.rows.length > 1) {
+      console.warn(`[Sarah] ${staff.rows.length} staff rows match ${calledNumber}; using company ${companyHint || staff.rows[0].company_id}`);
+    }
+    const row = repRouting.chooseCompanyRow(staff.rows, companyHint);
+    if (row) return repRouting.routeFromStaffRow(row);
   } catch (e) {
-    console.warn('[Sarah] staff twilio lookup failed:', e.message);
+    console.warn('[Sarah] staff number lookup failed:', e.message);
+  }
+  const companyId = await findCompanyIdForNumber(pool, variants, digits, companyHint);
+  if (!companyId) return null;
+  let timeZone = 'America/New_York';
+  try {
+    const tz = await pool.query(
+      `SELECT COALESCE(NULLIF(timezone, ''), NULLIF(data->>'timezone', ''), NULLIF(settings->>'time_zone', ''), 'America/New_York') AS time_zone
+       FROM companies WHERE id = $1 LIMIT 1`,
+      [companyId]
+    );
+    if (tz.rows[0]?.time_zone) timeZone = tz.rows[0].time_zone;
+  } catch (e) { /* company time zone is optional */ }
+  return {
+    companyId,
+    repName: '',
+    repEmail: '',
+    cellPhone: '',
+    routingMode: 'sarah_answers',
+    availabilityStatus: 'available',
+    hours: repRouting.hoursFromStaffData({}),
+    timeZone,
+    twilioNumber: repRouting.toE164(calledNumber),
+  };
+}
+
+async function resolveCompanyByCalledNumber(calledNumber) {
+  try {
+    const found = await lookupInboundNumber(prodDb.getPool(), calledNumber, null);
+    if (found?.companyId) return found.companyId;
+  } catch (e) {
+    console.warn('[Sarah] company lookup failed:', e.message);
   }
   if (BASE44_API_URL) {
     try {
       const lookup = await callBase44API('lookupByPhone', null, { phone_number: calledNumber });
-      if (lookup?.success && lookup.company_id) return lookup.company_id;
+      if (lookup?.success && lookup.company_id && lookup.company_id !== DEFAULT_COMPANY_ID) return lookup.company_id;
+      if (lookup?.company_id === DEFAULT_COMPANY_ID) {
+        console.warn(`[Sarah] Ignoring hard-coded default company for unassigned number ${calledNumber}`);
+      }
     } catch (e) { /* best effort */ }
   }
   return null;
@@ -2968,18 +3221,31 @@ async function processSarahStatusCallback(parsed) {
           created_at: new Date().toISOString(),
         })]
       );
+      let emailed = false;
+      const mcHtml = `<h2 style="color:#dc2626">${mcTitle}</h2><p style="font-family:sans-serif;font-size:14px">${mcMessage}</p><p style="font-family:sans-serif;font-size:12px;color:#9ca3af;margin-top:24px">CompanySync</p>`;
       try {
-        await sendEmail({ to: target.user_email, subject: mcTitle, html: `<h2 style="color:#dc2626">${mcTitle}</h2><p style="font-family:sans-serif;font-size:14px">${mcMessage}</p><p style="font-family:sans-serif;font-size:12px;color:#9ca3af;margin-top:24px">CompanySync — YICN Roofing</p>` });
+        await sendEmail({ to: target.user_email, subject: mcTitle, html: mcHtml });
+        emailed = true;
       } catch (emailErr) { console.warn('[Sarah] Missed call email error:', emailErr.message); }
-      if (target.cell_phone && twMcSid && twMcToken && twMcFrom) {
-        try {
-          const authStr = Buffer.from(`${twMcSid}:${twMcToken}`).toString('base64');
-          await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twMcSid}/Messages.json`, {
-            method: 'POST',
-            headers: { 'Authorization': `Basic ${authStr}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ To: target.cell_phone, From: twMcFrom, Body: `📵 Missed call from ${callerPhone} on ${calledNumber}. Status: ${callStatus}.` }).toString()
-          });
-        } catch (smsErr) { console.warn('[Sarah] Missed call cell SMS error:', smsErr.message); }
+      if (target.cell_phone) {
+        const smsBody = repRouting.buildRepSmsBody({
+          callerName: '',
+          callerPhone,
+          message: `No message was left. ${mcMessage}`,
+          companyName: 'CompanySync',
+        });
+        await sendRepNotificationSms({
+          to: target.cell_phone,
+          from: twMcFrom,
+          body: smsBody,
+          accountSid: twMcSid,
+          authToken: twMcToken,
+          email: target.user_email,
+          emailSubject: mcTitle,
+          emailHtml: mcHtml,
+          logLabel: 'MissedCall',
+          emailAlreadySent: emailed,
+        });
       }
     }
     console.log(`[Sarah] Missed call: notified ${mcTargets.length} user(s) (bell+email+SMS)`);
@@ -2996,6 +3262,187 @@ async function processSarahStatusCallback(parsed) {
     });
     console.log(`[Sarah] Missed call follow-up sent to ${callerPhone}`);
   } catch (e) { console.error('[Sarah] Missed call follow-up error:', e.message); }
+}
+
+async function notifyMissedForward({ companyId, callerPhone, repName, repEmail, staffCellPhone, dialStatus, calledNumber, callSid }) {
+  if (!companyId) return;
+  const reason = repRouting.fallbackReason(dialStatus);
+  const statusNote = reason === 'no_answer' ? 'did not answer' : reason === 'busy' ? 'was busy' : reason === 'voicemail' ? 'went to voicemail' : reason === 'failed' ? 'could not be reached' : 'did not take the call';
+  const message = `${repName || 'The rep'} ${statusNote}. The assistant is taking a message from ${callerPhone || 'the caller'}.`;
+  try {
+    const pool = prodDb.getPool();
+    const { rows: admins } = await pool.query(
+      `SELECT user_email, cell_phone, full_name FROM staff_profiles WHERE company_id = $1 AND is_administrator = true LIMIT 5`,
+      [companyId]
+    );
+    const targets = [];
+    const seen = new Set();
+    if (repEmail) targets.push({ user_email: repEmail, cell_phone: staffCellPhone || '', full_name: repName || '' });
+    for (const row of admins) {
+      if (row.user_email && !seen.has(row.user_email)) targets.push(row);
+    }
+    targets.forEach((row) => seen.add(row.user_email));
+    const { rows: twRows } = await pool.query(
+      `SELECT data FROM generic_entities WHERE entity_type = 'TwilioSettings' AND company_id = $1 LIMIT 1`,
+      [companyId]
+    );
+    const tw = twRows[0]?.data || {};
+    for (const target of targets) {
+      if (!target.user_email) continue;
+      const nId = `notif_fwd_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      await pool.query(
+        `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date) VALUES ($1, 'Notification', $2, $3, NOW(), NOW()) ON CONFLICT DO NOTHING`,
+        [nId, companyId, JSON.stringify({
+          id: nId,
+          type: 'missed_forwarded_call',
+          title: `Missed call from ${callerPhone || 'unknown'}`,
+          message,
+          user_email: target.user_email,
+          is_read: false,
+          caller_phone: callerPhone,
+          called_number: calledNumber,
+          call_sid: callSid,
+          rep_name: repName,
+          dial_status: dialStatus,
+          created_at: new Date().toISOString(),
+        })]
+      );
+      const smsBody = repRouting.buildRepSmsBody({
+        callerPhone,
+        message,
+        companyName: 'CompanySync',
+      });
+      const html = `<p style="font-family:sans-serif">${smsBody}</p>`;
+      let emailed = false;
+      try {
+        await sendEmail({ to: target.user_email, subject: `Missed call from ${callerPhone || 'a caller'}`, html });
+        emailed = true;
+      } catch (e) { console.warn('[Sarah] Forward fallback email error:', e.message); }
+      const cell = target.user_email === repEmail ? (staffCellPhone || target.cell_phone) : target.cell_phone;
+      if (cell) {
+        await sendRepNotificationSms({
+          to: cell,
+          from: tw.main_phone_number || process.env.TWILIO_PHONE_NUMBER,
+          body: smsBody,
+          accountSid: tw.account_sid || process.env.TWILIO_ACCOUNT_SID,
+          authToken: tw.auth_token || process.env.TWILIO_AUTH_TOKEN,
+          email: target.user_email,
+          emailSubject: `Missed call from ${callerPhone || 'a caller'}`,
+          emailHtml: html,
+          logLabel: 'ForwardFallback',
+          emailAlreadySent: emailed,
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[Sarah] Forward fallback notification error:', e.message);
+  }
+}
+
+async function serveForwardFallback(req, res, url) {
+  setCorsHeaders(res);
+  const host = getPublicHost(req.headers);
+  const body = await readBody(req);
+  const form = twilioFormParams(body);
+  const companyId = url.searchParams.get('companyId') || '';
+  if (rejectInvalidTwilioSignature(req, res, form, await companyTwilioAuthTokens(companyId))) return;
+  const callerPhone = url.searchParams.get('callerPhone') || form.From || form.Caller || '';
+  const repName = url.searchParams.get('repName') || '';
+  const repEmail = url.searchParams.get('repEmail') || '';
+  const maxDuration = url.searchParams.get('maxDuration') || '1800';
+  const calledNumber = url.searchParams.get('calledNumber') || form.To || form.Called || '';
+  const staffCellPhone = url.searchParams.get('staffCellPhone') || '';
+  const callSid = form.CallSid || url.searchParams.get('callSid') || '';
+  const dialStatus = form.DialCallStatus || '';
+  const dialDuration = parseInt(form.DialCallDuration || '0', 10);
+  console.log(`[Sarah] Forward fallback: dialStatus=${dialStatus}, dialDuration=${dialDuration}s, bridged=${form.DialBridged || ''}, company=${companyId}, rep=${repName}, callSid=${callSid}`);
+  if (repRouting.dialWasAnswered({ dialStatus, dialDuration, dialBridged: form.DialBridged })) {
+    res.writeHead(200, { 'Content-Type': 'text/xml' });
+    res.end(repRouting.hangupTwiml());
+    return;
+  }
+  notifyMissedForward({ companyId, callerPhone, repName, repEmail, staffCellPhone, dialStatus, calledNumber, callSid }).catch((e) => {
+    console.warn('[Sarah] Forward fallback notify failed:', e.message);
+  });
+  const twiml = repRouting.buildAiFallbackTwiml({
+    host,
+    companyId,
+    callerPhone,
+    callSid,
+    calledNumber,
+    staffCellPhone,
+    repName,
+    repEmail,
+    maxDuration,
+    reason: repRouting.fallbackReason(dialStatus),
+    recordCallback: `https://${host}/api/twilio/recording-callback`,
+  });
+  res.writeHead(200, { 'Content-Type': 'text/xml' });
+  res.end(twiml);
+}
+
+async function serveScreen(req, res, url) {
+  setCorsHeaders(res);
+  const body = req.method === 'POST' ? await readBody(req) : '';
+  const form = twilioFormParams(body);
+  const companyId = url.searchParams.get('companyId') || '';
+  if (rejectInvalidTwilioSignature(req, res, form, await companyTwilioAuthTokens(companyId))) return;
+  const host = getPublicHost(req.headers);
+  res.writeHead(200, { 'Content-Type': 'text/xml' });
+  res.end(repRouting.buildScreenTwiml({
+    host,
+    callerPhone: url.searchParams.get('callerPhone') || form.From || '',
+    companyId,
+  }));
+}
+
+async function serveScreenResult(req, res, url) {
+  setCorsHeaders(res);
+  const body = await readBody(req);
+  const form = twilioFormParams(body);
+  const companyId = url.searchParams.get('companyId') || '';
+  if (rejectInvalidTwilioSignature(req, res, form, await companyTwilioAuthTokens(companyId))) return;
+  res.writeHead(200, { 'Content-Type': 'text/xml' });
+  res.end(repRouting.buildScreenResultTwiml(form.Digits || ''));
+}
+
+async function serveTransfer(req, res, url) {
+  setCorsHeaders(res);
+  const body = await readBody(req);
+  const form = twilioFormParams(body);
+  const companyId = url.searchParams.get('companyId') || '';
+  if (rejectInvalidTwilioSignature(req, res, form, await companyTwilioAuthTokens(companyId))) return;
+  const host = getPublicHost(req.headers);
+  const cellPhone = url.searchParams.get('cellPhone') || '';
+  const callerIdNumber = url.searchParams.get('callerId') || '';
+  const repName = url.searchParams.get('repName') || '';
+  const callerPhone = url.searchParams.get('callerPhone') || form.From || '';
+  const callSid = form.CallSid || url.searchParams.get('callSid') || '';
+  if (!cellPhone) {
+    res.writeHead(200, { 'Content-Type': 'text/xml' });
+    res.end(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">I'm sorry, I don't have a phone number to transfer to.</Say></Response>`);
+    return;
+  }
+  if (callerPhone && repRouting.phonesMatch(callerPhone, cellPhone)) {
+    console.log(`[Sarah] TRANSFER SELF-CALL: ${callerPhone} is the rep's own cell — skipping transfer dial`);
+    res.writeHead(200, { 'Content-Type': 'text/xml' });
+    res.end(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">I detected you are calling from the rep's own phone. Transfer skipped. How else can I help you?</Say></Response>`);
+    return;
+  }
+  res.writeHead(200, { 'Content-Type': 'text/xml' });
+  res.end(repRouting.buildTransferDialTwiml({
+    host,
+    cellPhone,
+    callerId: callerIdNumber,
+    repName,
+    repEmail: url.searchParams.get('repEmail') || '',
+    companyId: url.searchParams.get('companyId') || '',
+    callerPhone,
+    calledNumber: url.searchParams.get('calledNumber') || callerIdNumber,
+    callSid,
+    maxDuration: url.searchParams.get('maxDuration') || '1800',
+  }));
+  console.log(`[Sarah] TRANSFER: connecting ${callerPhone} to ${cellPhone} for rep ${repName} with screening, callSid=${callSid}`);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -3187,119 +3634,23 @@ const server = http.createServer(async (req, res) => {
     return prodDb.handleLocalDbRoute(req, res, pathname, url);
   }
 
-  if (pathname === '/twiml/forward-fallback') {
-    setCorsHeaders(res);
-    const host = getPublicHost(req.headers);
-    const companyId = url.searchParams.get('companyId') || '';
-    const callerPhone = url.searchParams.get('callerPhone') || '';
-    const repName = url.searchParams.get('repName') || '';
-    const repEmail = url.searchParams.get('repEmail') || '';
-    const maxDuration = url.searchParams.get('maxDuration') || '1800';
-
-    const body = await readBody(req);
-    const params = new URLSearchParams(body);
-    const dialStatus = params.get('DialCallStatus') || '';
-    const dialDuration = parseInt(params.get('DialCallDuration') || '0', 10);
-
-    console.log(`[Sarah] Forward fallback (/twiml): dialStatus=${dialStatus}, dialDuration=${dialDuration}s, company=${companyId}, rep=${repName}`);
-
-    // Only treat as truly completed if rep talked for >15 seconds (real conversation).
-    // Short "completed" (voicemail auto-answer) falls through to Sarah.
-    if (dialStatus === 'completed' && dialDuration > 15) {
-      res.writeHead(200, { 'Content-Type': 'text/xml' });
-      res.end(`<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`);
-      return;
-    }
-
-    // Rep did not answer — notify them and admins (non-blocking)
-    if (companyId && (dialStatus === 'no-answer' || dialStatus === 'busy' || dialStatus === 'failed' || dialStatus === 'completed')) {
-      (async () => {
-        try {
-          const pool = prodDb.getPool();
-          const { rows: fbAdminRows } = await pool.query(
-            `SELECT user_email FROM staff_profiles WHERE company_id = $1 AND is_administrator = true LIMIT 5`,
-            [companyId]
-          );
-          const fbNotifyEmails = new Set();
-          if (repEmail) fbNotifyEmails.add(repEmail);
-          fbAdminRows.forEach(r => fbNotifyEmails.add(r.user_email));
-          const statusNote = dialStatus === 'no-answer' ? 'did not answer' : dialStatus === 'busy' ? 'was busy' : dialStatus === 'completed' ? 'went to voicemail' : 'call failed';
-          for (const email of fbNotifyEmails) {
-            const nId = `notif_fwd_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-            await pool.query(
-              `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date) VALUES ($1, 'Notification', $2, $3, NOW(), NOW()) ON CONFLICT DO NOTHING`,
-              [nId, companyId, JSON.stringify({
-                id: nId,
-                type: 'missed_forwarded_call',
-                title: `📞 Forwarded call missed — ${callerPhone}`,
-                message: `${repName || 'Rep'} ${statusNote}. Sarah took over the call with ${callerPhone}.`,
-                user_email: email,
-                is_read: false,
-                caller_phone: callerPhone,
-                rep_name: repName,
-                dial_status: dialStatus,
-                created_at: new Date().toISOString(),
-              })]
-            );
-          }
-        } catch (e) { console.warn('[Sarah] Forward fallback notification error:', e.message); }
-      })();
-    }
-
-    const wsUrl = `wss://${host}/ws/twilio`;
-    const fallbackTwiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="alice">${repName ? repName + ' is not available at the moment.' : 'The person you are trying to reach is not available right now.'} Let me connect you with our AI assistant who can help.</Say>
-    <Connect>
-        <Stream url="${wsUrl}">
-            <Parameter name="companyId" value="${companyId}" />
-            <Parameter name="callerPhone" value="${callerPhone}" />
-            <Parameter name="maxCallDuration" value="${maxDuration}" />
-            <Parameter name="isForwardedCall" value="true" />
-            <Parameter name="forwardedRepName" value="${repName}" />
-            <Parameter name="forwardedRepEmail" value="${repEmail}" />
-            <Parameter name="callRoutingMode" value="sarah_answers" />
-        </Stream>
-    </Connect>
-</Response>`;
-    res.writeHead(200, { 'Content-Type': 'text/xml' });
-    res.end(fallbackTwiml);
+  if (pathname === '/twiml/forward-fallback' || pathname === '/api/twilio/forward-fallback') {
+    await serveForwardFallback(req, res, url);
     return;
   }
 
-  if (pathname === '/twiml/transfer') {
-    setCorsHeaders(res);
-    const cellPhone = url.searchParams.get('cellPhone') || '';
-    const callerIdNumber = url.searchParams.get('callerId') || '';
-    const repName = url.searchParams.get('repName') || '';
-    const callerPhone = url.searchParams.get('callerPhone') || '';
+  if (pathname === '/api/twilio/screen') {
+    await serveScreen(req, res, url);
+    return;
+  }
 
-    if (!cellPhone) {
-      res.writeHead(200, { 'Content-Type': 'text/xml' });
-      res.end(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">I'm sorry, I don't have a phone number to transfer to.</Say></Response>`);
-      return;
-    }
+  if (pathname === '/api/twilio/screen-result') {
+    await serveScreenResult(req, res, url);
+    return;
+  }
 
-    const normalizePhone = p => (p || '').replace(/\D/g, '').slice(-10);
-    const isSelfCall = callerPhone && normalizePhone(callerPhone) === normalizePhone(cellPhone);
-    if (isSelfCall) {
-      console.log(`[Sarah] TRANSFER SELF-CALL: ${callerPhone} is the rep's own cell — skipping transfer dial`);
-      res.writeHead(200, { 'Content-Type': 'text/xml' });
-      res.end(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">I detected you are calling from the rep's own phone. Transfer skipped. How else can I help you?</Say></Response>`);
-      return;
-    }
-
-    const transferTwiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="alice">Let me transfer you to ${repName || 'your representative'} now. One moment please.</Say>
-    <Dial callerId="${callerIdNumber || ''}" timeout="30">
-        <Number>${cellPhone}</Number>
-    </Dial>
-    <Say voice="alice">I'm sorry, ${repName || 'the representative'} is not available right now.</Say>
-</Response>`;
-    res.writeHead(200, { 'Content-Type': 'text/xml' });
-    res.end(transferTwiml);
-    console.log(`[Sarah] TRANSFER: connecting ${callerPhone} to ${cellPhone} for rep ${repName}`);
+  if (pathname === '/twiml/transfer' || pathname === '/api/twilio/transfer') {
+    await serveTransfer(req, res, url);
     return;
   }
 
@@ -3801,160 +4152,75 @@ const server = http.createServer(async (req, res) => {
     const calledNumber = params.get('To') || '';
     console.log(`[INBOUND-CALL] ${new Date().toISOString()} | From=${from} | To=${calledNumber} | CallSid=${callSid} | Host=${host}`);
     const pool = prodDb.getPool();
-
-    // === FAST PATH: Check in-memory cache first (no DB calls) ===
+    const explicitCompanyId = url.searchParams.get('companyId') || '';
     let cached = getCachedSubscriber(calledNumber);
-    let resolvedCompanyId = url.searchParams.get('companyId') || cached?.companyId || null;
 
-    // Check for custom inbound phone in Sarah settings (only on cache miss)
-    if (!cached && calledNumber) {
-      try {
-        const { rows } = await pool.query(
-          "SELECT data, company_id FROM generic_entities WHERE entity_type = 'AssistantSettings' AND (data->>'sarah_inbound_phone' = $1) LIMIT 1",
-          [calledNumber]
-        );
-        if (rows[0]) {
-          resolvedCompanyId = rows[0].company_id;
-          console.log(`[Sarah] Custom inbound phone match: ${calledNumber} -> company ${resolvedCompanyId}`);
-        }
-      } catch (e) {}
-    }
-    let forwardedRepName = url.searchParams.get('repName') || cached?.repName || '';
-    let forwardedRepEmail = url.searchParams.get('repEmail') || cached?.repEmail || '';
-    let forwardedRepPhone = cached?.cellPhone || '';
-    let isForwarded = !!(forwardedRepName || url.searchParams.get('forwarded') === 'true');
-    let effectiveRoutingMode = cached?.routingMode || 'sarah_answers';
-    let cellPhone = cached?.cellPhone || '';
-
-    // If cached subscriber is unavailable, override to sarah_answers
-    if (cached && cached.availabilityStatus === 'unavailable') {
-      effectiveRoutingMode = 'sarah_answers';
-    }
-
-    // If no cache hit, try local PostgreSQL first, then Base44 API
-    if (!cached && calledNumber) {
-      console.log(`[Sarah] Cache miss for ${calledNumber}, trying local DB...`);
-      try {
-        const normalizedNum = calledNumber.replace(/[^\d+]/g, '');
-        const e164 = normalizedNum.startsWith('+') ? normalizedNum : `+1${normalizedNum}`;
-        const digits = normalizedNum.replace(/^\+/, '');
-        const localLookup = await pool.query(
-          `SELECT company_id FROM call_routing_cache WHERE phone_number = $1 OR phone_number = $2 OR phone_number = $3 LIMIT 1`,
-          [calledNumber, e164, digits]
-        );
-        if (localLookup.rows[0]) {
-          resolvedCompanyId = localLookup.rows[0].company_id;
-          console.log(`[Sarah] Local routing cache hit: ${calledNumber} -> company ${resolvedCompanyId}`);
-        }
-        if (!resolvedCompanyId) {
-          const twilioLookup = await pool.query(
-            `SELECT company_id FROM generic_entities WHERE entity_type = 'TwilioSettings' AND (
-              data->>'main_phone_number' = $1 OR data->>'main_phone_number' = $2 OR data->>'main_phone_number' = $3
-              OR EXISTS (SELECT 1 FROM jsonb_array_elements(data->'available_numbers') elem WHERE elem->>'phone_number' = $1 OR elem->>'phone_number' = $2 OR elem->>'phone_number' = $3)
-            ) LIMIT 1`,
-            [calledNumber, e164, digits]
-          );
-          if (twilioLookup.rows[0]) {
-            resolvedCompanyId = twilioLookup.rows[0].company_id;
-            console.log(`[Sarah] Local TwilioSettings hit: ${calledNumber} -> company ${resolvedCompanyId}`);
-          }
-        }
-      } catch (e) { console.warn(`[Sarah] Local DB lookup failed:`, e.message); }
-
-      if (!resolvedCompanyId && BASE44_API_URL) {
-        console.log(`[Sarah] Local DB miss, falling back to Base44 API for ${calledNumber}...`);
-        try {
-          const lookup = await callBase44API('lookupByPhone', null, { phone_number: calledNumber });
-          if (lookup?.success && lookup.company_id) {
-            resolvedCompanyId = lookup.company_id;
-            console.log(`[Sarah] Base44 lookup: ${calledNumber} -> company ${resolvedCompanyId}`);
-          }
-        } catch (e) { console.warn(`[Sarah] Base44 company lookup failed:`, e.message); }
-      }
-
-      // Also restore staff routing from DB on cache miss
-      if (resolvedCompanyId) {
-        try {
-          const staffLookup = await callBase44API('lookupStaffByTwilioNumber', resolvedCompanyId, { twilio_number: calledNumber });
-          if (staffLookup?.success && staffLookup.staff) {
-            const staff = staffLookup.staff;
-            isForwarded = true;
-            forwardedRepName = staff.full_name || '';
-            forwardedRepEmail = staff.email || '';
-            forwardedRepPhone = staff.cell_phone || staff.phone || '';
-            cellPhone = staff.cell_phone || staff.phone || '';
-            effectiveRoutingMode = staff.availability_status === 'unavailable' ? 'sarah_answers' : (staff.call_routing_mode || 'sarah_answers');
-
-            // After-hours check
-            const staffData = staff.data || {};
-            if (effectiveRoutingMode !== 'sarah_answers' && staffData.after_hours_enabled && staffData.after_hours_start && staffData.after_hours_end) {
-              const now = new Date();
-              const currentMins = now.getHours() * 60 + now.getMinutes();
-              const [sH, sM] = staffData.after_hours_start.split(':').map(Number);
-              const [eH, eM] = staffData.after_hours_end.split(':').map(Number);
-              const startMins = sH * 60 + (sM || 0);
-              const endMins = eH * 60 + (eM || 0);
-              if (currentMins < startMins || currentMins >= endMins) {
-                effectiveRoutingMode = 'sarah_answers';
-                console.log(`[Sarah] After-hours override for ${forwardedRepName}: routing to sarah_answers (outside ${staffData.after_hours_start}-${staffData.after_hours_end})`);
-              }
-            }
-
-            console.log(`[Sarah] DB staff routing: rep=${forwardedRepName}, mode=${effectiveRoutingMode}, cell=${cellPhone}`);
-
-            // Populate cache for next time
-            try {
-              const twilioSettings = await callBase44API('getTwilioSettings', resolvedCompanyId);
-              setCachedSubscriber(calledNumber, {
-                companyId: resolvedCompanyId,
-                companyName: '',
-                repName: forwardedRepName,
-                repEmail: forwardedRepEmail,
-                cellPhone: cellPhone,
-                routingMode: staff.call_routing_mode || 'sarah_answers',
-                twilioSid: twilioSettings?.account_sid || '',
-                twilioToken: twilioSettings?.auth_token || '',
-                twilioPhone: calledNumber,
-                availabilityStatus: staff.availability_status || 'available',
-                data: staffData,
-              });
-            } catch (e) { /* cache population is best effort */ }
-          }
-        } catch (e) { console.log(`[Sarah] DB staff lookup: not a staff number`); }
-      }
-    }
-    if (!resolvedCompanyId) resolvedCompanyId = DEFAULT_COMPANY_ID;
-
-    // Reconcile external/cached company ID with local DB — cache may contain Base44 IDs
+    let found = null;
     try {
-      const { rows: localCoRows } = await pool.query(
-        `SELECT id FROM companies WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false) LIMIT 1`,
-        [resolvedCompanyId]
-      );
-      if (localCoRows.length === 0 && calledNumber) {
-        // ID from cache not found locally — find the local company by phone number
-        const normalizedNum = calledNumber.replace(/[^\d+]/g, '');
-        const e164 = normalizedNum.startsWith('+') ? normalizedNum : `+1${normalizedNum}`;
-        const digits = normalizedNum.replace(/^\+/, '');
-        const { rows: twRows } = await pool.query(
-          `SELECT company_id FROM generic_entities WHERE entity_type = 'TwilioSettings' AND (
-            data->>'main_phone_number' = $1 OR data->>'main_phone_number' = $2 OR data->>'main_phone_number' = $3
-            OR EXISTS (SELECT 1 FROM jsonb_array_elements(data->'available_numbers') elem WHERE elem->>'phone_number' = $1 OR elem->>'phone_number' = $2 OR elem->>'phone_number' = $3)
-          ) LIMIT 1`,
-          [calledNumber, e164, digits]
-        );
-        if (twRows[0]) {
-          console.log(`[Sarah] Reconciled company ID: ${resolvedCompanyId} -> ${twRows[0].company_id} via TwilioSettings for ${calledNumber}`);
-          resolvedCompanyId = twRows[0].company_id;
-        } else {
-          console.warn(`[Sarah] No local company found for ${calledNumber}, using ID as-is: ${resolvedCompanyId}`);
+      found = await lookupInboundNumber(pool, calledNumber, explicitCompanyId || cached?.companyId || null);
+    } catch (e) {
+      console.warn('[Sarah] Inbound number lookup failed:', e.message);
+    }
+    if (!found?.companyId && !cached?.companyId && !explicitCompanyId && BASE44_API_URL) {
+      try {
+        const lookup = await callBase44API('lookupByPhone', null, { phone_number: calledNumber });
+        if (lookup?.success && lookup.company_id && lookup.company_id !== DEFAULT_COMPANY_ID) {
+          found = { companyId: lookup.company_id, routingMode: 'sarah_answers', availabilityStatus: 'available', hours: {}, timeZone: 'America/New_York', repName: '', repEmail: '', cellPhone: '' };
+          console.log(`[Sarah] Base44 lookup: ${calledNumber} -> company ${lookup.company_id}`);
+        } else if (lookup?.company_id === DEFAULT_COMPANY_ID) {
+          console.warn(`[Sarah] Ignoring hard-coded default company for unassigned number ${calledNumber}`);
         }
-      }
-    } catch (e) { console.warn('[Sarah] Company ID reconciliation failed:', e.message); }
+      } catch (e) { console.warn('[Sarah] Base44 company lookup failed:', e.message); }
+    }
 
-    if (cached) {
-      isForwarded = true;
-      console.log(`[Sarah] CACHE HIT: ${calledNumber} -> company=${resolvedCompanyId}, rep=${forwardedRepName}, routing=${effectiveRoutingMode}, cell=${cellPhone}`);
+    let resolvedCompanyId = found?.companyId || explicitCompanyId || cached?.companyId || null;
+    const companyTokens = await companyTwilioAuthTokens(resolvedCompanyId);
+    if (rejectInvalidTwilioSignature(req, res, twilioFormParams(body), [cached?.twilioToken, ...companyTokens])) return;
+    if (!resolvedCompanyId) {
+      console.warn(`[Sarah] Unassigned number ${calledNumber}; not using the default company`);
+      res.writeHead(200, { 'Content-Type': 'text/xml' });
+      res.end(repRouting.unassignedNumberTwiml());
+      return;
+    }
+
+    let forwardedRepName = found?.repName || url.searchParams.get('repName') || cached?.repName || '';
+    let forwardedRepEmail = found?.repEmail || url.searchParams.get('repEmail') || cached?.repEmail || '';
+    let cellPhone = found?.cellPhone || cached?.cellPhone || '';
+    let forwardedRepPhone = cellPhone;
+    let isForwarded = !!(forwardedRepName || url.searchParams.get('forwarded') === 'true' || cached);
+    const configuredMode = found?.routingMode || cached?.routingMode || 'sarah_answers';
+    const dutyInput = {
+      companyId: resolvedCompanyId,
+      routingMode: configuredMode,
+      availabilityStatus: found?.availabilityStatus || cached?.availabilityStatus || 'available',
+      hours: found?.hours || cached?.hours || repRouting.hoursFromStaffData(cached?.data),
+      timeZone: found?.timeZone || cached?.timeZone || 'America/New_York',
+      cellPhone,
+      callerPhone: from,
+      now: new Date(),
+    };
+    const inboundPlan = repRouting.planInboundCall(dutyInput);
+    let effectiveRoutingMode = inboundPlan.mode;
+    let handoffReason = inboundPlan.handoffReason || '';
+    if (cached && !found) {
+      console.log(`[Sarah] CACHE HIT without a fresh staff row: ${calledNumber} -> company=${resolvedCompanyId}, rep=${forwardedRepName}, routing=${effectiveRoutingMode}`);
+    } else {
+      console.log(`[Sarah] Route ${calledNumber} -> company=${resolvedCompanyId}, rep=${forwardedRepName || 'none'}, configured=${configuredMode}, effective=${effectiveRoutingMode}, tz=${dutyInput.timeZone}, onDuty=${repRouting.isOnDuty(dutyInput)}`);
+    }
+    if (found) {
+      setCachedSubscriber(calledNumber, {
+        ...(cached || {}),
+        companyId: resolvedCompanyId,
+        repName: forwardedRepName,
+        repEmail: forwardedRepEmail,
+        cellPhone,
+        routingMode: configuredMode,
+        availabilityStatus: dutyInput.availabilityStatus,
+        hours: dutyInput.hours,
+        timeZone: dutyInput.timeZone,
+        twilioPhone: calledNumber,
+        twilioToken: companyTokens[0] || cached?.twilioToken || '',
+      });
     }
 
     let maxCallDuration = 1800;
@@ -3970,24 +4236,27 @@ const server = http.createServer(async (req, res) => {
       } catch (e) { console.warn(`[Sarah] Access check failed, allowing:`, e.message); }
     }
 
-    if (effectiveRoutingMode === 'forward_to_cell' && cellPhone) {
-      const normalizePhone = p => (p || '').replace(/\D/g, '').slice(-10);
-      const isSelfCall = normalizePhone(from) === normalizePhone(cellPhone);
-      if (isSelfCall) {
-        console.log(`[Sarah] SELF-CALL DETECTED: ${from} is the rep's own cell — routing to Sarah instead of forwarding`);
-        // Fall through to Sarah WebSocket below
-      } else {
-        const forwardTwiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Dial callerId="${calledNumber}" timeout="20" record="record-from-answer" recordingStatusCallback="https://${host}/api/twilio/recording-callback" recordingStatusCallbackMethod="POST" action="https://${host}/api/twilio/forward-fallback?companyId=${resolvedCompanyId}&callerPhone=${encodeURIComponent(from)}&repName=${encodeURIComponent(forwardedRepName)}&repEmail=${encodeURIComponent(forwardedRepEmail)}&maxDuration=${maxCallDuration}">
-        <Number>${cellPhone}</Number>
-    </Dial>
-</Response>`;
-        res.writeHead(200, { 'Content-Type': 'text/xml' });
-        res.end(forwardTwiml);
-        console.log(`[Sarah] FORWARD TO CELL: caller=${from}, forwarding to ${cellPhone} for rep ${forwardedRepName}`);
-        return;
-      }
+    if (inboundPlan.action === 'dial') {
+      const forwardTwiml = repRouting.buildForwardDialTwiml({
+        host,
+        calledNumber,
+        cellPhone,
+        companyId: resolvedCompanyId,
+        callerPhone: from,
+        repName: forwardedRepName,
+        repEmail: forwardedRepEmail,
+        maxDuration: maxCallDuration,
+        callSid,
+        recordCallback: `https://${host}/api/twilio/recording-callback`,
+      });
+      res.writeHead(200, { 'Content-Type': 'text/xml' });
+      res.end(forwardTwiml);
+      console.log(`[Sarah] FORWARD TO CELL: caller=${from}, forwarding to ${cellPhone} for rep ${forwardedRepName} with screening`);
+      return;
+    }
+    if (inboundPlan.selfCall) {
+      console.log(`[Sarah] SELF-CALL DETECTED: ${from} is the rep's own cell — routing to Sarah instead of forwarding`);
+      handoffReason = handoffReason || '';
     }
 
     console.log(`[Sarah] Inbound call from ${from}, SID: ${callSid}, company=${resolvedCompanyId}, forwarded=${isForwarded}${isForwarded ? ` rep=${forwardedRepName}` : ''}, routing=${effectiveRoutingMode}, maxDuration=${maxCallDuration}s`);
@@ -4008,93 +4277,13 @@ const server = http.createServer(async (req, res) => {
             <Parameter name="callRoutingMode" value="${effectiveRoutingMode}" />
             <Parameter name="staffCellPhone" value="${cellPhone}" />
             <Parameter name="calledNumber" value="${calledNumber}" />
+            <Parameter name="callerPhone" value="${from}" />
+            <Parameter name="handoffReason" value="${handoffReason}" />
         </Stream>
     </Connect>
 </Response>`;
     res.writeHead(200, { 'Content-Type': 'text/xml' });
     res.end(twiml);
-    return;
-  }
-
-  if (pathname === '/api/twilio/forward-fallback') {
-    setCorsHeaders(res);
-    const host = getPublicHost(req.headers);
-    const companyId = url.searchParams.get('companyId') || '';
-    const callerPhone = url.searchParams.get('callerPhone') || '';
-    const repName = url.searchParams.get('repName') || '';
-    const repEmail = url.searchParams.get('repEmail') || '';
-    const maxDuration = url.searchParams.get('maxDuration') || '1800';
-
-    const body = await readBody(req);
-    const params = new URLSearchParams(body);
-    const dialStatus = params.get('DialCallStatus') || '';
-    const dialDuration = parseInt(params.get('DialCallDuration') || '0', 10);
-
-    console.log(`[Sarah] Forward fallback: dialStatus=${dialStatus}, dialDuration=${dialDuration}s, company=${companyId}, rep=${repName}`);
-
-    // Only treat as truly completed (real conversation) if rep talked for >15 seconds.
-    // Short "completed" calls (<= 15s) are voicemail auto-answers — fall through to Sarah.
-    if (dialStatus === 'completed' && dialDuration > 15) {
-      res.writeHead(200, { 'Content-Type': 'text/xml' });
-      res.end(`<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`);
-      return;
-    }
-
-    // Rep did not answer — notify them and admins (non-blocking)
-    if (companyId && (dialStatus === 'no-answer' || dialStatus === 'busy' || dialStatus === 'failed' || dialStatus === 'completed')) {
-      (async () => {
-        try {
-          const pool = prodDb.getPool();
-          const { rows: fbAdminRows2 } = await pool.query(
-            `SELECT user_email FROM staff_profiles WHERE company_id = $1 AND is_administrator = true LIMIT 5`,
-            [companyId]
-          );
-          const fbNotifyEmails2 = new Set();
-          if (repEmail) fbNotifyEmails2.add(repEmail);
-          fbAdminRows2.forEach(r => fbNotifyEmails2.add(r.user_email));
-          const statusNote2 = dialStatus === 'no-answer' ? 'did not answer' : dialStatus === 'busy' ? 'was busy' : dialStatus === 'completed' ? 'went to voicemail' : 'call failed';
-          for (const email of fbNotifyEmails2) {
-            const nId = `notif_fwd_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-            await pool.query(
-              `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date) VALUES ($1, 'Notification', $2, $3, NOW(), NOW()) ON CONFLICT DO NOTHING`,
-              [nId, companyId, JSON.stringify({
-                id: nId,
-                type: 'missed_forwarded_call',
-                title: `📞 Forwarded call missed — ${callerPhone}`,
-                message: `${repName || 'Rep'} ${statusNote2}. Sarah took over the call with ${callerPhone}.`,
-                user_email: email,
-                is_read: false,
-                caller_phone: callerPhone,
-                rep_name: repName,
-                dial_status: dialStatus,
-                created_at: new Date().toISOString(),
-              })]
-            );
-          }
-        } catch (e) { console.warn('[Sarah] Forward fallback notification error:', e.message); }
-      })();
-    }
-
-    const wsUrl = `wss://${host}/ws/twilio`;
-    const fallbackTwiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="alice">${repName ? repName + ' is not available at the moment.' : 'The person you are trying to reach is not available right now.'} Let me connect you with our AI assistant who can help.</Say>
-    <Connect record="record-from-answer" recordingStatusCallback="https://${host}/api/twilio/recording-callback" recordingStatusCallbackMethod="POST">
-        <Stream url="${wsUrl}">
-            <Parameter name="companyId" value="${companyId}" />
-            <Parameter name="callerPhone" value="${callerPhone}" />
-            <Parameter name="maxCallDuration" value="${maxDuration}" />
-            <Parameter name="isForwardedCall" value="true" />
-            <Parameter name="forwardedRepName" value="${repName}" />
-            <Parameter name="forwardedRepEmail" value="${repEmail}" />
-            <Parameter name="forwardedRepPhone" value="" />
-            <Parameter name="callRoutingMode" value="sarah_answers" />
-            <Parameter name="staffCellPhone" value="" />
-        </Stream>
-    </Connect>
-</Response>`;
-    res.writeHead(200, { 'Content-Type': 'text/xml' });
-    res.end(fallbackTwiml);
     return;
   }
 
@@ -4159,42 +4348,6 @@ const server = http.createServer(async (req, res) => {
 
     res.writeHead(200, { 'Content-Type': 'text/xml' });
     res.end('<Response/>');
-    return;
-  }
-
-  if (pathname === '/api/twilio/transfer') {
-    setCorsHeaders(res);
-    const cellPhone = url.searchParams.get('cellPhone') || '';
-    const callerIdNumber = url.searchParams.get('callerId') || '';
-    const repName = url.searchParams.get('repName') || '';
-    const callerPhone = url.searchParams.get('callerPhone') || '';
-
-    if (!cellPhone) {
-      res.writeHead(200, { 'Content-Type': 'text/xml' });
-      res.end(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">I'm sorry, I don't have a phone number to transfer to.</Say></Response>`);
-      return;
-    }
-
-    const normalizePhoneT = p => (p || '').replace(/\D/g, '').slice(-10);
-    const isSelfCallT = callerPhone && normalizePhoneT(callerPhone) === normalizePhoneT(cellPhone);
-    if (isSelfCallT) {
-      console.log(`[Sarah] TRANSFER SELF-CALL: ${callerPhone} is the rep's own cell — skipping transfer dial`);
-      res.writeHead(200, { 'Content-Type': 'text/xml' });
-      res.end(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">I detected you are calling from the rep's own phone. Transfer skipped. How else can I help you?</Say></Response>`);
-      return;
-    }
-
-    const transferTwiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="alice">Let me transfer you to ${repName || 'your representative'} now. One moment please.</Say>
-    <Dial callerId="${callerIdNumber || ''}" timeout="30">
-        <Number>${cellPhone}</Number>
-    </Dial>
-    <Say voice="alice">I'm sorry, ${repName || 'the representative'} is not available right now. Please try again later.</Say>
-</Response>`;
-    res.writeHead(200, { 'Content-Type': 'text/xml' });
-    res.end(transferTwiml);
-    console.log(`[Sarah] TRANSFER: connecting ${callerPhone} to ${cellPhone} for rep ${repName}`);
     return;
   }
 
@@ -5104,45 +5257,21 @@ const server = http.createServer(async (req, res) => {
       const pool = prodDb.getPool();
       let resolvedCompanyId = null;
       try {
-        const localLookup = await pool.query(
-          `SELECT company_id FROM call_routing_cache WHERE phone_number = $1 LIMIT 1`, [e164To]
-        );
-        if (localLookup.rows[0]) {
-          resolvedCompanyId = localLookup.rows[0].company_id;
-          console.log(`[Sarah] SMS local routing hit: ${e164To} -> ${resolvedCompanyId}`);
-        }
-        if (!resolvedCompanyId) {
-          const twilioLookup = await pool.query(
-            `SELECT g.company_id FROM generic_entities g
-             JOIN companies c ON c.id = g.company_id OR c.base44_id = g.company_id
-             WHERE g.entity_type = 'TwilioSettings'
-               AND (g.data->>'main_phone_number' = $1 OR g.data->>'main_phone_number' = $2
-                 OR EXISTS (SELECT 1 FROM jsonb_array_elements(g.data->'available_numbers') elem WHERE elem->>'phone_number' = $1 OR elem->>'phone_number' = $2))
-             LIMIT 1`,
-            [e164To, e164To.replace(/^\+1/, '')]
-          );
-          if (twilioLookup.rows[0]) {
-            resolvedCompanyId = twilioLookup.rows[0].company_id;
-            console.log(`[Sarah] SMS TwilioSettings hit: ${e164To} -> ${resolvedCompanyId}`);
-          }
-        }
-        if (!resolvedCompanyId) {
-          const staffLookup = await pool.query(
-            `SELECT company_id FROM staff_profiles WHERE twilio_number = $1 OR twilio_number = $2 LIMIT 1`,
-            [e164To, e164To.replace(/^\+1/, '')]
-          );
-          if (staffLookup.rows[0]) {
-            resolvedCompanyId = staffLookup.rows[0].company_id;
-            console.log(`[Sarah] SMS staff_profiles hit: ${e164To} -> ${resolvedCompanyId}`);
-          }
+        const found = await lookupInboundNumber(pool, e164To, null);
+        if (found?.companyId) {
+          resolvedCompanyId = found.companyId;
+          console.log(`[Sarah] SMS number lookup: ${e164To} -> ${resolvedCompanyId}`);
         }
       } catch (e) {}
       if (!resolvedCompanyId && BASE44_API_URL) {
         try {
           const lookup = await callBase44API('lookupByPhone', null, { phone_number: e164To });
-          if (lookup?.success && lookup.company_id) resolvedCompanyId = lookup.company_id;
+          if (lookup?.success && lookup.company_id && lookup.company_id !== DEFAULT_COMPANY_ID) resolvedCompanyId = lookup.company_id;
+          else if (lookup?.company_id === DEFAULT_COMPANY_ID) console.warn(`[Sarah] Ignoring hard-coded default company for unassigned SMS number ${e164To}`);
         } catch (e) {}
       }
+      const smsTokens = await companyTwilioAuthTokens(resolvedCompanyId);
+      if (rejectInvalidTwilioSignature(req, res, twilioFormParams(body), smsTokens)) return;
       if (!resolvedCompanyId) { res.writeHead(200, { 'Content-Type': 'text/xml' }); res.end('<?xml version="1.0" encoding="UTF-8"?><Response></Response>'); return; }
       try {
         const msgSettings = await callBase44API('getMessagingSettings', resolvedCompanyId);
@@ -5173,7 +5302,23 @@ const server = http.createServer(async (req, res) => {
     setCorsHeaders(res);
     await voiceFlow.handleMissedCallRequest(req, res, {
       queryString: url.searchParams.toString(),
-      processCall: processSarahStatusCallback,
+      processCall: async (parsed) => {
+        const called = parsed.calledNumber || '';
+        let signatureCompanyId = '';
+        try {
+          const found = await lookupInboundNumber(prodDb.getPool(), called, null);
+          signatureCompanyId = found?.companyId || '';
+        } catch (e) {
+          console.warn('[Sarah] Missed-call company lookup failed:', e.message);
+        }
+        const cached = getCachedSubscriber(called);
+        const tokens = await companyTwilioAuthTokens(signatureCompanyId || cached?.companyId || '');
+        if (!twilioSignatureOk(req, parsed.params || {}, [cached?.twilioToken, ...tokens])) {
+          console.warn('[Sarah] Missed-call callback signature rejected; notification skipped');
+          return;
+        }
+        await processSarahStatusCallback(parsed);
+      },
     });
     return;
   }
@@ -5784,6 +5929,7 @@ twilioWss.on('connection', async (twilioWs, req) => {
   let callRoutingMode = 'sarah_answers';
   let staffCellPhone = '';
   let calledTwilioNumber = '';
+  let handoffReason = '';
   let schedulingDefaults = null;
   let isSarahSpeaking = false;
   let echoGateCooldownTimer = null;
@@ -6190,7 +6336,14 @@ twilioWss.on('connection', async (twilioWs, req) => {
           }
 
           let greetingText;
-          if (isForwardedCall && callRoutingMode === 'sarah_then_transfer') {
+          if (handoffReason) {
+            greetingText = repRouting.handoffGreeting({
+              assistantName,
+              companyName,
+              repName: forwardedRepName,
+              reason: handoffReason,
+            }) + returningLeadContext;
+          } else if (isForwardedCall && callRoutingMode === 'sarah_then_transfer') {
             greetingText = `A customer just called ${forwardedRepName}'s line. Greet them warmly as ${assistantName} with ${companyName}, answering for ${forwardedRepName}. First check if it's a legitimate call — if they're selling something or it's spam, politely decline and end the call. For real callers: get their name first, then their phone number, then what they need. Save with save_lead_details (assign to ${forwardedRepName}). ONLY after you have name + phone + a real roofing/construction reason, try transfer_call once. If it works, say you're connecting them. If it fails, do NOT retry — just tell them ${forwardedRepName} is tied up and offer to schedule an inspection or take a message. Remember your name is ${assistantName}.${returningLeadContext}`;
           } else if (isForwardedCall) {
             greetingText = `A customer just called ${forwardedRepName}'s line and it was forwarded to you. Greet them warmly as ${assistantName} with ${companyName}, answering for ${forwardedRepName}. Remember your name is ${assistantName}. Any leads from this call should be assigned to ${forwardedRepName}.${returningLeadContext}`;
@@ -6271,7 +6424,15 @@ twilioWss.on('connection', async (twilioWs, req) => {
             const callable = { id: fc.id, name: fc.name, args: toolArgs };
             let result;
             try {
-              const toolContext = { staffCellPhone, forwardedRepName, callerPhone: callerPhone || voiceState.callerId };
+              if (fc.name === 'save_lead_details' && toolArgs.name) collectedCallerName = toolArgs.name;
+              const toolContext = {
+                staffCellPhone,
+                forwardedRepName,
+                forwardedRepEmail,
+                callerPhone: callerPhone || voiceState.callerId,
+                callerName: collectedCallerName || '',
+                calledNumber: calledTwilioNumber,
+              };
               const toolPromise = handleToolCall(callable, callCompanyId, toolContext);
               const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Tool call timed out after 8s')), 8000));
               result = await Promise.race([toolPromise, timeoutPromise]);
@@ -6280,7 +6441,6 @@ twilioWss.on('connection', async (twilioWs, req) => {
               result = { error: err.message, status: 'failed' };
             }
             toolCallsMade.push(fc.name);
-            if (fc.name === 'save_lead_details' && toolArgs.name) collectedCallerName = toolArgs.name;
             voiceFlow.noteToolResult(voiceState, fc.name, toolArgs, result);
             if (fc.name === 'end_call') armCallHangup('end_call');
             if (fc.name === 'transfer_call') {
@@ -6390,7 +6550,16 @@ twilioWss.on('connection', async (twilioWs, req) => {
                       console.error('[TRANSFER-FATAL] Cannot resolve public host for transfer TwiML URL');
                       await writeTransferLog({ ..._xferBase, step: 'no_public_host_error' });
                     }
-                    const transferUrl = `https://${transferHost}/twiml/transfer?cellPhone=${encodeURIComponent(transferCellPhone)}&callerId=${encodeURIComponent(callerIdNum || calledTwilioNumber || '')}&repName=${encodeURIComponent(transferRepName || forwardedRepName)}&callerPhone=${encodeURIComponent(callerPhone || '')}`;
+                    const transferUrl = `https://${transferHost}/twiml/transfer?${new URLSearchParams({
+                      cellPhone: transferCellPhone,
+                      callerId: callerIdNum || calledTwilioNumber || '',
+                      repName: transferRepName || forwardedRepName || '',
+                      repEmail: forwardedRepEmail || '',
+                      callerPhone: callerPhone || '',
+                      companyId: callCompanyId || '',
+                      calledNumber: calledTwilioNumber || callerIdNum || '',
+                      callSid: callSid || '',
+                    }).toString()}`;
                     await writeTransferLog({ ..._xferBase, step: 'calling_twilio_api', transferUrl, transferHost, acctSidPrefix: tSid.slice(0, 8) });
                     console.log(`[TRANSFER-DEBUG] Calling Twilio API: SID=${tSid}, callSid=${callSid}, transferHost=${transferHost}, transferUrl=${transferUrl}`);
                     try {
@@ -6576,10 +6745,11 @@ twilioWss.on('connection', async (twilioWs, req) => {
         const customParams = msg.start?.customParameters || {};
         callerPhone = customParams.callerPhone || customParams.from || '';
         voiceState.callerId = callerPhone || '';
-        callCompanyId = customParams.companyId || DEFAULT_COMPANY_ID;
+        callCompanyId = customParams.companyId || '';
         callSid = msg.start?.callSid || customParams.callSid || '';
         console.log(`[Sarah] Stream start: callSid=${callSid}, company=${callCompanyId}, caller=${callerPhone}`);
         isOutboundCall = customParams.outbound === 'true';
+        if (!callCompanyId && !isOutboundCall) console.warn('[Sarah] Stream start has no companyId; not using the default company');
         outboundLeadName = customParams.leadName || '';
         outboundLeadService = customParams.leadService || '';
         if (customParams.campaign) {
@@ -6588,6 +6758,8 @@ twilioWss.on('connection', async (twilioWs, req) => {
         callRoutingMode = customParams.callRoutingMode || 'sarah_answers';
         staffCellPhone = customParams.staffCellPhone || '';
         calledTwilioNumber = customParams.calledNumber || '';
+        handoffReason = customParams.handoffReason || '';
+        if (!callSid) callSid = customParams.callSid || '';
         forwardedRepName = customParams.forwardedRepName || customParams.repName || '';
         forwardedRepEmail = customParams.forwardedRepEmail || customParams.repEmail || '';
         forwardedRepPhone = customParams.forwardedRepPhone || customParams.repPhone || '';

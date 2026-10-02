@@ -1142,7 +1142,7 @@ Welcome to the team!`;
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <h4 className="font-medium text-sm">Business Hours Scheduling</h4>
-                      <p className="text-xs text-gray-500">Outside these hours, Sarah will automatically handle all calls</p>
+                      <p className="text-xs text-gray-500">Turn this on and set the window. Outside these hours the AI answers instead of ringing the cell. Hours use the company time zone{myCompany?.timezone ? ` (${myCompany.timezone})` : ''} from Settings. Also set this rep's routing mode and personal cell.</p>
                     </div>
                     <Switch
                       data-testid="switch-business-hours"

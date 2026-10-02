@@ -2,6 +2,7 @@ const { createRequire } = require('module');
 const _require = createRequire(__filename);
 const Pool = _require('pg').Pool;
 const crypto = require('crypto');
+const repRouting = require('../lib/rep-call-routing.cjs');
 
 let pool = null;
 
@@ -773,26 +774,15 @@ async function getCallRouting(phoneNumber) {
   const row = result.rows[0];
   if (!row) return null;
 
-  // Auto after-hours logic
-  if (row.routing_mode !== 'sarah_answers') {
-    try {
-      const data = row.data || {};
-      if (data.after_hours_enabled && data.after_hours_start && data.after_hours_end) {
-        const now = new Date();
-        const currentHour = now.getHours();
-        const currentMinute = now.getMinutes();
-        const currentMins = currentHour * 60 + currentMinute;
-        const [startH, startM] = data.after_hours_start.split(':').map(Number);
-        const [endH, endM] = data.after_hours_end.split(':').map(Number);
-        const startMins = startH * 60 + (startM || 0);
-        const endMins = endH * 60 + (endM || 0);
-        // Outside business hours → route to Sarah
-        if (currentMins < startMins || currentMins >= endMins) {
-          console.log(`[Routing] After-hours override: ${currentHour}:${currentMinute} outside ${data.after_hours_start}-${data.after_hours_end}`);
-          return { ...row, routing_mode: 'sarah_answers' };
-        }
-      }
-    } catch (e) {}
+  const hours = repRouting.hoursFromStaffData(row.data || {});
+  const timeZone = (row.data && (row.data.timezone || row.data.time_zone)) || 'America/New_York';
+  if (!repRouting.isOnDuty({
+    availabilityStatus: row.availability_status,
+    hours,
+    timeZone,
+  })) {
+    console.log(`[Routing] Off-duty override for ${normalized} in ${timeZone}`);
+    return { ...row, routing_mode: 'sarah_answers' };
   }
 
   return row;
