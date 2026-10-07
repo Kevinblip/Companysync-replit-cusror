@@ -1,66 +1,29 @@
-import React from "react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Bot, Briefcase, MessageSquare, Phone, Mail, FileText, ArrowRight } from "lucide-react";
-import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { Bot, MessageSquare, Phone, Mail, ArrowRight } from "lucide-react";
 import useTranslation from "@/hooks/useTranslation";
 
 export default function AIStaff() {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const [user, setUser] = React.useState(null);
-  const [company, setCompany] = React.useState(null);
-
-  React.useEffect(() => {
-    base44.auth.me().then(setUser).catch(() => {});
-  }, []);
-
-  const { data: companies = [] } = useQuery({
-    queryKey: ["companies-ai-staff"],
-    queryFn: () => base44.entities.Company.list("-created_date"),
-    initialData: [],
-  });
-
-  React.useEffect(() => {
-    if (!user || companies.length === 0) return;
-    const owned = companies.find((c) => c.created_by === user.email);
-    setCompany(owned || companies[0]);
-  }, [user, companies]);
-
-  const { data: sarahSettings } = useQuery({
-    queryKey: ["sarah-settings-name", company?.id],
-    queryFn: async () => {
-      if (!company?.id) return null;
-      const rows = await base44.entities.AssistantSettings.filter({ company_id: company.id, assistant_name: { $exists: true } });
-      // Find the sales assistant (was "sarah" by default)
-      return rows.find(r => r.assistant_name) || null;
-    },
-    enabled: !!company?.id,
-  });
-
-  const salesAssistantName = React.useMemo(() => {
-    const name = sarahSettings?.assistant_name || "sarah";
-    return name.charAt(0).toUpperCase() + name.slice(1);
-  }, [sarahSettings]);
 
   const aiStaff = [
     {
-      name: `${salesAssistantName} - ${t.ai.sarah}`,
-      role: "Lead Qualifier & Follow-up",
+      name: "Alex",
+      role: "Receptionist",
       icon: Phone,
       status: t.common.active,
-      tasks: ["Qualify inbound leads", "Schedule appointments", "Send follow-up emails"],
+      tasks: ["Answer calls and texts", "Qualify inbound leads", "Schedule appointments"],
       color: "from-blue-500 to-blue-600",
       hasPage: true,
       pageUrl: createPageUrl("SarahWorkspace")
     },
     {
-      name: `${t.ai.lexi} - Internal Assistant`,
-      role: "Internal AI Assistant & Research",
+      name: "Lexi",
+      role: "Office Assistant",
       icon: MessageSquare,
       status: t.common.active,
       tasks: ["Answer team questions", "Research & analysis", "Task automation"],
@@ -69,8 +32,8 @@ export default function AIStaff() {
       pageUrl: createPageUrl("LexiWorkspace")
     },
     {
-      name: `${t.ai.marcus} - Marketing Copywriter`,
-      role: "Direct Response & Campaign Creation",
+      name: "Marcus",
+      role: "Marketing",
       icon: Mail,
       status: t.common.active,
       tasks: ["Generate marketing copy", "Create campaign templates", "Write persuasive CTAs"],

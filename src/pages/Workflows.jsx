@@ -46,9 +46,42 @@ import {
   Bot
 } from "lucide-react";
 import { format } from "date-fns";
+import { Link } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; // NEW
 import WorkflowActivityLog from "@/components/workflows/WorkflowActivityLog"; // NEW
 import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+import { createPageUrl } from "@/utils";
+
+const TRIGGER_LABELS = {
+  estimate_created: "Estimate created",
+  estimate_accepted: "Estimate accepted",
+  estimate_declined: "Estimate declined",
+  estimate_sent: "Estimate sent",
+  invoice_created: "Invoice created",
+  invoice_paid: "Invoice paid",
+  invoice_overdue: "Invoice overdue",
+  lead_created: "Lead created",
+  lead_status_changed: "Lead status changed",
+  customer_created: "Customer created",
+  customer_updated: "Customer updated",
+  appointment_created: "Appointment booked",
+  appointment_completed: "Appointment completed",
+  project_started: "Job started",
+  project_completed: "Job completed",
+  project_status_changed: "Job stage changed",
+  payment_received: "Payment received",
+  task_assigned: "Task assigned",
+  task_completed: "Task completed",
+  task_commented: "Task commented",
+  proposal_created: "Proposal created",
+  proposal_accepted: "Proposal accepted",
+  inspection_completed: "Inspection completed",
+  event_created: "Calendar event created",
+  event_rescheduled: "Calendar event rescheduled",
+  staff_created: "Staff member created",
+  staff_updated: "Staff profile updated",
+  ai_communication_logged: "AI communication logged",
+};
 
 export default function Workflows() {
   const [user, setUser] = React.useState(null);
@@ -95,6 +128,8 @@ export default function Workflows() {
   const [testResults, setTestResults] = useState({});
   const [searchQuery, setSearchQuery] = useState("");
   const [folderFilter, setFolderFilter] = useState("all");
+  const [workflowTab, setWorkflowTab] = useState("overview");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const folders = React.useMemo(() => {
     const set = new Set((workflows || []).map(w => (w.folder || '').trim()).filter(Boolean));
@@ -110,6 +145,29 @@ export default function Workflows() {
       return inFolder && matches;
     });
   }, [workflows, searchQuery, folderFilter]);
+
+  const displayedWorkflows = React.useMemo(() => {
+    return filteredWorkflows.filter((w) => {
+      if (workflowTab === "templates") return !!w.is_default;
+      if (workflowTab === "mine") {
+        if (w.is_default) return false;
+        if (statusFilter === "active") return !!w.is_active;
+        if (statusFilter === "paused") return !w.is_active;
+        return true;
+      }
+      return true;
+    });
+  }, [filteredWorkflows, workflowTab, statusFilter]);
+
+  const triggersInUse = React.useMemo(() => {
+    const groups = new Map();
+    for (const workflow of workflows || []) {
+      const key = workflow.trigger_type || "unknown";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(workflow);
+    }
+    return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [workflows]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Workflow.create(data),
@@ -288,8 +346,8 @@ export default function Workflows() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Workflow Automation</h1>
-          <p className="text-gray-500 mt-1">Automate your sales process and follow-ups</p>
+          <h1 className="text-3xl font-bold text-gray-900">Automations</h1>
+          <p className="text-gray-500 mt-1">When something happens, CompanySync takes the next step.</p>
         </div>
 
         <div className="flex gap-2">
@@ -340,7 +398,17 @@ export default function Workflows() {
         </div>
       </div>
 
-      {/* Stats - moved outside header */}
+      <Tabs value={workflowTab} onValueChange={setWorkflowTab} className="w-full">
+        <TabsList className="flex flex-wrap h-auto w-full justify-start gap-1 mb-4">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="mine">My Automations</TabsTrigger>
+          <TabsTrigger value="templates">Template Library</TabsTrigger>
+          <TabsTrigger value="triggers">Triggers</TabsTrigger>
+          <TabsTrigger value="history">Run History</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-6">
@@ -712,7 +780,6 @@ export default function Workflows() {
         </Dialog>
       )}
 
-      {/* Running Workflows */}
       {runningNow > 0 && (
         <Card className="mb-6">
           <CardHeader>
@@ -742,20 +809,33 @@ export default function Workflows() {
           </CardContent>
         </Card>
       )}
+        </TabsContent>
 
-      <Tabs defaultValue="workflows" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 mb-4">
-          <TabsTrigger value="workflows">Manage Workflows</TabsTrigger>
-          <TabsTrigger value="activity">Activity Log</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="workflows">
-          {/* Workflows List */}
+        {(workflowTab === "mine" || workflowTab === "templates") && (
           <Card>
         <CardHeader>
-          <CardTitle>Your Workflows</CardTitle>
+          <CardTitle>{workflowTab === "templates" ? "Template Library" : "My Automations"}</CardTitle>
         </CardHeader>
         <CardContent>
+          {workflowTab === "mine" && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {[
+                ["all", "All"],
+                ["active", "Active"],
+                ["paused", "Paused"],
+              ].map(([value, label]) => (
+                <Button
+                  key={value}
+                  type="button"
+                  size="sm"
+                  variant={statusFilter === value ? "default" : "outline"}
+                  onClick={() => setStatusFilter(value)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          )}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -780,11 +860,17 @@ export default function Workflows() {
               </Select>
             </div>
           </div>
-          {workflows.length === 0 ? (
+          {displayedWorkflows.length === 0 ? (
             <div className="text-center py-12">
               <Activity className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-              <p className="text-gray-500 font-medium mb-2">No workflows yet</p>
-              <p className="text-sm text-gray-400 mb-4">Create your first workflow to automate your business</p>
+              <p className="text-gray-500 font-medium mb-2">
+                {workflowTab === "templates" ? "No templates in this view" : "No automations in this view"}
+              </p>
+              <p className="text-sm text-gray-400 mb-4">
+                {workflowTab === "templates"
+                  ? "Templates are automations marked as defaults. Use Setup Defaults above to add the built-in set."
+                  : "Create an automation, or switch to Template Library for the ready-made ones."}
+              </p>
               <Button onClick={() => setShowDialog(true)} className="bg-blue-600 hover:bg-blue-700">
                 <Plus className="w-4 h-4 mr-2" />
                 Create First Workflow
@@ -792,7 +878,7 @@ export default function Workflows() {
             </div>
           ) : (
             <div className="space-y-4">
-              {filteredWorkflows.map((workflow) => (
+              {displayedWorkflows.map((workflow) => (
                 <Card key={workflow.id} className="border-2">
                   <CardContent className="p-6">
                     <div className="flex items-start justify-between">
@@ -1220,10 +1306,52 @@ export default function Workflows() {
           )}
         </CardContent>
       </Card>
+        )}
+
+        <TabsContent value="triggers">
+          <Card>
+            <CardHeader>
+              <CardTitle>Triggers</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-gray-600">
+                Events that already start an automation in this company. The same events are available when you create an automation.
+              </p>
+              {triggersInUse.length === 0 ? (
+                <p className="text-sm text-gray-500">No automations yet, so nothing is using a trigger.</p>
+              ) : (
+                triggersInUse.map(([trigger, using]) => (
+                  <div key={trigger} className="border rounded-lg p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-medium text-gray-900">{TRIGGER_LABELS[trigger] || trigger.replace(/_/g, " ")}</p>
+                      <Badge variant="outline">{using.length} automation{using.length === 1 ? "" : "s"}</Badge>
+                    </div>
+                    <p className="text-sm text-gray-600 mt-2">{using.map((w) => w.workflow_name).filter(Boolean).join(", ")}</p>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
-        <TabsContent value="activity">
+        <TabsContent value="history">
           <WorkflowActivityLog />
+        </TabsContent>
+
+        <TabsContent value="settings">
+          <Card>
+            <CardHeader>
+              <CardTitle>Background jobs</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-gray-600">
+                Reminder checks and the workflow queue run as scheduled jobs. That setup lives in Settings.
+              </p>
+              <Button asChild variant="outline">
+                <Link to={`${createPageUrl("Settings")}?tab=automations`}>Open background jobs</Link>
+              </Button>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
