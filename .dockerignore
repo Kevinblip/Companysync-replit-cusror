@@ -1,0 +1,31 @@
+# Railpack reads this file and drops the matches from the build context
+# before install, build, and image export. Nixpacks honors it too.
+# https://railpack.com/config/excluding-files
+#
+# The Node build plan copies the app directory (".") into the final image,
+# and `npm run build` runs Vite, which copies public/ into dist/ and again
+# into dist/public/. Anything left in the context is packed more than once.
+
+# Scratch photos, screenshots, PDFs, and a database backup. The Vite build
+# does not read this directory. The running server does not either: the
+# attached_assets URL in prod-server.cjs is an absolute getcompanysync.com
+# link. scripts/import-backup-json.cjs defaults to a file here, and that
+# script is not part of the Railway start or build command.
+attached_assets
+
+# Committed user uploads. db/prod-integrations.cjs serves /uploads from
+# Postgres file_uploads first, and only then checks this directory on disk.
+# Excluding it keeps the snapshot (and Vite's copies of it) out of the image.
+# Tradeoff: a file that exists only in public/uploads, and not in
+# file_uploads, is not on disk in the Railway image and will 404 until it
+# is uploaded again. New uploads still go to Postgres and to the runtime
+# uploads/ directory, which this pattern does not match.
+public/uploads
+
+# Installed or generated during the build. Excluding dist and node_modules
+# from the context does not drop the layers the build itself produces.
+# .git is another copy of the blobs above and is not needed at runtime.
+node_modules
+dist
+.git
+.git-rewrite
