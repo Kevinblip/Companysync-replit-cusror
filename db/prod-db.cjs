@@ -901,6 +901,36 @@ function buildDedicatedFilterWhere(filters, startIdx = 1, tableColumns = null) {
   return { clauses, values, nextIdx: idx };
 }
 
+function applyLegacyFieldFallback(table, merged) {
+  if (!merged || typeof merged !== 'object') return merged;
+  const data = merged.data && typeof merged.data === 'object' ? merged.data : {};
+  if (table === 'staff_profiles') {
+    if (!(Number(merged.commission_rate) > 0)) {
+      const fromData = Number(data.commission_rate ?? data.commission_percentage);
+      if (fromData > 0) merged.commission_rate = fromData;
+    }
+    if (!merged.full_name && merged.name) merged.full_name = merged.name;
+    if (!merged.name && merged.full_name) merged.name = merged.full_name;
+  }
+  if (table === 'invoices') {
+    if (!(Number(merged.amount) > 0) && Number(merged.total_amount) > 0) merged.amount = Number(merged.total_amount);
+    else if (!(Number(merged.amount) > 0) && Number(data.amount) > 0) merged.amount = Number(data.amount);
+    const columnSplits = merged.commission_splits;
+    const dataSplits = data.commission_splits;
+    if ((!Array.isArray(columnSplits) || columnSplits.length === 0) && Array.isArray(dataSplits) && dataSplits.length > 0) {
+      merged.commission_splits = dataSplits;
+    }
+  }
+  if (table === 'payments') {
+    const columnAmount = Number(merged.amount);
+    const dataAmount = Number(data.amount);
+    if (!(columnAmount > 0 || columnAmount < 0) && Number.isFinite(dataAmount) && dataAmount !== 0) {
+      merged.amount = dataAmount;
+    }
+  }
+  return merged;
+}
+
 function parseSortParam(sortStr) {
   if (!sortStr) return { column: 'created_date', direction: 'DESC' };
   const desc = sortStr.startsWith('-');
@@ -933,8 +963,7 @@ async function universalFilter(p, entityType, filters, sort, limit) {
       if (row.data && typeof row.data === 'object') { for (const [k, v] of Object.entries(row.data)) { if (merged[k] === undefined || merged[k] === null || merged[k] === '') merged[k] = v; } }
       if (row.created_at) merged.created_date = row.created_at;
       if (row.updated_at) merged.updated_date = row.updated_at;
-      if (tableInfo.table === 'staff_profiles') { if (!merged.full_name && merged.name) merged.full_name = merged.name; if (!merged.name && merged.full_name) merged.name = merged.full_name; }
-      return merged;
+      return applyLegacyFieldFallback(tableInfo.table, merged);
     });
   }
   const whereParts = []; const values = []; let idx = 1;
@@ -961,8 +990,7 @@ async function universalGet(p, entityType, id) {
     if (row.data && typeof row.data === 'object') { for (const [k, v] of Object.entries(row.data)) { if (merged[k] === undefined || merged[k] === null || merged[k] === '') merged[k] = v; } }
     if (row.created_at) merged.created_date = row.created_at;
     if (row.updated_at) merged.updated_date = row.updated_at;
-    if (tableInfo.table === 'staff_profiles') { if (!merged.full_name && merged.name) merged.full_name = merged.name; if (!merged.name && merged.full_name) merged.name = merged.full_name; }
-    return merged;
+    return applyLegacyFieldFallback(tableInfo.table, merged);
   }
   const result = await p.query('SELECT * FROM generic_entities WHERE id = $1 AND entity_type = $2', [id, entityType]);
   if (result.rows.length === 0) return null;
@@ -1012,7 +1040,7 @@ async function universalCreate(p, entityType, data) {
     if (row.data && typeof row.data === 'object') { for (const [k, v] of Object.entries(row.data)) { if (merged[k] === undefined || merged[k] === null || merged[k] === '') merged[k] = v; } }
     if (row.created_at) merged.created_date = row.created_at;
     if (row.updated_at) merged.updated_date = row.updated_at;
-    return merged;
+    return applyLegacyFieldFallback(tableInfo.table, merged);
   }
   const entityData = { ...data }; delete entityData.id; delete entityData.company_id;
   await p.query(`INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date) VALUES ($1, $2, $3, $4, NOW(), NOW()) ON CONFLICT (id, entity_type) DO UPDATE SET data = $4, updated_date = NOW()`, [id, entityType, companyId, JSON.stringify(entityData)]);
@@ -1038,7 +1066,11 @@ async function universalUpdate(p, entityType, id, data) {
         idx++;
       } else if (key !== 'data') { extraData[key] = val; }
     }
-    if (Object.keys(extraData).length > 0 && tableColumns.has('data')) { updates.push(`data = COALESCE(data, '{}')::jsonb || $${idx}::jsonb`); values.push(JSON.stringify(extraData)); idx++; }
+    const dataPatch = { ...extraData };
+    if (tableInfo.table === 'invoices' && Object.prototype.hasOwnProperty.call(data, 'commission_splits')) dataPatch.commission_splits = data.commission_splits;
+    if (tableInfo.table === 'staff_profiles' && Object.prototype.hasOwnProperty.call(data, 'commission_rate')) dataPatch.commission_rate = data.commission_rate;
+    if (tableInfo.table === 'payments' && Object.prototype.hasOwnProperty.call(data, 'amount')) dataPatch.amount = data.amount;
+    if (Object.keys(dataPatch).length > 0 && tableColumns.has('data')) { updates.push(`data = COALESCE(data, '{}')::jsonb || $${idx}::jsonb`); values.push(JSON.stringify(dataPatch)); idx++; }
     if (tableColumns.has('updated_at')) { updates.push(`"updated_at" = $${idx}`); values.push(new Date()); idx++; }
     if (updates.length === 0) return universalGet(p, entityType, id);
     values.push(id);
@@ -1047,6 +1079,7 @@ async function universalUpdate(p, entityType, id, data) {
     if (updateResult.rows.length === 0) throw new Error('Record not found');
     const row = updateResult.rows[0]; const merged = { ...row };
     if (row.data && typeof row.data === 'object') { for (const [k, v] of Object.entries(row.data)) { if (merged[k] === undefined || merged[k] === null || merged[k] === '') merged[k] = v; } }
+    applyLegacyFieldFallback(tableInfo.table, merged);
     if (row.created_at) merged.created_date = row.created_at;
     if (row.updated_at) merged.updated_date = row.updated_at;
     return merged;
