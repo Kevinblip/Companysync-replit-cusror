@@ -556,8 +556,14 @@ export default function Dashboard() {
   const last7Days = React.useMemo(() => calcLast7DaysPayments(payments), [payments]);
 
   const getStaffCommissions = React.useCallback(
-    () => calcStaffCommissions(staffProfiles, isAdmin, hasPermission, user?.email),
-    [staffProfiles, isAdmin, hasPermission, user?.email]
+    () => calcStaffCommissions(staffProfiles, isAdmin, hasPermission, user?.email, {
+      companyId: myCompany?.id,
+      invoices,
+      payments: selectedYear === 'all' ? payments : yearFilteredPayments,
+      start: selectedYear === 'all' ? null : new Date(Number(selectedYear), 0, 1),
+      end: selectedYear === 'all' ? null : new Date(Number(selectedYear), 11, 31, 23, 59, 59, 999),
+    }),
+    [staffProfiles, isAdmin, hasPermission, user?.email, myCompany?.id, invoices, payments, yearFilteredPayments, selectedYear]
   );
 
   const topPerformers = React.useMemo(() =>

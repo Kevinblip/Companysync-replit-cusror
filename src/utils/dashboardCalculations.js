@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { calculateRepCommissions, parseCommissionDate, resolveCommissionRate } from "./commissionCalc.js";
 
 export function calcOutstandingAmount(invoices) {
   const unpaid = invoices.filter(i =>
@@ -59,7 +60,9 @@ export function filterByYear(items, dateField, selectedYear) {
   return items.filter(item => {
     const d = item[dateField] || item.created_date;
     if (!d) return false;
-    return new Date(d).getFullYear().toString() === selectedYear;
+    const parsed = parseCommissionDate(d);
+    if (!parsed) return false;
+    return parsed.getFullYear().toString() === selectedYear;
   });
 }
 
@@ -175,7 +178,7 @@ export function calcLast7DaysPayments(payments) {
   return last7Days;
 }
 
-export function calcStaffCommissions(staffProfiles, isAdmin, hasPermission, userEmail) {
+export function calcStaffCommissions(staffProfiles, isAdmin, hasPermission, userEmail, context = {}) {
   let profiles = staffProfiles;
   if (!isAdmin && !hasPermission('commission_report', 'view_global')) {
     profiles = staffProfiles.filter(s => s.user_email === userEmail);
@@ -190,20 +193,34 @@ export function calcStaffCommissions(staffProfiles, isAdmin, hasPermission, user
     'yourinsuranceclaimsnetwork@gmail.com'
   ];
 
-  profiles = profiles.filter(s => {
-    if (excludedEmails.includes(s.user_email)) return false;
-    const hasCommissionRate = (s.commission_percentage || 0) > 0;
-    const hasCommissionEarnings = (s.total_commissions_earned || 0) > 0;
-    return hasCommissionRate || hasCommissionEarnings;
-  });
+  profiles = profiles.filter(s => !excludedEmails.includes(s.user_email) && resolveCommissionRate(s) > 0);
 
-  return profiles.map(staff => ({
-    name: staff.full_name || staff.user_email,
-    email: staff.user_email,
-    total_earned: staff.total_commissions_earned || 0,
-    deductions: staff.total_deductions || 0,
-    net: (staff.total_commissions_earned || 0) - (staff.total_deductions || 0),
-  })).sort((a, b) => b.net - a.net);
+  if (!context.payments) {
+    return profiles.map(staff => ({
+      name: staff.full_name || staff.user_email,
+      email: staff.user_email,
+      total_earned: 0,
+      deductions: 0,
+      net: 0,
+    }));
+  }
+
+  return calculateRepCommissions({
+    companyId: context.companyId,
+    staffProfiles: profiles,
+    invoices: context.invoices || [],
+    payments: context.payments || [],
+    customers: context.customers || [],
+    deductions: context.deductions || [],
+    start: context.start || null,
+    end: context.end || null,
+  }).filter(row => row.grossCommission !== 0 || row.totalDeductions !== 0 || row.paymentCount > 0).map(row => ({
+    name: row.name,
+    email: row.email,
+    total_earned: row.grossCommission,
+    deductions: row.totalDeductions,
+    net: row.netCommission,
+  }));
 }
 
 export function calcTaskHealthScore(tasks, criticalTasks) {

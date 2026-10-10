@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
+import { invoiceMoney, localCalendarDate, resolveCommissionRate, resolveCommissionSplits, unpaidBalance } from "@/utils/commissionCalc";
 import {
   Download,
   Mail,
@@ -292,7 +293,7 @@ export default function InvoiceDetails() {
   useEffect(() => {
     if (!invoice || !staffProfiles.length) return;
 
-    let splits = invoice.commission_splits || [];
+    let splits = resolveCommissionSplits(invoice);
 
     // Auto-populate commission splits for Sedgwick claims (5% commission for assigned rep + crew lead)
     const isYICN = myCompany?.company_name?.includes('YICN') || myCompany?.id === 'loc_mmdvp1h5_e8i9eb';
@@ -534,14 +535,22 @@ export default function InvoiceDetails() {
 
   const markAsPaidMutation = useMutation({
     mutationFn: async () => {
-      const total = Number(invoice.amount || 0);
-      const alreadyPaid = Number(invoice.amount_paid || 0);
-      const amountDue = total - alreadyPaid;
+      const total = invoiceMoney(invoice);
+      const companyId = invoice.company_id || myCompany?.id;
+      const [byId, byNumber] = await Promise.all([
+        invoice.id && companyId ? base44.entities.Payment.filter({ company_id: companyId, invoice_id: invoice.id }) : [],
+        invoice.invoice_number && companyId ? base44.entities.Payment.filter({ company_id: companyId, invoice_number: invoice.invoice_number }) : [],
+      ]);
+      const linked = new Map();
+      for (const payment of [...(byId || []), ...(byNumber || [])]) {
+        if (payment?.id) linked.set(payment.id, payment);
+      }
+      const due = unpaidBalance(invoice, [...linked.values()]);
 
       if (total === 0) {
         throw new Error('Invoice has no amount to pay.');
       }
-      if (amountDue <= 0) {
+      if (due <= 0) {
         throw new Error('Invoice is already fully paid.');
       }
 
@@ -564,16 +573,16 @@ export default function InvoiceDetails() {
         customer_id: customer?.id,
         customer_name: invoice.customer_name,
         customer_email: invoice.customer_email || customer?.email,
-        amount: amountDue,
+        amount: due,
         payment_method: 'cash',
         payment_number: paymentNumber,
-        payment_date: new Date().toISOString().split('T')[0],
+        payment_date: localCalendarDate(),
         status: 'received'
       });
 
       await base44.entities.Invoice.update(invoice.id, {
         status: 'paid',
-        amount_paid: alreadyPaid + amountDue
+        amount_paid: total
       });
 
       await base44.functions.invoke('recalculateInvoicePayments', {
@@ -837,7 +846,7 @@ export default function InvoiceDetails() {
 
   const invoiceItems = invoice.items || invoice.line_items || [];
   const subtotal = invoiceItems.reduce((sum, item) => sum + Number(item.rcv || item.amount || 0), 0) || 0;
-  const total = Number(invoice.amount || 0);
+  const total = invoiceMoney(invoice);
   const amountPaid = Number(invoice.amount_paid || 0);
   const amountDue = total - amountPaid;
 
@@ -849,12 +858,14 @@ export default function InvoiceDetails() {
 
   const calculateRepCommissionForInvoice = (repEmail, invoice) => {
     const staffProfile = staffProfiles.find(s => s.user_email === repEmail);
-    const commissionRate = staffProfile?.commission_rate || 10;
-    const split = invoice.commission_splits?.find(cs => cs.user_email === repEmail);
-    const splitPercentage = split ? split.split_percentage / 100 : 1;
+    const commissionRate = resolveCommissionRate(staffProfile);
+    const splits = resolveCommissionSplits(invoice);
+    const split = splits.find(cs => cs.user_email === repEmail);
+    const splitPercentage = splits.length > 0 ? (split ? Number(split.split_percentage) / 100 : 0) : 1;
     
-    const totalPotentialCommission = Number(invoice.amount || 0) * (commissionRate / 100) * splitPercentage;
-    const paidRatio = Number(invoice.amount_paid || 0) / Number(invoice.amount || 1);
+    const invoiceTotal = invoiceMoney(invoice);
+    const totalPotentialCommission = invoiceTotal * (commissionRate / 100) * splitPercentage;
+    const paidRatio = invoiceTotal > 0 ? Number(invoice.amount_paid || 0) / invoiceTotal : 0;
     const earnedCommission = totalPotentialCommission * paidRatio;
     const remainingCommission = totalPotentialCommission - earnedCommission;
     
@@ -1744,9 +1755,9 @@ Payment methods accepted:
                           <Split className="w-4 h-4 text-purple-600" />
                           Commission Split
                         </h3>
-                        {invoice.commission_splits && invoice.commission_splits.length > 0 ? (
+                        {resolveCommissionSplits(invoice).length > 0 ? (
                           <div className="space-y-2 mb-3">
-                            {invoice.commission_splits.map((split, idx) => {
+                            {resolveCommissionSplits(invoice).map((split, idx) => {
                               const staffProfile = staffProfiles.find(s => s.user_email === split.user_email);
                               const repCommissionData = calculateRepCommissionForInvoice(split.user_email, invoice);
                               
@@ -1769,7 +1780,7 @@ Payment methods accepted:
                                       <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
                                         <div className="flex justify-between items-center mb-3">
                                           <span className="text-sm text-gray-600">Invoice Amount:</span>
-                                          <span className="font-bold">${Number(invoice.amount || 0).toFixed(2)}</span>
+                                          <span className="font-bold">${invoiceMoney(invoice).toFixed(2)}</span>
                                         </div>
                                         <div className="flex justify-between items-center mb-3">
                                           <span className="text-sm text-gray-600">Amount Paid:</span>
@@ -1777,7 +1788,7 @@ Payment methods accepted:
                                         </div>
                                         <div className="flex justify-between items-center mb-3 pb-3 border-b">
                                           <span className="text-sm text-gray-600">Commission Rate:</span>
-                                          <span className="font-bold">{staffProfile?.commission_rate || 10}%</span>
+                                          <span className="font-bold">{resolveCommissionRate(staffProfile)}%</span>
                                         </div>
                                         <div className="flex justify-between items-center mb-2">
                                           <span className="text-sm text-gray-600">Split Percentage:</span>
@@ -1826,7 +1837,7 @@ Payment methods accepted:
                           onClick={() => setShowCommissionSplitDialog(true)}
                         >
                           <UserPlus className="w-4 h-4 mr-2" />
-                          {invoice.commission_splits?.length > 0 ? 'Edit Split' : 'Set Commission Split'}
+                          {resolveCommissionSplits(invoice).length > 0 ? 'Edit Split' : 'Set Commission Split'}
                         </Button>
                         </div>
                         )}
@@ -2197,7 +2208,7 @@ Payment methods accepted:
               variant="outline"
               onClick={() => {
                 setShowCommissionSplitDialog(false);
-                setCommissionSplits(invoice?.commission_splits || []);
+                setCommissionSplits(resolveCommissionSplits(invoice));
               }}
             >
               Cancel

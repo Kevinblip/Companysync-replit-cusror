@@ -21,6 +21,7 @@ import {
   BarChart3 // Changed from Activity to BarChart3
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
+import { calculateRepCommissions } from "@/utils/commissionCalc";
 
 export default function SalesDashboard() {
   const [aiInsights, setAiInsights] = useState(null);
@@ -75,6 +76,14 @@ export default function SalesDashboard() {
     enabled: !!myCompany,
     initialData: [],
   });
+
+  const commissionRows = useMemo(() => calculateRepCommissions({
+    companyId: myCompany?.id,
+    staffProfiles,
+    invoices,
+    payments,
+    customers,
+  }).filter(row => row.grossCommission !== 0 || row.paymentCount > 0), [myCompany?.id, staffProfiles, invoices, payments, customers]);
 
   const { data: allCommunications = [] } = useQuery({
     queryKey: ['communications', myCompany?.id],
@@ -685,28 +694,24 @@ Be specific, actionable, and data-driven.`;
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {staffProfiles
-                .filter(staff => staff.commission_rate > 0 && (staff.total_commissions_earned > 0 || staff.current_period_sales > 0))
-                .sort((a, b) => (b.total_commissions_earned || 0) - (a.total_commissions_earned || 0))
-                .slice(0, 5)
-                .map((staff, index) => (
-                  <div key={staff.user_email} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              {commissionRows.slice(0, 5).map((staff, index) => (
+                  <div key={staff.email} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center text-white font-bold">
                         {index + 1}
                       </div>
                       <div>
-                        <p className="font-semibold">{staff.full_name}</p>
-                        <p className="text-xs text-gray-500">{staff.user_email}</p>
+                        <p className="font-semibold">{staff.name}</p>
+                        <p className="text-xs text-gray-500">{staff.email}</p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-bold text-green-600">${Number(staff.total_commissions_earned || 0).toFixed(2)}</p>
-                      <p className="text-xs text-gray-500">${Number(staff.current_period_sales || 0).toFixed(2)} - ${Number(staff.total_commissions_earned || 0).toFixed(2)}</p>
+                      <p className="font-bold text-green-600">${Number(staff.netCommission || 0).toFixed(2)}</p>
+                      <p className="text-xs text-gray-500">${Number(staff.totalSales || 0).toFixed(2)} collected</p>
                     </div>
                   </div>
                 ))}
-              {staffProfiles.filter(s => s.commission_rate > 0).length === 0 && (
+              {commissionRows.length === 0 && (
                 <p className="text-center text-gray-500 py-6">No commission earners yet</p>
               )}
             </div>
@@ -722,19 +727,15 @@ Be specific, actionable, and data-driven.`;
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {staffProfiles
-                .filter(staff => staff.commission_rate > 0)
-                .sort((a, b) => (b.total_commissions_earned || 0) - (a.total_commissions_earned || 0))
-                .slice(0, 3)
-                .map((staff, index) => (
-                  <div key={staff.user_email} className="bg-white/20 backdrop-blur-sm rounded-lg p-4 text-center">
+              {commissionRows.slice(0, 3).map((staff, index) => (
+                  <div key={staff.email} className="bg-white/20 backdrop-blur-sm rounded-lg p-4 text-center">
                     <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mx-auto mb-2">
                       <span className="text-2xl">
                         {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
                       </span>
                     </div>
-                    <p className="font-bold text-lg">{staff.full_name}</p>
-                    <p className="text-sm opacity-90 mt-1">${Number(staff.total_commissions_earned || 0).toFixed(2)} net</p>
+                    <p className="font-bold text-lg">{staff.name}</p>
+                    <p className="text-sm opacity-90 mt-1">${Number(staff.netCommission || 0).toFixed(2)} net</p>
                   </div>
                 ))}
             </div>

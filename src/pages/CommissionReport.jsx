@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DollarSign, TrendingDown, Users, Calendar, Download, CheckCircle, AlertCircle, Plus, Split, Wrench, Edit, Trash2 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, subMonths, startOfYear, endOfYear, subYears, startOfWeek, endOfWeek, startOfDay, endOfDay } from 'date-fns';
+import { calculateRepCommissions, existingPayout, payPeriodKey, resolveCommissionRate } from '@/utils/commissionCalc';
 import {
   Select,
   SelectContent,
@@ -127,16 +128,17 @@ export default function CommissionReport() {
     return staffProfiles.filter(s => s.user_email === effectiveUserEmail);
   }, [staffProfiles, isAdmin, effectiveUserEmail]);
 
-  const visibleInvoices = React.useMemo(() => {
-    if (isAdmin) return invoices;
-    return invoices.filter(inv => inv.sale_agent === effectiveUserEmail || inv.created_by === effectiveUserEmail);
-  }, [invoices, isAdmin, effectiveUserEmail]);
-
   const markAsPaidMutation = useMutation({
     mutationFn: async ({ repData, paymentInfo }) => {
-      const period = selectedPeriodType === 'this_month' ? format(new Date(), 'yyyy-MM') :
-                     selectedPeriodType === 'last_month' ? format(subMonths(new Date(), 1), 'yyyy-MM') :
-                     format(new Date(), 'yyyy-MM');
+      const period = payPeriodKey(selectedPeriodType);
+      const alreadyPaid = existingPayout(commissionPayments, {
+        companyId: myCompany.id,
+        email: repData.email,
+        periodKey: period,
+      });
+      if (alreadyPaid) {
+        throw new Error(`Commission for ${period} is already marked paid.`);
+      }
 
       const commissionPayment = await base44.entities.CommissionPayment.create({
         company_id: myCompany.id,
@@ -443,178 +445,20 @@ export default function CommissionReport() {
 
   const calculateCommissions = () => {
     const { start, end } = getDateRange();
-    
-    const periodPayments = payments.filter(p => {
-      if (!p.payment_date) return false;
-      const paymentDate = new Date(p.payment_date);
-      return paymentDate >= start && paymentDate <= end;
+    const rows = calculateRepCommissions({
+      companyId: myCompany?.id,
+      staffProfiles: visibleStaffProfiles,
+      invoices,
+      payments,
+      customers,
+      deductions,
+      commissionPayments,
+      start,
+      end,
+      periodKey: payPeriodKey(selectedPeriodType),
     });
-
     const commissionsByRep = {};
-
-    // 🔥 CRITICAL FIX: Only calculate commissions for staff with commission_rate > 0
-    // Uses visibleStaffProfiles so non-admins only see their own data
-    visibleStaffProfiles.filter(staff => staff.commission_rate > 0).forEach(staff => {
-      const repInvoices = visibleInvoices.filter(inv => {
-        // CRITICAL: Filter by company first
-        if (inv.company_id !== myCompany?.id) return false;
-        
-        // Check direct sale agent assignment
-        if (inv.sale_agent === staff.user_email) return true;
-        
-        // Check commission splits
-        if (inv.commission_splits?.some(cs => cs.user_email === staff.user_email)) return true;
-        
-        // Check customer assignment
-        const customer = customers.find(c => c.name === inv.customer_name);
-        if (customer) {
-          const assignedUsers = customer.assigned_to_users || (customer.assigned_to ? [customer.assigned_to] : []);
-          if (assignedUsers.includes(staff.user_email)) return true;
-        }
-        
-        // NEW: Check invoice customer_id directly
-        if (inv.customer_id) {
-          const customer = customers.find(c => c.id === inv.customer_id);
-          if (customer) {
-            const assignedUsers = customer.assigned_to_users || (customer.assigned_to ? [customer.assigned_to] : []);
-            if (assignedUsers.includes(staff.user_email)) return true;
-          }
-        }
-        
-        return false;
-      });
-      
-      const repPayments = periodPayments.filter(payment => {
-        // CRITICAL: Filter by company first
-        if (payment.company_id !== myCompany?.id) return false;
-        
-        // Try to match payment to rep's invoices first
-        const invoice = repInvoices.find(inv => 
-          inv.id === payment.invoice_id || 
-          inv.invoice_number === payment.invoice_number ||
-          inv.customer_name === payment.customer_name ||
-          (payment.customer_id && inv.customer_id === payment.customer_id)
-        );
-        if (invoice) return true;
-        
-        // FALLBACK: If no invoice match, check if payment customer is assigned to this rep
-        if (payment.customer_name || payment.customer_id) {
-          const customer = customers.find(c => 
-            c.name === payment.customer_name || 
-            c.id === payment.customer_id
-          );
-          
-          if (customer) {
-            const assignedUsers = customer.assigned_to_users || (customer.assigned_to ? [customer.assigned_to] : []);
-            return assignedUsers.includes(staff.user_email);
-          }
-        }
-        
-        return false;
-      });
-      
-      // Calculate commission WITH SPLIT SUPPORT
-      let grossCommission = 0;
-      const splitCommissions = [];
-
-      repPayments.forEach(payment => {
-        const invoice = repInvoices.find(inv => 
-          inv.id === payment.invoice_id || 
-          inv.invoice_number === payment.invoice_number ||
-          inv.customer_name === payment.customer_name ||
-          (payment.customer_id && inv.customer_id === payment.customer_id)
-        );
-        
-        const commissionRate = staff.commission_rate || 10;
-        let repCommission = payment.amount * (commissionRate / 100);
-
-        if (invoice) {
-          // Check if this invoice has commission splits
-          if (invoice.commission_splits && invoice.commission_splits.length > 0) {
-            const repSplit = invoice.commission_splits.find(cs => cs.user_email === staff.user_email);
-            if (repSplit) {
-              const splitPercentage = repSplit.split_percentage / 100;
-              repCommission = payment.amount * (commissionRate / 100) * splitPercentage;
-              
-              splitCommissions.push({
-                invoice: invoice.invoice_number,
-                customer: payment.customer_name,
-                payment: payment.amount,
-                splitPercentage: repSplit.split_percentage,
-                role: repSplit.role,
-                commission: repCommission
-              });
-            }
-          }
-        }
-
-        grossCommission += repCommission;
-      });
-
-      // Include manual commission entries ONLY when there are no payment-based commissions in this period
-      const manualCommissionsForPeriod = commissionPayments.filter(cp =>
-        cp.sales_rep_email === staff.user_email &&
-        cp.payment_date &&
-        new Date(cp.payment_date) >= start &&
-        new Date(cp.payment_date) <= end &&
-        cp.status === 'paid'
-      );
-      
-      const manualGrossCommission = manualCommissionsForPeriod.reduce((sum, mc) => sum + mc.gross_commission, 0);
-      const manualTotalDeductions = manualCommissionsForPeriod.reduce((sum, mc) => sum + mc.total_deductions, 0);
-      
-      const useManualOnly = grossCommission === 0 && manualCommissionsForPeriod.length > 0;
-      if (useManualOnly) {
-        grossCommission = manualGrossCommission;
-      }
-      
-      const totalSales = repPayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-
-      const repDeductions = deductions.filter(d => {
-        if (d.sales_rep_email !== staff.user_email) return false;
-        if (!d.deduction_date) return false;
-        const deductionDate = new Date(d.deduction_date);
-        return deductionDate >= start && deductionDate <= end;
-      });
-      
-      const ladderAssistDeductions = repDeductions.filter(d => d.deduction_type === 'ladder_assist');
-      const totalLadderAssist = ladderAssistDeductions.reduce((sum, d) => sum + Number(d.amount || 0), 0);
-      const totalDeductions = repDeductions.reduce((sum, d) => sum + Number(d.amount || 0), 0) + (useManualOnly ? manualTotalDeductions : 0);
-      const netCommission = grossCommission - totalDeductions;
-
-      const period = selectedPeriodType === 'this_month' ? format(new Date(), 'yyyy-MM') :
-                     selectedPeriodType === 'last_month' ? format(subMonths(new Date(), 1), 'yyyy-MM') :
-                     null;
-      
-      const commissionPayment = period ? commissionPayments.find(cp => 
-        cp.sales_rep_email === staff.user_email && 
-        cp.pay_period === period
-      ) : null;
-
-      commissionsByRep[staff.user_email] = {
-        name: staff.full_name,
-        email: staff.user_email,
-        totalSales,
-        commissionRate: staff.commission_rate || 10,
-        grossCommission,
-        splitCommissions,
-        deductions: repDeductions,
-        ladderAssistDeductions,
-        totalLadderAssist,
-        totalDeductions,
-        netCommission,
-        paymentCount: repPayments.length,
-        payments: repPayments,
-        invoices: repInvoices.filter(inv => repPayments.some(p => 
-          p.invoice_id === inv.id || 
-          p.invoice_number === inv.invoice_number ||
-          p.customer_name === inv.customer_name
-        )),
-        isPaid: commissionPayment?.status === 'paid' || (useManualOnly && manualCommissionsForPeriod.some(mc => mc.pay_period === period)),
-        paymentDetails: commissionPayment || (useManualOnly ? manualCommissionsForPeriod.find(mc => mc.pay_period === period) : null)
-      };
-    });
-
+    for (const row of rows) commissionsByRep[row.email] = row;
     return commissionsByRep;
   };
 
@@ -676,6 +520,14 @@ export default function CommissionReport() {
 
   const handlePaymentSubmit = async () => {
     if (!selectedRepForPayment) return;
+    if (existingPayout(commissionPayments, {
+      companyId: myCompany?.id,
+      email: selectedRepForPayment.email,
+      periodKey: payPeriodKey(selectedPeriodType),
+    })) {
+      toast.error('This period is already marked paid.');
+      return;
+    }
 
     // If direct deposit, process via OnlineCheckWriter
     if (paymentData.payment_method === 'direct_deposit') {
@@ -685,9 +537,7 @@ export default function CommissionReport() {
       }
 
       try {
-        const period = selectedPeriodType === 'this_month' ? format(new Date(), 'yyyy-MM') :
-                       selectedPeriodType === 'last_month' ? format(subMonths(new Date(), 1), 'yyyy-MM') :
-                       format(new Date(), 'yyyy-MM');
+        const period = payPeriodKey(selectedPeriodType);
 
         const result = await base44.functions.invoke('processDirectDeposit', {
           salesRepEmail: selectedRepForPayment.email,
@@ -841,9 +691,9 @@ export default function CommissionReport() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t.common.all}</SelectItem>
-                  {visibleStaffProfiles.filter(staff => staff.commission_rate > 0 && staff.user_email).map(staff => (
+                  {visibleStaffProfiles.filter(staff => resolveCommissionRate(staff) > 0 && staff.user_email).map(staff => (
                     <SelectItem key={staff.user_email} value={staff.user_email}>
-                      {staff.full_name} ({staff.commission_rate}%)
+                      {staff.full_name} ({resolveCommissionRate(staff)}%)
                     </SelectItem>
                   ))}
                 </SelectContent>

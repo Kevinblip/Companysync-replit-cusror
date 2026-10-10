@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
+import { invoiceMoney, localCalendarDate, unpaidBalance } from "@/utils/commissionCalc";
 import { useNavigate, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { Toaster, toast } from 'react-hot-toast';
@@ -401,6 +402,50 @@ export default function InvoicesPage() {
     }
   });
 
+  const linkedPaymentsForInvoice = async (invoice) => {
+    const companyId = invoice.company_id || myCompany?.id;
+    if (!companyId) return [];
+    const [byId, byNumber] = await Promise.all([
+      invoice.id ? base44.entities.Payment.filter({ company_id: companyId, invoice_id: invoice.id }) : [],
+      invoice.invoice_number ? base44.entities.Payment.filter({ company_id: companyId, invoice_number: invoice.invoice_number }) : [],
+    ]);
+    const merged = new Map();
+    for (const payment of [...(byId || []), ...(byNumber || [])]) {
+      if (payment?.id) merged.set(payment.id, payment);
+    }
+    return [...merged.values()];
+  };
+
+  const recordCollectionForPaidInvoice = async (invoice) => {
+    const linked = await linkedPaymentsForInvoice(invoice);
+    const due = unpaidBalance(invoice, linked);
+    const total = invoiceMoney(invoice);
+    if (due > 0) {
+      const year = new Date().getFullYear();
+      await base44.entities.Payment.create({
+        company_id: invoice.company_id || myCompany?.id,
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number || '',
+        customer_id: invoice.customer_id || null,
+        customer_name: invoice.customer_name || '',
+        customer_email: invoice.customer_email || '',
+        amount: due,
+        payment_method: 'other',
+        payment_number: `PAY-${year}-M${Date.now().toString(36)}`,
+        payment_date: localCalendarDate(),
+        status: 'received',
+        notes: 'Recorded when invoice was marked paid',
+      });
+    }
+    if (total > 0) {
+      await base44.entities.Invoice.update(invoice.id, {
+        status: 'paid',
+        amount_paid: total,
+      });
+    }
+    return due;
+  };
+
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }) => {
       const oldInvoice = invoices.find(i => i.id === id);
@@ -416,23 +461,9 @@ export default function InvoicesPage() {
         }
 
         try {
-          const salesRepEmails = updatedInvoice.commission_splits?.map(cs => cs.user_email) ||
-                                 (updatedInvoice.sale_agent ? [updatedInvoice.sale_agent] : []) ||
-                                 (updatedInvoice.created_by ? [updatedInvoice.created_by] : []);
-
-          if (salesRepEmails.length > 0 && updatedInvoice.amount) {
-            for (const salesRepEmail of salesRepEmails) {
-              await base44.functions.invoke('updateCommissions', {
-                paymentId: `invoice_payment_${id}_${salesRepEmail}`,
-                invoiceId: id,
-                amount: updatedInvoice.amount / salesRepEmails.length,
-                salesRepEmail: salesRepEmail
-              });
-              console.log('✅ Commission updated for rep:', salesRepEmail);
-            }
-          }
+          await recordCollectionForPaidInvoice({ ...oldInvoice, ...updatedInvoice });
         } catch (commError) {
-          console.error('⚠️ Commission update failed (non-critical):', commError);
+          console.error('⚠️ Recording the paid invoice failed:', commError);
         }
       }
 
@@ -488,58 +519,29 @@ export default function InvoicesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
       queryClient.invalidateQueries({ queryKey: ['staff-profiles'] });
     },
   });
 
   const batchPaymentMutation = useMutation({
     mutationFn: async () => {
-      const updates = [];
-      const commissionUpdates = [];
-
+      let recorded = 0;
       for (const id of selectedInvoices) {
         const invoice = invoices.find(i => i.id === id);
-        if (invoice) {
-          updates.push(base44.entities.Invoice.update(id, { status: 'paid' }));
-          
-          const salesRepEmails = invoice.commission_splits?.map(cs => cs.user_email) ||
-                                 (invoice.sale_agent ? [invoice.sale_agent] : []) ||
-                                 (invoice.created_by ? [invoice.created_by] : []);
-          if (salesRepEmails.length > 0 && invoice.amount) {
-            for (const salesRepEmail of salesRepEmails) {
-              commissionUpdates.push({
-                invoiceId: id,
-                amount: invoice.amount / salesRepEmails.length,
-                salesRepEmail: salesRepEmail
-              });
-            }
-          }
-        }
+        if (!invoice || invoice.status === 'paid' || invoice.status === 'cancelled') continue;
+        const due = await recordCollectionForPaidInvoice(invoice);
+        if (due > 0) recorded += 1;
       }
-
-      await Promise.all(updates);
-
-      for (const comm of commissionUpdates) {
-        try {
-          await base44.functions.invoke('updateCommissions', {
-            paymentId: `batch_payment_${comm.invoiceId}_${comm.salesRepEmail}`,
-            invoiceId: comm.invoiceId,
-            amount: comm.amount,
-            salesRepEmail: comm.salesRepEmail
-          });
-        } catch (error) {
-          console.error('Commission update failed for invoice:', comm.invoiceId, error);
-        }
-      }
-
-      return updates;
+      return recorded;
     },
-    onSuccess: () => {
+    onSuccess: (recorded) => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
       queryClient.invalidateQueries({ queryKey: ['staff-profiles'] });
       setShowBatchPaymentsDialog(false);
       setSelectedInvoices([]);
-      toast.success(`✅ ${selectedInvoices.length} invoices marked as paid and commissions updated!`);
+      toast.success(`✅ Invoices marked paid. Recorded ${recorded} payment${recorded === 1 ? '' : 's'} for commission.`);
     },
     onError: (error) => {
       toast.error(`❌ Batch payment failed: ${error.message}`);

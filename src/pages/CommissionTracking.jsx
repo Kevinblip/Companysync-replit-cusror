@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { format } from "date-fns";
+import { calculateRepCommissions, payPeriodKey } from "@/utils/commissionCalc";
 
 export default function CommissionTracking() {
   const navigate = useNavigate();
@@ -47,6 +47,13 @@ export default function CommissionTracking() {
   const { data: invoices = [] } = useQuery({
     queryKey: ['invoices-commission', myCompany?.id],
     queryFn: () => myCompany ? base44.entities.Invoice.filter({ company_id: myCompany.id }, "-created_date", 10000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: payments = [] } = useQuery({
+    queryKey: ['payments-commission', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Payment.filter({ company_id: myCompany.id }, "-created_date", 10000) : [],
     enabled: !!myCompany,
     initialData: [],
   });
@@ -72,78 +79,38 @@ export default function CommissionTracking() {
     return allStaffProfiles.filter(s => s.user_email === effectiveUserEmail);
   }, [allStaffProfiles, isAdmin, effectiveUserEmail, isPermissionsReady]);
 
-  // Temporarily override allStaffProfiles with filtered version for calculateCommissionData
   const commissionData = React.useMemo(() => {
     const now = new Date();
-    let startDate, endDate;
+    let startDate;
+    let endDate;
     if (selectedPeriod === 'current_month') {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     } else if (selectedPeriod === 'last_month') {
       startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      endDate = new Date(now.getFullYear(), now.getMonth(), 0);
+      endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
     } else if (selectedPeriod === 'current_quarter') {
       const quarter = Math.floor(now.getMonth() / 3);
       startDate = new Date(now.getFullYear(), quarter * 3, 1);
-      endDate = new Date(now.getFullYear(), (quarter + 1) * 3, 0);
+      endDate = new Date(now.getFullYear(), (quarter + 1) * 3, 0, 23, 59, 59, 999);
     } else if (selectedPeriod === 'ytd') {
       startDate = new Date(now.getFullYear(), 0, 1);
       endDate = now;
     } else {
-      startDate = new Date(0);
-      endDate = now;
+      startDate = new Date(2000, 0, 1);
+      endDate = new Date(2099, 11, 31, 23, 59, 59, 999);
     }
-    const periodInvoices = invoices.filter(inv => {
-      if (!inv.issue_date || inv.status !== 'paid') return false;
-      const issueDate = new Date(inv.issue_date);
-      return issueDate >= startDate && issueDate <= endDate;
+    return calculateRepCommissions({
+      companyId: myCompany?.id,
+      staffProfiles: visibleStaffProfiles,
+      invoices,
+      payments,
+      deductions: commissionDeductions,
+      start: startDate,
+      end: endDate,
+      periodKey: payPeriodKey(selectedPeriod, now),
     });
-    return visibleStaffProfiles.map(staff => {
-      let totalSales = 0;
-      let totalCommission = 0;
-      let invoiceCount = 0;
-      periodInvoices.forEach(inv => {
-        if (inv.commission_splits && inv.commission_splits.length > 0) {
-          const split = inv.commission_splits.find(s => s.user_email === staff.user_email);
-          if (split) {
-            const splitAmount = inv.amount * (split.split_percentage / 100);
-            totalSales += splitAmount;
-            const commissionRate = staff.commission_rate || 5;
-            totalCommission += splitAmount * (commissionRate / 100);
-            invoiceCount++;
-          }
-        } else if (inv.sale_agent === staff.user_email || inv.created_by === staff.user_email) {
-          totalSales += inv.amount || 0;
-          const commissionRate = staff.commission_rate || 5;
-          totalCommission += (inv.amount || 0) * (commissionRate / 100);
-          invoiceCount++;
-        }
-      });
-      const periodDeductions = commissionDeductions.filter(ded => {
-        if (ded.sales_rep_email !== staff.user_email) return false;
-        if (!ded.deduction_date) return false;
-        const dedDate = new Date(ded.deduction_date);
-        return dedDate >= startDate && dedDate <= endDate;
-      });
-      const totalDeductions = periodDeductions.reduce((sum, ded) => sum + Number(ded.amount || 0), 0);
-      const netCommission = totalCommission - totalDeductions;
-      return {
-        email: staff.user_email,
-        name: staff.full_name || staff.user_email,
-        avatar_url: staff.avatar_url,
-        totalSales,
-        totalCommission,
-        totalDeductions,
-        netCommission,
-        invoiceCount,
-        commission_rate: staff.commission_rate || 5,
-        deductionCount: periodDeductions.length,
-        commission_tier: staff.commission_tier,
-        current_period_sales: staff.current_period_sales || 0,
-        deductions: periodDeductions,
-      };
-    }).sort((a, b) => b.netCommission - a.netCommission);
-  }, [visibleStaffProfiles, invoices, commissionDeductions, selectedPeriod]);
+  }, [visibleStaffProfiles, invoices, payments, commissionDeductions, selectedPeriod, myCompany?.id]);
 
   const filteredData = selectedStaff === 'all' 
     ? commissionData 
@@ -324,7 +291,7 @@ export default function CommissionTracking() {
                           <img src={staff.avatar_url} alt={staff.name} className="w-10 h-10 rounded-full object-cover" />
                         ) : (
                           <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-semibold">
-                            {staff.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                            {(staff.name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
                           </div>
                         )}
                         <div>

@@ -44,6 +44,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { format } from "date-fns";
+import { invoiceMoney } from "@/utils/commissionCalc";
 import { useNavigate, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
@@ -278,11 +279,14 @@ export default function Payments() {
       // 🔥 FIX: Update invoice BEFORE creating payment
       if (paymentData.invoice_number && paymentData.invoice_number !== 'none') {
         try {
-          const invoiceList = await base44.entities.Invoice.filter({ invoice_number: paymentData.invoice_number });
+          const invoiceList = await base44.entities.Invoice.filter({
+            invoice_number: paymentData.invoice_number,
+            ...(myCompany?.id ? { company_id: myCompany.id } : {}),
+          });
           if (invoiceList[0]) {
             const invoice = invoiceList[0];
             const newAmountPaid = (invoice.amount_paid || 0) + paymentData.amount;
-            const totalAmount = invoice.amount || 0;
+            const totalAmount = invoiceMoney(invoice);
             
             let newStatus = 'partially_paid';
             if (newAmountPaid >= totalAmount) {
@@ -311,25 +315,21 @@ export default function Payments() {
       // 🔥 TRIGGER COMMISSION UPDATE
       if (paymentData.invoice_number && paymentData.invoice_number !== 'none') {
         try {
-          const invoiceList = await base44.entities.Invoice.filter({ invoice_number: paymentData.invoice_number });
+          const invoiceList = await base44.entities.Invoice.filter({
+            invoice_number: paymentData.invoice_number,
+            ...(myCompany?.id ? { company_id: myCompany.id } : {}),
+          });
           if (invoiceList[0]) {
             const invoice = invoiceList[0];
 
-            // Update commission for all reps on this invoice
-            const salesRepEmails = invoice.commission_splits?.map(cs => cs.user_email) ||
-                                   (invoice.sale_agent ? [invoice.sale_agent] : []);
-
-            if (salesRepEmails.length > 0) {
-              for (const salesRepEmail of salesRepEmails) {
-                await base44.functions.invoke('updateCommissions', {
-                  paymentId: newPayment.id,
-                  invoiceId: invoice.id,
-                  amount: paymentData.amount,
-                  salesRepEmail: salesRepEmail
-                });
-                console.log('✅ Commission updated for:', salesRepEmail);
-              }
-            }
+            // One call per payment. The tracker reads payment rows, and a
+            // per-rep loop would credit every split once for each rep.
+            await base44.functions.invoke('updateCommissions', {
+              paymentId: newPayment.id,
+              invoiceId: invoice.id,
+              amount: paymentData.amount,
+              salesRepEmail: invoice.sale_agent || invoice.commission_splits?.[0]?.user_email || null
+            });
           }
         } catch (commError) {
           console.error('⚠️ Commission update failed (non-critical):', commError);
@@ -498,7 +498,10 @@ export default function Payments() {
       // 🔥 FIX: Update invoice BEFORE deleting payment
       if (payment.invoice_number) {
         try {
-          const invoiceList = await base44.entities.Invoice.filter({ invoice_number: payment.invoice_number });
+          const invoiceList = await base44.entities.Invoice.filter({
+            invoice_number: payment.invoice_number,
+            ...(myCompany?.id ? { company_id: myCompany.id } : {}),
+          });
           if (invoiceList[0]) {
             const invoice = invoiceList[0];
             const newAmountPaid = Math.max(0, (invoice.amount_paid || 0) - payment.amount);
@@ -506,7 +509,7 @@ export default function Payments() {
             let newStatus = 'sent';
             if (newAmountPaid === 0) {
               newStatus = 'sent';
-            } else if (newAmountPaid < invoice.amount) {
+            } else if (newAmountPaid < invoiceMoney(invoice)) {
               newStatus = 'partially_paid';
             } else {
               newStatus = 'paid';
@@ -569,21 +572,18 @@ export default function Payments() {
       if (data.matchedPayments && data.matchedPayments.length > 0) {
         try {
           for (const match of data.matchedPayments) {
-            const invoices = await base44.entities.Invoice.filter({ invoice_number: match.invoice });
+            const invoices = await base44.entities.Invoice.filter({
+              invoice_number: match.invoice,
+              ...(myCompany?.id ? { company_id: myCompany.id } : {}),
+            });
             const invoice = invoices[0];
             if (invoice) {
-              const salesRepEmails = invoice.commission_splits?.map(cs => cs.user_email) ||
-                                   (invoice.sale_agent ? [invoice.sale_agent] : []);
-              if (salesRepEmails.length > 0) {
-                for (const salesRepEmail of salesRepEmails) {
-                  await base44.functions.invoke('updateCommissions', {
-                    paymentId: match.payment,
-                    invoiceId: invoice.id,
-                    amount: match.amount,
-                    salesRepEmail: salesRepEmail
-                  });
-                }
-              }
+              await base44.functions.invoke('updateCommissions', {
+                paymentId: match.payment,
+                invoiceId: invoice.id,
+                amount: match.amount,
+                salesRepEmail: invoice.sale_agent || invoice.commission_splits?.[0]?.user_email || null
+              });
             }
           }
           queryClient.invalidateQueries({ queryKey: ['staff-profiles'] });

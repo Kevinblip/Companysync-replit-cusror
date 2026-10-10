@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import useTranslation from "@/hooks/useTranslation";
+import { buildCommissionLines, emailsMatch, inDateRange, parseCommissionDate, resolveCommissionRate } from "@/utils/commissionCalc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,13 +147,6 @@ export default function Reports() {
     enabled: !!myCompany,
   });
 
-  const { data: commissionPayments = [] } = useQuery({
-    queryKey: ['commission-payments', myCompany?.id],
-    queryFn: () => myCompany ? base44.entities.CommissionPayment.filter({ company_id: myCompany.id }, "-created_date", 10000) : [],
-    initialData: [],
-    enabled: !!myCompany,
-  });
-
   const { data: allStaffProfiles = [] } = useQuery({
     queryKey: ['all-staff-profiles', myCompany?.id],
     queryFn: () => myCompany ? base44.entities.StaffProfile.filter({ company_id: myCompany.id }, "-created_date", 10000) : [],
@@ -206,10 +200,10 @@ export default function Reports() {
         break;
       case 'custom':
         if (customStartDate && customEndDate) {
-          start = new Date(customStartDate);
-          end = new Date(customEndDate);
-          // Set end date to end of the day for inclusive filtering
-          end.setHours(23, 59, 59, 999); 
+          start = parseCommissionDate(customStartDate);
+          end = parseCommissionDate(customEndDate);
+          if (start) start.setHours(0, 0, 0, 0);
+          if (end) end.setHours(23, 59, 59, 999);
         } else {
           return { start: null, end: null };
         }
@@ -218,6 +212,10 @@ export default function Reports() {
         return { start: null, end: null };
     }
 
+    if (end && end.getHours() === 0 && end.getMinutes() === 0 && end.getSeconds() === 0) {
+      end = new Date(end);
+      end.setHours(23, 59, 59, 999);
+    }
     return { start, end };
   };
 
@@ -225,11 +223,7 @@ export default function Reports() {
     const { start, end } = getDateRange();
     if (!start || !end) return items;
 
-    return items.filter(item => {
-      if (!item[dateField]) return false;
-      const itemDate = new Date(item[dateField]);
-      return itemDate >= start && itemDate <= end;
-    });
+    return items.filter(item => inDateRange(item[dateField], start, end));
   };
 
   // Filter active invoices (exclude cancelled)
@@ -757,142 +751,59 @@ export default function Reports() {
   };
 
   const getSalesRepCommissionsReportData = () => {
-    const results = [];
-    const staffWithCommissions = allStaffProfiles.filter(s => 
-      myCompany ? s.company_id === myCompany.id && s.commission_rate > 0 : false
+    const { start, end } = getDateRange();
+    const staffWithCommissions = allStaffProfiles.filter(s =>
+      myCompany ? s.company_id === myCompany.id && resolveCommissionRate(s) > 0 : false
     );
+    const visibleStaff = saleAgentFilter === 'all'
+      ? staffWithCommissions
+      : staffWithCommissions.filter(s => emailsMatch(s.user_email, saleAgentFilter));
 
-    staffWithCommissions.forEach(staff => {
-      if (saleAgentFilter !== 'all' && staff.user_email !== saleAgentFilter) return;
+    const lines = buildCommissionLines({
+      companyId: myCompany?.id,
+      staffProfiles: visibleStaff,
+      invoices: activeInvoices,
+      payments,
+      customers,
+      start,
+      end,
+    });
 
-      const repInvoices = invoices.filter(inv => 
-        inv.company_id === myCompany?.id &&
-        (inv.sale_agent === staff.user_email || 
-         inv.commission_splits?.some(split => split.user_email === staff.user_email))
-      );
+    const results = lines.map(line => ({
+      staff_name: line.staff_name,
+      staff_email: line.staff_email,
+      customer_name: line.customer_name,
+      invoice_number: line.invoice_number,
+      sale_date: line.sale_date,
+      sale_amount: line.sale_amount,
+      commission_rate: line.commission_rate,
+      split_percentage: line.split_percentage,
+      split_with: line.split_with,
+      gross_commission: line.gross_commission,
+      ladder_assist_deduction: 0,
+      net_commission: line.gross_commission,
+    }));
 
-      const filteredInvoices = filterByDateRange(repInvoices, 'created_date');
-      
-      filteredInvoices.forEach(invoice => {
-        // Match by invoice_number OR invoice_id
-        const invoicePayments = payments.filter(p => 
-          (p.invoice_id === invoice.id || p.invoice_number === invoice.invoice_number) && 
-          p.status === 'received'
-        );
-
-        invoicePayments.forEach(payment => {
-          const paymentDate = new Date(payment.payment_date);
-          const { start, end } = getDateRange();
-          if (start && end && (paymentDate < start || paymentDate > end)) return;
-
-          let commissionRate = staff.commission_rate || 0;
-          let splitPercentage = 100;
-          let splitWith = 'None';
-
-          const split = invoice.commission_splits?.find(s => s.user_email === staff.user_email);
-          if (split) {
-            splitPercentage = split.split_percentage || 100;
-            splitWith = invoice.commission_splits?.filter(s => s.user_email !== staff.user_email).map(s => s.user_name).join(', ') || 'None';
-          }
-
-          const grossCommission = (payment.amount * (commissionRate / 100) * (splitPercentage / 100));
-
-          let ladderAssistDeduction = 0;
-          const invoiceDeductions = deductions.filter(d => 
-            d.invoice_number === invoice.invoice_number &&
-            d.staff_email === staff.user_email &&
-            d.deduction_type === 'ladder_assist'
-          );
-
-          if (invoiceDeductions.length > 0) {
-            const totalSplits = invoice.commission_splits?.length || 1;
-            ladderAssistDeduction = invoiceDeductions.reduce((sum, d) => sum + Number(d.amount || 0), 0) / totalSplits;
-          }
-
-          const netCommission = grossCommission - ladderAssistDeduction;
-
-          results.push({
-            staff_name: staff.full_name,
-            staff_email: staff.user_email,
-            customer_name: invoice.customer_name,
-            invoice_number: invoice.invoice_number,
-            sale_date: payment.payment_date,
-            sale_amount: payment.amount,
-            commission_rate: commissionRate,
-            split_percentage: splitPercentage,
-            split_with: splitWith,
-            gross_commission: grossCommission,
-            ladder_assist_deduction: ladderAssistDeduction,
-            net_commission: netCommission,
-          });
-        });
-      });
-
-      // ✅ ADD: Show deductions even if no sales (advances, chargebacks, etc.)
-      const staffDeductions = deductions.filter(d => 
-        d.sales_rep_email === staff.user_email || d.staff_email === staff.user_email
-      );
-
-      const filteredDeductions = filterByDateRange(staffDeductions, 'deduction_date');
-
-      filteredDeductions.forEach(deduction => {
-        const deductionDate = new Date(deduction.deduction_date);
-        const { start, end } = getDateRange();
-        if (start && end && (deductionDate < start || deductionDate > end)) return;
-
-        // Check if this deduction is already included in invoice payment rows
-        const alreadyIncluded = results.some(r => 
-          r.invoice_number === deduction.invoice_number && 
-          r.staff_email === staff.user_email &&
-          deduction.deduction_type === 'ladder_assist'
-        );
-
-        if (!alreadyIncluded) {
-          results.push({
-            staff_name: staff.full_name,
-            staff_email: staff.user_email,
-            customer_name: deduction.customer_name || 'N/A',
-            invoice_number: deduction.invoice_number || 'N/A',
-            sale_date: deduction.deduction_date,
-            sale_amount: 0,
-            commission_rate: 0,
-            split_percentage: 0,
-            split_with: 'N/A',
-            gross_commission: 0,
-            ladder_assist_deduction: deduction.amount || 0,
-            net_commission: -(deduction.amount || 0),
-            description: deduction.description || deduction.deduction_type || 'Deduction'
-          });
-        }
-      });
-
-      // ✅ ADD: Show advance payments (CommissionPayment records)
-      const staffAdvances = commissionPayments.filter(cp => 
-        cp.staff_email === staff.user_email
-      );
-
-      const filteredAdvances = filterByDateRange(staffAdvances, 'payment_date');
-
-      filteredAdvances.forEach(advance => {
-        const advanceDate = new Date(advance.payment_date);
-        const { start, end } = getDateRange();
-        if (start && end && (advanceDate < start || advanceDate > end)) return;
-
-        results.push({
-          staff_name: staff.full_name,
-          staff_email: staff.user_email,
-          customer_name: 'Advance Payment',
-          invoice_number: 'N/A',
-          sale_date: advance.payment_date,
-          sale_amount: 0,
-          commission_rate: 0,
-          split_percentage: 0,
-          split_with: 'N/A',
-          gross_commission: 0,
-          ladder_assist_deduction: advance.amount || 0,
-          net_commission: -(advance.amount || 0),
-          description: advance.notes || 'Commission Advance'
-        });
+    deductions.forEach(deduction => {
+      const email = deduction.sales_rep_email || deduction.staff_email;
+      if (!visibleStaff.some(staff => emailsMatch(staff.user_email, email))) return;
+      if (deduction.company_id && myCompany?.id && String(deduction.company_id) !== String(myCompany.id)) return;
+      if ((start || end) && !inDateRange(deduction.deduction_date, start, end)) return;
+      const staff = visibleStaff.find(s => emailsMatch(s.user_email, email));
+      results.push({
+        staff_name: staff?.full_name || email,
+        staff_email: email,
+        customer_name: deduction.customer_name || 'N/A',
+        invoice_number: deduction.invoice_number || 'N/A',
+        sale_date: deduction.deduction_date,
+        sale_amount: 0,
+        commission_rate: 0,
+        split_percentage: 0,
+        split_with: 'N/A',
+        gross_commission: 0,
+        ladder_assist_deduction: Number(deduction.amount || 0),
+        net_commission: -Number(deduction.amount || 0),
+        description: deduction.description || deduction.deduction_type || 'Deduction'
       });
     });
 

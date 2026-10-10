@@ -870,16 +870,12 @@ ${isNewlyAssigned ? '<p class="success">✓ You have been assigned to a new cust
         }
         
         if (salesRepEmails.length > 0) {
-          console.log('💰 Updating commissions for:', salesRepEmails);
-          for (const salesRepEmail of salesRepEmails) {
-            await base44.functions.invoke('updateCommissions', {
-              paymentId: newPayment.id,
-              invoiceId: paymentData.invoice_number ? (invoices.find(inv => inv.invoice_number === paymentData.invoice_number)?.id) : null,
-              amount: parseFloat(paymentData.amount),
-              salesRepEmail: salesRepEmail
-            });
-            console.log('✅ Commission updated for:', salesRepEmail);
-          }
+          await base44.functions.invoke('updateCommissions', {
+            paymentId: newPayment.id,
+            invoiceId: paymentData.invoice_number ? (invoices.find(inv => inv.invoice_number === paymentData.invoice_number)?.id) : null,
+            amount: parseFloat(paymentData.amount),
+            salesRepEmail: salesRepEmails[0]
+          });
         }
       } catch (commError) {
         console.error('⚠️ Commission update failed (non-critical):', commError);
