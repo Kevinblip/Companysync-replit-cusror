@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "bash scripts/auto-deploy.sh",
+    "build": "vite build",
+    "start": "node scripts/start.cjs",
+    "deploy:replit": "bash scripts/auto-deploy.sh",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p ./jsconfig.json",

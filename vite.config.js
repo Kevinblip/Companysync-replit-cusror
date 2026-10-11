@@ -61,6 +61,12 @@ function copyProdServer() {
         }
       }
       console.log('[Build] Mirrored frontend to dist/public/');
+
+      // Plugins imported by this config (pg pools, esbuild service) can keep
+      // the Node process alive after a successful production build.
+      if (!process.argv.includes('--watch')) {
+        setTimeout(() => process.exit(0), 50);
+      }
     }
   };
 }

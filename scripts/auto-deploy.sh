@@ -1,4 +1,7 @@
 #!/bin/bash
+# OPTIONAL Replit-only helper. Force-pushes HEAD to main.
+# Default `npm run build` is a local `vite build` and does NOT run this.
+# Invoke only via: npm run deploy:replit
 
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 REPO_URL="https://${GITHUB_TOKEN}@github.com/Kevinblip/Companysync-replit-cusror.git"
