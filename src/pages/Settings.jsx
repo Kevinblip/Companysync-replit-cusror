@@ -49,6 +49,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 
 import TwilioSetup from "../components/settings/TwilioSetup";
+import GoHighLevelSetup from "../components/settings/GoHighLevelSetup";
 import CommunicationDashboard from "./CommunicationDashboard";
 
 export default function Settings() {
@@ -71,6 +72,7 @@ export default function Settings() {
   const [qbRealmId, setQbRealmId] = useState('');
 
   // Financing states
+  const [showGhlDialog, setShowGhlDialog] = useState(false);
   const [showFinancingDialog, setShowFinancingDialog] = useState(false);
   const [financingEnabled, setFinancingEnabled] = useState(false);
   const [financingProvider, setFinancingProvider] = useState('hearth');
@@ -136,6 +138,19 @@ export default function Settings() {
       return settings[0] || null;
     },
     enabled: !!myCompany,
+  });
+
+  const ghlCompanyId = myCompany?.id
+    || myStaffProfile?.company_id
+    || (typeof window !== 'undefined' ? localStorage.getItem('last_used_company_id') : null);
+
+  const { data: ghlStatus } = useQuery({
+    queryKey: ['ghl-status', ghlCompanyId],
+    queryFn: async () => {
+      const response = await base44.functions.invoke('getGHLStatus', { company_id: ghlCompanyId });
+      return response.data || response;
+    },
+    enabled: !!ghlCompanyId,
   });
 
   // Set form values when quickbooksConfig loads
@@ -624,6 +639,66 @@ export default function Settings() {
             </CardContent>
           </Card>
             
+          {/* GoHighLevel CRM */}
+          <Card data-testid="card-ghl-integration">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Zap className="w-6 h-6 text-orange-600" />
+                <div>
+                  <CardTitle>GoHighLevel</CardTitle>
+                  <p className="text-sm text-gray-500">
+                    Two-way CRM sync — auto-import GHL contacts as leads and push new leads to GoHighLevel
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {ghlStatus?.connected ? (
+                  <Badge className="bg-green-100 text-green-700">Connected</Badge>
+                ) : (
+                  <Badge className="bg-gray-100 text-gray-600">Not Connected</Badge>
+                )}
+                <Dialog open={showGhlDialog} onOpenChange={setShowGhlDialog}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" data-testid="button-ghl-configure">Configure</Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>GoHighLevel Setup</DialogTitle>
+                      <DialogDescription>
+                        Paste a Private Integration token and Location ID, then save to connect and sync contacts.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <GoHighLevelSetup companyId={ghlCompanyId} compact />
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {ghlStatus?.connected ? (
+                <Alert className="bg-green-50 border-green-200">
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  <AlertDescription className="text-green-900">
+                    <strong>Connected</strong>
+                    {ghlStatus.location_id ? <p className="text-sm mt-1">Location ID: {ghlStatus.location_id}</p> : null}
+                    <p className="text-sm mt-1">
+                      Last sync: {ghlStatus.last_sync_at ? new Date(ghlStatus.last_sync_at).toLocaleString() : 'Never'}
+                    </p>
+                    {ghlStatus.last_sync_error ? (
+                      <p className="text-sm mt-1 text-red-700">Last error: {ghlStatus.last_sync_error}</p>
+                    ) : null}
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <Alert className="bg-orange-50 border-orange-200">
+                  <Zap className="h-4 w-4 text-orange-600" />
+                  <AlertDescription className="text-orange-900">
+                    Not connected. Click <strong>Configure</strong> to paste your GHL Location ID and Private Integration token.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Google Calendar Integration */}
           <Card>
             <CardHeader>
@@ -910,6 +985,20 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="automations" className="space-y-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>GoHighLevel two-way sync</CardTitle>
+                <p className="text-sm text-gray-500 mt-1">
+                  Import GHL contacts as leads and push new CompanySync leads back to GoHighLevel.
+                  Configure credentials on the Integrations tab, then use Sync now or the existing ghlAutoSyncCron job.
+                </p>
+              </div>
+              <Button variant="outline" onClick={() => { window.location.search = '?tab=integrations'; }}>
+                Open GHL settings
+              </Button>
+            </CardHeader>
+          </Card>
           <Card className="bg-white shadow-md">
             <CardHeader className="border-b bg-gray-50">
               <CardTitle className="flex items-center gap-2">

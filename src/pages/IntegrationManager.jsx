@@ -1091,11 +1091,13 @@ export default function IntegrationManager() {
       {/* GoHighLevel Integration Card */}
       <Card className="border-l-4 border-l-orange-500">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="w-6 h-6 text-orange-600" />
-            GoHighLevel Integration
+          <CardTitle className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              <Zap className="w-6 h-6 text-orange-600" />
+              GoHighLevel Integration
+            </span>
           </CardTitle>
-          <CardDescription>Two-way sync with your GoHighLevel CRM</CardDescription>
+          <CardDescription>Two-way CRM sync — auto-import GHL contacts as leads and push new leads to GoHighLevel</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <Alert className="bg-orange-50 border-orange-200">
@@ -1105,8 +1107,7 @@ export default function IntegrationManager() {
               <ul className="list-disc list-inside mt-2 text-sm space-y-1">
                 <li>Auto-import GHL contacts as leads (GHL → CRM)</li>
                 <li>Push new CRM leads to GoHighLevel (CRM → GHL)</li>
-                <li>Sync opportunities, messages, and notes</li>
-                <li>Real-time webhook updates</li>
+                <li>Match existing people by GHL id, email, or phone</li>
               </ul>
             </AlertDescription>
           </Alert>
@@ -1115,6 +1116,7 @@ export default function IntegrationManager() {
             <Button
               onClick={() => navigate(createPageUrl('GoHighLevelSettings'))}
               className="flex-1 bg-orange-600 hover:bg-orange-700"
+              data-testid="button-ghl-configure-manager"
             >
               <Wrench className="w-4 h-4 mr-2" />
               Configure GoHighLevel
