@@ -15,6 +15,8 @@ import { useState } from "react";
   import InteractiveRoofMap from "../satellite/InteractiveRoofMap";
   import StreetViewPanel from "../satellite/StreetViewPanel";
   import { getPitchMultiplier } from "@/lib/satelliteUtils";
+  import PropertyHouseModel from "@/components/property/PropertyHouseModel";
+  import HousePhotoSlots from "@/components/property/HousePhotoSlots";
 
   export default function SatelliteMeasurementPanel({ ctx }) {
     const {
@@ -123,6 +125,46 @@ import { useState } from "react";
               </Button>
             </div>
           )}
+
+          <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-4 space-y-3" data-testid="estimator-photo-3d">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">House photos → 3D model</p>
+                <p className="text-xs text-slate-500">Upload facade photos. Elevations use those photos; the 3D house is one assembled model with the photos on the walls.</p>
+              </div>
+              {housePhotos.length > 0 && (
+                <Button
+                  data-testid="button-analyze-photos-3d"
+                  size="sm"
+                  onClick={handleAnalyzePhotos}
+                  disabled={isAnalyzingPhotos || !!uploadingSlot}
+                  className="bg-cyan-600 hover:bg-cyan-700 text-white text-xs"
+                >
+                  {isAnalyzingPhotos
+                    ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />Analyzing…</>
+                    : <><Sparkles className="w-3.5 h-3.5 mr-1" />Analyze Photos ({housePhotos.length})</>}
+                </Button>
+              )}
+            </div>
+            <HousePhotoSlots
+              housePhotos={housePhotos}
+              uploadingSlot={uploadingSlot}
+              structureType={structureType}
+              onSelect={handleSlotPhotoSelect}
+              onRemove={(label) => setHousePhotos(prev => prev.filter(p => p.label !== label))}
+            />
+            {(housePhotos.length > 0 || satelliteAnalysis || photoSidingAnalysis) && (
+              <PropertyHouseModel
+                address={satelliteAddress?.address || satelliteAddress?.formatted_address}
+                latitude={satelliteAddress?.coordinates?.lat || satelliteAddress?.lat}
+                longitude={satelliteAddress?.coordinates?.lng || satelliteAddress?.lng}
+                photos={housePhotos}
+                photoAnalysis={photoSidingAnalysis}
+                satelliteAnalysis={satelliteAnalysis}
+                sidingMeasurements={sidingMeasurements || photoSidingAnalysis}
+              />
+            )}
+          </div>
 
           {googleMapsLoaded && (!satelliteAddress || showStructureSelector || isAddingStructure) && (
             <div>

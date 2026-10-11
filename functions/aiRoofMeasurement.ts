@@ -249,6 +249,13 @@ Deno.serve(async (req) => {
       final_order_quantity_sq: finalOrderQty,
       waste_percentage: wastePercent, waste_reason: wasteReason,
       num_segments: roofSegments.length, area_method: areaMethod,
+      roof_segments: roofSegments.map((s: any) => ({
+        pitchDegrees: s.pitchDegrees ?? s.tiltDegrees ?? null,
+        azimuthDegrees: s.azimuthDegrees ?? null,
+        areaMeters2: s.stats?.areaMeters2 ?? null,
+        boundingBox: s.boundingBox || null,
+        center: s.center || null,
+      })),
       overall_confidence: overallConf,
       ridge_confidence: Math.round(overallConf * (roofType === 'gable' || roofType === 'hip' ? 1.05 : 0.92)),
       hip_confidence: Math.round(overallConf * (roofType === 'hip' ? 1.05 : roofType === 'gable' ? 1.1 : 0.85)),

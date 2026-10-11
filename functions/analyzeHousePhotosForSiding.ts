@@ -271,8 +271,14 @@ SIDING MATERIAL IDENTIFICATION:
 - "aluminum": Metal lap siding. Subtle metallic sheen, may show oil-canning (gentle waves). Common 1950s-1980s.
 - "fiber_cement": Thick, heavy-looking lap. Very flat matte finish. Crisp edges.
 - "wood": Visible wood grain, peeling paint possible.
-- "brick" / "stucco": Self-explanatory.
+- "brick" / "stone" / "stucco": Self-explanatory. Use "stone" for stacked/cultured stone veneer.
 - "other": Any material not listed above.
+
+MIXED FACADES (stone wainscot + siding above is common):
+- primary_cladding: majority finish on this wall: "siding" | "stone" | "brick" | "stucco" | "concrete"
+- secondary_cladding: if a different material covers a distinct band, else null
+- secondary_cladding_region: "lower" | "upper" | "accent" | null
+- secondary_height_ft: height of that band from grade when region is "lower"
 
 Return JSON ONLY:
 {
@@ -295,8 +301,12 @@ Return JSON ONLY:
   "door_zones": string[] (zone for each entry door: "far_left"|"center_left"|"center"|"center_right"|"far_right"),
   "garage_doors_count": number (count OPENINGS not panels — double-wide = 1, on THIS wall primary face only),
   "garage_door_zones": string[] (zone for each garage door opening: "far_left"|"center_left"|"center"|"center_right"|"far_right"),
-  "siding_material": "vinyl" | "aluminum" | "fiber_cement" | "wood" | "brick" | "stucco" | "other",
+  "siding_material": "vinyl" | "aluminum" | "fiber_cement" | "wood" | "brick" | "stone" | "stucco" | "other",
   "siding_condition": "excellent" | "good" | "fair" | "poor",
+  "primary_cladding": "siding" | "stone" | "brick" | "stucco" | "concrete",
+  "secondary_cladding": "siding" | "stone" | "brick" | "stucco" | "concrete" | null,
+  "secondary_cladding_region": "lower" | "upper" | "accent" | null,
+  "secondary_height_ft": number | null,
   "complexity": "simple" | "moderate" | "complex",
   "confidence": number (0-100),
   "confidence_reason": "brief reason including height method used"
@@ -581,19 +591,29 @@ Return JSON ONLY:
     if (anyHeightClamped) tolerance = Math.min(tolerance + 3, 30);
     if (sanityCorrected)  tolerance = Math.min(tolerance + 4, 30);
 
-    const perPhotoBreakdown = perPhotoResults.map(r => ({
-      label: r.view_label || 'unknown',
-      story_count: r.story_count || 1,
-      windows_count: r.windows_count || 0,
-      doors_count: r.doors_count || 0,
-      garage_doors_count: r.garage_doors_count || 0,
-      wall_width_ft: r.wall_width_ft || 0,
-      eave_height_ft: r.eave_height_ft || 0,
-      siding_course_count: r.siding_course_count || 0,
-      height_method: r.height_method || 'estimate',
-      height_clamped: r.height_clamped || false,
-      confidence: r.confidence || 70,
-    }));
+    const perPhotoBreakdown = perPhotoResults.map(r => {
+      const photo = photoImages.find(p => p.label === r.view_label);
+      return {
+        label: r.view_label || 'unknown',
+        url: photo?.url || null,
+        story_count: r.story_count || 1,
+        windows_count: r.windows_count || 0,
+        doors_count: r.doors_count || 0,
+        garage_doors_count: r.garage_doors_count || 0,
+        wall_width_ft: r.wall_width_ft || 0,
+        eave_height_ft: r.eave_height_ft || 0,
+        siding_course_count: r.siding_course_count || 0,
+        height_method: r.height_method || 'estimate',
+        height_clamped: r.height_clamped || false,
+        confidence: r.confidence || 70,
+        siding_material: r.siding_material || null,
+        wall_face: r.wall_face || null,
+        primary_cladding: r.primary_cladding || r.siding_material || null,
+        secondary_cladding: r.secondary_cladding || null,
+        secondary_cladding_region: r.secondary_cladding_region || null,
+        secondary_height_ft: r.secondary_height_ft || null,
+      };
+    });
 
     const footprintLabel = usingOSM ? 'OpenStreetMap polygon (true perimeter)' : (usingSatellite ? 'Solar API (corrected bounding box)' : 'Photo-derived dimensions');
 
