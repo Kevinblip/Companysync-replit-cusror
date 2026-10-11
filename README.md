@@ -30,3 +30,20 @@ In Google Cloud Console, the Web client's **Authorized redirect URIs** must incl
 `https://getcompanysync.com/api/auth/google/callback`
 
 After changing Replit secrets, restart the production deployment so the Node process picks up the new values.
+
+## Hover 3D house model (in-app viewer)
+
+The AI Estimator satellite panel and Lead Profile render an assembled 3D house (roof planes attached to walls) instead of exploded Solar bounding boxes. When a Hover job is linked, geometry comes from Hover `cad_export.xml` (FACE → LINE → POINT in one XYZ frame).
+
+### Secrets (optional — viewer still assembles a footprint without them)
+
+Read in `src/lib/hoverHouseModel.js` (`getHoverEnv`) and `functions/getHoverHouseModel.ts`. Do not invent keys.
+
+| Variable | Required for live Hover | Purpose |
+|---|---|---|
+| `HOVER_CLIENT_ID` | Yes | Hover OAuth client ID. Fallback: `Hover_Client_Id`. |
+| `HOVER_CLIENT_SECRET` | Yes | Hover OAuth client secret. Fallbacks: `Hover_Client_Secret`, `Hover_Secret_Key`. |
+| `HOVER_REFRESH_TOKEN` | Yes | OAuth refresh token from `POST https://hover.to/oauth/token`. Fallback: `Hover_Refresh_Token`. |
+| `HOVER_ACCESS_TOKEN` | No | Optional short-lived bearer token if you already have one. Fallback: `Hover_Access_Token`. |
+
+Without these, the UI still shows a coherent house from satellite/OSM footprint measurements (not 48×9 estimated boxes once wall faces exist). To preview Kevin’s Antoinette Hover job (`2-1514588` / model `21937601`), set the three OAuth secrets, restart, then paste the job ID into **Load Hover job**.
