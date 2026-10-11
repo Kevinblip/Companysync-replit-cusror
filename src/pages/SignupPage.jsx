@@ -186,6 +186,11 @@ export default function SignupPage() {
               Log in
             </Link>
           </div>
+          <div className="text-center text-xs text-slate-400">
+            <Link to="/privacy" className="hover:text-blue-600" data-testid="link-privacy">Privacy Policy</Link>
+            <span className="mx-2">·</span>
+            <Link to="/terms" className="hover:text-blue-600" data-testid="link-terms">Terms</Link>
+          </div>
         </div>
       </div>
     </div>
