@@ -15,6 +15,8 @@ import { useState } from "react";
   import InteractiveRoofMap from "../satellite/InteractiveRoofMap";
   import StreetViewPanel from "../satellite/StreetViewPanel";
   import { getPitchMultiplier } from "@/lib/satelliteUtils";
+  import WasteFactorControl from "../estimator/WasteFactorControl";
+  import { orderQuantity, suggestRoofWaste, suggestSidingWaste } from "@/utils/wasteFactor";
 
   export default function SatelliteMeasurementPanel({ ctx }) {
     const {
@@ -62,6 +64,9 @@ import { useState } from "react";
       structureType, setStructureType,
       useSatelliteMode, setUseSatelliteMode,
       wasteSuggestion, setWasteSuggestion,
+      tradeWaste,
+      applyWastePercent,
+      resetWasteToSuggested,
       isSidingAnalyzing,
       linkedJobMedia,
       handleSatelliteAddressSelect,
@@ -183,7 +188,7 @@ import { useState } from "react";
                             )}
                           </div>
                           {structure.structureType === 'garage' && (
-                            <p className="text-xs text-orange-700 mt-0.5 ml-1">Siding defaults: 1-story (10ft), 10% openings, 8% waste</p>
+                            <p className="text-xs text-orange-700 mt-0.5 ml-1">Siding defaults: 1-story (10ft), 10% openings, 10% waste</p>
                           )}
                           {structure.analysis.overall_confidence < 70 && (
                             <p className="text-xs text-red-600 mt-0.5 ml-1">Low accuracy — verify on-site</p>
@@ -573,14 +578,25 @@ import { useState } from "react";
                     <p className="text-xs text-blue-600 mt-1">Pitch: {satelliteAnalysis.pitch}{satelliteAnalysis.roof_type ? ` • ${satelliteAnalysis.roof_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}` : ''}</p>
                   </div>
 
-                  {correctedSq > 0 && (
-                    <div className="bg-green-50 rounded p-3 shadow-sm border border-green-100">
+                  {correctedSq > 0 && (() => {
+                    const roofSuggestion = tradeWaste?.roof || suggestRoofWaste(satelliteAnalysis);
+                    const rawWaste = tradeWaste?.roof?.appliedPercent ?? roofSuggestion.suggestedPercent ?? roofSuggestion.percent ?? satelliteAnalysis.waste_percentage;
+                    const wastePct = rawWaste == null || rawWaste === '' || Number.isNaN(Number(rawWaste)) ? 10 : Number(rawWaste);
+                    const orderBase = Number(satelliteAnalysis.estimate_base_sq) || correctedSq;
+                    const orderQty = orderQuantity(orderBase, wastePct);
+                    const wasteReason = tradeWaste?.roof?.isManual
+                      ? 'Manual override'
+                      : (tradeWaste?.roof?.reason || tradeWaste?.roof?.suggestedReason || satelliteAnalysis.waste_reason || roofSuggestion.reason);
+                    return (
+                    <div className="bg-green-50 rounded p-3 shadow-sm border border-green-100" data-testid="roof-order-qty">
                       <span className="text-green-800 block mb-1 text-xs font-bold">Order Qty:</span>
-                      <span className="font-bold text-xl text-green-700">{(correctedSq * (1 + (satelliteAnalysis.waste_percentage || 12) / 100)).toFixed(2)}</span>
+                      <span className="font-bold text-xl text-green-700">{orderQty.toFixed(2)}</span>
                       <span className="text-xs text-green-600 ml-1">SQ</span>
-                      <p className="text-xs text-green-600 mt-1">+{satelliteAnalysis.waste_percentage || 12}% waste included</p>
+                      <p className="text-xs text-green-600 mt-1">+{wastePct}% waste included</p>
+                      <p className="text-xs text-green-800 mt-1" data-testid="roof-waste-reason">{wasteReason}</p>
                     </div>
-                  )}
+                    );
+                  })()}
 
                   <div className="bg-white rounded p-3 shadow-sm">
                     <span className="text-gray-600 block mb-1 text-xs">Pitch Multiplier:</span>
@@ -588,6 +604,25 @@ import { useState } from "react";
                     <p className="text-xs text-gray-500 mt-1">Applied to satellite footprint</p>
                   </div>
                 </div>
+
+                {(() => {
+                  const roofSuggestion = tradeWaste?.roof?.suggestedPercent != null
+                    ? tradeWaste.roof
+                    : suggestRoofWaste(satelliteAnalysis);
+                  const applied = tradeWaste?.roof?.appliedPercent ?? roofSuggestion.suggestedPercent ?? roofSuggestion.percent;
+                  return (
+                    <WasteFactorControl
+                      trade="roof"
+                      appliedPercent={applied}
+                      suggestedPercent={tradeWaste?.roof?.suggestedPercent ?? roofSuggestion.percent ?? roofSuggestion.suggestedPercent}
+                      reason={tradeWaste?.roof?.reason || satelliteAnalysis.waste_reason || roofSuggestion.reason}
+                      suggestedReason={tradeWaste?.roof?.suggestedReason || roofSuggestion.suggestedReason || roofSuggestion.reason}
+                      isManual={!!tradeWaste?.roof?.isManual}
+                      onChange={(percent) => applyWastePercent(percent, { trade: 'roof', source: 'card' })}
+                      onReset={() => resetWasteToSuggested('roof')}
+                    />
+                  );
+                })()}
 
                 {satelliteAnalysis.pro_tip && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2 flex items-start gap-2" data-testid="pro-tip-banner">
@@ -823,9 +858,8 @@ import { useState } from "react";
                                         size="sm"
                                         className="h-7 px-3 text-xs bg-blue-600 hover:bg-blue-700 text-white"
                                         onClick={() => {
-                                          setConfig(c => ({...c, sidingWastePct: String(wasteSuggestion.pct)}));
+                                          applyWastePercent(wasteSuggestion.pct, { trade: 'siding', source: 'suggestion' });
                                           setWasteSuggestion(prev => ({...prev, dismissed: true}));
-                                          if (sidingMeasurements) convertSidingMeasurementsToLineItems({...sidingMeasurements, _wasteOverride: wasteSuggestion.pct});
                                         }}
                                       >
                                         ✓ Apply {wasteSuggestion.pct}% waste
@@ -944,10 +978,26 @@ import { useState } from "react";
                             <Badge variant="outline" className="text-xs">{sd.story_height_ft}ft ceiling</Badge>
                             <Badge variant="outline" className="text-xs">−{sd.opening_deduction_pct}% openings</Badge>
                             <Badge variant="outline" className="text-xs">Footprint: {sd.footprint_sqft?.toLocaleString()} sqft</Badge>
-                            {Number(config.sidingWastePct) > 0 && (
-                              <Badge className="text-xs bg-teal-100 text-teal-800 border border-teal-300">+{config.sidingWastePct}% waste</Badge>
+                            {Number(tradeWaste?.siding?.appliedPercent ?? config.sidingWastePct) > 0 && (
+                              <Badge className="text-xs bg-teal-100 text-teal-800 border border-teal-300">+{tradeWaste?.siding?.appliedPercent ?? config.sidingWastePct}% waste</Badge>
                             )}
                           </div>
+                          {(() => {
+                            const suggestion = suggestSidingWaste(sd);
+                            const record = tradeWaste?.siding;
+                            return (
+                              <WasteFactorControl
+                                trade="siding"
+                                appliedPercent={record?.appliedPercent ?? suggestion.percent}
+                                suggestedPercent={record?.suggestedPercent ?? suggestion.percent}
+                                reason={record?.reason || suggestion.reason}
+                                suggestedReason={record?.suggestedReason || suggestion.reason}
+                                isManual={!!record?.isManual}
+                                onChange={(percent) => applyWastePercent(percent, { trade: 'siding', source: 'card' })}
+                                onReset={() => resetWasteToSuggested('siding')}
+                              />
+                            );
+                          })()}
                         </div>
 
                         {sd.analysis_notes && (
@@ -958,19 +1008,7 @@ import { useState } from "react";
                         <div className="flex gap-2 mt-3">
                           <Button
                             data-testid="button-build-siding-estimate"
-                            onClick={() => {
-                              const measurements = {
-                                wall_area_sq: sd.wall_area_sq,
-                                wall_area_sqft: sd.wall_area_sqft,
-                                wall_top_lf: sd.wall_top_lf,
-                                wall_bottom_lf: sd.wall_bottom_lf,
-                                outside_corners_count: sd.outside_corners_count,
-                                outside_corners_lf: sd.outside_corners_lf,
-                                inside_corners_count: sd.inside_corners_count,
-                                inside_corners_lf: sd.inside_corners_lf,
-                              };
-                              convertSidingMeasurementsToLineItems(measurements);
-                            }}
+                            onClick={() => convertSidingMeasurementsToLineItems(sd)}
                             className="flex-1 bg-teal-600 hover:bg-teal-700 text-white"
                             size="sm"
                           >
@@ -1514,7 +1552,7 @@ import { useState } from "react";
                 const roofSegs = Number(ra.num_segments) || 0;
                 const roofType = ra.roof_type || '';
                 const roofConf = Number(ra.overall_confidence) || 85;
-                const wastePct = Number(ra.waste_percentage) || 12;
+                const wastePct = tradeWaste?.roof?.appliedPercent ?? (Number(ra.waste_percentage) || 10);
                 const pitchStr = ra.pitch || '';
                 const pitchNum = pitchStr ? Number(pitchStr.split('/')[0]) : 0;
                 const valleyLF = Number(ra.valley_lf) || 0;
@@ -1942,7 +1980,7 @@ import { useState } from "react";
                             overall_confidence: 95,
                             confidence_grade: 'A',
                             tolerance_pct: 3,
-                            analysis_notes: `Garage from dimensions: ${garageDimL}ft × ${garageDimW}ft, ${garagePitch} pitch. Wall area: ${Math.round(netWall)} sqft (10% opening deduction). 8% waste.`,
+                            analysis_notes: `Garage from dimensions: ${garageDimL}ft × ${garageDimW}ft, ${garagePitch} pitch. Wall area: ${Math.round(netWall)} sqft (10% opening deduction). 10% waste.`,
                             satellite_image_url: null,
                             garage_dim_l: garageDimL,
                             garage_dim_w: garageDimW,

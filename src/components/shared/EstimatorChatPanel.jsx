@@ -31,6 +31,7 @@ export default function EstimatorChatPanel({ ctx }) {
     handleSendMessage,
     handleAddSuggestedItem,
     processWithAI,
+    applyWastePercent,
     checkMissingItems,
     missingSuggestions, setMissingSuggestions,
     saveMissedItemToMemory,
@@ -174,7 +175,9 @@ export default function EstimatorChatPanel({ ctx }) {
                   <div className="flex flex-wrap gap-1.5" data-testid="quick-action-chips">
                     {[
                       { label: 'Dumpster', cmd: 'add dumpster' },
-                      { label: '10% Waste', cmd: 'add 10% waste' },
+                      { label: '10% Waste', cmd: 'add 10% waste', wastePercent: 10 },
+                      { label: '12% Waste', cmd: 'add 12% waste', wastePercent: 12 },
+                      { label: '15% Waste', cmd: 'add 15% waste', wastePercent: 15 },
                       { label: 'O&P', cmd: 'add overhead and profit' },
                       { label: 'Steep', cmd: 'apply steep roof' },
                       { label: 'High Roof', cmd: 'apply high roof' },
@@ -191,6 +194,14 @@ export default function EstimatorChatPanel({ ctx }) {
                         type="button"
                         data-testid={`chip-${chip.label.toLowerCase().replace(/\s+/g, '-')}`}
                         onClick={() => {
+                          if (chip.wastePercent != null && applyWastePercent) {
+                            const result = applyWastePercent(chip.wastePercent, { source: 'chip' });
+                            setMessages(prev => [...prev,
+                              { role: 'user', content: chip.cmd, timestamp: new Date().toISOString() },
+                              { role: 'assistant', content: result.message, timestamp: new Date().toISOString() },
+                            ]);
+                            return;
+                          }
                           setMessages(prev => [...prev, { role: 'user', content: chip.cmd, timestamp: new Date().toISOString() }]);
                           processWithAI(chip.cmd);
                         }}
@@ -697,10 +708,26 @@ export default function EstimatorChatPanel({ ctx }) {
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuLabel>{t.estimates.quickAdjustments}</DropdownMenuLabel>
-                      <DropdownMenuItem onClick={() => processWithAI('add 10% waste')}>
-                        <Package className="w-4 h-4 mr-2 text-orange-600" />
-                        {t.estimates.addWaste}
-                      </DropdownMenuItem>
+                      {[10, 12, 15].map((percent) => (
+                        <DropdownMenuItem
+                          key={percent}
+                          onClick={() => {
+                            if (!applyWastePercent) {
+                              processWithAI(`add ${percent}% waste`);
+                              return;
+                            }
+                            const result = applyWastePercent(percent, { source: 'menu' });
+                            setMessages(prev => [...prev, {
+                              role: 'assistant',
+                              content: result.message,
+                              timestamp: new Date().toISOString(),
+                            }]);
+                          }}
+                        >
+                          <Package className="w-4 h-4 mr-2 text-orange-600" />
+                          {percent === 10 ? t.estimates.addWaste : `${percent}% waste`}
+                        </DropdownMenuItem>
+                      ))}
                       <DropdownMenuItem onClick={() => processWithAI('apply steep roof')}>
                         <TrendingUp className="w-4 h-4 mr-2 text-red-600" />
                         {t.estimates.applySteepCharge}

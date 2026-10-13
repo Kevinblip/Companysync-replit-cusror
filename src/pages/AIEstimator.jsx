@@ -65,6 +65,13 @@ import {
   findItemInPriceList,
   downloadMaterialListCSV,
 } from "@/utils/estimatorCalculations";
+import {
+  orderQuantity,
+  roofWasteRecord,
+  sidingWasteRecord,
+  suggestRoofWaste,
+  suggestSidingWaste,
+} from "@/utils/wasteFactor";
 import MaterialListDialog from "@/components/shared/MaterialListDialog";
 import {
   smartDescriptionMatch,
@@ -169,6 +176,116 @@ export default function AIEstimator() {
 
   const [currentEstimate, setCurrentEstimate] = useState(null);
   const [lineItems, setLineItems] = useState([]);
+  const [tradeWaste, setTradeWaste] = useState({ roof: null, siding: null });
+  const tradeWasteRef = useRef({ roof: null, siding: null });
+  const lineItemsRef = useRef([]);
+  tradeWasteRef.current = tradeWaste;
+  lineItemsRef.current = lineItems;
+
+  const rememberTradeWaste = (trade, record) => {
+    const next = { ...tradeWasteRef.current, [trade]: record };
+    tradeWasteRef.current = next;
+    setTradeWaste(next);
+    return next;
+  };
+
+  const stampRoofAnalysis = (analysis, record) => {
+    if (!analysis || !record) return analysis;
+    const base = Number(analysis.corrected_area_sq) || Number(analysis.roof_area_sq) || 0;
+    return {
+      ...analysis,
+      suggested_waste_percentage: record.suggestedPercent,
+      suggested_waste_reason: record.suggestedReason,
+      waste_percentage: record.appliedPercent,
+      waste_reason: record.reason,
+      waste_is_manual: record.isManual,
+      waste_factors: record.factors,
+      final_order_quantity_sq: orderQuantity(base, record.appliedPercent),
+    };
+  };
+
+  const applyWastePercent = (percent, options = {}) => {
+    const chatText = String(options.message || '').toLowerCase();
+    let trades = [];
+    if (options.trade === 'roof' || options.trade === 'siding') trades = [options.trade];
+    else if (chatText.includes('siding') && !chatText.includes('roof')) trades = ['siding'];
+    else if ((chatText.includes('roof') || chatText.includes('shingle')) && !chatText.includes('siding')) trades = ['roof'];
+    else {
+      const items = options.items || lineItemsRef.current;
+      const hasRoof = !!(satelliteAnalysis) || items.some((item) => item.waste_trade === 'roof' || /shingle|underlayment|felt|starter|ridge cap/i.test(item.description || ''));
+      const hasSiding = !!(sidingMeasurements) || items.some((item) => item.waste_trade === 'siding');
+      if (hasRoof) trades.push('roof');
+      if (hasSiding) trades.push('siding');
+      if (trades.length === 0) trades = ['roof'];
+    }
+
+    let nextItems = options.items || lineItemsRef.current;
+    const notes = [];
+
+    if (trades.includes('roof')) {
+      const source = satelliteAnalysis || {};
+      const suggestion = suggestRoofWaste(source);
+      const record = options.reset
+        ? roofWasteRecord(source, null)
+        : roofWasteRecord(source, { isManual: true, appliedPercent: percent });
+      if (!options.reset && record.appliedPercent !== suggestion.percent) {
+        record.reason = 'Manual override';
+      }
+      rememberTradeWaste('roof', record);
+      nextItems = applyWasteToLineItems(nextItems, record.appliedPercent, { trade: 'roof' });
+      setSatelliteAnalysis((prev) => stampRoofAnalysis(prev, record));
+      notes.push(record.isManual
+        ? `Roof waste set to ${record.appliedPercent}% (Manual override). Suggested: ${record.suggestedReason}`
+        : `Roof waste reset to ${record.appliedPercent}%. ${record.reason}`);
+    }
+
+    if (trades.includes('siding')) {
+      const source = sidingMeasurements || {};
+      const record = options.reset
+        ? sidingWasteRecord(source, null)
+        : sidingWasteRecord(source, { isManual: true, appliedPercent: percent });
+      rememberTradeWaste('siding', record);
+      nextItems = applyWasteToLineItems(nextItems, record.appliedPercent, { trade: 'siding' });
+      setConfig((current) => ({ ...current, sidingWastePct: String(record.appliedPercent) }));
+      setSidingMeasurements((prev) => prev ? {
+        ...prev,
+        recommended_waste_pct: record.suggestedPercent,
+        waste_reason: record.isManual ? record.suggestedReason : record.reason,
+        applied_waste_pct: record.appliedPercent,
+        waste_is_manual: record.isManual,
+      } : prev);
+      notes.push(record.isManual
+        ? `Siding waste set to ${record.appliedPercent}% (Manual override). Suggested: ${record.suggestedReason}`
+        : `Siding waste reset to ${record.appliedPercent}%. ${record.reason}`);
+    }
+
+    lineItemsRef.current = nextItems;
+    setLineItems(nextItems);
+    return { items: nextItems, message: notes.join('\n') };
+  };
+
+  const resetWasteToSuggested = (trade) => applyWastePercent(0, { trade, reset: true, source: 'reset' });
+
+  const activeRoofWaste = (measurements) => {
+    const manual = tradeWasteRef.current.roof?.isManual ? tradeWasteRef.current.roof : null;
+    const record = roofWasteRecord(measurements || {}, manual);
+    rememberTradeWaste('roof', record);
+    setSatelliteAnalysis((prev) => {
+      if (!prev) return prev;
+      const stamped = stampRoofAnalysis(prev, record);
+      const measuredBase = Number(measurements?.corrected_area_sq) || Number(measurements?.roof_area_sq) || 0;
+      const cardBase = Number(prev.corrected_area_sq) || Number(prev.roof_area_sq) || 0;
+      if (measuredBase > 0 && Math.abs(measuredBase - cardBase) > 0.05) {
+        return {
+          ...stamped,
+          final_order_quantity_sq: orderQuantity(measuredBase, record.appliedPercent),
+          estimate_base_sq: measuredBase,
+        };
+      }
+      return stamped;
+    });
+    return record;
+  };
   
   // NEW: Estimate history for undo
   const [estimateHistory, setEstimateHistory] = useState([]);
@@ -691,6 +808,7 @@ Choose your mode: Upload documents OR use satellite measurements!`,
       coordinates: { lat, lng }
     });
     setSatelliteAnalysis(null);
+    rememberTradeWaste('roof', null);
     setUseManualDrawing(false);
     setManualAddOnMode(false); // Reset manual add-on mode
     setManualMeasurements([]); // Clear manual add-on measurements
@@ -801,7 +919,10 @@ Choose your mode: Upload documents OR use satellite measurements!`,
         chimney_large: response.data.chimney_large || 0,
         gutter_lf: 0,
         downspout_count: 0,
-        structures: []
+        structures: [],
+        num_segments: response.data.num_segments || response.data.facet_count || 0,
+        dormer_count: response.data.dormer_count || response.data.dormers || 0,
+        cut_up_sections: response.data.cut_up_sections || 0,
       };
 
       console.log('✅ Analysis object created:', analysis);
@@ -819,6 +940,18 @@ Choose your mode: Upload documents OR use satellite measurements!`,
       analysis.area_range = realConf.areaRange;
       analysis.measurement_source = realConf.source;
       if (realConf.proTip) analysis.pro_tip = realConf.proTip;
+      const roofRecord = roofWasteRecord(
+        analysis,
+        tradeWasteRef.current.roof?.isManual ? tradeWasteRef.current.roof : null
+      );
+      analysis.suggested_waste_percentage = roofRecord.suggestedPercent;
+      analysis.suggested_waste_reason = roofRecord.suggestedReason;
+      analysis.waste_percentage = roofRecord.appliedPercent;
+      analysis.waste_reason = roofRecord.reason;
+      analysis.waste_is_manual = roofRecord.isManual;
+      analysis.waste_factors = roofRecord.factors;
+      analysis.final_order_quantity_sq = orderQuantity(realConf.correctedAreaSq || analysis.roof_area_sq, roofRecord.appliedPercent);
+      rememberTradeWaste('roof', roofRecord);
       if (realConf.perMeasurement.ridge) analysis.ridge_confidence = realConf.perMeasurement.ridge;
       if (realConf.perMeasurement.hip) analysis.hip_confidence = realConf.perMeasurement.hip;
       if (realConf.perMeasurement.valley) analysis.valley_confidence = realConf.perMeasurement.valley;
@@ -843,7 +976,7 @@ Choose your mode: Upload documents OR use satellite measurements!`,
 
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `**Added ${structureData.name}!**\n\n**Roof Area:** ${realConf.correctedAreaSq} SQ | **Pitch:** ${analysis.pitch}\n**Order Qty:** ${(realConf.correctedAreaSq * (1 + (analysis.waste_percentage || 12) / 100)).toFixed(1)} SQ (+${analysis.waste_percentage || 12}% waste)\n**Estimate Quality:** ${realConf.grade} (+/- ${realConf.tolerancePct}%)\n\nClick "Generate Combined Estimate" to create estimate with all structures!`,
+          content: `**Added ${structureData.name}!**\n\n**Roof Area:** ${realConf.correctedAreaSq} SQ | **Pitch:** ${analysis.pitch}\n**Order Qty:** ${orderQuantity(realConf.correctedAreaSq, analysis.waste_percentage).toFixed(1)} SQ (+${analysis.waste_percentage}% waste)\n**Waste:** ${analysis.waste_reason}\n**Estimate Quality:** ${realConf.grade} (+/- ${realConf.tolerancePct}%)\n\nClick "Generate Combined Estimate" to create estimate with all structures!`,
           timestamp: new Date().toISOString()
         }]);
       } else {
@@ -853,11 +986,11 @@ Choose your mode: Upload documents OR use satellite measurements!`,
         const warningLines = realConf.warnings.length > 0 
           ? `\n\n⚠️ **Warnings:**\n${realConf.warnings.map(w => `• ${w}`).join('\n')}` 
           : '';
-        const orderQty = (realConf.correctedAreaSq * (1 + (analysis.waste_percentage || 12) / 100)).toFixed(1);
+        const orderQty = orderQuantity(realConf.correctedAreaSq, analysis.waste_percentage).toFixed(1);
 
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `**Analyzed ${structureData.name}**\n\n**Roof Area:** ${realConf.correctedAreaSq} SQ | **Pitch:** ${analysis.pitch}\n**Order Qty:** ${orderQty} SQ (+${analysis.waste_percentage || 12}% waste)\n**Estimate Quality:** ${realConf.grade} (+/- ${realConf.tolerancePct}%)${warningLines}\n\nReview the measurements, add gutters, or add more structures. When ready, click "Generate Estimate".`,
+          content: `**Analyzed ${structureData.name}**\n\n**Roof Area:** ${realConf.correctedAreaSq} SQ | **Pitch:** ${analysis.pitch}\n**Order Qty:** ${orderQty} SQ (+${analysis.waste_percentage}% waste)\n**Waste:** ${analysis.waste_reason}\n**Estimate Quality:** ${realConf.grade} (+/- ${realConf.tolerancePct}%)${warningLines}\n\nReview the measurements, add gutters, or add more structures. When ready, click "Generate Estimate".`,
           timestamp: new Date().toISOString()
         }]);
 
@@ -1014,17 +1147,11 @@ Choose your mode: Upload documents OR use satellite measurements!`,
       if (data?.success === false) {
         throw new Error(data.error || 'Siding analysis failed');
       }
+      const sidingSuggestion = suggestSidingWaste(data);
+      data.recommended_waste_pct = sidingSuggestion.percent;
+      data.waste_reason = sidingSuggestion.reason;
       setSidingMeasurements(data);
-      // Show waste recommendation if AI suggests something different from current setting
-      if (data.recommended_waste_pct != null) {
-        const currentWaste = Number(config.sidingWastePct) || 0;
-        setWasteSuggestion({
-          pct: data.recommended_waste_pct,
-          reason: data.waste_reason || '',
-          currentPct: currentWaste,
-          dismissed: false
-        });
-      }
+      setWasteSuggestion(null);
       // Auto-populate siding line items immediately
       await convertSidingMeasurementsToLineItems(data);
       setMessages(prev => [...prev, {
@@ -1160,6 +1287,12 @@ Choose your mode: Upload documents OR use satellite measurements!`,
       combinedAnalysis.step_flashing_lf = activeStructures.reduce((sum, s) => sum + (s.analysis.step_flashing_lf || 0), 0);
       combinedAnalysis.apron_flashing_lf = activeStructures.reduce((sum, s) => sum + (s.analysis.apron_flashing_lf || 0), 0);
       combinedAnalysis.pitch = activeStructures[0].analysis.pitch;
+      combinedAnalysis.roof_type = activeStructures.some((s) => /hip/i.test(s.analysis.roof_type || '') || Number(s.analysis.hip_lf) > 0)
+        ? 'hip'
+        : (activeStructures[0].analysis.roof_type || 'gable');
+      combinedAnalysis.num_segments = activeStructures.reduce((sum, s) => sum + (Number(s.analysis.num_segments) || 0), 0);
+      combinedAnalysis.dormer_count = activeStructures.reduce((sum, s) => sum + (Number(s.analysis.dormer_count) || 0), 0);
+      combinedAnalysis.cut_up_sections = activeStructures.reduce((sum, s) => sum + (Number(s.analysis.cut_up_sections) || 0), 0);
       combinedAnalysis.satellite_image_url = activeStructures[0].analysis.satellite_image_url;
       combinedAnalysis.overall_confidence = Math.min(...activeStructures.map(s => s.analysis.overall_confidence || 80));
       combinedAnalysis.structures = activeStructures;
@@ -1248,6 +1381,12 @@ Choose your mode: Upload documents OR use satellite measurements!`,
       combinedAnalysis.step_flashing_lf = activeStructures2.reduce((sum, s) => sum + (s.analysis.step_flashing_lf || 0), 0);
       combinedAnalysis.apron_flashing_lf = activeStructures2.reduce((sum, s) => sum + (s.analysis.apron_flashing_lf || 0), 0);
       combinedAnalysis.pitch = activeStructures2[0].analysis.pitch;
+      combinedAnalysis.roof_type = activeStructures2.some((s) => /hip/i.test(s.analysis.roof_type || '') || Number(s.analysis.hip_lf) > 0)
+        ? 'hip'
+        : (activeStructures2[0].analysis.roof_type || 'gable');
+      combinedAnalysis.num_segments = activeStructures2.reduce((sum, s) => sum + (Number(s.analysis.num_segments) || 0), 0);
+      combinedAnalysis.dormer_count = activeStructures2.reduce((sum, s) => sum + (Number(s.analysis.dormer_count) || 0), 0);
+      combinedAnalysis.cut_up_sections = activeStructures2.reduce((sum, s) => sum + (Number(s.analysis.cut_up_sections) || 0), 0);
       combinedAnalysis.satellite_image_url = activeStructures2[0].analysis.satellite_image_url;
       combinedAnalysis.overall_confidence = Math.min(...activeStructures2.map(s => s.analysis.overall_confidence || 80));
       combinedAnalysis.structures = activeStructures2;
@@ -1354,7 +1493,19 @@ Choose your mode: Upload documents OR use satellite measurements!`,
     const priceList = getActivePriceList(pricingSource, { xactimatePriceList, xactimateNewPriceList, symbilityPriceList, customPriceList });
     console.log(`📋 Using ${pricingSource} price list with ${priceList.length} items for siding`);
 
-    const { items, wallAreaSQ, wallAreaSF, wallTopLF, wallBottomLF, insideCornersLF, outsideCornersLF } = buildSidingLineItems(measurements, priceList, config.sidingWastePct);
+    const explicitOverride = measurements?._wasteOverride != null ? Number(measurements._wasteOverride) : null;
+    const manual = explicitOverride != null
+      ? { isManual: true, appliedPercent: explicitOverride }
+      : (tradeWasteRef.current.siding?.isManual ? tradeWasteRef.current.siding : null);
+    const sidingRecord = sidingWasteRecord(measurements, manual);
+    rememberTradeWaste('siding', sidingRecord);
+    setConfig((current) => ({ ...current, sidingWastePct: String(sidingRecord.appliedPercent) }));
+
+    const { items, wallAreaSQ, wallAreaSF, wallTopLF, wallBottomLF, insideCornersLF, outsideCornersLF } = buildSidingLineItems(
+      { ...measurements, _wasteOverride: sidingRecord.appliedPercent },
+      priceList,
+      sidingRecord.appliedPercent
+    );
     console.log('✅ Siding line items created:', items);
     console.log('📊 Total items:', items.length);
     setLineItems(items);
@@ -1381,7 +1532,15 @@ Choose your mode: Upload documents OR use satellite measurements!`,
 
   const convertSidingMeasurementsToLineItemsArray = async (measurements) => {
     const priceList = getActivePriceList(pricingSource, { xactimatePriceList, xactimateNewPriceList, symbilityPriceList, customPriceList });
-    return buildSidingLineItemsArray(measurements, priceList, config.sidingWastePct);
+    const sidingRecord = sidingWasteRecord(
+      measurements,
+      tradeWasteRef.current.siding?.isManual ? tradeWasteRef.current.siding : null
+    );
+    return buildSidingLineItemsArray(
+      { ...measurements, _wasteOverride: sidingRecord.appliedPercent },
+      priceList,
+      sidingRecord.appliedPercent
+    );
   };
 
   const convertMeasurementsToLineItems = async (measurements, userMessage = '') => {
@@ -1530,8 +1689,8 @@ Choose your mode: Upload documents OR use satellite measurements!`,
       console.log('✅ Line items created with structure breakdown:', items);
       console.log('📊 Total items:', items.length);
 
-      const multiWaste = Number(measurements.waste_percentage) || 12;
-      const multiWastedItems = applyWasteToLineItems(items, multiWaste);
+      const multiWaste = activeRoofWaste(measurements).appliedPercent;
+      const multiWastedItems = applyWasteToLineItems(items, multiWaste, { trade: 'roof' });
       
       setLineItems(multiWastedItems);
 
@@ -1978,8 +2137,8 @@ Choose your mode: Upload documents OR use satellite measurements!`,
     console.log('✅ Line items created:', items);
     console.log('📊 Total items:', items.length);
 
-    const wastePercent = Number(measurements.waste_percentage) || 12;
-    const wastedItems = applyWasteToLineItems(items, wastePercent);
+    const wastePercent = activeRoofWaste(measurements).appliedPercent;
+    const wastedItems = applyWasteToLineItems(items, wastePercent, { trade: 'roof' });
     
     setLineItems(wastedItems);
 
@@ -2062,7 +2221,7 @@ Choose your mode: Upload documents OR use satellite measurements!`,
     }
 
     const roofSqForPerSq = Number(measurements.corrected_area_sq) || Number(measurements.roof_area_sq) || 1;
-    const orderQtySq = Math.round(roofSqForPerSq * (1 + wastePercent / 100) * 100) / 100;
+    const orderQtySq = orderQuantity(roofSqForPerSq, wastePercent);
     const perSqPrice = Math.round(total / roofSqForPerSq);
 
     setCurrentEstimate({
@@ -2089,7 +2248,7 @@ Choose your mode: Upload documents OR use satellite measurements!`,
 
     setMessages(prev => [...prev, {
       role: 'assistant',
-      content: `**Created Complete Roof Estimate!**\n\n**${wastedItems.length} items** | **Total: $${total.toLocaleString()}** | **$${perSqPrice}/SQ**\n\n${itemDescriptions.join(' | ')}\n\nWaste (${wastePercent}%) auto-applied to materials (${orderQtySq} SQ order qty). Say "make it $520 per sq" to adjust pricing.`,
+      content: `**Created Complete Roof Estimate!**\n\n**${wastedItems.length} items** | **Total: $${total.toLocaleString()}** | **$${perSqPrice}/SQ**\n\n${itemDescriptions.join(' | ')}\n\nWaste (${wastePercent}%) — ${tradeWasteRef.current.roof?.reason || 'applied'} — order qty ${orderQtySq} SQ. Say "make it $520 per sq" to adjust pricing.`,
       timestamp: new Date().toISOString()
     }]);
   };
@@ -2542,31 +2701,11 @@ Write a detailed but concise summary. Be specific with numbers.`,
     
     // 12. WASTE / OVERAGE
     else if (description.includes('waste') || description.includes('overage')) {
-      // Apply 10% waste to materials
-      const wastePercent = 10;
-      const updatedItems = lineItems.map(item => {
-        if (item.description?.toLowerCase().includes('shingle') ||
-            item.description?.toLowerCase().includes('underlayment') ||
-            item.description?.toLowerCase().includes('felt')) {
-          const multiplier = 1 + (wastePercent / 100);
-          const newQuantity = (Number(item.quantity) || 0) * multiplier;
-          const newRcv = newQuantity * (Number(item.rate) || 0);
-          return {
-            ...item,
-            quantity: newQuantity,
-            rcv: newRcv,
-            acv: newRcv,
-            amount: newRcv
-          };
-        }
-        return item;
-      });
-      
-      setLineItems(updatedItems);
+      const wasteResult = applyWastePercent(10, { source: 'suggestion' });
       
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `✅ Applied 10% waste to materials`,
+        content: wasteResult.message || 'Applied 10% waste to materials',
         timestamp: new Date().toISOString()
       }]);
       
@@ -2848,6 +2987,20 @@ Write a detailed but concise summary. Be specific with numbers.`,
         });
       }
 
+      if (commands.some((cmd) => cmd.type === 'waste') && lineItems.length === 0) {
+        const wasteCmd = [...commands].reverse().find((cmd) => cmd.type === 'waste');
+        const wasteResult = applyWastePercent(wasteCmd.percent, { message: userMessage, source: 'chat' });
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: wasteResult.message,
+          timestamp: new Date().toISOString()
+        }]);
+        if (commands.every((cmd) => cmd.type === 'waste')) {
+          setIsProcessing(false);
+          return;
+        }
+      }
+
       if (commands.length > 0 && lineItems.length > 0) {
         console.log('🎯 Executing commands:', commands);
         
@@ -2959,54 +3112,13 @@ Write a detailed but concise summary. Be specific with numbers.`,
           }
           
           else if (cmd.type === 'waste') {
-            const alreadyHasWaste = messages.some(m => m.role === 'assistant' && m.content && (
-              m.content.includes('waste included') || m.content.includes('waste to roofing') || m.content.includes('waste applied') || m.content.includes('Applied') && m.content.includes('waste')
-            ));
-            if (alreadyHasWaste) {
-              assistantResponseMessages.push(`Waste was already included (12% auto-applied during estimate generation). If you want to add MORE waste on top, say "add 5% extra waste".`);
-              continue;
-            }
-            const wastePercent = cmd.percent;
-            updatedItems = updatedItems.map(item => {
-              const desc = item.description?.toLowerCase() || '';
-              // ROOFING materials
-              const isRoofingMaterial = desc.includes('shingle') ||
-                  desc.includes('underlayment') ||
-                  desc.includes('felt') ||
-                  desc.includes('ice & water') ||
-                  desc.includes('starter') ||
-                  desc.includes('drip') ||
-                  desc.includes('cap') ||
-                  desc.includes('valley') ||
-                  desc.includes('flashing');
-              
-              // SIDING materials (add waste to siding, corners, j-channel)
-              const isSidingMaterial = desc.includes('siding') ||
-                  desc.includes('j-channel') ||
-                  desc.includes('j channel') ||
-                  desc.includes('corner') ||
-                  desc.includes('soffit') ||
-                  desc.includes('fascia');
-              
-              if (isRoofingMaterial || isSidingMaterial) {
-                const multiplier = 1 + (wastePercent / 100);
-                const qty = Number(item.quantity) || 0;
-                const rate = Number(item.rate) || 0;
-                const newQuantity = qty * multiplier;
-                const newRcv = newQuantity * rate;
-                const depPercent = Number(item.depreciation_percent) || 0;
-                const newAcv = newRcv * (1 - depPercent / 100);
-                return {
-                  ...item,
-                  quantity: newQuantity,
-                  rcv: newRcv,
-                  acv: newAcv,
-                  amount: newRcv
-                };
-              }
-              return item;
+            const wasteResult = applyWastePercent(cmd.percent, {
+              message: userMessage,
+              source: 'chat',
+              items: updatedItems,
             });
-            assistantResponseMessages.push(`Applied ${wastePercent}% waste to roofing & siding materials.`);
+            updatedItems = wasteResult.items;
+            assistantResponseMessages.push(wasteResult.message);
           }
 
           else if (cmd.type === 'target_per_sq' || cmd.type === 'target_total') {
@@ -4360,8 +4472,11 @@ Be very thorough and extract EVERY line item you see.`,
           roof_area_sq: satelliteAnalysis.roof_area_sq,
           roof_area_sqft: satelliteAnalysis.roof_area_sqft,
           final_order_quantity_sq: satelliteAnalysis.final_order_quantity_sq,
-          waste_percentage: satelliteAnalysis.waste_percentage,
-          waste_reason: satelliteAnalysis.waste_reason,
+          waste_percentage: tradeWaste.roof?.appliedPercent ?? satelliteAnalysis.waste_percentage,
+          waste_reason: tradeWaste.roof?.reason ?? satelliteAnalysis.waste_reason,
+          waste_is_manual: tradeWaste.roof?.isManual || false,
+          suggested_waste_percentage: tradeWaste.roof?.suggestedPercent ?? satelliteAnalysis.suggested_waste_percentage,
+          suggested_waste_reason: tradeWaste.roof?.suggestedReason ?? satelliteAnalysis.suggested_waste_reason,
           ridge_lf: satelliteAnalysis.ridge_lf,
           hip_lf: satelliteAnalysis.hip_lf,
           valley_lf: satelliteAnalysis.valley_lf,
@@ -4407,8 +4522,10 @@ Be very thorough and extract EVERY line item you see.`,
           overall_confidence: sidingMeasurements.overall_confidence,
           confidence_grade: sidingMeasurements.confidence_grade,
           tolerance_pct: sidingMeasurements.tolerance_pct,
-          recommended_waste_pct: sidingMeasurements.recommended_waste_pct,
-          waste_reason: sidingMeasurements.waste_reason,
+          recommended_waste_pct: tradeWaste.siding?.suggestedPercent ?? sidingMeasurements.recommended_waste_pct,
+          applied_waste_pct: tradeWaste.siding?.appliedPercent ?? sidingMeasurements.applied_waste_pct,
+          waste_is_manual: tradeWaste.siding?.isManual || false,
+          waste_reason: tradeWaste.siding?.isManual ? tradeWaste.siding.suggestedReason : (tradeWaste.siding?.reason ?? sidingMeasurements.waste_reason),
           analysis_notes: sidingMeasurements.analysis_notes,
           osm_perimeter_used: sidingMeasurements.osm_perimeter_used,
           osm_perimeter_ft: sidingMeasurements.osm_perimeter_ft,
@@ -5014,6 +5131,9 @@ Be very thorough and extract EVERY line item you see.`,
     structureType, setStructureType,
     useSatelliteMode, setUseSatelliteMode,
     wasteSuggestion, setWasteSuggestion,
+    tradeWaste,
+    applyWastePercent,
+    resetWasteToSuggested,
     isSidingAnalyzing,
     linkedJobMedia,
     handleSatelliteAddressSelect,

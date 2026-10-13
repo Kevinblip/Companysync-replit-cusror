@@ -1,3 +1,5 @@
+import { applyWasteToLineItems as applySharedWaste, stampSidingWasteItems } from '../../functions/wasteFactor.js';
+
 export function findItemInPriceList(priceList, searchTerms, fallback, { favoritesPriority = false, unitFilter = null } = {}) {
   const matchesExclusions = (desc, excludeList) => {
     if (!excludeList || excludeList.length === 0) return true;
@@ -306,7 +308,15 @@ export function buildSidingLineItems(measurements, priceList, sidingWastePct) {
     items.push({ line: lineNumber++, code: haulItem.code, description: haulItem.description, quantity: 1, unit: "EA", rate: price, rcv: price, acv: price, amount: price, depreciation: 0 });
   }
 
-  return { items, wallAreaSQ, wallAreaSF, wallTopLF, wallBottomLF, insideCornersLF, outsideCornersLF };
+  return {
+    items: stampSidingWasteItems(items, measurements, wastePct),
+    wallAreaSQ,
+    wallAreaSF,
+    wallTopLF,
+    wallBottomLF,
+    insideCornersLF,
+    outsideCornersLF,
+  };
 }
 
 export function buildSidingLineItemsArray(measurements, priceList, sidingWastePct) {
@@ -387,7 +397,7 @@ export function buildSidingLineItemsArray(measurements, priceList, sidingWastePc
     pushLineItem(items, lineNumber++, waterTable, perimeterLFArr, "LF");
   }
 
-  return items;
+  return stampSidingWasteItems(items, measurements, wastePctArr);
 }
 
 export function normalizeRoofMeasurements(obj = {}) {
@@ -408,25 +418,8 @@ export function normalizeRoofMeasurements(obj = {}) {
   return o;
 }
 
-export function applyWasteToLineItems(items, wastePercent) {
-  return items.map(item => {
-    const desc = (item.description || '').toLowerCase();
-    const isPerUnit = item.unit === 'EA' || desc.includes('chimney') || desc.includes('pipe boot') || desc.includes('pipe jack') ||
-      desc.includes('box vent') || desc.includes('roof vent') || desc.includes('satellite') || desc.includes('detach');
-    const isMaterial = !isPerUnit && (desc.includes('shingle') || desc.includes('underlayment') || desc.includes('felt') ||
-      desc.includes('ice & water') || desc.includes('starter') || desc.includes('drip') ||
-      desc.includes('cap') || desc.includes('valley') || desc.includes('flashing') ||
-      desc.includes('siding') || desc.includes('j-channel') || desc.includes('j channel') ||
-      desc.includes('soffit') || desc.includes('fascia'));
-    if (isMaterial && item.quantity > 0) {
-      const multiplier = 1 + (wastePercent / 100);
-      const newQty = Number((item.quantity * multiplier).toFixed(2));
-      const rate = Number(item.rate) || 0;
-      const newRcv = newQty * rate;
-      return { ...item, quantity: newQty, rcv: newRcv, acv: newRcv, amount: newRcv };
-    }
-    return item;
-  });
+export function applyWasteToLineItems(items, wastePercent, options) {
+  return applySharedWaste(items, wastePercent, options);
 }
 
 export function buildRoofLineItemsArray(measurements, priceList) {

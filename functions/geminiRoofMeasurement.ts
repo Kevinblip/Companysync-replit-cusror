@@ -53,39 +53,35 @@ AreaSqFt > 0) {
     // 2. Get Facet Count (from Solar Data or default)
     const facetCount = solarData?.solarPotential?.roofSegmentStats?.length || 0;
 
-    // 3. Determine Waste Factor
-    let wastePercent = 10; // Default (Simple Gable)
-    let wasteReason = "Simple Gable";
-
-    // Rule 3: Complex/Steep (Highest Priority)
-    if (pitchVal >= 10 || facetCount > 10) {
-      wastePercent = 15;
-      wasteReason = pitchVal >= 10 ? "Steep Pitch (10/12+)" : "Complex Roof (>10 Facets)";
-    }
-    // Rule 2: Standard Hip/Valley
-    // EXCEPTION: 4/12 pitch with valleys (Minor Complexity) should fall through to 10%
-    else if ((pitchVal >= 7 && pitchVal <= 9) || finalHipLf > 0 || (finalValleyLf > 0 && pitchVal !== 4)) {
-      wastePercent = 12;
-      wasteReason = (pitchVal >= 7 && pitchVal <= 9) ? "Standard Pitch (7/12-9/12)" : "Hip/Valley Present";
-    }
-    // Rule 1: Simple Gable / Minor Complexity
-    // Expanded: Includes roofs with small valleys (capped) and low pitch OR Manual Override
-    // Also includes Simple Hip roofs (0 valleys, low pitch)
-    else if ((pitchVal <= 6 && finalHipLf === 0) || (pitchVal <= 6 && finalValleyLf === 0) || address.toLowerCase().includes("5420 mardale")) {
-      wastePercent = 10;
-      if (address.toLowerCase().includes("5420 mardale")) {
-        wasteReason = "Manual Override (10% Tier Applied)";
-      } else if (finalValleyLf > 0) {
-        wasteReason = "Minor Complexity (Low Pitch w/ Small Valleys)";
-      } else if (finalHipLf > 0 && finalValleyLf === 0) {
-        wasteReason = "Simple Hip (<=6/12, No Valleys)";
-      } else {
-        wasteReason = "Simple Gable (<=6/12, No Hips)";
-      }
-    }
-
-    const wasteFactor = 1 + (wastePercent / 100);
-    const finalOrderQuantitySq = Number((roofAreaSquares * wasteFactor).toFixed(2));
+    // Keep in sync with functions/wasteFactor.js (this file is a fragment and cannot import it).
+    const hipValleyLf = (Number(finalHipLf) || 0) + (Number(finalValleyLf) || 0);
+    const sqft = Number(roofAreaSqFt) || 0;
+    const per100 = sqft > 0 ? (hipValleyLf / sqft) * 100 : 0;
+    const isHip = (Number(finalHipLf) || 0) > 0;
+    let wasteAdd = 0;
+    const wasteParts = [];
+    if (isHip) { wasteAdd += 2; wasteParts.push('Hip roof'); }
+    let densityAdd = 0;
+    if (per100 >= 10) densityAdd = 3;
+    else if (per100 >= 7) densityAdd = 2;
+    else if (per100 >= 4) densityAdd = 1;
+    wasteAdd += densityAdd;
+    let facetAdd = 0;
+    if (facetCount >= 12) facetAdd = 3;
+    else if (facetCount >= 8) facetAdd = 2;
+    else if (facetCount >= 5) facetAdd = 1;
+    wasteAdd += facetAdd;
+    if (facetAdd) wasteParts.push(`${facetCount} facets`);
+    let pitchAdd = 0;
+    if (pitchVal >= 12) pitchAdd = 3;
+    else if (pitchVal >= 10) pitchAdd = 2;
+    else if (pitchVal >= 8) pitchAdd = 1;
+    wasteAdd += pitchAdd;
+    if (pitchAdd) wasteParts.push(`${pitchVal}/12 pitch`);
+    if (hipValleyLf > 0 && (isHip || densityAdd)) wasteParts.push(`${Math.round(hipValleyLf)} LF hips/valleys`);
+    const wastePercent = Math.min(25, Math.max(10, 10 + wasteAdd));
+    const wasteReason = wasteAdd <= 0 ? 'Simple gable -> 10% (standard)' : `${wasteParts.join(', ')} -> ${wastePercent}%`;
+    const finalOrderQuantitySq = Math.round((roofAreaSquares * (1 + wastePercent / 100)) * 100) / 100;
 
     debugLogs.push(`📐 Pitch: ${finalPitch} (${pitchVal}/12), Facets: ${facetCount}, Hips: ${finalHipLf}`);
     debugLogs.push(`🗑️ Waste Factor: ${wastePercent}% (${wasteReason})`);
