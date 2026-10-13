@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSidebarModel, collectVisibleSources } from "@/lib/sidebarNav";
+import { applyEditorToLegacyMenu, applySavedMenuToEditor, buildSidebarEditorTree, buildSidebarModel, collectVisibleSources } from "@/lib/sidebarNav";
 
 function fullNavigation() {
   return [
@@ -170,6 +170,11 @@ describe("sidebar model", () => {
     isPlatformStaff: true,
   });
 
+  it("sends Home to the dashboard", () => {
+    const home = model.sections.find((section) => section.id === "home");
+    expect(home.url).toBe("/Dashboard");
+  });
+
   it("uses the nine job-order sections", () => {
     expect(model.sections.map((section) => section.label)).toEqual([
       "Home",
@@ -243,6 +248,46 @@ describe("sidebar model", () => {
     expect(names).not.toContain("Competitor Analysis");
     expect(names).toContain("Invoices");
     expect(names).toContain("Sales Performance");
+  });
+
+  it("shows the job sidebar on the menu editor instead of the old groups", () => {
+    const tree = buildSidebarEditorTree();
+    expect(tree.map((section) => section.title)).toEqual([
+      "Home",
+      "Leads & Storms",
+      "Customers & Jobs",
+      "Inspections & Photos",
+      "Estimates & Contracts",
+      "Production / Crew Schedule",
+      "Invoices & Money",
+      "Messages & Marketing",
+      "Automations & AI",
+      "Reports",
+      "Help & Training",
+    ]);
+    expect(tree[0].items.map((item) => item.title)).toEqual([
+      "Dashboard",
+      "Calendar",
+      "Tasks",
+      "Reminders",
+      "Team Activity",
+    ]);
+    expect(JSON.stringify(tree)).not.toContain("AI Tools");
+    expect(JSON.stringify(tree)).not.toContain("Lead Manager");
+
+    const hidden = applySavedMenuToEditor(tree, [
+      { id: "lead-manager", enabled: true, submenuItems: [{ id: "storm-tracking", enabled: false }] },
+    ]);
+    const leads = hidden.find((section) => section.id === "leads");
+    const storm = leads.items.find((item) => item.source === "lead-manager/storm-tracking");
+    expect(storm.enabled).toBe(false);
+
+    const legacy = applyEditorToLegacyMenu(
+      [{ id: "lead-manager", title: "Lead Manager", enabled: true, hasSubmenu: true, submenuItems: [{ id: "storm-tracking", title: "Storm Tracking", enabled: true }, { id: "all-leads", title: "All Leads", enabled: true }] }],
+      hidden
+    );
+    expect(legacy[0].submenuItems.find((item) => item.id === "storm-tracking").enabled).toBe(false);
+    expect(legacy[0].submenuItems.find((item) => item.id === "all-leads").enabled).toBe(true);
   });
 
   it("indexes old names in search text", () => {

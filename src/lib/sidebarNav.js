@@ -35,6 +35,7 @@ const NAV_SECTIONS = [
     label: "Home",
     tooltip: "Your day at a glance",
     icon: "Home",
+    page: "Dashboard",
     items: [
       {
         source: "dashboard",
@@ -976,10 +977,82 @@ function filterTree(nodes, ctx) {
 
 function attachUrls(nodes) {
   return nodes.map((node) => {
-    if (node.items) return { ...node, items: attachUrls(node.items) };
-    const url = node.page ? page(node.page, node.query || "") : node.url;
-    const featureId = node.featureId || (node.source ? node.source.split("/").pop().replace(/^settings:/, "") : node.id);
-    return { ...node, url, featureId };
+    const withItems = node.items ? { ...node, items: attachUrls(node.items) } : node;
+    if (withItems.items && !withItems.page) return withItems;
+    const url = withItems.page ? page(withItems.page, withItems.query || "") : withItems.url;
+    if (withItems.items) return { ...withItems, url };
+    const featureId = withItems.featureId || (withItems.source ? withItems.source.split("/").pop().replace(/^settings:/, "") : withItems.id);
+    return { ...withItems, url, featureId };
+  });
+}
+
+function toEditorNode(node) {
+  if (node.platformOnly) return null;
+  if (node.source?.startsWith("settings:")) return null;
+  if (node.items) {
+    const items = node.items.map(toEditorNode).filter(Boolean);
+    if (items.length === 0) return null;
+    return { id: node.id, title: node.label, items };
+  }
+  if (!node.source) return null;
+  return { id: node.source, title: node.label, source: node.source, enabled: true };
+}
+
+export function buildSidebarEditorTree() {
+  return [...NAV_SECTIONS, ...FOOTER].map(toEditorNode).filter(Boolean);
+}
+
+export function sourceEnabled(source, savedItems) {
+  if (!source || !savedItems?.length) return true;
+  const [parent, child] = source.split("/");
+  const savedParent = savedItems.find((item) => item.id === parent);
+  if (!savedParent) return true;
+  if (savedParent.enabled === false) return false;
+  if (!child) return true;
+  const subs = savedParent.submenuItems || savedParent.submenu || [];
+  const savedSub = subs.find((item) => item.id === child);
+  if (!savedSub) return true;
+  return savedSub.enabled !== false;
+}
+
+export function applySavedMenuToEditor(tree, savedItems) {
+  return tree.map((node) => {
+    if (node.items) {
+      const items = applySavedMenuToEditor(node.items, savedItems);
+      const leaves = [];
+      const collect = (nodes) => nodes.forEach((entry) => (entry.items ? collect(entry.items) : leaves.push(entry)));
+      collect(items);
+      return { ...node, items, enabled: leaves.length ? leaves.some((leaf) => leaf.enabled !== false) : true };
+    }
+    return { ...node, enabled: sourceEnabled(node.source, savedItems) };
+  });
+}
+
+export function applyEditorToLegacyMenu(legacyItems, editorTree) {
+  const enabledBySource = new Map();
+  const walk = (nodes) => {
+    for (const node of nodes || []) {
+      if (node.items) walk(node.items);
+      else if (node.source) enabledBySource.set(node.source, node.enabled !== false);
+    }
+  };
+  walk(editorTree);
+
+  return legacyItems.map((item) => {
+    if (item.submenuItems?.length) {
+      const submenuItems = item.submenuItems.map((sub) => {
+        const key = `${item.id}/${sub.id}`;
+        if (!enabledBySource.has(key)) return sub;
+        return { ...sub, enabled: enabledBySource.get(key) };
+      });
+      const referenced = submenuItems.filter((sub) => enabledBySource.has(`${item.id}/${sub.id}`));
+      const parentEnabled = referenced.length
+        ? referenced.some((sub) => sub.enabled !== false)
+        : (enabledBySource.has(item.id) ? enabledBySource.get(item.id) : item.enabled !== false);
+      return { ...item, enabled: parentEnabled, submenuItems, hasSubmenu: true };
+    }
+    if (!enabledBySource.has(item.id)) return item;
+    return { ...item, enabled: enabledBySource.get(item.id) };
   });
 }
 

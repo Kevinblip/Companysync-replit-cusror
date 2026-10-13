@@ -169,24 +169,40 @@ function NavLeaf({ item, pathname, search, pinned, onTogglePin, onNavigate, show
 function NavGroup({ node, depth, openMap, toggle, pathname, search, pins, onTogglePin, onNavigate, showSubtitle }) {
   const open = !!openMap[node.id];
   const Chevron = open ? ChevronDown : ChevronRight;
+  const openSection = () => {
+    if (node.url) {
+      onNavigate?.(null, node);
+      if (!open) toggle(node.id);
+      return;
+    }
+    toggle(node.id);
+  };
   return (
     <div className={depth > 0 ? "ml-3" : ""}>
-      <button
-        type="button"
-        title={node.tooltip}
-        aria-expanded={open}
-        data-testid={`nav-section-${node.id}`}
-        onClick={() => toggle(node.id)}
-        className="hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 w-full flex items-center justify-between gap-2 min-h-[44px] px-3 py-2"
-      >
-        <span className="flex items-center gap-3 min-w-0">
+      <div className="hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 w-full flex items-center justify-between gap-2 min-h-[44px] px-3 py-2">
+        <button
+          type="button"
+          title={node.url ? `${node.tooltip || node.label}. Opens this section.` : node.tooltip}
+          aria-expanded={open}
+          data-testid={`nav-section-${node.id}`}
+          onClick={openSection}
+          className="flex items-center gap-3 min-w-0 flex-1 text-left"
+        >
           {node.icon && depth === 0 && <Icon name={node.icon} className="w-5 h-5 shrink-0" />}
-          <span className={`font-medium text-left leading-snug ${depth === 0 ? "text-sm" : "text-sm text-blue-100"}`}>
+          <span className={`font-medium leading-snug ${depth === 0 ? "text-sm" : "text-sm text-blue-100"}`}>
             {node.label}
           </span>
-        </span>
-        <Chevron className="w-4 h-4 shrink-0" />
-      </button>
+        </button>
+        <button
+          type="button"
+          data-testid={`nav-section-toggle-${node.id}`}
+          aria-label={open ? `Collapse ${node.label}` : `Expand ${node.label}`}
+          onClick={() => toggle(node.id)}
+          className="shrink-0 rounded-md p-1 hover:bg-white/10"
+        >
+          <Chevron className="w-4 h-4" />
+        </button>
+      </div>
       {open && (
         <div className={`${depth === 0 ? "ml-4" : "ml-2"} mb-1 space-y-0.5`}>
           {node.items.map((child) =>
