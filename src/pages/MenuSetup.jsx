@@ -67,6 +67,7 @@ export default function MenuSetup() {
   // Default menu structure - matches Layout.js navigation items
   const defaultMenuItems = useMemo(() => [
     { id: 'dashboard', title: 'Dashboard', enabled: true, order: 0 },
+    { id: 'my-assignments', title: 'My Assignments', enabled: true, order: 0.2 },
     
     // AI Tools
     {
@@ -119,6 +120,7 @@ export default function MenuSetup() {
         { id: 'items', title: 'Items & Pricing', enabled: true },
         { id: 'commissions', title: 'Commission Tracker', enabled: true },
         { id: 'family-commissions', title: 'Family Commissions', enabled: true },
+        { id: 'rep-performance', title: 'Rep Performance', enabled: true },
       ]
     },
 
@@ -155,6 +157,7 @@ export default function MenuSetup() {
         { id: 'field-sales-tracker', title: 'Field Sales Tracker', enabled: true },
         { id: 'field-rep-app', title: 'Work Territory', enabled: true },
         { id: 'territory-manager', title: 'Territory Manager', enabled: true },
+        { id: 'inspection-routing', title: 'Route Planner', enabled: true },
         { id: 'build-schedule', title: 'Build Schedule', enabled: true },
       ]
     },
@@ -172,10 +175,13 @@ export default function MenuSetup() {
         { id: 'crewcam-capture', title: 'PhotoSync Capture', enabled: true },
         { id: 'ai-damage', title: 'AI Damage Analysis', enabled: true },
         { id: 'subcontractors', title: 'Subcontractors', enabled: true },
+        { id: 'subcontractor-work-orders', title: 'Work Orders', enabled: true },
+        { id: 'labor-rates', title: 'Labor Rates', enabled: true },
         { id: 'tasks', title: 'Tasks', enabled: true },
         { id: 'review-requests', title: 'Review Requests', enabled: true },
-        { id: 'reminders', title: 'Reminders', enabled: true },
+        { id: 'action-items', title: 'Action Items', enabled: true },
         { id: 'projects', title: 'Projects', enabled: true },
+        { id: 'leaderboard', title: 'Leaderboard', enabled: true },
         { id: 'activity', title: 'Activity Feed', enabled: true },
       ]
     },
@@ -185,6 +191,7 @@ export default function MenuSetup() {
 
     // Calendar
     { id: 'calendar', title: 'Calendar', enabled: true, order: 5 },
+    { id: 'reminders', title: 'Reminders', enabled: true, order: 5.5 },
 
     // Communication
     {
@@ -202,7 +209,11 @@ export default function MenuSetup() {
         { id: 'ai-dashboard', title: 'AI Dashboard', enabled: true },
         { id: 'mailbox', title: 'Mailbox', enabled: true },
         { id: 'messages', title: 'Messages', enabled: true },
+        { id: 'team-chat', title: 'Team Chat', enabled: true },
         { id: 'zoom', title: 'Zoom Meeting', enabled: true },
+        { id: 'google-meet', title: 'Google Meet', enabled: true },
+        { id: 'slack', title: 'Slack', enabled: true },
+        { id: 'google-chat', title: 'Google Chat', enabled: true },
       ]
     },
 
@@ -241,6 +252,7 @@ export default function MenuSetup() {
 
     // Knowledge Base
     { id: 'knowledge-base', title: 'Knowledge Base', enabled: true, order: 10 },
+    { id: 'training-videos', title: 'Training Videos', enabled: true, order: 10.5 },
 
     // Subscription
     { id: 'subscription', title: 'Subscription', enabled: true, order: 11 },
