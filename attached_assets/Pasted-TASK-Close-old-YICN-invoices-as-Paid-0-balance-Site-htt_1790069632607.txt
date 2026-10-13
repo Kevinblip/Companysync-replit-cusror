@@ -1,0 +1,133 @@
+TASK: Close old YICN invoices as Paid / $0 balance
+
+Site: https://getcompanysync.com
+
+Tenant: YICN Roofing (Kevin Stone / yicnteam@gmail.com)
+
+Before you start: You must be logged in as a normal YICN user. If you see an IMPERSONATING / “View as” banner, STOP. Exit impersonation, log out of support if needed, and sign in as Kevin Stone. Impersonation returns 403 and blocks invoice writes.
+
+Goal
+Mark the invoices in the ALLOWED LIST as Paid with balance $0.
+
+These are old Soft CRM stubs from 2024–2025. Soft CRM already has the payments (dates listed below). Do NOT re-enter real payment amounts. Just flip status / clear the open balance so CompanySync overdue lists stop showing them.
+
+Hard rules
+ONLY change codes in the ALLOWED LIST.
+LEAVE ALONE forever (2026 is correct as-is):
+All unpaid and partial payments for this year (2026)
+Invoice -10415 (Claude Carson) and everything after Claude on the overdue list
+All INV-2026-* invoices
+Chad Sohl, current jobs, live 2026 balances
+Do NOT create Stripe charges, emails, texts, or QuickBooks syncs.
+Do NOT delete invoices or customers.
+If an invoice is already Paid / $0, skip it.
+If a write fails with 403 / impersonation / permission error, STOP and report that — do not keep trying.
+If you open any 2026 / Claude+ invoice by mistake, close it without saving.
+How to update each invoice
+Go to Invoices (or search the invoice code / customer name).
+Open the invoice.
+Set status to Paid (or “mark as paid”).
+Ensure amount due / balance = $0. Prefer status flip only. If the UI requires a payment line to clear balance, use $0 with a note like “already paid in Soft CRM — status cleanup only.” Never invent a real dollar payment.
+Save.
+Confirm it no longer shows as overdue with a positive balance.
+ALLOWED LIST (mark Paid / $0) — 80 items
+Invoice -10299 — Yasmin Reccord — Soft paid 2024-07-23 to 2024-07-24
+Invoice -10300 — Antony Skaff — Soft paid 2024-08-05 to 2024-09-10
+Invoice -10302 — Doretha Kirtz — Soft paid 2024-07-27
+Invoice -10303 — Lisa Morris — Soft paid 2024-07-30 to 2024-08-01
+Invoice -10305 — Delores Wilkerson — Soft paid 2024-08-06 to 2024-09-05
+Invoice -10306 — Leanna Lampkin — Soft paid 2024-08-26
+Invoice -10309 — Yasmin Reccord — Soft paid 2024-08-31
+Invoice -10308 — Sam Goldshtein — Soft paid 2024-08-31 to 2024-09-03
+Invoice -10307 — Marcie Mclin — Soft paid 2024-09-01
+Invoice -10310 — abbotsinch rental housing — Soft paid 2024-09-03
+Invoice -10312 — Sherry Phillips — Soft paid 2024-09-11 to 2024-09-13
+Invoice -10313 — Thomasina Triplett — Soft paid 2024-09-12 to 2024-10-04
+Invoice -10314 — Sherry Phillips — Soft paid 2024-09-13
+Invoice -10315 — William and Charlene Lynch — Soft paid 2024-09-19 to 2024-10-26
+Invoice -10334 — WAKEEM SABEIHA — Soft paid 2024-10-21
+Invoice -10316 — Debra Williams — Soft paid 2024-09-24 to 2024-10-02
+Invoice -10318 — Ruth Pettigrew — Soft paid 2024-09-27 to 2024-10-04
+Invoice -10338 — Magdalene Fergusen — Soft paid 2024-10-28 to 2024-10-31
+Invoice -10339 — Danielle Bennett — Soft paid 2024-10-26 to 2024-11-08
+Invoice -10340 — Joseph Swartz — Soft paid 2024-10-30 to 2024-11-04
+Invoice -10319 — Evangeline Carothers — Soft paid 2024-09-27 to 2024-10-25
+Invoice -10320 — Ray McGraw — Soft paid 2024-09-29 to 2024-09-30
+Invoice -10323 — Erica Jones-Hayes — Soft paid 2024-10-01 to 2024-10-07
+Invoice -10322 — Bob and Maggie Zellers — Soft paid 2024-10-01
+Invoice -10321 — Shirley Taylor — Soft paid 2024-09-30 to 2024-10-07
+Invoice -10324 — Tim — Soft paid 2024-10-04 to 2024-10-05
+Invoice -10325 — Yasmin Reccord — Soft paid 2024-10-04 to 2024-10-12
+Invoice -10342 — Jim Depompei — Soft paid 2024-11-06
+Invoice -10326 — Dan Novotny — Soft paid 2024-10-21
+Invoice -10343 — Gail Jones — Soft paid 2024-11-06 to 2024-11-13
+Invoice -10328 — Joshua or Joanna Barney — Soft paid 2024-10-01 to 2024-10-10
+Invoice -10327 — Daniel Verhun — Soft paid 2024-10-10 to 2024-10-26
+Invoice -10344 — Fred Bryant — Soft paid 2024-11-11 to 2024-11-14
+Invoice -10329 — Erica Jones-Hayes — Soft paid 2024-10-12 to 2024-10-24
+Invoice -10330 — John Cieslewicz — Soft paid 2024-10-16 to 2024-10-30
+Invoice -10331 — Sam Goldshtein — Soft paid 2024-10-17 to 2024-10-22
+Invoice -10332 — Patricia Woolweaver — Soft paid 2024-09-10 to 2024-10-18
+Invoice -10346 — Darryl Lamb — Soft paid 2024-11-20 to 2024-11-22
+Invoice -10351 — John Doe — Soft paid 2024-12-04
+Invoice -10352 — Dorothy Hawkins — Soft paid 2024-12-05
+Invoice -10353 — Karen Miner — Soft paid 2024-12-10 to 2024-12-11
+Invoice -10358 — Gwendolyn Kern — Soft paid 2024-12-19
+Invoice -10356 — Danielle Roberts — Soft paid 2024-11-29 to 2024-12-19
+Invoice -10357 — LAURITA LARUE — Soft paid 2024-11-29 to 2024-12-19
+Invoice -10359 — Ernest Price — Soft paid 2024-12-27 to 2025-01-07
+Invoice -10361 — Mario Beverly — Soft paid 2025-01-16
+Invoice -10363 — Mario Beverly — Soft paid 2025-01-18
+Invoice -10364 — Nancy Kreigh — Soft paid 2025-02-21
+Invoice -10369 — Davis Yvonne — Soft paid 2025-02-13 to 2025-03-14
+Invoice -10368 — Nancy Kreigh — Soft paid 2025-01-30 to 2025-02-25
+Estimate -10430 — Cheryl Pickens Isaac — Soft paid 2025-10-20
+Invoice -10370 — BARNEY WARD — Soft paid 2025-02-13 to 2025-03-06
+Invoice -10371 — Harris — Soft paid 2025-03-13
+Invoice -10373 — MILDRED SANTIAGO — Soft paid 2025-02-13 to 2025-03-20
+Invoice -10375 — James and Lydia Mayfield — Soft paid 2025-04-03 to 2025-04-11
+Invoice -10378 — Mike savol — Soft paid 2025-04-07 to 2025-04-11
+Invoice -10380 — ANTHONY FURCRON — Soft paid 2025-03-25 to 2025-04-29
+Invoice -10381 — Virginia G Pawlowski — Soft paid 2025-04-21 to 2025-04-24
+Invoice -10384 — Bethany Christian Church — Soft paid 2025-04-28 to 2025-04-29
+Invoice -10385 — Tiran Goins — Soft paid 2025-04-29
+Invoice -10387 — Sherelle Rozier — Soft paid 2025-05-01 to 2025-05-09
+Invoice -10386 — Rashid Hill — Soft paid 2025-05-01 to 2025-05-12
+Invoice -10390 — Edward Simmons — Soft paid 2025-05-16 to 2025-05-19
+Invoice -10391 — Harriet Hadley — Soft paid 2025-05-21 to 2025-05-28
+Invoice -10392 — Harvey Mitchell — Soft paid 2025-05-23 to 2025-06-12
+Invoice -10394 — shirley McCall — Soft paid 2025-05-17
+Invoice -10395 — Jerome Crews — Soft paid 2025-05-29
+Invoice -10398 — Levaties Sands — Soft paid 2025-06-05 to 2025-06-06
+Invoice -10402 — TIA YORK — Soft paid 2025-06-15
+Invoice -10399 — JOSEPH MENEFEE — Soft paid 2025-06-05 to 2025-06-30
+Invoice -10400 — Reginald Fields — Soft paid 2025-07-15
+Invoice -10401 — Fidel — Soft paid 2025-06-27
+Invoice -10404 — LAURA MCLEOD — Soft paid 2025-07-10 to 2025-07-14
+Invoice -10405 — Robert & Ilka Hall — Soft paid 2025-07-15 to 2025-07-23
+Invoice -10406 — AMY DIEFFENBAUCH — Soft paid 2025-07-08 to 2025-07-22
+Invoice -10409 — BLAINE GRIFFIN — Soft paid 2025-07-24 to 2025-08-05
+Invoice -10411 — Thomasina Triplett — Soft paid 2025-07-30
+Invoice -10412 — Vera Thompson — Soft paid 2025-08-09
+Invoice -10413 — William Montgomery — Soft paid 2025-08-08 to 2025-08-25
+Invoice -10414 — Wilbert and Debra Brown — Soft paid 2025-08-14 to 2025-08-17
+
+SKIP — do not touch (no Soft payment evidence)
+INV-001 — John Smith
+INV-002 — Sarah Johnson
+INV-003 — Mike Wilson
+INV-004 — Emily Davis
+Estimate -DRAFT — Cheryl Pickens Isaac
+
+Cutoff
+First active invoice to leave alone: Invoice -10415 — Claude Carson.
+
+Everything on the ALLOWED LIST gets Paid/$0. Claude and after, plus all 2026 unpaid/partials, stay exactly as they are.
+
+When finished, report
+Count marked Paid
+Count already Paid (skipped)
+Count not found
+Count failed (with error text)
+Confirm Claude Carson -10415 and all INV-2026-* / 2026 unpaid & partials were not changed
+Optional: overdue list after vs before

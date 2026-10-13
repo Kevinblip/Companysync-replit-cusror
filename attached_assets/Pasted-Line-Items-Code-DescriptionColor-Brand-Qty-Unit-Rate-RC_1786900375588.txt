@@ -1,0 +1,346 @@
+Line Items
+#	Code	
+DescriptionColor/Brand
+Qty	Unit	Rate	RCV	ACV	
+1	
+Type RFG...
+
+Remove Laminated - comp. shingle rfg. - w/ felt
+11.56
+SQ
+80.44
+$929.89	$929.89	
+
+2	
+Type RFG...
+
+Roofing felt - 15 lb.
+9.54
+SQ
+41.24
+$393.43	$39.34	
+
+3	
+Type RFG...
+
+Ice & water barrier
+202.75
+SF
+2.03
+$411.58	$150.93	
+
+4	
+Type RFG...
+
+Laminated - comp. shingle rfg. - w/out felt
+12.67
+SQ
+283.81
+$3595.87	$1318.61	
+
+5	
+Type RFG...
+
+R&R Hip / Ridge cap - Standard profile - composition shingles
+44.89
+LF
+10.57
+$474.49	$173.99	
+
+6	
+Type RFG...
+
+Detach & Reset Exhaust cap - through roof - 6" to 8"
+1
+EA
+106.01
+$106.01	$106.01	
+
+7	
+Type RFG...
+
+Detach & Reset Roof vent - turtle type - Metal
+4
+EA
+74.33
+$297.32	$297.32	
+
+8	
+Type RFG...
+
+R&R Valley metal - (W) profile
+34.71
+LF
+8.78
+$304.75	$139.30	
+
+9	
+Type RFG...
+
+Remove Flashing - pipe jack - lead
+1
+EA
+9.75
+$9.75	$9.75	
+
+10	
+Type RFG...
+
+Install Flashing - pipe jack - lead
+1
+EA
+41.51
+$41.51	$18.97	
+
+11	
+Type RFG...
+
+Remove Additional charge for steep roof - 10/12 - 12/12 slope
+10.72
+SQ
+27.95
+$299.62	$299.62	
+
+12	
+Type RFG...
+
+Additional charge for steep roof - 10/12 - 12/12 slope
+10.72
+SQ
+84.6
+$906.91	$906.91	
+
+13	
+Type RFG...
+
+Digital satellite system - Detach & reset
+1
+EA
+51.18
+$51.18	$51.18	
+
+14	
+Type RFG...
+
+R&R Gutter guard/screen
+12.5
+LF
+5.47
+$68.38	$6.84	
+
+15	
+Type RFG...
+
+R&R Window screen, 1 - 9 SF
+1
+EA
+49.41
+$49.41	$18.12	
+
+16	
+Type RFG...
+
+R&R Wrap wood window frame & trim with aluminum sheet
+2
+EA
+346.67
+$693.34	$429.87	
+
+17	
+Type RFG...
+
+R&R Wrap wood window frame & trim with aluminum sheet - Large
+1
+EA
+466.18
+$466.18	$289.03	
+
+18	
+Type RFG...
+
+R&R Wrap wood door frame & trim with aluminum (PER LF)
+16
+LF
+23.65
+$378.40	$234.61	
+
+19	
+Type RFG...
+
+R&R Gutter / downspout - aluminum - up to 5"
+10
+LF
+11.29
+$112.90	$27.10	
+
+20	
+Type RFG...
+
+R&R Wrap wood window frame & trim with aluminum sheet
+2
+EA
+346.67
+$693.34	$429.87	
+
+21	
+Type RFG...
+
+R&R Gutter guard/screen
+30.83
+LF
+5.47
+$168.64	$16.86	
+
+22	
+Type RFG...
+
+R&R Wrap wood window frame & trim with aluminum sheet
+2
+EA
+346.67
+$693.34	$429.87	
+
+23	
+Type RFG...
+
+R&R Wrap wood window frame & trim with aluminum sheet
+1
+EA
+346.67
+$346.67	$214.94	
+
+24	
+Type RFG...
+
+Remove 3 tab - 25 yr. - composition shingle roofing - incl. felt
+5.92
+SQ
+77.59
+$459.33	$459.33	
+
+25	
+Type RFG...
+
+Roofing felt - 15 lb.
+5.92
+SQ
+41.24
+$244.14	$24.41	
+
+26	
+Type RFG...
+
+3 tab - 25 yr. - comp. shingle roofing - w/out felt
+6.67
+SQ
+263.79
+$1759.48	$422.28	
+
+27	
+Type RFG...
+
+Drip edge
+49.16
+LF
+3.19
+$156.82	$71.68	
+
+28	
+Type RFG...
+
+Add. layer of comp. shingles, remove & disp. - 3 tab
+5.92
+SQ
+49.43
+$292.63	$292.63	
+
+29	
+Type RFG...
+
+Detach & Reset Roof vent - turtle type - Metal
+2
+EA
+74.33
+$148.66	$148.66	
+
+30	
+Type RFG...
+
+R&R Gutter / downspout - aluminum - up to 5"
+24.58
+LF
+11.29
+$277.51	$66.60	
+
+31	
+Type RFG...
+
+R&R Gutter / downspout - aluminum - up to 5"
+10
+LF
+11.29
+$112.90	$27.10	
+
+32	
+Type RFG...
+
+R&R Gutter / downspout - aluminum - up to 5"
+24.58
+LF
+11.29
+$277.51	$66.60	
+
+33	
+Type RFG...
+
+Haul debris - per pickup truck load - including dump fees
+0.5
+EA
+199.88
+$99.94	$99.94	
+
+34	
+Type RFG...
+
+Window labor minimum
+1
+EA
+255.23
+$255.23	$255.23	
+
+35	
+TAX
+
+Sales Tax (materials)
+1
+LS
+315.71
+$315.71	$315.71	
+
+36	
+Type RFG...
+
+Starter Strip
+150
+LF
+0
+$0.00	$0.00	
+
+37	
+Type RFG...
+
+Roofing Nails
+1
+EA
+0
+$0.00	$0.00	
+
+38	
+Type RFG...
+
+Step Flashing
+25
+LF
+0
+$0.00	$0.00	
+

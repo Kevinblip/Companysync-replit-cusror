@@ -1,0 +1,49 @@
+================================================
+SNIPPET 06: KnowledgeBase.jsx UI/UX Fixes
+================================================
+FILE: src/pages/KnowledgeBase.jsx
+DEPLOY TO: Base44 Frontend
+
+CHANGES SUMMARY:
+1. Fixed article viewer showing raw HTML tags - now properly renders HTML content
+2. Fixed card preview showing raw HTML - now strips tags for clean text preview
+3. Replaced ALL emoji icons with Lucide React icons (Wrench, DollarSign, etc.)
+4. Cleaned up info banner - shorter, professional, no emojis
+5. Removed emojis from all toast messages, labels, and UI text
+
+KEY CHANGES:
+
+A) NEW IMPORTS (add to lucide-react imports):
+   Wrench, DollarSign, ClipboardList, HelpCircle, Settings, Package,
+   Users, Video, StickyNote, FolderOpen, PlusCircle, Info, Lightbulb, PlayCircle
+
+B) CATEGORY ICONS - Replace emoji-based categories with icon map:
+   const categoryIconMap = {
+     services: Wrench,
+     pricing: DollarSign,
+     policies: ClipboardList,
+     faq: HelpCircle,
+     processes: Settings,
+     products: Package,
+     team: Users,
+     "Training Videos": Video,
+     other: StickyNote,
+   };
+
+C) HELPER FUNCTIONS (add before return statement):
+   - getCategoryIcon(value) - returns Lucide icon component
+   - stripHtmlTags(html) - strips HTML for card previews
+   - contentHasHtml(content) - detects if content has HTML tags
+
+D) ARTICLE VIEWER - Dual rendering:
+   - If content has HTML tags -> use dangerouslySetInnerHTML with styled classes
+   - If content is markdown -> use ReactMarkdown (existing behavior)
+
+E) CARD PREVIEW - Changed from dangerouslySetInnerHTML to:
+   <p className="text-sm text-gray-500 mt-1 line-clamp-2">
+     {stripHtmlTags(article.content)}
+   </p>
+
+================================================
+FULL FILE REPLACEMENT NEEDED - See src/pages/KnowledgeBase.jsx
+================================================

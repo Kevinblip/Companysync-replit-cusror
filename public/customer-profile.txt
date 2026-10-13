@@ -1,0 +1,539 @@
+
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  User,
+  Phone,
+  Mail,
+  MapPin,
+  ArrowLeft,
+  DollarSign,
+  FileText,
+  Plus,
+  CheckCircle2,
+  Trash2,
+  Pencil
+} from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import QuickTaskDialog from "@/components/tasks/QuickTaskDialog";
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+
+function CustomerProfile() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [customerName, setCustomerName] = useState(null);
+  const [user, setUser] = useState(null);
+  const [showTaskDialog, setShowTaskDialog] = useState(false);
+
+  useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { company: myCompany } = useCurrentCompany(user);
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const name = urlParams.get('name');
+    if (name) {
+      setCustomerName(decodeURIComponent(name));
+    }
+  }, []);
+
+  const { data: customers = [] } = useQuery({
+    queryKey: ['customers', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Customer.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const customer = customers.find(c => c.name === customerName);
+
+  const { data: estimates = [] } = useQuery({
+    queryKey: ['customer-estimates', customerName, myCompany?.id],
+    queryFn: () => (customerName && myCompany) ? base44.entities.Estimate.filter({ customer_name: customerName, company_id: myCompany.id }) : [],
+    enabled: !!customerName && !!myCompany,
+    initialData: [],
+  });
+
+  const { data: invoices = [] } = useQuery({
+    queryKey: ['customer-invoices', customerName, myCompany?.id],
+    queryFn: () => (customerName && myCompany) ? base44.entities.Invoice.filter({ customer_name: customerName, company_id: myCompany.id }) : [],
+    enabled: !!customerName && !!myCompany,
+    initialData: [],
+  });
+
+  const { data: payments = [] } = useQuery({
+    queryKey: ['customer-payments', customerName, myCompany?.id],
+    queryFn: () => (customerName && myCompany) ? base44.entities.Payment.filter({ customer_name: customerName, company_id: myCompany.id }) : [],
+    enabled: !!customerName && !!myCompany,
+    initialData: [],
+  });
+
+  const [showEditPaymentDialog, setShowEditPaymentDialog] = useState(false);
+  const [editPaymentForm, setEditPaymentForm] = useState({
+    id: null,
+    amount: '',
+    payment_method: 'cash',
+    payment_date: new Date().toISOString().split('T')[0],
+    invoice_number: '',
+    reference_number: '',
+    notes: ''
+  });
+
+  // 🗑️ Delete payment mutation
+  const deletePaymentMutation = useMutation({
+    mutationFn: (paymentId) => base44.entities.Payment.delete(paymentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+    }
+  });
+
+  // 🔥 Create payment with unified notification system
+  const createPaymentMutation = useMutation({
+    mutationFn: async (paymentData) => {
+      const newPayment = await base44.entities.Payment.create(paymentData);
+
+      if (paymentData.invoice_number) {
+        try {
+          await base44.functions.invoke('recalculateInvoicePayments', {
+            invoice_number: paymentData.invoice_number
+          });
+        } catch (error) {
+          console.warn('Invoice recalculation failed (non-critical):', error);
+        }
+      }
+
+      try {
+        await base44.functions.invoke('universalNotificationDispatcher', {
+          action: 'create',
+          entityType: 'Payment',
+          entityId: newPayment.id,
+          entityData: newPayment,
+          companyId: myCompany.id
+        });
+      } catch (error) {
+        console.error('Notification dispatcher failed:', error);
+      }
+
+      // Trigger workflow
+      if (myCompany?.id) {
+        try {
+          await base44.functions.invoke('triggerWorkflow', {
+            triggerType: 'payment_received',
+            companyId: myCompany.id,
+            entityType: 'Payment',
+            entityId: newPayment.id,
+            entityData: {
+              payment_number: newPayment.payment_number,
+              customer_name: newPayment.customer_name,
+              amount: newPayment.amount,
+              payment_method: newPayment.payment_method
+            }
+          });
+        } catch (error) {
+          console.error('Workflow trigger failed (non-critical):', error);
+        }
+      }
+
+      return newPayment;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+    }
+  });
+
+  const updatePaymentMutation = useMutation({
+    mutationFn: async () => {
+      if (!editPaymentForm.id) throw new Error('No payment selected');
+      const updated = await base44.entities.Payment.update(editPaymentForm.id, {
+        amount: parseFloat(editPaymentForm.amount),
+        payment_method: editPaymentForm.payment_method,
+        payment_date: editPaymentForm.payment_date,
+        reference_number: editPaymentForm.reference_number || '',
+        notes: editPaymentForm.notes || '',
+        invoice_number: (editPaymentForm.invoice_number || '').trim()
+      });
+      if (updated.invoice_number) {
+        try { await base44.functions.invoke('recalculateInvoicePayments', { invoice_number: updated.invoice_number }); } catch (_) {}
+      }
+      return updated;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-invoices'] });
+      setShowEditPaymentDialog(false);
+    }
+  });
+
+  if (!customer) {
+    return (
+      <div className="p-6">
+        <Card>
+          <CardContent className="p-12 text-center">
+            <p className="text-gray-500 mb-4">Customer not found</p>
+            <Button onClick={() => navigate(createPageUrl('Customers'))}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Customers
+            </Button>
+          </CardContent>
+          </Card>
+          <QuickTaskDialog
+          open={showTaskDialog}
+          onOpenChange={setShowTaskDialog}
+          relatedTo={customer}
+          relationType="customer"
+          />
+          </div>
+          );
+          }
+
+          const totalRevenue = payments
+    .filter(p => p.status === 'received')
+    .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+  const totalEstimates = estimates.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const totalInvoices = invoices.reduce((sum, i) => sum + (i.amount || 0), 0);
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="outline"
+            onClick={() => navigate(createPageUrl('Customers'))}
+          >
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back
+          </Button>
+          <div className="flex-1">
+            <h1 className="text-3xl font-bold">{customer.name}</h1>
+            {customer.company && <p className="text-gray-500">{customer.company}</p>}
+          </div>
+          <Button
+            onClick={() => setShowTaskDialog(true)}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Related Task
+          </Button>
+        </div>
+      </div>
+
+      {/* Quick Stats - NOW CLICKABLE */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => navigate(createPageUrl('Payments'))}>
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                <DollarSign className="w-6 h-6 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Total Revenue</p>
+                <p className="text-2xl font-bold">${totalRevenue.toFixed(2)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => navigate(createPageUrl('Estimates'))}>
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                <FileText className="w-6 h-6 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Estimates</p>
+                <p className="text-2xl font-bold">{estimates.length}</p>
+                <p className="text-xs text-gray-400">${totalEstimates.toFixed(2)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => navigate(createPageUrl('Invoices'))}>
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                <FileText className="w-6 h-6 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Invoices</p>
+                <p className="text-2xl font-bold">{invoices.length}</p>
+                <p className="text-xs text-gray-400">${totalInvoices.toFixed(2)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Contact Info */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Contact Information</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex items-center gap-3">
+              <User className="w-5 h-5 text-gray-400" />
+              <div>
+                <p className="text-sm text-gray-500">Name</p>
+                <p className="font-medium">{customer.name}</p>
+              </div>
+            </div>
+
+            {customer.email && (
+              <div className="flex items-center gap-3">
+                <Mail className="w-5 h-5 text-gray-400" />
+                <div>
+                  <p className="text-sm text-gray-500">Email</p>
+                  <p className="font-medium">{customer.email}</p>
+                </div>
+              </div>
+            )}
+
+            {customer.phone && (
+              <div className="flex items-center gap-3">
+                <Phone className="w-5 h-5 text-gray-400" />
+                <div>
+                  <p className="text-sm text-gray-500">Phone</p>
+                  <p className="font-medium">{customer.phone}</p>
+                </div>
+              </div>
+            )}
+
+            {customer.phone_2 && (
+              <div className="flex items-center gap-3">
+                <Phone className="w-5 h-5 text-gray-400" />
+                <div>
+                  <p className="text-sm text-gray-500">Phone 2</p>
+                  <p className="font-medium">{customer.phone_2}</p>
+                </div>
+              </div>
+            )}
+
+            {customer.address && (
+              <div className="flex items-center gap-3">
+                <MapPin className="w-5 h-5 text-gray-400" />
+                <div>
+                  <p className="text-sm text-gray-500">Address</p>
+                  <p className="font-medium">{customer.address}</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {customer.notes && (
+            <div className="pt-4 border-t">
+              <p className="text-sm text-gray-500 mb-2">Notes</p>
+              <p className="text-gray-700">{customer.notes}</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Recent Estimates - NOW CLICKABLE */}
+      {estimates.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Estimates ({estimates.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {estimates.slice(0, 5).map(estimate => (
+                <div 
+                  key={estimate.id} 
+                  onClick={() => navigate(createPageUrl('EstimateEditor') + '?estimate_id=' + estimate.id)}
+                  className="flex justify-between items-center p-3 border rounded hover:bg-blue-50 cursor-pointer transition-all hover:shadow-md"
+                >
+                  <div>
+                    <p className="font-medium text-blue-600 hover:underline">{estimate.estimate_number}</p>
+                    <Badge variant="outline" className="mt-1">{estimate.status}</Badge>
+                  </div>
+                  <p className="font-bold text-green-600">${(estimate.amount || 0).toFixed(2)}</p>
+                </div>
+              ))}
+            </div>
+            {estimates.length > 5 && (
+              <Button 
+                variant="outline" 
+                className="w-full mt-4"
+                onClick={() => navigate(createPageUrl('Estimates'))}
+              >
+                View All Estimates
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Payments */}
+      {payments.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Payments ({payments.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {payments.map(payment => (
+                <div 
+                  key={payment.id} 
+                  className="flex justify-between items-center p-3 border rounded hover:bg-gray-50 transition-all"
+                >
+                  <div>
+                    <p className="font-medium">{payment.payment_number || payment.id}</p>
+                    <p className="text-sm text-gray-500">{payment.payment_date}</p>
+                    <Badge variant="outline" className="mt-1">{payment.payment_method}</Badge>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <p className="font-bold text-green-600">${(payment.amount || 0).toFixed(2)}</p>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-blue-600 hover:bg-blue-50"
+                      title="Edit payment"
+                      onClick={() => {
+                        setEditPaymentForm({
+                          id: payment.id,
+                          amount: String(payment.amount || ''),
+                          payment_method: payment.payment_method || 'cash',
+                          payment_date: payment.payment_date || new Date().toISOString().split('T')[0],
+                          invoice_number: payment.invoice_number || '',
+                          reference_number: payment.reference_number || '',
+                          notes: payment.notes || ''
+                        });
+                        setShowEditPaymentDialog(true);
+                      }}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        if (window.confirm('Are you sure you want to delete this payment?')) {
+                          deletePaymentMutation.mutate(payment.id);
+                        }
+                      }}
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Recent Invoices - NOW CLICKABLE */}
+      {invoices.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Invoices ({invoices.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {invoices.slice(0, 5).map(invoice => (
+                <div 
+                  key={invoice.id} 
+                  onClick={() => navigate(createPageUrl('invoice-details') + '?invoice_id=' + invoice.id)}
+                  className="flex justify-between items-center p-3 border rounded hover:bg-purple-50 cursor-pointer transition-all hover:shadow-md"
+                >
+                  <div>
+                    <p className="font-medium text-purple-600 hover:underline">{invoice.invoice_number}</p>
+                    <Badge variant="outline" className="mt-1">{invoice.status}</Badge>
+                  </div>
+                  <p className="font-bold text-green-600">${(invoice.amount || 0).toFixed(2)}</p>
+                </div>
+              ))}
+            </div>
+            {invoices.length > 5 && (
+              <Button 
+                variant="outline" 
+                className="w-full mt-4"
+                onClick={() => navigate(createPageUrl('Invoices'))}
+              >
+                View All Invoices
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Edit Payment Dialog */}
+      <Dialog open={showEditPaymentDialog} onOpenChange={setShowEditPaymentDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Payment</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={(e)=>{e.preventDefault(); updatePaymentMutation.mutate();}} className="space-y-4">
+            <div>
+              <Label>Amount *</Label>
+              <Input type="number" step="0.01" value={editPaymentForm.amount} onChange={(e)=>setEditPaymentForm({...editPaymentForm, amount: e.target.value})} required />
+            </div>
+            <div>
+              <Label>Payment Date *</Label>
+              <Input type="date" value={editPaymentForm.payment_date} onChange={(e)=>setEditPaymentForm({...editPaymentForm, payment_date: e.target.value})} required />
+            </div>
+            <div>
+              <Label>Payment Method *</Label>
+              <Select value={editPaymentForm.payment_method} onValueChange={(v)=>setEditPaymentForm({...editPaymentForm, payment_method: v})}>
+                <SelectTrigger><SelectValue placeholder="Select method"/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="check">Check</SelectItem>
+                  <SelectItem value="credit_card">Credit Card</SelectItem>
+                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                  <SelectItem value="paypal">PayPal</SelectItem>
+                  <SelectItem value="stripe">Stripe</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Invoice Number</Label>
+              <Input value={editPaymentForm.invoice_number} onChange={(e)=>setEditPaymentForm({...editPaymentForm, invoice_number: e.target.value})} placeholder="e.g., INV-2032" />
+            </div>
+            <div>
+              <Label>Reference Number</Label>
+              <Input value={editPaymentForm.reference_number} onChange={(e)=>setEditPaymentForm({...editPaymentForm, reference_number: e.target.value})} />
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Textarea rows={3} value={editPaymentForm.notes} onChange={(e)=>setEditPaymentForm({...editPaymentForm, notes: e.target.value})} />
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={()=>setShowEditPaymentDialog(false)}>Cancel</Button>
+              <Button type="submit" className="bg-blue-600 hover:bg-blue-700">Save Changes</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <QuickTaskDialog
+        open={showTaskDialog}
+        onOpenChange={setShowTaskDialog}
+        relatedTo={customer}
+        relationType="customer"
+      />
+    </div>
+  );
+}
+
+export default CustomerProfile;

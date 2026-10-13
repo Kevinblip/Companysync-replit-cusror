@@ -1,0 +1,301 @@
+The complete code involves a backend function to generate the PDF and frontend logic to prepare the image data and call that function.
+
+Here's the full backend function functions/generateCrewCamPDF.js:
+
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
+import { jsPDF } from 'npm:jspdf@2.5.1';
+
+Deno.serve(async (req) => {
+  try {
+    const base44 = createClientFromRequest(req);
+    const user = await base44.auth.me();
+
+    if (!user) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { jobId, imagesData, sectionNotes, inspectorSignature } = await req.json();
+
+    console.log(`📄 Generating PDF for job ${jobId} with ${imagesData?.length || 0} images`);
+
+    // Fetch job details
+    const jobs = await base44.entities.InspectionJob.filter({ id: jobId });
+    const job = jobs[0];
+
+    if (!job) {
+      return Response.json({ error: 'Job not found' }, { status: 404 });
+    }
+
+    // Fetch company details
+    const companies = await base44.entities.Company.filter({ id: job.company_id });
+    const company = companies[0];
+
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 15;
+    const contentWidth = pageWidth - (margin * 2);
+
+    // Cover page
+    if (company?.logo_url) {
+      try {
+        doc.addImage(company.logo_url, 'PNG', margin, margin, 40, 40);
+      } catch (error) {
+        console.log('⚠️ Could not add company logo');
+      }
+    }
+
+    doc.setFontSize(24);
+    doc.text('Inspection Report', margin, 70);
+    
+    doc.setFontSize(12);
+    doc.text(`Property: ${job.property_address || 'N/A'}`, margin, 85);
+    doc.text(`Client: ${job.client_name || 'N/A'}`, margin, 92);
+    doc.text(`Date: ${new Date(job.inspection_date || job.created_date).toLocaleDateString()}`, margin, 99);
+    if (job.insurance_claim_number) {
+      doc.text(`Claim #: ${job.insurance_claim_number}`, margin, 106);
+    }
+
+    // Group images by section
+    const imagesBySection = {};
+    if (imagesData && Array.isArray(imagesData)) {
+      imagesData.forEach(item => {
+        const section = item.section || 'Other';
+        if (!imagesBySection[section]) {
+          imagesBySection[section] = [];
+        }
+        imagesBySection[section].push(item);
+      });
+    }
+
+    console.log(`📸 Grouped into ${Object.keys(imagesBySection).length} sections`);
+
+    // Add sections with photos
+    for (const [section, images] of Object.entries(imagesBySection)) {
+      doc.addPage();
+      
+      doc.setFontSize(18);
+      doc.text(section, margin, margin + 10);
+      
+      if (sectionNotes && sectionNotes[section]) {
+        doc.setFontSize(10);
+        const lines = doc.splitTextToSize(sectionNotes[section], contentWidth);
+        doc.text(lines, margin, margin + 20);
+      }
+
+      let yPos = margin + 40;
+      
+      // Process images 2 per page
+      for (let i = 0; i < images.length; i += 2) {
+        // Check if we need a new page
+        if (i > 0) {
+          doc.addPage();
+          doc.setFontSize(18);
+          doc.text(`${section} (continued)`, margin, margin + 10);
+          yPos = margin + 25;
+        }
+
+        // First image (top half of page)
+        const firstItem = images[i];
+        if (firstItem) {
+          try {
+            const imageData = firstItem.imageBase64;
+            
+            if (imageData) {
+              const imgWidth = contentWidth;
+              const imgHeight = 80;
+              
+              doc.addImage(imageData, 'JPEG', margin, yPos, imgWidth, imgHeight);
+              yPos += imgHeight + 3;
+
+              if (firstItem.caption) {
+                doc.setFontSize(9);
+                doc.setTextColor(100);
+                doc.text(firstItem.caption, margin, yPos);
+                yPos += 6;
+                doc.setTextColor(0);
+              }
+              
+              console.log(`✅ Added image ${i + 1} to ${section}`);
+            }
+          } catch (error) {
+            console.error(`❌ Error adding image ${i + 1}:`, error);
+          }
+        }
+
+        yPos += 5; // Space between images
+
+        // Second image (bottom half of page)
+        const secondItem = images[i + 1];
+        if (secondItem) {
+          try {
+            const imageData = secondItem.imageBase64;
+            
+            if (imageData) {
+              const imgWidth = contentWidth;
+              const imgHeight = 80;
+              
+              doc.addImage(imageData, 'JPEG', margin, yPos, imgWidth, imgHeight);
+              yPos += imgHeight + 3;
+
+              if (secondItem.caption) {
+                doc.setFontSize(9);
+                doc.setTextColor(100);
+                doc.text(secondItem.caption, margin, yPos);
+                doc.setTextColor(0);
+              }
+              
+              console.log(`✅ Added image ${i + 2} to ${section}`);
+            }
+          } catch (error) {
+            console.error(`❌ Error adding image ${i + 2}:`, error);
+          }
+        }
+      }
+    }
+
+    // Inspector signature
+    if (inspectorSignature) {
+      doc.addPage();
+      doc.setFontSize(16);
+      doc.text('Inspector Signature', margin, margin + 10);
+      
+      try {
+        doc.addImage(inspectorSignature, 'PNG', margin, margin + 20, 80, 30);
+        console.log('✅ Added inspector signature');
+      } catch (error) {
+        console.error('❌ Error adding signature:', error);
+      }
+    }
+
+    console.log('✅ PDF generation complete');
+
+    const pdfBytes = doc.output('arraybuffer');
+
+    return new Response(pdfBytes, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename=inspection-${jobId}.pdf`
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ PDF Generation Error:', error);
+    return Response.json({ 
+      error: error.message,
+      stack: error.stack 
+    }, { status: 500 });
+  }
+});
+Here's an example of how you would integrate this into the frontend (e.g., within pages/InspectionReports.jsx or similar, potentially adding a new button next to "View Details" to generate the report):
+
+// ... keep existing code (imports) ...
+import { Button } from '@/components/ui/button';
+import { FileText } from 'lucide-react'; // Import for the PDF icon
+// ... keep existing code (component definition and state) ...
+
+export default function InspectionReports() {
+  // ... keep existing code (state, queries, mutations) ...
+
+  const handleGeneratePdf = async (job) => {
+    // Fetch all media for the selected job
+    const jobMedia = media.filter(m => m.related_entity_id === job.id && m.file_type === 'photo');
+
+    // Convert images to base64
+    const imagesData = await Promise.all(
+      jobMedia.map(async (photo) => {
+        try {
+          const response = await fetch(photo.file_url);
+          const blob = await response.blob();
+          const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          
+          return {
+            section: photo.section,
+            caption: photo.caption,
+            imageBase64: base64
+          };
+        } catch (error) {
+          console.error(`Failed to convert image ${photo.file_url} to base64:`, error);
+          return null; // Handle errors gracefully
+        }
+      })
+    );
+    
+    // Filter out any images that failed to convert
+    const validImagesData = imagesData.filter(Boolean);
+
+    // Prepare section notes (if any)
+    const sectionNotes = {}; // You might gather these from another source or user input
+
+    // Prepare inspector signature (if available on the job object)
+    const inspectorSignature = job.inspector_signature;
+
+    try {
+      const response = await base44.functions.invoke('generateCrewCamPDF', {
+        jobId: job.id,
+        imagesData: validImagesData,
+        sectionNotes,
+        inspectorSignature
+      });
+
+      // Assuming the function returns a raw PDF file as response.data
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `inspection-report-${job.property_address.replace(/[^a-z0-9]/gi, '_')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+      toast.success('PDF report generated successfully!');
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      toast.error('Failed to generate PDF report.');
+    }
+  };
+
+  return (
+    // ... keep existing code (JSX before job list) ...
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {filteredJobs.map(job => (
+                    <Card key={job.id}>
+                        {/* ... keep existing code (CardHeader) ... */}
+                        <CardContent className="space-y-3">
+                            {/* ... keep existing code (media items, created date) ... */}
+                            <div className="flex gap-2">
+                                <Button 
+                                  asChild 
+                                  variant="outline"
+                                  className="flex-1"
+                                >
+                                    <Link to={createPageUrl(`InspectionCapture?id=${job.id}`)}>View Details</Link>
+                                </Button>
+                                {/* Add the new button here */}
+                                <Button
+                                  variant="default" // You can choose a different variant
+                                  className="flex-1"
+                                  onClick={() => handleGeneratePdf(job)}
+                                >
+                                  <FileText className="w-4 h-4 mr-2" /> Generate PDF
+                                </Button>
+                                {/* ... keep existing code (trash button) ... */}
+                            </div>
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+    // ... keep existing code (rest of the component) ...
+  );
+}

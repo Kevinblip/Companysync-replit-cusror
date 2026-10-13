@@ -1,0 +1,50 @@
+HARD RULES
+- Do not Publish.
+- Do not change YICN / Insurance Claims Network customer, lead, invoice, Twilio, or staff records.
+- Do not run Auto Setup, Launch Checklist, or cleanupYICNAndCreateSaaS.
+- Do not delete Wizard Test Co or Wizard Test Two.
+- Do not remove DATABASE_URL.
+- Do not mention Resend. Email is Postmark and Amazon SES.
+- Do not log into the YICN tenant. Test only on Wizard Test Co / a dummy job.
+- Do not add Hover or EagleView as an API, SDK, or required upload.
+- Do not send house photos to Gemini (or any LLM) to invent roof/wall squares or mesh vertices.
+- List files changed. Stop. Do not Publish.
+
+DELETE (required)
+Remove the second capture UI entirely: the "8-position house capture" / tap-to-add Front, Front-Right, Right, Back-Right, Back, Back-Left, Left, Front-Left wizard (address-first empty slots, "Generate is locked. Missing: …"). Delete its routes/components from the estimator. Do not leave two capture screens. Do not hide it behind a flag — remove it.
+
+KEEP (required)
+Keep the existing "Measure Siding from House Photos" UI only:
+- House / Garage
+- Photos Only / Satellite / Manual
+- "Upload All Photos — AI Auto-Classifies Angles"
+- Live Photo + Upload
+- Grid: BL, Back, BR, Left, HOUSE, Right, FL, Front, FR (+ detail slots)
+Do not make the user tap eight empty slots if they dump a folder.
+
+ONE MEASUREMENT SYSTEM (wire under that kept UI)
+1) Roof / footprint
+   - Require property address.
+   - Use the EXISTING Google Solar API for roof planes / area / footprint.
+   - Label results "Satellite takeoff" (source = Google Solar). Never "AI photo measure" for squares.
+2) Walls / materials / openings
+   - Use the classified 8 photos for: stories, vinyl vs stone vs stucco, window/door/garage counts, garage side (left vs right), access notes.
+   - Gemini (or existing vision) may ONLY classify materials/openings/notes — NEVER invent squares or coordinates.
+3) Scale
+   - If structure = House: scale from something ON the house (attached garage door default 16 ft double / 8 ft single, or entry door, or typed length). Detached-garage door must NOT scale the house.
+   - If structure = Garage / Shed: garage-door scale applies to that building only.
+4) Estimate output
+   - Roof numbers from Solar (+ waste %).
+   - Wall/siding from photo counts + Solar footprint / story height as a range with confidence — not a fake precise 32.4.
+   - No exploded 3D / fake 48×9 "NOT PHOTOGRAPHED" boxes on this flow.
+5) Generate / Measure stays usable on the KEPT upload grid. If corners are missing, warn and lower confidence — do not force a second wizard.
+
+VERIFY IN PREVIEW
+- Only one photo capture UI on the estimator (the auto-classify grid). New 8-position wizard is gone.
+- Bulk upload still auto-fills FL/Front/FR/etc.
+- Address + Solar produces roof takeoff labeled satellite.
+- Photos contribute materials/openings/notes, not invented squares.
+- House vs Garage scale rules work as above.
+- Do not email. Do not Publish.
+
+When done, list files changed. Stop. Do not Publish.

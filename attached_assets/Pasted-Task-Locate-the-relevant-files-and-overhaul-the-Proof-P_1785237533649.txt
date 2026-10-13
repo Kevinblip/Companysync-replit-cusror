@@ -1,0 +1,42 @@
+Task: Locate the relevant files and overhaul the "Proof Package" generation flow to create a highly structured "Claims Defense File" PDF. Then, implement front-end validation in the Inspection Capture screen to strictly enforce evidence collection.
+
+Phase 1: Discovery & Targeting
+
+Search the codebase to locate the specific component handling the InspectionCapture screen (specifically the area with "Section Notes" and "Scope of Work" dictation).
+
+Search the codebase to locate the utility or function responsible for generating the PDF when the "Proof Package" button is clicked.
+
+Once located, proceed to Phase 2.
+
+Phase 2: Keyword-Triggered Validation (Inspection Capture Screen)
+
+Monitor the state of the dictation and text inputs within the Section Notes and Scope of Work fields.
+
+If trigger keywords such as "two layers," "organic," "brittle," or "discontinued" are detected, conditionally render a blocking UI modal/alert.
+
+This modal must prevent the user from finalizing the inspection until they upload specific macro photos into a newly revealed "Technical Evidence" section.
+
+Required forced-capture fields upon trigger:
+
+Core Sample (cross-section showing all layers).
+
+Measurement Proof (tape measure in frame showing dimensions).
+
+Repairability Test (3-photo sequence showing material failure).
+
+Phase 3: The Proof Package PDF Generation (The 4 Layers)
+When the user clicks the Proof Package button, the exported document must abandon the standard grid layout and automatically structure the data into four distinct sections:
+
+Layer 1: Visual Proof (Wide-to-Tight): Force the first page to be Property Verification (Address photo + Front, Right, Rear, Left elevations). Subsequent pages must group photos strictly by their assigned Roof Plane category (e.g., all "Right Slope" photos together), prioritizing 10x10 test square photos.
+
+Layer 2: Technical & Material Proof: Create a dedicated page in the PDF specifically for the photos captured during the keyword-trigger event. Include default hardcoded captions under these photos indicating that localized repairs are not viable.
+
+Layer 3: Regulatory & Building Code: Implement a dynamic mapping module that checks the property's state/zip. For Ohio properties, automatically append a text block citing the 2019 Residential Code of Ohio, Section 908.3 (Roof replacement), which mandates full tear-off and restricts installation over two existing layers.
+
+Layer 4: Storm Verification: Generate a "Storm Summary" cover card that pairs the Date of Loss with fields for hail size, max wind gusts, and radar confirmation for the exact property address.
+
+Phase 4: Technical Directives
+
+Update the state management in the capture component to handle an isEvidenceBlocked boolean based on the dictation triggers.
+
+Modify the existing PDF export utility to accommodate the strict 4-layer layout, ensuring page breaks occur logically between the different evidence layers.

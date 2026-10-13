@@ -1,0 +1,53 @@
+Replit Prompt: The "Proof Package" Implementation
+Objective: Create a new "Proof Package" feature that allows users to bundle the existing AI Inspection Report with uploaded Xactimate/Symbility estimates and storm data into a single, shareable portal for adjusters.
+
+Phase 1: Database & File Handling
+New Schema: Create a proof_packages table (or object in your DB). It should link to a jobId and store:
+
+estimate_url: URL to the uploaded Xactimate/Symbility PDF.
+
+storm_report_url: URL to a linked weather report.
+
+package_status: (Draft, Sent, Viewed).
+
+Upload Logic: Update the existing "Link Estimate" button on the InspectionCapture page to allow a PDF upload. Store this file in the existing storage bucket under a /estimates folder.
+
+Phase 2: The UI Extension (Non-Destructive)
+Modify the Header: On the InspectionCapture page, change the "View PDF" button to a primary action called "Generate Proof Package."
+
+The Package Modal: When clicked, open a modal that allows the user to toggle:
+
+[ ] Include AI Photo Annotations (Pull from existing AI analysis).
+
+[ ] Include Xactimate Estimate (If uploaded).
+
+[ ] Include Company Branding/Logo.
+
+The PDF Engine: Use pdf-lib to merge the existing Inspection Report PDF with the Uploaded Estimate PDF.
+
+Constraint: Do not modify the existing generateInspectionPDF function. Create a new function bundleProofPackage that calls the existing one and appends the new files.
+
+Phase 3: The Adjuster Portal (The "Share" Feature)
+Public Route: Create a new, unauthenticated (but obfuscated) route: getcompanysync.com/share/[unique-hash].
+
+The "Source of Truth" View: This page should be a clean, high-end dashboard for the adjuster. It should display:
+
+The Company Sync severity scores (e.g., "SEV 10 Wind").
+
+A high-res gallery of the AI Annotated photos.
+
+A "Download Full Package" button.
+
+🛡️ Will this break anything?
+Short answer: No, provided you follow these "Vibe Coding" safety rules:
+
+Modular Addition: Tell Replit: "Create a NEW file called ProofPackageService.js for all this logic. Do not add it to the main App.js or InspectionCapture.js files." This keeps your working code "clean."
+
+State Management: Since you are already passing jobId through the URL, the new feature just needs to "peek" at that ID to see if an estimate is linked. It won't interfere with your current AI photo-sorting logic.
+
+Dry Run: Before merging, ask Replit to "Review the existing InspectionCapture component and ensure that adding the new 'Share' modal doesn't trigger a re-render loop on the AI analysis."
+
+The "Pro" Touch for Adjusters
+To truly make their job easier, instruct Replit to add a "Repairability Statement" at the bottom of the package. If your AI detects "3-tab shingles" and "granule loss," have the system auto-generate a sentence like:
+
+"Due to the extent of granule loss and the discontinued nature of this 3-tab shingle, a standard repair is not feasible per manufacturer specifications."

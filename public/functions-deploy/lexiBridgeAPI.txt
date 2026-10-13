@@ -1,0 +1,456 @@
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+
+function jsonResponse(data: any, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+async function checkAndTrackAI(base44: any, companyId: string, featureType = 'ai_interaction'): Promise<{ allowed: boolean; remaining?: number; error?: string }> {
+  try {
+    const companies = await base44.asServiceRole.entities.Company.filter({ id: companyId });
+    const company = companies[0];
+    if (!company) return { allowed: true };
+    
+    const isCompanySync = company.company_name === 'CompanySync';
+    if (isCompanySync) return { allowed: true };
+
+    const usageRecords = await base44.asServiceRole.entities.SubscriptionUsage.filter({ company_id: companyId });
+    if (usageRecords.length === 0) return { allowed: true };
+    
+    const usage = usageRecords[0];
+    const limit = (usage.ai_limit || 0) + (usage.ai_credits_purchased || 0);
+    const used = usage.ai_used || 0;
+    
+    if (limit > 0 && used >= limit) {
+      return { allowed: false, remaining: 0, error: 'AI interaction limit reached. Please upgrade your plan or purchase additional credits.' };
+    }
+    
+    return { allowed: true, remaining: limit > 0 ? limit - used : -1 };
+  } catch (err: any) {
+    console.warn('[lexiBridgeAPI] AI usage check failed, allowing:', err.message);
+    return { allowed: true };
+  }
+}
+
+async function incrementAIUsage(base44: any, companyId: string): Promise<void> {
+  try {
+    const companies = await base44.asServiceRole.entities.Company.filter({ id: companyId });
+    const company = companies[0];
+    if (company?.company_name === 'CompanySync') return;
+
+    const usageRecords = await base44.asServiceRole.entities.SubscriptionUsage.filter({ company_id: companyId });
+    if (usageRecords.length === 0) return;
+    
+    const usage = usageRecords[0];
+    await base44.asServiceRole.entities.SubscriptionUsage.update(usage.id, {
+      ai_used: (usage.ai_used || 0) + 1
+    });
+  } catch (err: any) {
+    console.warn('[lexiBridgeAPI] AI usage increment failed:', err.message);
+  }
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      },
+    });
+  }
+
+  if (req.method !== 'POST') {
+    return jsonResponse({ error: 'Method not allowed. Use POST.' }, 405);
+  }
+
+  try {
+    const base44 = createClientFromRequest(req);
+
+    const authHeader = req.headers.get('Authorization');
+    const expectedSecret = Deno.env.get('LEXI_NATIVE_BRIDGE_SECRET');
+
+    if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+
+    let body: any;
+    try {
+      body = await req.json();
+    } catch (_e) {
+      return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    }
+
+    const { action, companyId, userEmail, data } = body;
+
+    if (!action) {
+      return jsonResponse({ error: 'Missing required field: action' }, 400);
+    }
+
+    switch (action) {
+      case 'getSettings': {
+        if (!companyId) {
+          return jsonResponse({ error: 'Missing companyId' }, 400);
+        }
+
+        const settingsRows = await base44.asServiceRole.entities.AssistantSettings.filter({
+          company_id: companyId,
+        });
+        const settings = settingsRows[0] || {};
+
+        const companies = await base44.asServiceRole.entities.Company.filter({ id: companyId });
+        const company = companies[0];
+        const companyName = settings.brand_short_name || company?.company_name || 'our company';
+        const rawName = settings.assistant_name || 'lexi';
+        const assistantDisplayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+        const companyTimezone = company?.timezone || 'America/New_York';
+
+        let knowledgeBase = '';
+        try {
+          const memories = await base44.asServiceRole.entities.AIMemory.filter({
+            company_id: companyId,
+            is_active: true
+          }, '-importance', 100);
+
+          if (memories && memories.length > 0) {
+            knowledgeBase = memories.map((m: any) => `- ${m.title}: ${m.content}`).join('\n');
+          }
+        } catch (err: any) {
+          console.warn('[lexiBridgeAPI] Knowledge base load failed:', err.message);
+        }
+
+        let customerList = '';
+        try {
+          const customers = await base44.asServiceRole.entities.Customer.filter(
+            { company_id: companyId }, '-created_date', 50
+          );
+          if (customers.length > 0) {
+            customerList = customers.map((c: any) => `${c.name} (${c.email || c.phone || 'no contact'})`).join(', ');
+          }
+        } catch (err: any) {
+          console.warn('[lexiBridgeAPI] Customer list load failed:', err.message);
+        }
+
+        let staffList: any[] = [];
+        try {
+          const staff = await base44.asServiceRole.entities.StaffProfile.filter(
+            { company_id: companyId }, '-created_date', 50
+          );
+          staffList = staff.map((s: any) => ({ name: s.full_name, email: s.user_email, role: s.role_name }));
+        } catch (err: any) {
+          console.warn('[lexiBridgeAPI] Staff list load failed:', err.message);
+        }
+
+        return jsonResponse({
+          settings,
+          companyName,
+          assistantName: assistantDisplayName,
+          timezone: companyTimezone,
+          knowledgeBase,
+          customerList,
+          staffList,
+        });
+      }
+
+      case 'executeTool': {
+        if (!companyId || !data?.toolName) {
+          return jsonResponse({ error: 'Missing companyId or data.toolName' }, 400);
+        }
+
+        const aiCheck = await checkAndTrackAI(base44, companyId);
+        if (!aiCheck.allowed) {
+          return jsonResponse({ 
+            success: false, 
+            result: { error: aiCheck.error || 'AI limit reached' },
+            limit_reached: true 
+          }, 429);
+        }
+
+        const effectiveUserEmail = userEmail || 'system@lexibridge';
+        const toolName = data.toolName;
+        const args = data.args || {};
+
+        console.log(`[lexiBridgeAPI] Executing tool: ${toolName}`, JSON.stringify(args).substring(0, 200));
+
+        const isAdmin = true;
+
+        try {
+          let result: any = null;
+
+          if (toolName === 'get_crm_data') {
+            const dataType = args.data_type;
+            if (dataType === 'customers') {
+              const items = await base44.asServiceRole.entities.Customer.filter({ company_id: companyId }, '-created_date', 200);
+              result = { count: items.length, sample: items.slice(0, 20).map((c: any) => ({ name: c.name, email: c.email, phone: c.phone })) };
+            } else if (dataType === 'leads') {
+              const items = await base44.asServiceRole.entities.Lead.filter({ company_id: companyId }, '-created_date', 200);
+              result = { count: items.length, sample: items.slice(0, 20).map((l: any) => ({ name: l.name, status: l.status, phone: l.phone })) };
+            } else if (dataType === 'estimates') {
+              const items = await base44.asServiceRole.entities.Estimate.filter({ company_id: companyId }, '-created_date', 200);
+              result = { count: items.length };
+            } else if (dataType === 'invoices') {
+              const items = await base44.asServiceRole.entities.Invoice.filter({ company_id: companyId }, '-created_date', 200);
+              const total = items.reduce((sum: number, inv: any) => sum + (inv.amount || 0), 0);
+              const paid = items.reduce((sum: number, inv: any) => sum + (inv.amount_paid || 0), 0);
+              result = { count: items.length, total_revenue: total, total_paid: paid };
+            } else if (dataType === 'tasks') {
+              const items = await base44.asServiceRole.entities.Task.filter({ company_id: companyId }, '-created_date', 200);
+              result = { count: items.length, sample: items.slice(0, 10).map((t: any) => ({ name: t.name, status: t.status })) };
+            } else if (dataType === 'projects') {
+              const items = await base44.asServiceRole.entities.Project.filter({ company_id: companyId }, '-created_date', 200);
+              result = { count: items.length };
+            } else if (dataType === 'payments') {
+              const items = await base44.asServiceRole.entities.Payment.filter({ company_id: companyId }, '-created_date', 200);
+              const total = items.reduce((sum: number, pmt: any) => sum + (pmt.amount || 0), 0);
+              result = { count: items.length, total_amount: total };
+            } else if (dataType === 'staff') {
+              const items = await base44.asServiceRole.entities.StaffProfile.filter({ company_id: companyId }, '-created_date', 200);
+              result = { count: items.length, staff: items.map((s: any) => ({ name: s.full_name, email: s.user_email, role: s.role_name })) };
+            } else if (dataType === 'calendar_events') {
+              const items = await base44.asServiceRole.entities.CalendarEvent.filter({ company_id: companyId }, '-created_date', 200);
+              result = { count: items.length, events: items.slice(0, 20).map((e: any) => ({ title: e.title, start: e.start_time })) };
+            }
+            await incrementAIUsage(base44, companyId);
+            return jsonResponse({ success: true, result });
+          }
+
+          if (toolName === 'get_calendar_events') {
+            const startDate = args.start_date;
+            const endDate = args.end_date || startDate;
+            const allEvents = await base44.asServiceRole.entities.CalendarEvent.filter({ company_id: companyId }, '-start_time', 1000);
+            const events = allEvents.filter((e: any) => {
+              if (!e.start_time) return false;
+              try {
+                const eventDate = new Date(e.start_time).toISOString().split('T')[0];
+                return eventDate >= startDate && eventDate <= endDate;
+              } catch { return false; }
+            }).map((e: any) => ({ title: e.title, start: e.start_time, end: e.end_time, status: e.status }));
+            await incrementAIUsage(base44, companyId);
+            return jsonResponse({ success: true, result: { count: events.length, events } });
+          }
+
+          if (toolName === 'create_calendar_event') {
+            let startTime = args.start_time;
+            let endTime = args.end_time;
+            if (!endTime) {
+              const d = new Date(startTime);
+              d.setHours(d.getHours() + 1);
+              endTime = d.toISOString();
+            }
+            const eventData = {
+              title: args.title,
+              start_time: startTime,
+              end_time: endTime,
+              location: args.location || '',
+              description: args.description || '',
+              event_type: args.event_type || 'meeting',
+              status: 'scheduled',
+              company_id: companyId,
+              assigned_to: effectiveUserEmail,
+              created_by: effectiveUserEmail,
+              send_email_notification: true,
+            };
+            const event = await base44.asServiceRole.entities.CalendarEvent.create(eventData);
+
+            try {
+              await base44.asServiceRole.functions.invoke('syncCRMToGoogleCalendar', { eventId: event.id });
+            } catch (syncErr: any) {
+              console.warn('[lexiBridgeAPI] Google Calendar sync failed:', syncErr.message);
+            }
+
+            await incrementAIUsage(base44, companyId);
+            return jsonResponse({
+              success: true,
+              result: {
+                event_id: event.id,
+                title: args.title,
+                start_time: startTime,
+                end_time: endTime,
+                message: `Event "${args.title}" created successfully`
+              }
+            });
+          }
+
+          if (toolName === 'create_task') {
+            const task = await base44.asServiceRole.entities.Task.create({
+              ...args,
+              company_id: companyId,
+              assigned_to: effectiveUserEmail,
+              assigned_to_users: [effectiveUserEmail]
+            });
+            await incrementAIUsage(base44, companyId);
+            return jsonResponse({ success: true, result: { task_id: task.id, name: args.name } });
+          }
+
+          if (toolName === 'create_lead') {
+            const lead = await base44.asServiceRole.entities.Lead.create({
+              ...args,
+              company_id: companyId,
+              status: 'new',
+              lead_source: 'Lexi AI (Native Voice)',
+              source: 'ai',
+              assigned_to: effectiveUserEmail,
+              assigned_to_users: [effectiveUserEmail]
+            });
+            await incrementAIUsage(base44, companyId);
+            return jsonResponse({ success: true, result: { lead_id: lead.id, name: args.name, message: `Lead "${args.name}" created.` } });
+          }
+
+          if (toolName === 'create_customer') {
+            const customer = await base44.asServiceRole.entities.Customer.create({
+              ...args,
+              company_id: companyId,
+              assigned_to: effectiveUserEmail,
+              assigned_to_users: [effectiveUserEmail]
+            });
+            await incrementAIUsage(base44, companyId);
+            return jsonResponse({ success: true, result: { customer_id: customer.id, name: args.name } });
+          }
+
+          if (toolName === 'send_sms') {
+            await incrementAIUsage(base44, companyId);
+            return jsonResponse({
+              success: true,
+              result: { pending_confirmation: true, message: `SMS to ${args.to}: "${args.message}" - Confirm to send.` }
+            });
+          }
+
+          if (toolName === 'send_email') {
+            await incrementAIUsage(base44, companyId);
+            return jsonResponse({
+              success: true,
+              result: { pending_confirmation: true, message: `Email to ${args.to}, subject "${args.subject}" - Confirm to send.` }
+            });
+          }
+
+          if (toolName === 'manage_entity') {
+            const { entity_action, entity_name, entity_data, entity_id } = args;
+            const normalizedEntity = entity_name.charAt(0).toUpperCase() + entity_name.slice(1);
+
+            if (!base44.asServiceRole.entities[normalizedEntity]) {
+              return jsonResponse({ success: false, result: { error: `Entity type '${normalizedEntity}' not found.` } });
+            }
+
+            let entityResult: any;
+            if (entity_action === 'create') {
+              entityResult = await base44.asServiceRole.entities[normalizedEntity].create({
+                ...entity_data,
+                company_id: companyId
+              });
+            } else if (entity_action === 'update') {
+              entityResult = await base44.asServiceRole.entities[normalizedEntity].update(entity_id, entity_data);
+            } else if (entity_action === 'delete') {
+              await base44.asServiceRole.entities[normalizedEntity].delete(entity_id);
+              entityResult = { deleted: true };
+            } else if (entity_action === 'list') {
+              entityResult = await base44.asServiceRole.entities[normalizedEntity].filter({ company_id: companyId }, '-created_date', 20);
+            }
+            await incrementAIUsage(base44, companyId);
+            return jsonResponse({ success: true, result: entityResult });
+          }
+
+          if (toolName === 'assign_inspection') {
+            const inspectionData = {
+              company_id: companyId,
+              client_name: args.client_name,
+              client_phone: args.client_phone || '',
+              client_email: args.client_email || '',
+              property_address: args.property_address,
+              assigned_to_email: args.assigned_to_email,
+              scheduled_date: args.inspection_date || null,
+              inspection_time: args.inspection_time || null,
+              damage_type: args.damage_type || '',
+              special_instructions: args.special_instructions || '',
+              status: 'assigned'
+            };
+            const inspection = await base44.asServiceRole.entities.InspectionJob.create(inspectionData);
+
+            if (args.create_calendar_event && args.inspection_date && args.inspection_time) {
+              const dateTime = new Date(`${args.inspection_date}T${args.inspection_time}:00`);
+              const endTime = new Date(dateTime.getTime() + 60 * 60 * 1000);
+              await base44.asServiceRole.entities.CalendarEvent.create({
+                company_id: companyId,
+                title: `Inspection: ${args.client_name}`,
+                description: `Property: ${args.property_address}\nDamage: ${args.damage_type || 'N/A'}`,
+                start_time: dateTime.toISOString(),
+                end_time: endTime.toISOString(),
+                event_type: 'inspection',
+                assigned_to: args.assigned_to_email,
+                location: args.property_address,
+              });
+            }
+
+            if (args.create_lead) {
+              await base44.asServiceRole.entities.Lead.create({
+                company_id: companyId,
+                name: args.client_name,
+                phone: args.client_phone || '',
+                email: args.client_email || '',
+                street: args.property_address,
+                status: 'new',
+                source: 'ai',
+                assigned_to: args.assigned_to_email,
+                assigned_to_users: [args.assigned_to_email],
+              });
+            }
+
+            await incrementAIUsage(base44, companyId);
+            return jsonResponse({
+              success: true,
+              result: {
+                inspection_id: inspection.id,
+                message: `Inspection assigned to ${args.assigned_to_email} at ${args.property_address}`
+              }
+            });
+          }
+
+          return jsonResponse({ success: false, result: { error: `Unknown tool: ${toolName}` } });
+
+        } catch (toolError: any) {
+          console.error(`[lexiBridgeAPI] Tool error (${toolName}):`, toolError.message);
+          return jsonResponse({ success: false, result: { error: toolError.message } });
+        }
+      }
+
+      case 'saveVoiceSession': {
+        if (!companyId) {
+          return jsonResponse({ error: 'Missing companyId' }, 400);
+        }
+
+        const durationSec = data?.duration_seconds || 0;
+        const transcript = data?.transcript || '';
+        const toolCallsMade = data?.tool_calls_made || [];
+        const sessionUser = data?.user_email || userEmail || 'Unknown';
+
+        await base44.asServiceRole.entities.Communication.create({
+          company_id: companyId,
+          contact_name: sessionUser,
+          contact_phone: '',
+          communication_type: 'call',
+          direction: 'inbound',
+          subject: 'Lexi Native Voice Session',
+          message: transcript || `Lexi native voice session. Duration: ${Math.round(durationSec)}s.${toolCallsMade.length > 0 ? ' Tools: ' + toolCallsMade.join(', ') : ''}`,
+          status: 'completed',
+          duration: Math.round(durationSec),
+          ai_analyzed: true,
+          ai_data: {
+            mode: 'native_sts',
+            tools_used: toolCallsMade,
+            is_internal: true,
+          }
+        });
+
+        return jsonResponse({ success: true, message: 'Voice session saved.' });
+      }
+
+      default:
+        return jsonResponse({ error: `Unknown action: ${action}` }, 400);
+    }
+  } catch (error: any) {
+    console.error('[lexiBridgeAPI] Error:', error.message);
+    return jsonResponse({ error: error.message }, 500);
+  }
+});

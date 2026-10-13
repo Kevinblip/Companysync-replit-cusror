@@ -1,0 +1,1859 @@
+Your Workflows
+Search name, description, trigger or tag...
+
+All folders
+Emergency Response - Urgent Situations
+Active
+Immediately alerts your team when AI detects emergency situations (storms, leaks, urgent damage) so you can respond within minutes
+
+Trigger: ai communication logged
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Estimate Follow-up Sequence
+Active
+Automatically follow up with customers after sending an estimate
+
+Trigger: estimate created
+4 executions
+Last run: Feb 18, 4:58 PM
+Automation Flow (4 steps)
+
+View All
+1
+wait
+⏱️ Wait 2 days
+
+2
+send email
+To: customer
+
+"Following up on Estimate {estimate_number}"
+
+3
+wait
+⏱️ Wait 2 days
+
++1 more step
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Referral Request After Payment
+Active
+Ask for referrals after customer pays invoice
+
+Trigger: payment received
+0 executions
+Automation Flow (2 steps)
+
+View All
+1
+send email
+⏱️ Wait 3 days
+
+To: customer
+
+"Love Your Experience? Earn $100 Per Referral! 💰"
+
+2
+send sms
+⏱️ Wait 5 days
+
+To: customer
+
+"💰 Earn $100 for EVERY friend you refer to {company_name}! U..."
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Payment Received Thank You
+Active
+Thank customers for timely payment and build loyalty
+
+Trigger: payment received
+0 executions
+Automation Flow (2 steps)
+
+View All
+1
+send email
+⏱️ Wait 60 minutes
+
+To: customer
+
+"Payment Received - Thank You! 🎉"
+
+2
+send sms
+⏱️ Wait 120 minutes
+
+To: customer
+
+"Payment received! Thank you {customer_name}! 🎉 We appreciat..."
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Invoice Payment Reminders
+Active
+Send payment reminders at 3, 7, and 14 days after invoice due date
+
+Trigger: invoice created
+1 executions
+Last run: Jan 28, 6:09 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Seasonal Maintenance Reminder
+Active
+Remind customers about seasonal roof maintenance
+
+Trigger: customer created
+27 executions
+Last run: Feb 19, 1:10 PM
+Automation Flow (2 steps)
+
+View All
+1
+send email
+⏱️ Wait 90 days
+
+To: customer
+
+"Time for Your Free Roof Inspection! - {company_name}"
+
+2
+send sms
+⏱️ Wait 91 days
+
+To: customer
+
+"Hi {customer_name}! Time for your FREE seasonal roof inspect..."
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Estimate Accepted - Thank You
+Active
+Thank customer and set expectations after estimate acceptance
+
+Trigger: estimate accepted
+0 executions
+Automation Flow (3 steps)
+
+View All
+1
+send email
+"Thank You for Choosing {company_name}! 🎉"
+
+2
+send sms
+⏱️ Wait 5 minutes
+
+"🎉 Thank you for choosing {company_name}! We'll call you wit..."
+
+3
+create task
+⏱️ Wait 60 minutes
+
+"URGENT: Schedule Project for {customer_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+New Lead Welcome Sequence
+Active
+Automatically welcome new leads and nurture them over 7 days
+
+Trigger: lead created
+22 executions
+Last run: Mar 1, 1:12 PM
+Automation Flow (3 steps)
+
+View All
+1
+send email
+To: lead
+
+"Welcome to {company_name} - Your Free Inspection Awaits!"
+
+2
+send sms
+⏱️ Wait 15 minutes
+
+To: lead
+
+"Hi {lead_name}! This is {company_name}. Thanks for your inte..."
+
+3
+create task
+⏱️ Wait 1 day
+
+To: yicnteam@gmail.com
+
+"PRIORITY: Call {lead_name} - New Lead Follow-Up"
+
+Test
+Test with Kevin Stone
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Invoice Payment Reminder
+Active
+Remind customers about overdue invoices
+
+Trigger: invoice overdue
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Estimate Sent Follow-Up
+Active
+Follow up after sending an estimate to increase conversion
+
+Trigger: estimate created
+4 executions
+Last run: Feb 18, 4:58 PM
+Automation Flow (3 steps)
+
+View All
+1
+send email
+To: customer
+
+"Your {company_name} Estimate #{estimate_number} is Ready!"
+
+2
+send sms
+⏱️ Wait 1 day
+
+To: customer
+
+"Hi {customer_name}! Did you get a chance to review your esti..."
+
+3
+create task
+⏱️ Wait 3 days
+
+To: yicnteam@gmail.com
+
+"Follow Up: {customer_name} - Estimate #{estimate_number}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Hot Lead Alert
+Active
+Notify team when a lead becomes hot
+
+Trigger: lead created
+23 executions
+Last run: Mar 1, 1:12 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Test with Kevin Stone
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Service Anniversary Check-In
+Inactive
+Check in with customers 1 year after service
+
+Trigger: project completed
+0 executions
+Automation Flow (2 steps)
+
+View All
+1
+send email
+⏱️ Wait 365 days
+
+To: customer
+
+"Happy 1-Year Anniversary from {company_name}! 🎉"
+
+2
+send sms
+⏱️ Wait 366 days
+
+To: customer
+
+"🎉 1 year anniversary! {company_name} wants to offer you 20%..."
+
+Test
+Activate
+View Workflow
+Edit with AI
+Edit Steps
+
+Customer Birthday/Anniversary
+Inactive
+Send personalized wishes and special offers on special occasions
+
+Trigger: customer created
+27 executions
+Last run: Feb 19, 1:10 PM
+Automation Flow (2 steps)
+
+View All
+1
+send email
+⏱️ Wait 365 days
+
+To: customer
+
+"🎂 Happy Birthday from {company_name}! Special Gift Inside"
+
+2
+send sms
+⏱️ Wait 365 days
+
+To: customer
+
+"🎂 Happy Birthday {customer_name}! Here's 25% OFF any servic..."
+
+Test
+Activate
+View Workflow
+Edit with AI
+Edit Steps
+
+Invoice Payment Reminder - 7 Days Overdue
+Active
+Sends a more urgent reminder when invoice is 7 days past due
+
+Trigger: invoice overdue
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Estimate Accepted - Create Invoice
+Active
+When customer accepts estimate, send thank you and create invoice
+
+Trigger: estimate accepted
+0 executions
+Automation Flow (2 steps)
+
+View All
+1
+send email
+To: {customer_email}
+
+"Thank you! Your project is confirmed"
+
+2
+create task
+To: {created_by}
+
+"Create invoice for {customer_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Hot Lead - Immediate Follow-up
+Active
+Automatically responds when AI detects a high-intent lead (someone requesting quotes, showing positive interest, or ready to buy)
+
+Trigger: ai communication logged
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+New Estimate Follow-up
+Active
+Automatically follow up with customers who receive estimates
+
+Trigger: estimate created
+4 executions
+Last run: Feb 18, 4:58 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Post-Inspection Follow-Up
+Active
+Follow up after free inspections to convert to estimates
+
+Trigger: appointment completed
+0 executions
+Automation Flow (3 steps)
+
+View All
+1
+send email
+⏱️ Wait 60 minutes
+
+To: customer
+
+"Thanks for Meeting with {company_name}!"
+
+2
+create task
+⏱️ Wait 120 minutes
+
+To: yicnteam@gmail.com
+
+"Create Estimate for {customer_name}"
+
+3
+send sms
+⏱️ Wait 1 day
+
+To: customer
+
+"Hi {customer_name}! Your estimate from {company_name} is rea..."
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Review Request Campaign
+Active
+Systematic approach to collect more 5-star reviews
+
+Trigger: project completed
+0 executions
+Automation Flow (3 steps)
+
+View All
+1
+send email
+⏱️ Wait 2 days
+
+To: customer
+
+"⭐ We'd Love Your Feedback, {customer_name}!"
+
+2
+send sms
+⏱️ Wait 5 days
+
+To: customer
+
+"Hi {customer_name}! Quick request - would love if you could ..."
+
+3
+create task
+⏱️ Wait 10 days
+
+To: yicnteam@gmail.com
+
+"Personal Call: Request Review from {customer_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Emergency Storm Response
+Active
+Reach out to customers after major storms in their area
+
+Trigger: lead created
+24 executions
+Last run: Mar 1, 1:12 PM
+Automation Flow (3 steps)
+
+View All
+1
+send email
+To: lead
+
+"🚨 Storm Damage? {company_name} is Here to Help!"
+
+2
+send sms
+⏱️ Wait 30 minutes
+
+To: lead
+
+"🚨 Storm damage in {service_area}? {company_name} offers FRE..."
+
+3
+create task
+⏱️ Wait 60 minutes
+
+To: yicnteam@gmail.com
+
+"🚨 URGENT: Storm Lead - {lead_name}"
+
+Test
+Test with Kevin Stone
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Invoice Payment Reminder - Detailed
+Active
+Send payment reminders for overdue invoices
+
+Trigger: invoice overdue
+0 executions
+Automation Flow (3 steps)
+
+View All
+1
+send email
+To: customer
+
+"Friendly Reminder: Invoice #{invoice_number} from {company_name}"
+
+2
+send sms
+⏱️ Wait 2 days
+
+To: customer
+
+"Hi {customer_name}, Invoice #{invoice_number} for {amount} i..."
+
+3
+create task
+⏱️ Wait 5 days
+
+To: yicnteam@gmail.com
+
+"URGENT: Collection Call - {customer_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Invoice Payment Reminder - 14 Days Overdue
+Active
+Final notice before collections when invoice is 14 days past due
+
+Trigger: invoice overdue
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Project Completion Follow-Up
+Active
+Thank customer, request review, and ask for referrals after project completion
+
+Trigger: project completed
+0 executions
+Automation Flow (3 steps)
+
+View All
+1
+send email
+⏱️ Wait 1 day
+
+To: customer
+
+"Thank You from {company_name}! How Did We Do?"
+
+2
+send sms
+⏱️ Wait 3 days
+
+To: customer
+
+"Hi {customer_name}! Hope you're loving your new roof! 😊 Qui..."
+
+3
+send email
+⏱️ Wait 7 days
+
+To: customer
+
+"Love Your New Roof? Share the Love! $100 Referral Bonus"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Abandoned Estimate Recovery
+Active
+Win back customers who viewed but did not accept estimates
+
+Trigger: estimate created
+4 executions
+Last run: Feb 18, 4:58 PM
+Automation Flow (3 steps)
+
+View All
+1
+send email
+⏱️ Wait 7 days
+
+To: customer
+
+"Still Thinking About Your Roofing Project? Let's Talk!"
+
+2
+send sms
+⏱️ Wait 7 days
+
+To: customer
+
+"Hi {customer_name}! Still interested in your roofing project..."
+
+3
+create task
+⏱️ Wait 8 days
+
+To: yicnteam@gmail.com
+
+"Win-Back Call: {customer_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Quote Request Automation
+Active
+Streamlines the estimate process when AI detects someone asking about pricing, estimates, or 'how much' questions
+
+Trigger: ai communication logged
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Invoice Payment Reminder - 3 Days Overdue
+Active
+Automatically sends a friendly reminder email when an invoice is 3 days past due
+
+Trigger: invoice overdue
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Lost Lead Win-Back Campaign
+Active
+One last attempt to win back leads marked as lost
+
+Trigger: lead created
+23 executions
+Last run: Mar 1, 1:12 PM
+Automation Flow (2 steps)
+
+View All
+1
+send email
+⏱️ Wait 14 days
+
+To: lead
+
+"One Last Chance - Special Offer from {company_name}"
+
+2
+send sms
+⏱️ Wait 14 days
+
+To: lead
+
+"Last chance! {company_name} offering 10% OFF just for you. 7..."
+
+Test
+Test with Kevin Stone
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Customer Updated Notification
+Active
+Notify when customer details are updated
+
+Trigger: customer updated
+2 executions
+Last run: Jan 28, 2:45 PM
+Automation Flow (1 steps)
+
+View All
+1
+send notification
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Estimate Sent Notification
+Active
+Notify staff when estimate is sent
+
+Trigger: estimate sent
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"📤 Estimate Sent: {estimate_number}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Event Created Notification
+Active
+Notify attendees when a calendar event is created
+
+Trigger: event created
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: {attendees}
+
+"📅 New Event: {event_title}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Task Assigned Notification
+Active
+Notify when task is assigned to someone
+
+Trigger: task assigned
+16 executions
+Last run: Feb 19, 1:16 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: {assigned_to_email}
+
+"📋 New Task Assigned: {task_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+New Proposal Created
+Active
+Notify when a new proposal is created
+
+Trigger: proposal created
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"📄 New Proposal: {proposal_number}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Inspection Completed Alert
+Active
+Notify when drone inspection is completed with AI analysis
+
+Trigger: inspection completed
+1 executions
+Last run: Feb 12, 4:49 AM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"🔍 Drone Inspection Complete: {property_address}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Task Completed Notification
+Active
+Notify when task is marked as completed
+
+Trigger: task completed
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"✅ Task Completed: {task_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Staff Profile Updated
+Active
+Notify admins when staff profile is updated
+
+Trigger: staff updated
+4 executions
+Last run: Feb 20, 7:26 AM
+Automation Flow (1 steps)
+
+View All
+1
+send notification
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Lead Status Changed
+Active
+Notify when lead moves through pipeline
+
+Trigger: lead status changed
+1 executions
+Last run: Feb 14, 10:16 AM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"🎯 Lead Status Updated: {lead_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Project Status Changed
+Active
+Notify when project status changes
+
+Trigger: project status changed
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"📊 Project Update: {project_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+New Customer Welcome
+Active
+Send welcome email when a new customer is created
+
+Trigger: customer created
+26 executions
+Last run: Feb 19, 1:10 PM
+Automation Flow (2 steps)
+
+View All
+1
+send email
+To: customer
+
+"Welcome to {company_name}! 🎉"
+
+2
+send email
+To: yicnteam@gmail.com
+
+"🆕 New Customer Added: {customer_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+New Staff Member Welcome
+Active
+Send welcome email when new staff is created
+
+Trigger: staff created
+1 executions
+Last run: Jan 14, 4:54 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: {staff_email}
+
+"Welcome to {company_name}!"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Event Rescheduled Alert
+Active
+Notify when an event is rescheduled
+
+Trigger: event rescheduled
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: {attendees}
+
+"⏰ Event Rescheduled: {event_title}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Proposal Accepted
+Active
+Notify when a proposal is accepted
+
+Trigger: proposal accepted
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"✅ Proposal Accepted: {proposal_number}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+New Lead Alert
+Active
+Send email when a new lead is created
+
+Trigger: lead created
+24 executions
+Last run: Mar 1, 1:12 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"🎯 New Lead: {lead_name}"
+
+Test
+Test with Kevin Stone
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Payment Received Alert
+Active
+Notify when a payment is received
+
+Trigger: payment received
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"💰 Payment Received: ${amount}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Task Comment Notification
+Active
+Notify when someone comments on a task
+
+Trigger: task commented
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: {assigned_to_email}
+
+"💬 New Comment on Task: {task_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Payment Receipt to Customer
+Active
+Send receipt when payment is received
+
+Trigger: payment received
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: {customer_email}
+
+"Payment Receipt - ${amount}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Invoice Created Notification
+Active
+Notify when invoice is created
+
+Trigger: invoice created
+1 executions
+Last run: Jan 28, 6:09 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Proposal Status Changed
+Active
+Notify when proposal status changes
+
+Trigger: proposal status changed
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"📋 Proposal Update: {proposal_number}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Invoice Paid Notification
+Active
+Celebrate payments!
+
+Trigger: invoice paid
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+New Customer Notification
+Active
+Welcome new customers
+
+Trigger: customer created
+24 executions
+Last run: Feb 19, 1:10 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Proposal Created Notification
+Active
+Notify when new proposal is created
+
+Trigger: proposal created
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"📋 New Proposal Created: {proposal_number}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Send Inspection Assignment Notifications
+Active
+Automatically send email and SMS to inspector and client when inspection is assigned
+
+Trigger: task status changed
+0 executions
+Automation Flow (3 steps)
+
+View All
+1
+send email
+To: {assigned_to_email}
+
+"🔧 New Work Assignment: {property_address}"
+
+2
+send sms
+To: {assigned_to_email}
+
+"See SMS Templates for template"
+
+3
+send email
+To: {client_email}
+
+"Your upcoming property inspection with {company_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Deduction Added Alert
+Active
+Alert sales rep when deduction is added
+
+Trigger: deduction added
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: {sales_rep_email}
+
+"⚠️ Commission Deduction Added"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Estimate Accepted Notification
+Active
+Celebrate when customer accepts estimate!
+
+Trigger: estimate accepted
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Deduction Edited Alert
+Active
+Alert sales rep when deduction is modified
+
+Trigger: deduction edited
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: {sales_rep_email}
+
+"✏️ Commission Deduction Updated"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Project Started Notification
+Active
+Notify when project begins
+
+Trigger: project started
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Payment Received Notification
+Active
+Notify when payment is received
+
+Trigger: payment received
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Estimate Created Notification
+Active
+Notify when an estimate is created
+
+Trigger: estimate created
+4 executions
+Last run: Feb 18, 4:58 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+New Lead Notification
+Active
+Notify sales team when a new lead is created
+
+Trigger: lead created
+24 executions
+Last run: Mar 1, 1:12 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+Test
+Test with Kevin Stone
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Task Assigned
+Active
+Notify when task is assigned
+
+Trigger: task created
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"📋 Task Assigned: {task_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Payment Received
+Active
+Celebrate payments
+
+Trigger: payment received
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"💰 Payment Received from {contact_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Appointment Confirmation - Instant
+Active
+Marketing Automations
+Sends instant confirmation when inspection is booked
+
+Trigger: appointment created
+0 executions
+Automation Flow (2 steps)
+
+View All
+1
+send sms
+To: {customer_phone}
+
+"✅ Inspection confirmed for {scheduled_date} at {property_add..."
+
+2
+send email
+⏱️ Wait 5 minutes
+
+To: {customer_email}
+
+"✅ Your Inspection is Confirmed!"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+New Lead Created
+Active
+Notify admins when a new lead is created
+
+Trigger: lead created
+24 executions
+Last run: Mar 1, 1:12 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"🎯 New Lead: {contact_name}"
+
+Test
+Test with Kevin Stone
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Invoice Paid
+Active
+Celebrate when invoice is paid
+
+Trigger: invoice paid
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"💰 Invoice PAID: {invoice_number}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Invoice Created
+Active
+Notify when invoice is generated
+
+Trigger: invoice created
+1 executions
+Last run: Jan 28, 6:09 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"🧾 Invoice Created: {invoice_number}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+30-Day Referral Request Campaign
+Active
+Marketing Automations
+Requests referrals 30 days after successful project completion
+
+Trigger: project completed
+0 executions
+Automation Flow (2 steps)
+
+View All
+1
+send email
+⏱️ Wait 30 days
+
+To: {customer_email}
+
+"🎉 Thank You! Earn $250 for Every Referral"
+
+2
+send sms
+⏱️ Wait 30 days
+
+To: {customer_phone}
+
+"Hi {customer_name}! 🎉 Love your new roof? Refer a friend an..."
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Post-Inspection Follow-Up - 2 Hours After
+Active
+Marketing Automations
+Follows up after inspection completion to send next steps
+
+Trigger: manual
+0 executions
+Automation Flow (2 steps)
+
+View All
+1
+send sms
+⏱️ Wait 120 minutes
+
+To: {customer_phone}
+
+"Hi {customer_name}, This is Vicky from YICN. The team succes..."
+
+2
+send email
+⏱️ Wait 125 minutes
+
+To: {customer_email}
+
+"✅ Inspection Complete - Next Steps"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Customer Created
+Active
+Welcome new customers
+
+Trigger: customer created
+26 executions
+Last run: Feb 19, 1:10 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"👥 New Customer: {contact_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Project Started
+Active
+Track project kickoffs
+
+Trigger: project started
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"🚀 Project Started: {project_name}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Inspection Reminder - 24 Hours Before
+Active
+Marketing Automations
+Automatically reminds customers 24 hours before their scheduled inspection
+
+Trigger: appointment created
+0 executions
+Automation Flow (2 steps)
+
+View All
+1
+send sms
+⏱️ Wait 1 day
+
+To: {customer_phone}
+
+"⏰ Reminder: Your roof inspection is tomorrow at {property_ad..."
+
+2
+send email
+⏱️ Wait 1 day
+
+To: {customer_email}
+
+"🏠 Inspection Tomorrow - Everything You Need to Know"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Estimate Accepted
+Active
+Celebrate when estimate is accepted
+
+Trigger: estimate accepted
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"🎉 Estimate ACCEPTED: {estimate_number}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+30-Day Lead Nurture Campaign
+Active
+Marketing Automations
+Automated multi-week follow-up sequence for new leads with emails and SMS
+
+Trigger: lead created
+25 executions
+Last run: Mar 1, 1:12 PM
+Automation Flow (10 steps)
+
+View All
+1
+send email
+To: lead
+
+"Welcome! Let's Get Started with Your Roofing Project"
+
+2
+send sms
+⏱️ Wait 60 minutes
+
+To: lead
+
+"Hi {contact_name}! This is {company_name}. Thanks for your i..."
+
+3
+create task
+⏱️ Wait 1 day
+
+To: yicnteam@gmail.com
+
+"Follow up with {contact_name} - New Lead"
+
++7 more steps
+
+Test
+Test with Kevin Stone
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Invoice Overdue
+Active
+Alert when invoice becomes overdue
+
+Trigger: invoice overdue
+0 executions
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"⚠️ Invoice OVERDUE: {invoice_number}"
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+7-Day Post-Service Check-In
+Active
+Marketing Automations
+Checks in with customers 7 days after project completion
+
+Trigger: project completed
+0 executions
+Automation Flow (2 steps)
+
+View All
+1
+send email
+⏱️ Wait 7 days
+
+To: {customer_email}
+
+"How's Your New Roof? We'd Love Your Feedback!"
+
+2
+send sms
+⏱️ Wait 7 days
+
+To: {customer_phone}
+
+"Hi {customer_name}! 👋 It's been a week since we completed y..."
+
+Test
+Pause
+View Workflow
+Edit with AI
+Edit Steps
+
+Estimate Created
+Active
+Notify admins when estimate is created
+
+Trigger: estimate created
+4 executions
+Last run: Feb 18, 4:58 PM
+Automation Flow (1 steps)
+
+View All
+1
+send email
+To: yicnteam@gmail.com
+
+"📄 New Estimate: {estimate_num

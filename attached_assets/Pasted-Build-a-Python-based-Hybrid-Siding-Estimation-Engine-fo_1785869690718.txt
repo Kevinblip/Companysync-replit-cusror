@@ -1,0 +1,74 @@
+Build a Python-based Hybrid Siding Estimation Engine for CompanySync that combines Google Solar API satellite footprint data with Vision AI photo analysis from CrewCam. 
+
+### Core Goal
+Eliminate manual height errors (e.g., mistaking a 2-story house for a 1-story house) and generate production-ready siding square footage and trim lineal footage (J-channel, starter, corners) without needing expensive 3D mesh rendering.
+
+---
+
+### Key Requirements & Technical Logic
+
+#### 1. Input Data Contract
+Accept a payload containing:
+- `satellite_data`: Perimeter (LF), roof pitch, and footprint polygon from Google Solar API.
+- `crewcam_photos`: Array of ground-level elevation photos (Front, Left, Right, Back).
+
+#### 2. Height & Story Calibration Engine (Vision AI + Pixel Anchor)
+When analyzing CrewCam photos, do NOT rely on default eave heights. Use physical anchor points to calculate vertical scale:
+- **Primary Scale Anchor (Door Height):** Detect standard exterior door frames (default baseline = 80 inches / 6.67 ft). Calculate the `pixels-to-feet` ratio for that elevation.
+- **Secondary Scale Anchor (Siding Courses):** Count vertical siding reveals (standard lap siding = 4" or 4.5" reveal) from eave to grade to establish total wall height.
+- **Sanity Guardrail Rule:** 
+  IF `story_count` >= 2 AND calculated `eave_height` < 16 ft:
+      OVERRIDE `eave_height` = 18.5 ft (or trigger prompt: "Verify 2-Story Eave Height").
+
+#### 3. Opening & Deduction Parser
+For each elevation photo:
+- Detect bounding boxes for all windows, entry doors, slider doors, and garage openings.
+- Calculate individual square footage of each opening.
+- Calculate exact perimeter (in LF) for all windows/doors for J-Channel trim math.
+
+#### 4. Area & Lineal Calculation Module
+Run the following geometric formulas:
+- **Gross Wall Area:** `Sum(Facade Lengths from Satellite) × Calculated Eave Height`
+- **Gable Wall Area:** `(0.5 × Gable Base Width × Gable Height)` using detected pitch.
+- **Deductions:** Subtract total opening square footage (apply standard rule: keep openings < 20 sq ft in waste calculations if toggled).
+- **Net Siding SQ:** `(Gross Wall + Gables - Deductions) / 100` + `10% waste factor`.
+- **J-Channel (LF):** `Sum(Window/Door Perimeters)`.
+- **Starter Strip (LF):** `Footprint Ground Perimeter` (adjust for step-downs).
+- **Outside Corners (LF):** `Count(Outside Corners) × Wall Height`.
+
+#### 5. Clean JSON Response Format
+Output a structured JSON response matching this schema:
+{
+  "property_summary": {
+    "stories": 2,
+    "calibrated_eave_height_ft": 18.5,
+    "confidence_score": "High"
+  },
+  "siding_totals": {
+    "gross_area_sqft": 2650,
+    "deductions_sqft": 267,
+    "net_area_sq": 23.83,
+    "order_qty_10_percent_waste_sq": 26.2
+  },
+  "trim_totals": {
+    "j_channel_lf": 288,
+    "starter_strip_lf": 182,
+    "outside_corner_lf": 84,
+    "inside_corner_lf": 24
+  },
+  "per_photo_breakdown": [
+    {
+      "elevation": "Front",
+      "detected_windows": 5,
+      "detected_doors": 1,
+      "calculated_facade_sqft": 712
+    }
+  ]
+}
+
+---
+
+### Execution & Stack
+- Use Python (FastAPI or Flask endpoint).
+- Use OpenCV or Vision API prompts (e.g., GPT-4o Vision or Gemini Vision API) to extract bounding boxes and counts.
+- Keep execution fast (< 5 seconds per report).

@@ -1,0 +1,93 @@
+DONNA SIRMONS
+
+11502 RUTLAND AVE
+
+CLEVELAND, OH, 44108-1532
+
+(216) 798-8442
+
+Invoice Date: -
+
+Due Date: -
+
+Customer: DONNA SIRMONS
+
+Claim Number: 0812729614
+
+Ins. Company: Allsate
+
+#	Item	Description	Qty	Rate	Tax	Amount
+1	Remove roof covering, 3-tab composition shingle	Remove roof covering, 3-tab composition shingle	11.92	$75.00	0%	$894.00
+2	Shingles, architectural asphalt	Shingles, architectural asphalt	11.92	$265.00	0%	$3158.80
+3	Underlayment, #30 felt	Underlayment, #30 felt	11.92	$25.00	0%	$298.00
+4	Ice & water barrier	Ice & water barrier	160.16	$2.02	0%	$323.52
+5	Starter strip, 3-tab asphalt	Starter strip, 3-tab asphalt	124.32	$2.50	0%	$310.80
+6	Drip edge, metal	Drip edge, metal	124.32	$3.00	0%	$372.96
+7	Ridge cap, architectural asphalt	Ridge cap, architectural asphalt	25.76	$8.50	0%	$218.96
+8	Step flashing, metal	Step flashing, metal	11.2	$4.50	0%	$50.40
+9	Roof Vent	Roof Vent	4	$33.98	0%	$135.92
+10	Pipe Flashing	Pipe Flashing	1	$70.00	0%	$70.00
+11	Chimney	Chimney	1	$406.64	0%	$406.64
+Subtotal
+$6240.00
+Total
+$6240.00
+Amount Paid
+-$2000.00
+Amount Due
+$4240.00
+Terms & Conditions
+In addition, all work is backed by 3-year workmanship, with no defect warranty. If for any reason, the home experience any leakage around the area that was repaired or replaced, we will gladly fix the problem at no charge to the homeowner. In addition, a 5-year warranty extends to the roof valley for a 2-year period.
+
+Invoice Information
+Status:
+paid
+Invoice Number:
+INV-2026-0336
+Customer:
+DONNA SIRMONS
+Email:
+-
+Issue Date:
+-
+Due Date:
+-
+Total Amount:
+$6240.00
+Amount Paid:
+-$2000.00
+Amount Due:
+$4240.00
+Claim #:
+0812729614
+Insurance:
+Allsate
+Void / Clear Payment ($2000.00)
+Removes incorrectly applied payment
+
+Commission Split
+
+Brian Thornton
+
+50% - Co-Rep
+
+
+Kevin Stone
+
+50% - Co-Rep
+
+Edit Split
+Request Payment
+💳 How to Request Payment via Stripe:
+Click "Copy Payment Details" below
+Text or email the copied details to customer
+Go to Stripe → Create invoice or payment link
+Or use Zelle/Check (see payment methods below)
+Copy Payment Details
+💳 Payment Methods:
+
+Stripe (Card, ACH, Cash App)
+Zelle / Venmo
+Check / Cash
+Record Payment
+Build scheduled

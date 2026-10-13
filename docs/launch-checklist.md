@@ -1,0 +1,12 @@
+# Launch Checklist (Real Automated Test Runner)
+
+The Launch Checklist page (`src/pages/LaunchChecklist.jsx`, ~120 tests in `TEST_CATEGORIES`) runs each test through the `runLaunchTest` function handler, which performs **real local health checks** — no test blindly returns "passed".
+
+- **Single source of truth**: `functionHandlers.runLaunchTest` in `vite-functions-plugin.js` (~ln 17346). This same handler serves BOTH dev (Vite middleware `/api/functions/invoke`) and prod (`prod-server.cjs` → `db/prod-integrations.cjs` `handleFunctionInvoke` dynamically imports the Vite handler). The former dead Deno copy was removed.
+- **Credential resolution**: reuses the app's real helpers `getCompanyTwilioConfig` / `getCompanyEmailConfig` / `getCompanyGeminiKey` (BYOK → legacy → env), so a test reflects exactly what the running app would use.
+- **Live API validation** (read-only, no send/charge, 8s `AbortController` timeout): Twilio (`GET Accounts/{sid}.json`, Basic Auth), Stripe (`GET /v1/balance` or `/v1/accounts/{id}`, Bearer), Resend (`GET /domains`, Bearer). This is why Twilio now correctly passes when configured (previously it read a stale `TwilioSettings.is_configured` flag and false-failed).
+- **DB checks use the CORRECT layer**: core entities live in **dedicated tables** (`customers`, `leads`, `estimates`, `invoices`, `projects`, `tasks`, `calendar_events`, `payments`, `staff_profiles`) — `tableReachable()`. Other entity types use `generic_entities` — `genericReachable(entityType)`. The original bug queried `generic_entities` for entities that live in dedicated tables.
+- **Write-capability probe**: `dbWriteRoundtrip()` does insert→read→delete of a unique `__LaunchTestProbe__` row in `generic_entities` (direct SQL, avoids triggering workflow side-effects, zero residue). This is the `default` case so unmapped IDs still do a genuine check, never a blind pass.
+- **Important**: do NOT use `await import('./db/prod-db.cjs')` for `getPool` inside this module — in the Vite ESM context the named export resolves to a non-function (`getPool5 is not a function`). Use the module-scoped `getPool()` (defined ~ln 181) that the other helpers use.
+- **No Base44 branding**: the error-report UI is "Copy Error Report" (FileText icon); remaining `base44` references are legitimate API-client calls.
+- **Known limitation**: `runLaunchTest` relies on the page being behind app auth (the generic function-handler path has no per-call authz). It returns no secrets and only makes read-only validation calls with the company's own creds.

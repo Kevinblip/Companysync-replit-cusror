@@ -1,0 +1,44 @@
+Republish
+
+Adjust settings
+
+Run security scan
+Publishing
+Started about 10 hours ago by kevin
+
+Cancel
+Provision
+Security Scan
+Build
+Bundle
+Promote
+Development database changes detected
+Generated migrations to apply to production database
+
+Migrations are generated based on changes made by the agent in your app, learn more.
+DROP INDEX "idx_project_logs_project";
+ALTER TABLE "customers" ALTER COLUMN "portal_token" SET DEFAULT (gen_random_uuid());
+ALTER TABLE "generic_entities" ALTER COLUMN "company_id" SET NOT NULL;
+ALTER TABLE "file_uploads" ADD COLUMN "company_id" text;
+ALTER TABLE "chat_read_receipts" ADD COLUMN "company_id" text;
+ALTER TABLE "file_uploads" ADD CONSTRAINT "fk_file_uploads_company" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "chat_conversations" ADD CONSTRAINT "fk_chat_conv_company" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "chat_messages" ADD CONSTRAINT "fk_chat_msg_company" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "chat_read_receipts" ADD CONSTRAINT "fk_chat_receipts_company" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE cascade ON UPDATE no action;
+CREATE INDEX "idx_file_uploads_company" ON "file_uploads" USING btree ("company_id");
+CREATE INDEX "idx_chat_receipts_company" ON "chat_read_receipts" USING btree ("company_id","conversation_id");
+CREATE INDEX "idx_project_logs_project" ON "project_logs" USING btree ("project_id","created_at");
+You may notice a temporary downtime of your deployment. What's happening?
+
+Migrations failed validation, please review
+
+Your database schema changes conflict with existing production data and could not be applied, learn more. To resolve this, you can:
+
+Copy your development database schema & data to production.
+
+Cancel deployment and retry once your schema conflicts are resolved.
+
+Cancel deployment
+Failed to run database migration statement
+ALTER TABLE "generic_entities" ALTER COLUMN "company_id" SET NOT NULL;
+column "company_id" of relation "generic_entities" contains null values

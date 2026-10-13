@@ -1,0 +1,49 @@
+Based on the simulation:
+
+Overall: Good shape at scale, but with a few real vulnerabilities you should close before you grow.
+
+The good news
+
+At 5,000 subscribers you clear $334k–$708k gross profit per month depending on BYOK adoption. That's a 45–95% margin — very healthy for a SaaS at this price point.
+Break-even is only ~90 subscribers. You're not in a situation where you need massive scale to stop bleeding.
+The pricing model is sound — the $149 plan is priced correctly for the typical customer.
+The concern
+
+Your margin range is enormous (45% vs 95%) and you have no visibility into where you actually land. The difference is whether paid tenants are running on your Gemini/Twilio keys or their own. Right now the system silently falls back to your keys with zero tracking. You don't know your real COGS per customer.
+Your top 3 cost drivers are Lexi AI ($127k/mo), Sarah voice ($92k/mo), and CrewCam photo analysis ($61k/mo). All three run on your platform keys whenever a tenant hasn't configured BYOK — and nothing nudges them to do it.
+The real risk
+
+Individual heavy tenants are individually unprofitable (~$149 loss per month each at internal-anchor costs). They're cross-subsidized by your light and typical users. That works until you start landing a lot of storm-season-heavy shops, which is kind of your target customer.
+Sarah voice is sold as "unlimited call minutes." That's the one line item with no ceiling at all on platform keys — a single busy tenant can run up $1,000+/month on $149 of revenue.
+The AI spend gate (checkAIUsage) fails open on database errors — the only guard silently disables itself under load.
+The short version:
+
+Revenue model: ✅ solid
+Cost visibility: ❌ blind
+BYOK enforcement: ❌ no nudge, no tracking
+Voice/AI caps on platform keys: ❌ missing
+Unit economics at current mix: ✅ profitable but fragile at the heavy end
+The two follow-up tasks I already proposed (#788 and #789) address exactly this. The alert gives you visibility; the cap enforcement gives you a floor. Neither is urgent today at small scale, but you want them in place before you run a big marketing push.
+
+
+Worked for 21 seconds
+so what do you suggest we do? one thing, we need to put strict limits and enforce them on the subscribers who dont use there own byok
+
+23 hours ago
+
+7 actions
+Task #789 already covers the right code areas, but it was scoped as "stop a bad actor" rather than what you're actually describing — a platform policy: no BYOK configured = hard limits, full stop. That's a broader, cleaner framing. Let me update it to match and surface it for you.
+
+
+4 actions
+
+Surfaced 1 task
+
+Enforce hard limits for non-BYOK subscribers
+#789
+Reviewing current task status
+
+Reviewing current task status
+Task #789 is updated and active — it now reflects the full policy: BYOK configured = no caps, platform keys = hard limits on both AI interactions and Sarah voice minutes, with a friendly message pointing subscribers to configure their own keys.
+
+It'll run as soon as your concurrency slot opens up.

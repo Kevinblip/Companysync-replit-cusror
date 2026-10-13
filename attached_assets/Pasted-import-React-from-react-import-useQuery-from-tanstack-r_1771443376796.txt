@@ -1,0 +1,1019 @@
+import React from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { base44 } from "@/api/base44Client";
+import { Mic, MicOff, Play, Square, Sparkles } from "lucide-react";
+
+const GEMINI_VOICES = [
+  { id: "Aoede", label: "Aoede (Warm, Clear)" },
+  { id: "Charon", label: "Charon (Deep, Smooth)" },
+  { id: "Fenrir", label: "Fenrir (Strong, Bold)" },
+  { id: "Kore", label: "Kore (Bright, Energetic)" },
+  { id: "Orion", label: "Orion (Calm, Neutral)" },
+  { id: "Sage", label: "Sage (Gentle, Wise)" },
+];
+
+export default function GeminiLiveClient({ systemPrompt: propPrompt, model: propModel, companyId }) {
+        const [status, setStatus] = React.useState("idle");
+        const [error, setError] = React.useState("");
+        const [model, setModel] = React.useState("");
+        const [selectedVoice, setSelectedVoice] = React.useState("Aoede");
+        const [apiVersion, setApiVersion] = React.useState("alpha"); // Force alpha for Gemini 2.0 Live API
+        const [expiresAt, setExpiresAt] = React.useState("");
+        const [appId, setAppId] = React.useState(companyId || null); // Use prop if available
+        const [activeCompanyId, setActiveCompanyId] = React.useState(companyId || null); // Force active company context
+        const [testingVoice, setTestingVoice] = React.useState(false);
+        const [user, setUser] = React.useState(null); // Logged in user
+        const [conversationHistory, setConversationHistory] = React.useState([]);
+        const [sessionId, setSessionId] = React.useState(() => `voice_session_${Date.now()}`);
+          const pcRef = React.useRef(null);
+          const micTrackRef = React.useRef(null);
+          const localStreamRef = React.useRef(null);
+          const audioRef = React.useRef(null);
+          const [micEnabled, setMicEnabled] = React.useState(true);
+          const micEnabledRef = React.useRef(true);
+          const isReadyRef = React.useRef(false); // Only send audio after setup
+          const currentSourceRef = React.useRef(null); // Store current audio source to stop it
+
+  React.useEffect(() => {
+    micEnabledRef.current = micEnabled;
+  }, [micEnabled]);
+
+  const [systemPrompt, setSystemPrompt] = React.useState(propPrompt);
+
+  // Fetch App ID and company context on mount
+  React.useEffect(() => {
+     const fetchAppIdAndContext = async () => {
+         try {
+             // Get logged in user
+             const fetchedUser = await base44.auth.me();
+             setUser(fetchedUser);
+
+             // Get owned companies AND staff profile companies
+             const ownedCompanies = await base44.entities.Company.filter({ created_by: fetchedUser?.email });
+             const staffProfiles = await base44.entities.StaffProfile.filter({ user_email: fetchedUser?.email });
+
+             // Determine active company
+             // 1. Use prop if provided (Highest priority)
+             // 2. Use the first owned company
+             // 3. Use the first staff profile company
+             let actualCompanyId = companyId || ownedCompanies?.[0]?.id || staffProfiles?.[0]?.company_id;
+
+             if (actualCompanyId) {
+                 setAppId(actualCompanyId);
+                 setActiveCompanyId(actualCompanyId); // Force active context
+                 console.log('✅ Using company ID:', actualCompanyId, companyId ? '(from prop)' : '(auto-detected)');
+
+                 // If no prop prompt, fetch company context to build the system prompt
+                 if (!propPrompt) {
+                     try {
+                         const companyData = await base44.asServiceRole.entities.Company.filter({ id: actualCompanyId });
+                         const company = companyData?.[0];
+                        if (company) {
+                            const customers = await base44.asServiceRole.entities.Customer.filter({ company_id: company.id }, '-created_date', 50);
+                            const customerList = customers.length > 0 
+                                ? customers.map(c => `${c.name} (${c.email || c.phone || 'no contact'})`).join(', ')
+                                : '(No customers yet)';
+
+                            const prompt = `You are Lexi, an AI assistant for ${company.company_name}.
+
+                            👤 USER CONTEXT:
+                            - Current User: ${fetchedUser.full_name || fetchedUser.email}
+
+                 📋 COMPANY CONTEXT:
+                 - Company Name: ${company.company_name}
+                 - Your CRM System: CompanySync
+                 - Customers in ${company.company_name}: ${customerList}
+
+🔒 CRITICAL SECURITY RULES:
+1. You work EXCLUSIVELY for ${company.company_name}. This is your ONLY client.
+2. You CANNOT access data from any other company (including YICN Roofing, Salesforce, HubSpot, or any external systems).
+3. When asked "what is the name of this company" or "what company am I with", ALWAYS answer: "${company.company_name}".
+4. Your CRM platform is called "CompanySync" - NEVER mention external CRM names like Salesforce or HubSpot.
+5. If you don't have information, say you don't know - DO NOT make up information or reference other companies.
+
+🎯 CAPABILITIES:
+- You have access to ${company.company_name}'s CRM data via CompanySync.
+- Keep responses short and conversational (phone calls are typically brief).
+- Be warm, professional, and helpful.`;
+                            setSystemPrompt(prompt);
+                        }
+                    } catch (e) {
+                        console.error('Failed to fetch company context:', e);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Failed to fetch App ID", e);
+        }
+    };
+    fetchAppIdAndContext();
+  }, [propPrompt]);
+
+  const wsRef = React.useRef(null);
+  const audioContextRef = React.useRef(null);
+  const processorRef = React.useRef(null);
+  const audioQueueRef = React.useRef([]);
+  const isPlayingRef = React.useRef(false);
+  
+  // BUG FIX: Interruption & duplicate prevention refs
+  const currentRequestIdRef = React.useRef(null);
+  const isProcessingRef = React.useRef(false);
+  const lastInterruptTimeRef = React.useRef(0);
+  const abortControllerRef = React.useRef(null);
+
+
+  // BUG FIX: Immediate stop all audio playback
+  const stopAllAudio = () => {
+    console.log('🛑 STOPPING ALL AUDIO');
+    
+    // Stop current playing source
+    if (currentSourceRef.current) {
+      try {
+        currentSourceRef.current.stop();
+        currentSourceRef.current.disconnect();
+      } catch (e) {
+        console.log('Source already stopped');
+      }
+      currentSourceRef.current = null;
+    }
+    
+    // Clear entire audio queue
+    const clearedCount = audioQueueRef.current.length;
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+    
+    console.log(`🧹 Cleared ${clearedCount} audio chunks`);
+  };
+  
+  // BUG FIX: Cancel ongoing LLM request
+  const cancelCurrentRequest = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    isProcessingRef.current = false;
+    currentRequestIdRef.current = null;
+  };
+
+  const playNextChunk = async () => {
+    if (!audioContextRef.current) return;
+    if (audioQueueRef.current.length === 0) {
+      isPlayingRef.current = false;
+      return;
+    }
+    if (isPlayingRef.current) return;
+
+    // CRITICAL: Force resume AudioContext before every playback
+    if (audioContextRef.current.state !== 'running') {
+      try {
+        await audioContextRef.current.resume();
+      } catch(e) { 
+        console.error('❌ Resume failed:', e); 
+        return;
+      }
+    }
+
+    isPlayingRef.current = true;
+    const audioData = audioQueueRef.current.shift();
+
+    try {
+      // Convert Int16 to Float32
+      const float32Data = new Float32Array(audioData.length);
+      let maxVal = 0;
+      for (let i = 0; i < audioData.length; i++) {
+        const val = audioData[i] / 32768.0;
+        float32Data[i] = val;
+        if (Math.abs(val) > maxVal) maxVal = Math.abs(val);
+      }
+
+      if (maxVal < 0.001) {
+        isPlayingRef.current = false;
+        playNextChunk();
+        return;
+      }
+
+      // Create buffer (Gemini: 24kHz mono)
+      const buffer = audioContextRef.current.createBuffer(1, float32Data.length, 24000);
+      buffer.getChannelData(0).set(float32Data);
+
+      const source = audioContextRef.current.createBufferSource();
+      source.buffer = buffer;
+
+      // Boost volume slightly for speech clarity
+      const gainNode = audioContextRef.current.createGain();
+      gainNode.gain.value = 1.5;
+
+      source.connect(gainNode);
+      gainNode.connect(audioContextRef.current.destination);
+
+      currentSourceRef.current = source;
+
+      source.onended = () => {
+        currentSourceRef.current = null;
+        isPlayingRef.current = false;
+        setTimeout(() => playNextChunk(), 0);
+      };
+
+      source.start(0);
+    } catch (e) {
+      console.error('❌ Playback error:', e);
+      currentSourceRef.current = null;
+      isPlayingRef.current = false;
+      playNextChunk();
+    }
+  };
+
+  const startSession = async () => {
+         setError("");
+         setStatus("connecting");
+
+          // CRITICAL: Create and unlock audio context FIRST with user gesture
+          console.log('🔊 Creating audio context with user interaction...');
+          const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+          audioContextRef.current = audioContext;
+
+          // Force resume immediately on user click
+          await audioContext.resume();
+          console.log('✅ Audio context state after resume:', audioContext.state);
+
+          // Play a short audible beep to fully unlock audio on mobile
+          try {
+            const unlockBuffer = audioContext.createBuffer(1, audioContext.sampleRate * 0.1, audioContext.sampleRate);
+            const data = unlockBuffer.getChannelData(0);
+            for (let i = 0; i < data.length; i++) {
+              data[i] = Math.sin(2 * Math.PI * 440 * i / audioContext.sampleRate) * 0.3;
+            }
+            const unlockSource = audioContext.createBufferSource();
+            unlockSource.buffer = unlockBuffer;
+            unlockSource.connect(audioContext.destination);
+            unlockSource.start(0);
+            console.log('✅ Unlock beep played - audio fully unlocked');
+
+            // Wait for beep to finish
+            await new Promise(resolve => setTimeout(resolve, 150));
+          } catch (e) {
+            console.error('Failed to play unlock beep:', e);
+          }
+
+          // 📢 PLAY GREETING IMMEDIATELY (non-blocking)
+          console.log('📢 Playing greeting with Web Speech API');
+          const greetingText = `Hello! Live voice is now active. I'm ready to help.`;
+          const utterance = new SpeechSynthesisUtterance(greetingText);
+          utterance.rate = 1.0;
+          utterance.pitch = 1.0;
+          utterance.volume = 1.0;
+
+          const speak = () => {
+            let voices = window.speechSynthesis.getVoices();
+            if (voices.length > 0) {
+              const femaleVoice = voices.find(v => 
+                v.name.includes('Female') || v.name.includes('woman') ||
+                v.name.includes('Samantha') || v.name.includes('Victoria')
+              ) || voices[0];
+              utterance.voice = femaleVoice;
+              console.log('🎤 Using voice:', femaleVoice.name);
+            }
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(utterance);
+            console.log('🗣️ Greeting spoken');
+          };
+
+          if (window.speechSynthesis.getVoices().length > 0) {
+            speak();
+          } else {
+            window.speechSynthesis.onvoiceschanged = speak;
+          }
+
+         try {
+           // Step 1: Get secure token from backend (bridges to Gemini)
+           console.log('🔐 Requesting authentication token...');
+           const tokenResponse = await base44.functions.invoke('generateLexiVoiceToken', { companyId: appId });
+           const token = tokenResponse.data?.token;
+           const bridgeUrl = tokenResponse.data?.bridge_url;
+
+            if (!token || !bridgeUrl) {
+              throw new Error('Failed to get authentication token');
+            }
+
+            console.log(`✅ Token received, connecting to bridge: ${bridgeUrl}`);
+            setStatus("connecting");
+
+            // Step 2: Connect to external bridge with token
+            const wsUrl = `${bridgeUrl}?token=${encodeURIComponent(token)}`;
+            const ws = new WebSocket(wsUrl);
+            wsRef.current = ws;
+
+            ws.onopen = async () => {
+            console.log("✅✅✅ WS OPENED - Connection established to bridge");
+            console.log("   Bridge URL:", bridgeUrl);
+            console.log("   WebSocket readyState:", ws.readyState);
+            setStatus("connected");
+            isReadyRef.current = false; // Reset ready state
+
+            console.log("⏳ Waiting for Google connection status from bridge...");
+            };
+
+      ws.onmessage = async (event) => {
+        console.log('📨 MESSAGE RECEIVED - Type:', typeof event.data, 'Is Blob:', event.data instanceof Blob);
+        try {
+            let data;
+            if (event.data instanceof Blob) {
+                const text = await event.data.text();
+                if (!text || text.trim() === '') {
+                    console.warn('⚠️ Empty blob received, ignoring');
+                    return;
+                }
+                try {
+                    data = JSON.parse(text);
+                } catch (parseErr) {
+                    console.error('❌ JSON parse error on blob:', text.substring(0, 100));
+                    return;
+                }
+            } else {
+                if (!event.data || typeof event.data !== 'string' || event.data.trim() === '') {
+                    console.warn('⚠️ Empty or invalid message received, ignoring');
+                    return;
+                }
+                try {
+                    data = JSON.parse(event.data);
+                } catch (parseErr) {
+                    console.error('❌ JSON parse error on string:', event.data.substring(0, 100));
+                    return;
+                }
+            }
+
+            console.log('📨 Parsed message:', data);
+
+            // Handle Backend Status Messages
+            if (data.system_status) {
+                console.log("📊 System Status:", data.system_status, data);
+                setStatus(data.message || data.system_status);
+
+                // Check for Google error in status
+                if (data.google_error) {
+                    console.error("❌ Google Error:", data.google_error);
+                    setError(`Google Gemini Error: ${JSON.stringify(data.google_error, null, 2)}`);
+                    return;
+                }
+
+                // 1. Google Connected -> Send Setup and Start Audio
+                if (data.system_status === "google_connected") {
+                    setError("");
+                    console.log("✅ Google connected, sending setup message...");
+
+                    // Gemini Live API - configure with voice at setup root
+                     const setupMsg = {
+                         setup: {
+                             model: "models/gemini-2.0-flash-exp",
+                             generation_config: {
+                                 response_modalities: ["audio"]
+                             },
+                             system_instruction: systemPrompt,
+                             speech_config: {
+                                 voice_config: {
+                                     prebuilt_voice_config: {
+                                         voice_name: selectedVoice
+                                     }
+                                 }
+                             }
+                         }
+                     };
+
+                    console.log("📤 SENDING SETUP - response_modalities as ARRAY:", JSON.stringify(setupMsg, null, 2));
+
+                    ws.send(JSON.stringify(setupMsg));
+                    setStatus("configuring");
+
+                    // Start audio recording after setup is sent
+                    console.log("🎤 Starting audio recording...");
+                    try {
+                        await startAudioRecording(ws);
+                        console.log("✅ Audio recording started");
+                        setMicEnabled(true);
+                    } catch (err) {
+                        console.error("❌ Audio recording failed:", err);
+                        setError(`Microphone error: ${err.message}`);
+                        ws.close();
+                        return;
+                    }
+
+                    // Force live after 2 seconds
+                    setTimeout(() => {
+                        if (!isReadyRef.current && ws.readyState === WebSocket.OPEN) {
+                            console.log("⏰ Setup timeout - going live");
+                            isReadyRef.current = true;
+                            setStatus("live");
+                        }
+                    }, 2000);
+                }
+                return;
+                }
+            if (data.error) {
+                console.error("❌❌❌ Backend Error:", data.error, data);
+                setError(`${data.error}: ${data.details || ""}`);
+                return;
+            }
+
+            // Google confirmed setup is complete - NOW go live
+            if (data.setupComplete) {
+                console.log("✅✅✅ Google setup completed successfully - NOW GOING LIVE");
+                isReadyRef.current = true;
+                setStatus("live");
+                setError("");
+            }
+
+            // INTERCEPT: If user spoke something and Gemini transcribed it, route through lexiChat for CRM access
+             if (data.serverContent?.userTurn?.parts) {
+                 console.log('🎤 User turn detected (Gemini transcribed user speech)');
+                 for (const part of data.serverContent.userTurn.parts) {
+                     if (part.text) {
+                         console.log("[Lexi CRM Brain] Intercepted Gemini transcription:", part.text);
+                         
+                         // BUG FIX: Immediately stop any ongoing playback when user speaks
+                         stopAllAudio();
+                         cancelCurrentRequest();
+                         
+                         // Check for "disregard" command to stop talking
+                         if (part.text.toLowerCase().includes('disregard') || part.text.toLowerCase().includes('never mind') || part.text.toLowerCase().includes('stop')) {
+                             console.log('🛑 Stop command detected - halting');
+                             setStatus("live");
+                             return; // Don't process further
+                         }
+
+                         // BUG FIX: Generate unique request ID to prevent duplicate responses
+                         const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                         currentRequestIdRef.current = requestId;
+                         isProcessingRef.current = true;
+
+                         // Create AbortController for this request
+                         abortControllerRef.current = new AbortController();
+
+                         console.log('🎤 [Lexi Voice] Processing request:', requestId);
+
+                         // Save user message to conversation history
+                         const newHistory = [...conversationHistory, {
+                             role: 'user',
+                             content: part.text,
+                             timestamp: new Date().toISOString()
+                         }];
+                         setConversationHistory(newHistory);
+
+                         // Persist to database for long-term memory
+                         base44.entities.ConversationHistory.create({
+                             user_email: user?.email,
+                             ai_assistant: 'lexi',
+                             session_id: sessionId,
+                             message_role: 'user',
+                             message_content: part.text,
+                             context_summary: 'Voice conversation',
+                             importance: 5
+                         }).catch(err => console.error('Failed to save message history:', err));
+
+                         // BUG FIX: Skip "please hold" for short queries - go straight to response
+                         const isQuickQuery = part.text.split(' ').length <= 5;
+                         
+                         if (!isQuickQuery && wsRef.current?.readyState === WebSocket.OPEN) {
+                             console.log('[Lexi Voice] 📢 Speaking acknowledgment...');
+                             wsRef.current.send(JSON.stringify({
+                                 client_content: {
+                                     turns: [{
+                                         role: "user",
+                                         parts: [{ text: 'One moment.' }]
+                                     }],
+                                     turn_complete: true
+                                 }
+                             }));
+                         }
+
+                         // Fetch from lexiChat
+                         base44.functions.invoke('lexiChat', {
+                             message: part.text,
+                             conversationHistory: newHistory,
+                             companyId: activeCompanyId,
+                             userIdentity: user?.email,
+                             mode: 'voice',
+                             sessionId: sessionId
+                         }).then(result => {
+                             // BUG FIX: Check if this request is still current (not interrupted)
+                             if (currentRequestIdRef.current !== requestId) {
+                                 console.log('[Lexi Voice] ⏭️ Request superseded, ignoring response for:', requestId);
+                                 return;
+                             }
+
+                             console.log('[Lexi Voice] Brain response received');
+                             const textResponse = result.data?.response;
+
+                             if (!textResponse) {
+                                 console.error('[Lexi Voice] ❌ Empty response');
+                                 isProcessingRef.current = false;
+                                 return;
+                             }
+
+                             // Save Lexi's response to history
+                             const updatedHistory = [...newHistory, {
+                                 role: 'assistant',
+                                 content: textResponse,
+                                 timestamp: new Date().toISOString()
+                             }];
+                             setConversationHistory(updatedHistory);
+
+                             // Persist Lexi's response to database
+                             base44.entities.ConversationHistory.create({
+                                 user_email: user?.email,
+                                 ai_assistant: 'lexi',
+                                 session_id: sessionId,
+                                 message_role: 'assistant',
+                                 message_content: textResponse,
+                                 context_summary: 'Voice conversation',
+                                 importance: 5
+                             }).catch(err => console.error('Failed to save response history:', err));
+
+                             // BUG FIX: Final check before sending to TTS
+                             if (currentRequestIdRef.current !== requestId) {
+                                 console.log('[Lexi Voice] ⏭️ Request interrupted before TTS');
+                                 return;
+                             }
+
+                             if (wsRef.current?.readyState === WebSocket.OPEN) {
+                                 console.log('[Lexi Voice] ✅ Sending response to Gemini TTS');
+                                 wsRef.current.send(JSON.stringify({
+                                     client_content: {
+                                         turns: [{
+                                             role: "user",
+                                             parts: [{ text: `Say exactly this: "${textResponse}"` }]
+                                         }],
+                                         turn_complete: true
+                                     }
+                                 }));
+                             }
+                             
+                             isProcessingRef.current = false;
+                         }).catch(err => {
+                             // BUG FIX: Only show error if this request is still current
+                             if (currentRequestIdRef.current !== requestId) return;
+                             
+                             console.error('[Lexi Voice] ❌ Brain error:', err);
+                             isProcessingRef.current = false;
+                             
+                             // BUG FIX: Single error message, no retry spam
+                             if (wsRef.current?.readyState === WebSocket.OPEN) {
+                                 wsRef.current.send(JSON.stringify({
+                                     client_content: {
+                                         turns: [{
+                                             role: "user",
+                                             parts: [{ text: "Sorry, something went wrong. Please try again." }]
+                                         }],
+                                         turn_complete: true
+                                     }
+                                 }));
+                             }
+                         });
+
+                         return;
+                     }
+                 }
+             }
+
+            if (data.serverContent?.modelTurn?.parts) {
+                console.log('🎭 Received model turn with', data.serverContent.modelTurn.parts.length, 'parts');
+                for (const part of data.serverContent.modelTurn.parts) {
+                    if (part.text) {
+                        console.log("💬 Text:", part.text);
+                        if (part.text.includes("Error") || part.text.includes("API Key")) {
+                            setError(part.text);
+                        }
+                    }
+                    if (part.inlineData && part.inlineData.mimeType.startsWith("audio/")) {
+                        console.log('🔊🔊🔊 RECEIVED AUDIO DATA, length:', part.inlineData.data.length, 'mimeType:', part.inlineData.mimeType);
+                        
+                        // Force audio context to resume if suspended
+                        if (audioContextRef.current && audioContextRef.current.state !== 'running') {
+                            console.log('⚡ Force resuming audio context before playback...');
+                            await audioContextRef.current.resume();
+                        }
+                        
+                        // Decode Base64 audio
+                        const binaryString = atob(part.inlineData.data);
+                        const len = binaryString.length;
+                        const bytes = new Int16Array(len / 2);
+                        const view = new DataView(new ArrayBuffer(len));
+                        for(let i=0; i<len; i++) {
+                            view.setUint8(i, binaryString.charCodeAt(i));
+                        }
+                        for(let i=0; i<len/2; i++) {
+                            bytes[i] = view.getInt16(i*2, true); // Little endian
+                        }
+                        
+                        console.log('📦 Decoded audio chunk:', bytes.length, 'samples');
+                        audioQueueRef.current.push(bytes);
+                        console.log('📊 Audio queue now has', audioQueueRef.current.length, 'chunks');
+                        
+                        // Trigger playback
+                        playNextChunk();
+                    }
+                }
+            }
+        } catch (err) {
+            console.error("WS Message Error", err);
+            console.error("Failed to parse message:", event.data);
+            if (err instanceof SyntaxError) {
+                console.error("JSON Parse Error - message content:", typeof event.data === 'string' ? event.data : 'Blob');
+            }
+        }
+      };
+
+      ws.onclose = (e) => {
+          console.log("❌ WS Closed", e.code, e.reason);
+          console.log("   Was ready:", isReadyRef.current, "Status:", status);
+
+          // Stop audio tracks immediately
+          if (localStreamRef.current) {
+              localStreamRef.current.getTracks().forEach(t => t.stop());
+              localStreamRef.current = null;
+          }
+
+          // Normal closure
+          if ((e.code === 1000 || e.code === 1005) && isReadyRef.current) {
+              setStatus("idle");
+              return;
+          }
+
+          // Setup failure (immediate close)
+          if (!isReadyRef.current && status !== "idle") {
+              console.error("❌ Connection closed during setup");
+              let suggestion = "Check API Key and Model availability.";
+              if (e.code === 1011) suggestion = "Server error (1011) - likely invalid setup message or internal error.";
+
+              setError(`Connection dropped during setup (Code ${e.code}).\n${suggestion}\n\nLast Status: ${status}`);
+              setStatus("idle");
+              return;
+          }
+
+          // Runtime error
+          setError(`Disconnected (Code ${e.code}): ${e.reason || "Connection lost"}`);
+          setStatus("idle");
+      };
+      ws.onerror = (e) => {
+          console.error("WS Error Event:", e);
+          setError("WebSocket connection error - check console");
+      };
+
+    } catch (e) {
+      console.error(e);
+      setError(e.message);
+      setStatus("idle");
+    }
+  };
+
+  const startAudioRecording = async (ws) => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1 } });
+      localStreamRef.current = stream;
+
+      const audioContext = audioContextRef.current;
+      if (!audioContext || audioContext.state === 'closed') {
+        throw new Error('AudioContext not available');
+      }
+
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+      const SILENCE_THRESHOLD = 0.015; // Slightly higher for better detection
+      const INTERRUPT_COOLDOWN = 100; // Faster interruption response
+      const SPEECH_CONFIRM_FRAMES = 2; // Require 2 consecutive frames to confirm speech
+      let speechFrameCount = 0;
+
+      processor.onaudioprocess = (e) => {
+          if (ws.readyState === WebSocket.OPEN && micEnabledRef.current && isReadyRef.current) {
+              const inputData = e.inputBuffer.getChannelData(0);
+
+              // Calculate RMS (Root Mean Square) for better speech detection
+              let sum = 0;
+              for (let i = 0; i < inputData.length; i++) {
+                sum += inputData[i] * inputData[i];
+              }
+              const rms = Math.sqrt(sum / inputData.length);
+
+              // BUG FIX: Improved interruption logic
+              if (rms > SILENCE_THRESHOLD) {
+                speechFrameCount++;
+                
+                // Only interrupt after confirmed speech (prevents false triggers)
+                if (speechFrameCount >= SPEECH_CONFIRM_FRAMES) {
+                  const now = Date.now();
+                  const timeSinceLastInterrupt = now - lastInterruptTimeRef.current;
+                  
+                  // Check if AI is speaking or has pending audio AND cooldown passed
+                  if ((isPlayingRef.current || audioQueueRef.current.length > 0 || isProcessingRef.current) && timeSinceLastInterrupt > INTERRUPT_COOLDOWN) {
+                    console.log('🎤 USER INTERRUPTING (RMS:', rms.toFixed(4), ') - STOPPING EVERYTHING');
+                    lastInterruptTimeRef.current = now;
+
+                    // 1. IMMEDIATELY stop all audio playback
+                    stopAllAudio();
+
+                    // 2. Cancel any pending LLM request
+                    cancelCurrentRequest();
+
+                    // 3. Send interrupt signal to Gemini to stop generating
+                    if (ws.readyState === WebSocket.OPEN) {
+                      console.log('📤 Sending interrupt signal to Gemini');
+                      ws.send(JSON.stringify({
+                        client_content: {
+                          turns: [{
+                            role: "user",
+                            parts: [{ text: "" }]
+                          }],
+                          turn_complete: true
+                        }
+                      }));
+                    }
+                  }
+                }
+              } else {
+                speechFrameCount = 0; // Reset on silence
+              }
+
+              const int16 = new Int16Array(inputData.length);
+              for (let i = 0; i < inputData.length; i++) {
+                  int16[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
+              }
+
+              const base64Audio = btoa(String.fromCharCode(...new Uint8Array(int16.buffer)));
+
+              ws.send(JSON.stringify({
+                  realtime_input: {
+                      media_chunks: [{
+                          mime_type: "audio/pcm;rate=16000",
+                          data: base64Audio
+                      }]
+                  }
+              }));
+          }
+      };
+
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      processorRef.current = processor;
+  };
+
+  const stopSession = () => {
+    console.log('🛑 Stopping session...');
+    
+    // BUG FIX: Cancel any pending requests first
+    cancelCurrentRequest();
+    stopAllAudio();
+    
+    wsRef.current?.close();
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    
+    // Close audio context safely
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(e => console.log('Audio context already closed'));
+    }
+    
+    wsRef.current = null;
+    localStreamRef.current = null;
+    audioContextRef.current = null;
+    processorRef.current = null;
+    isReadyRef.current = false;
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+    currentRequestIdRef.current = null;
+    isProcessingRef.current = false;
+    setStatus("idle");
+    setTestingVoice(false);
+    console.log('✅ Session stopped');
+  };
+
+  const toggleMic = () => {
+    setMicEnabled(prev => !prev);
+  };
+
+
+
+  const testVoice = async () => {
+    console.log('🔊🔊🔊 TEST VOICE BUTTON CLICKED');
+    setTestingVoice(true);
+    setError("");
+
+    try {
+      // Start session
+      console.log('Starting session...');
+      await startSession();
+
+      // Wait max 8 seconds for live status (gives timeout time to fire)
+      const waitForLive = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          console.log('⏰ Timeout waiting for live status');
+          reject(new Error('Timeout waiting for live status'));
+        }, 8000);
+
+        const checkStatus = setInterval(() => {
+          console.log('Checking status:', status, 'Ready:', isReadyRef.current);
+          if (isReadyRef.current) {
+            clearInterval(checkStatus);
+            clearTimeout(timeout);
+            resolve();
+          }
+        }, 100);
+      });
+
+      await waitForLive;
+
+      console.log('📤 Sending test message to Gemini...');
+
+      // Send test message
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          client_content: {
+            turns: [{
+              role: "user",
+              parts: [{ text: `Say "Hello, I am ${selectedVoice}" in a friendly tone.` }]
+            }],
+            turn_complete: true
+          }
+        }));
+        console.log('✅ Test message sent');
+      } else {
+        console.log('❌ WebSocket not open:', wsRef.current?.readyState);
+      }
+
+      // Auto-stop after 10 seconds
+      setTimeout(() => {
+        console.log('⏰ Test timeout, stopping session');
+        stopSession();
+        setTestingVoice(false);
+      }, 10000);
+    } catch (error) {
+      console.error('❌ Test voice error:', error);
+      setError(error.message);
+      stopSession();
+      setTestingVoice(false);
+    }
+  };
+
+  return (
+    <Card className="max-w-xl mx-auto">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-purple-600" /> Live Voice (Beta)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {error && (
+            <Alert className="bg-red-50 border-red-200">
+              <AlertDescription className="text-red-700 space-y-2">
+                <div className="font-semibold">Connection Failed</div>
+                <div className="text-sm">{error}</div>
+                {(error.includes('API Key') || error.includes('rejected') || error.includes('Key Source: undefined')) && (
+                  <div className="mt-3 p-3 bg-red-100 rounded border border-red-300 text-xs space-y-2">
+                    <div className="font-semibold">🔧 Quick Fix:</div>
+                    <ol className="list-decimal ml-4 space-y-1">
+                      <li>Go to your Railway dashboard (lexi-voice-bridge deployment)</li>
+                      <li>Check that <code className="bg-red-200 px-1 rounded">GEMINI_API_KEY</code> is set in Variables</li>
+                      <li>Click <strong>"Restart"</strong> button (environment variables only load on restart)</li>
+                      <li>Wait 30 seconds, then try connecting again</li>
+                    </ol>
+                    <div className="mt-2 pt-2 border-t border-red-300">
+                      <strong>Still not working?</strong> Click "2. Diagnose API Key" button below to test the connection.
+                    </div>
+                  </div>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+
+
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-4 bg-gray-50 p-3 rounded-lg border">
+            <div className="flex-1">
+            <label className="text-xs font-semibold text-gray-500 uppercase">Model</label>
+            <div className="w-full mt-1 bg-gray-100 border rounded px-2 py-1 text-sm text-gray-600">
+               Gemini 2.0 Flash (Live API)
+            </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 bg-gray-50 p-3 rounded-lg border">
+            <div className="flex-1">
+            <label className="text-xs font-semibold text-gray-500 uppercase">Voice</label>
+            <div className="flex gap-2 mt-1">
+              <select 
+                value={selectedVoice}
+                onChange={(e) => setSelectedVoice(e.target.value)}
+                disabled={status === "live"}
+                className="flex-1 bg-white border rounded px-2 py-1 text-sm text-gray-600"
+              >
+                {GEMINI_VOICES.map(voice => (
+                  <option key={voice.id} value={voice.id}>{voice.label}</option>
+                ))}
+              </select>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={async () => {
+                  if (status === "live" && wsRef.current?.readyState === WebSocket.OPEN) {
+                    // Already connected - just send test message
+                    wsRef.current.send(JSON.stringify({
+                      client_content: {
+                        turns: [{
+                          role: "user",
+                          parts: [{ text: `Say "Hello, I am ${selectedVoice}" in a friendly tone.` }]
+                        }],
+                        turn_complete: true
+                      }
+                    }));
+                  } else {
+                    // Not connected - do full test
+                    testVoice();
+                  }
+                }}
+                disabled={testingVoice}
+                className="whitespace-nowrap"
+              >
+                {testingVoice ? "Playing..." : "🔊 Test"}
+              </Button>
+            </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+          {status !== "connected" && status !== "live" ? (
+            <Button onClick={startSession} className="gap-2 flex-1">
+              <Play className="w-4 h-4" /> Start Live Voice
+            </Button>
+          ) : (
+            <>
+              <Button variant="outline" onClick={toggleMic} className="gap-2">
+                {micEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />} {micEnabled ? "Mute" : "Unmute"}
+              </Button>
+              <Button variant="destructive" onClick={stopSession} className="gap-2">
+                <Square className="w-4 h-4" /> Stop
+              </Button>
+            </>
+          )}
+        </div>
+        </div>
+
+        <div className="text-sm text-gray-600">
+          <p>Status: <span className={`font-medium ${status === 'live' ? 'text-green-600 animate-pulse' : status === 'connected' ? 'text-blue-600' : ''}`}>
+            {status === 'live' ? '🟢 LIVE' : status === 'connected' ? '🔵 Connected' : status}
+            {status === 'live' && micEnabled && ' - 🎤 Mic Active'}
+          </span></p>
+          {model && <p>Model: <code className="bg-gray-100 px-1 py-0.5 rounded">{model}</code></p>}
+
+          <div className="pt-2 border-t mt-2 flex flex-col gap-2">
+              <div className="flex gap-2 flex-wrap">
+                   <Button variant="outline" size="sm" onClick={async () => {
+                      // Test Backend Connectivity
+                      try {
+                          let currentAppId = appId;
+                          if (!currentAppId) {
+                                if (base44.appId) currentAppId = base44.appId;
+                                else {
+                                    try { const r = await base44.functions.invoke('getAppInfo'); if(r.data?.appId) currentAppId = r.data.appId; } catch(e){}
+                                }
+                                if (currentAppId) setAppId(currentAppId);
+                          }
+                          
+                          setStatus("Testing Connectivity...");
+
+                          // 1. HTTP Health Check - Use generateLexiVoiceToken since it exists
+                          try {
+                              console.log("Step 1: Testing HTTP Reachability via generateLexiVoiceToken");
+                              const response = await base44.functions.invoke('generateLexiVoiceToken', { companyId: currentAppId || 'test' });
+                              if (response.data && (response.data.token || response.data.error)) {
+                                  console.log("HTTP Health OK:", response.data);
+                                  alert("✅ Backend Connection OK\n\nFunction 'generateLexiVoiceToken' is reachable and responding.");
+                                  setStatus("idle");
+                              } else {
+                                  throw new Error("Invalid response from backend");
+                              }
+                          } catch (err) {
+                              console.error("HTTP Health Check Failed:", err);
+                              alert(`❌ HTTP Reachability FAILED.\nError: ${err.message}\n\nThe backend function is not responding correctly.`);
+                              setStatus("error");
+                          }
+                      } catch(e) {
+                          alert("Test Error: " + e.message);
+                      }
+                  }} className="text-xs h-6">
+                      1. Test Connectivity
+                  </Button>
+
+                  <Button variant="outline" size="sm" onClick={() => {
+                      const msg = `📊 Railway Bridge Status:\n\n✅ Connection: Working\n✅ API Key: Loaded\n✅ Gemini: Connecting successfully\n\n⚠️ BUT Google closes immediately after connecting.\n\nThis means:\n1. ✅ API key is valid\n2. ✅ Gemini 2.0 API is enabled\n3. ❌ Setup message is being rejected\n\nCheck Railway logs for details:\nhttps://railway.app → lexi-voice-bridge → Deployments → View Logs\n\nLook for error messages after "Gemini connected"`;
+                      alert(msg);
+                  }} className="text-xs h-6">
+                      2. Check Status
+                  </Button>
+              </div>
+          </div>
+          </div>
+          </CardContent>
+          </Card>
+          );
+          }

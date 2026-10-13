@@ -1,0 +1,381 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "kb4X3CGsbU37IE3OgMje-"
+uri = "file://public/CRM-Audit-Report.pdf"
+type = "pdf"
+title = "CompanySync Platform Audit Report — Corrected March 2026"
+logical_id = "2aa7c824-3c48-4da4-8284-1413c123d3d7"
+
+[[outputs]]
+id = "Tg6K8TfX3ccwNe_zLj04B"
+uri = "file://attached_assets/screencapture-getcompanysync-SalesDashboard-2026-06-15-04_18_2_1781511571181.pdf"
+type = "pdf"
+title = "Sales Dashboard screenshot"
+logical_id = "ab33e625-89cb-45d9-b29c-181266df32af"
+
+[[outputs]]
+id = "OrGwUe3p7tT7PKmvkXRLb"
+uri = "file://.local/video/CompanySync-Training.mp4"
+type = "video"
+title = "CompanySync Training Video (~2:22)"
+logical_id = "a9fbfb04-63cf-458f-8b29-25e318d59493"
+
+[[outputs]]
+id = "JNg_hPjlD2adYLE2bxkzX"
+uri = "file://attached_assets/generated_videos/companysync_marketing_video.mp4"
+type = "video"
+title = "CompanySync Marketing Video (2 min)"
+logical_id = "aa3b1704-76e5-4d67-9290-2d63b77162bb"
+
+[[outputs]]
+id = "IbLMz_lUKNY0UMSUHiLfV"
+uri = "file://attached_assets/generated_audio/companysync_bg_music.mp3"
+type = "audio"
+title = "companysync_bg_music"
+logical_id = "35ab6d44-6c5e-41e1-99f5-301d2b962d07"
+
+[[outputs]]
+id = "f0gw0wR-pqIKYx_8rF4xH"
+uri = "file://attached_assets/generated_videos/companysync_marketing_video_v2.mp4"
+type = "video"
+title = "CompanySync Marketing Video v2 — Real App Screenshots + Music"
+logical_id = "7c3ca475-df3e-4e0c-875b-e708d586e909"
+
+[[outputs]]
+id = "kdyda5Fpb8DLo7TDo76Fy"
+uri = "file://attached_assets/generated_videos/companysync_marketing_video_v3.mp4"
+type = "video"
+title = "CompanySync Marketing Video — companysync.io"
+logical_id = "53b7c785-17e0-40f4-844c-5786c4361a95"
+
+[[outputs]]
+id = "M872yraI1yNIPR-CIyPUe"
+uri = "file://attached_assets/generated_videos/companysync_marketing_video_final.mp4"
+type = "video"
+title = "CompanySync Marketing Video — Narration Matched to Every Screen"
+logical_id = "bd538576-db7d-4cc7-b8c0-810564210110"
+
+[[outputs]]
+id = "G7w1eweo4rsDAfGPVge12"
+uri = "file://exports/CompanySync-PreLaunch-Audit-2026-07-22.pdf"
+type = "pdf"
+title = "CompanySync Pre-Launch Audit Report (July 22, 2026)"
+logical_id = "15846169-86c5-4f44-ad08-5f2c6b9dc4b0"
+
+[[outputs]]
+id = "SVOE6jX2EtOjv2Ae3mxaz"
+uri = "file://attached_assets/demo-video/narration-a.mp3"
+type = "audio"
+title = "clip a"
+logical_id = "e81b1dff-1b99-4bd1-a19d-ac65e3b58981"
+
+[[outputs]]
+id = "INhdHEMMmc78Xo1CuW0Jg"
+uri = "file://attached_assets/demo-video/narration-c.mp3"
+type = "audio"
+title = "clip c"
+logical_id = "c819fa0e-ddd8-4062-85ac-b552f36f1a68"
+
+[[outputs]]
+id = "MkBXCSoLRraxhuWJ4o_Zz"
+uri = "file://attached_assets/demo-video/demo-final.mp4"
+type = "video"
+title = "Debug Demo Video — Error → Gemini Fix → Green Server"
+logical_id = "a1acce06-7eb1-4279-9f23-27b8bdc19af4"
+
+[[outputs]]
+id = "buz1icIxFow3otHKBm0AW"
+uri = "file://attached_assets/demo-video/v2-aud-2.mp3"
+type = "audio"
+title = "v2 scene 2"
+logical_id = "6a1f7571-4ad7-40bd-bee8-dd35af14d3db"
+
+[[outputs]]
+id = "XcoDWo5AAzVlG1zvcgFM6"
+uri = "file://attached_assets/demo-video/v2-aud-5.mp3"
+type = "audio"
+title = "v2 scene 5"
+logical_id = "c8c07b5b-1313-4ba2-bfec-15a491a10a09"
+
+[[outputs]]
+id = "eZZHYtMSiypMXnnltmYUS"
+uri = "file://attached_assets/demo-video/v2-final.mp4"
+type = "video"
+title = "CompanySync × Replit Agent — Bug Fix Demo"
+logical_id = "2f94347b-6c63-471d-9ae2-2dc0339aea0e"
+
+[[outputs]]
+id = "mYXAri2wH8_pd3SKGyN-_"
+uri = "file://attached_assets/demo-video/ob-aud-2.mp3"
+type = "audio"
+title = "Narration scene 2"
+logical_id = "54208595-37e5-4919-864a-6804d9e897ae"
+
+[[outputs]]
+id = "brXR0n9cQViZbOSHSgKEn"
+uri = "file://attached_assets/demo-video/ob-aud-6.mp3"
+type = "audio"
+title = "Narration scene 6"
+logical_id = "933af389-23fc-4143-942f-a4a5f0584517"
+
+[[outputs]]
+id = "93uy4MIyqpgpvoa92M1Fa"
+uri = "file://attached_assets/demo-video/ob-aud-7.mp3"
+type = "audio"
+title = "Narration scene 7"
+logical_id = "8c92893d-1e74-4fcf-b32a-01442736a2d6"
+
+[[outputs]]
+id = "HCCKfULAtNp4vRrF_Ktxr"
+uri = "file://attached_assets/demo-video/ob-aud-3.mp3"
+type = "audio"
+title = "Narration scene 3"
+logical_id = "f839a721-6097-4dea-af65-fa6f68bc4e6e"
+
+[[outputs]]
+id = "xFuoxR1dlY92qnMygXk2l"
+uri = "file://attached_assets/demo-video/ob-aud-1.mp3"
+type = "audio"
+title = "Narration scene 1"
+logical_id = "3a2a8fc0-6349-42f3-93be-ef7f44aae348"
+
+[[outputs]]
+id = "Ie6BLWXDXqU941foU7IRx"
+uri = "file://attached_assets/demo-video/ob-final.mp4"
+type = "video"
+title = "CompanySync Tech Onboarding — New Hire Guide"
+logical_id = "ae296a6a-8dfd-4028-b91d-c8e5a4e6d632"
+
+[[outputs]]
+id = "C-AwvBoVrr6c-wuvTkiAY"
+uri = "file://attached_assets/demo-video/ob2-aud-2.mp3"
+type = "audio"
+title = "Narration v2 scene 2"
+logical_id = "81e38504-7ca0-4188-9ce4-d138f69b8d7f"
+
+[[outputs]]
+id = "PbzvgPUA2pFBzyrpoWoTI"
+uri = "file://attached_assets/demo-video/ob2-aud-5.mp3"
+type = "audio"
+title = "Narration v2 scene 5"
+logical_id = "cbbcdb08-17be-4a38-83cb-175a33bbe8b3"
+
+[[outputs]]
+id = "GnVB_b2pL3-UzSc-olo4c"
+uri = "file://attached_assets/demo-video/ob2-aud-7.mp3"
+type = "audio"
+title = "Narration v2 scene 7"
+logical_id = "b173bc18-1ffe-48e7-91f4-e94f51742472"
+
+[[outputs]]
+id = "M9cCSW8uqzLdkeMutVKDA"
+uri = "file://attached_assets/demo-video/ob2-aud-1.mp3"
+type = "audio"
+title = "Narration v2 scene 1"
+logical_id = "38952162-a9ec-4948-bad2-b6c347ffd7cc"
+
+[[outputs]]
+id = "PCXoK7AjkNjSzDyENh1Px"
+uri = "file://attached_assets/demo-video/ob2-aud-3.mp3"
+type = "audio"
+title = "Narration v2 scene 3"
+logical_id = "fe7a0235-d6c0-48e1-a841-d0f42aebfd5c"
+
+[[outputs]]
+id = "f-JpD30T2sXvP6KUkMqV2"
+uri = "file://attached_assets/demo-video/ob2-final.mp4"
+type = "video"
+title = "CompanySync Tech Onboarding — New Hire Guide (v2)"
+logical_id = "6f9ae710-cb6e-473b-9194-7d937187e445"
+
+[[outputs]]
+id = "N4tVp85hQDqiNK5eKgK9n"
+uri = "file://scripts/video/final/lead-finder-storm-training.mp4"
+type = "video"
+title = "Storm-to-Signed-Job Training Video (v4 — Canvass List workflow)"
+logical_id = "757afa77-398e-4015-8e2f-88b3bd239fb4"
+
+[[outputs]]
+id = "rSIBaeF77LQsbgZdL1xm5"
+uri = "file://attached_assets/harness-3d-verify.png"
+type = "image"
+title = "3D model after label declutter + scene brightening"
+description = "Harness render of HouseModel3D with a 4-facet hip roof fixture: labels no longer overlap (priority + screen-space collision culling), lighter sky/grass backdrop. Compare against the stacked black label wall in your screenshots."
+logical_id = "d449c605-1c8d-4e8a-b51c-426c345ae6df"
+
+[[outputs]]
+id = "9-wdRY-LNb-XhewJiuY8L"
+uri = "file://docs/sample-elevation-drawings.html"
+type = "html"
+title = "Sample elevation drawings"
+description = "What the new to-scale elevation drawings look like: 2-story gable sample with measured openings on photographed faces and a dashed 'NOT PHOTOGRAPHED — ESTIMATED' left side."
+logical_id = "3df1463f-4fa4-46f2-8541-5cb2a0dcfb11"
+content_type = "text/html"
+
+[[outputs]]
+id = "55ICOGvEHQjFNBTcEPQAR"
+uri = "file://docs/sample-elevation-drawings.png"
+type = "image"
+title = "Polished elevation drawings (Hover-style)"
+description = "Updated sample: siding course lines, corner boards, eave/fascia band with rake extensions, ticked architectural dimension lines, window mullions, trim casings."
+logical_id = "05f295ee-196a-47d1-9bf2-c8e64393d569"
+
+[[outputs]]
+id = "-ItLx8aqyEJYWgkEVs1VZ"
+uri = "file://screenshots/house3d-customer.png"
+type = "image"
+title = "Customer view — 3D house render"
+description = "Default homeowner-facing view: studio backdrop, PBR shingles and lap siding, no measurement annotation."
+logical_id = "6b5231e3-54ad-494f-b2cf-9338e89111c7"
+
+[[outputs]]
+id = "kkwHLC-xuMVUM9IhvZLmo"
+uri = "file://screenshots/house3d-big-hip.png"
+type = "image"
+title = "Large hip roof — tiling check"
+description = "96x58 ft two-story hip roof; shingle courses hold the same real-world scale as the small gable."
+logical_id = "e0f4e99a-744a-4a2d-9dcc-faef91a8a5c4"
+
+[[outputs]]
+id = "3xWLewgJ-FhCO6qfx9OaG"
+uri = "file://screenshots/house3d-estimator.png"
+type = "image"
+title = "Estimator view — measurements restored"
+description = "Toggling to Estimator view brings back edge colours, dimension chips, pitch labels and diagnostic badges."
+logical_id = "a346ca68-c4d8-48c2-ae94-0fb5e839af69"
+
+[[outputs]]
+id = "sEvq7kBqZh7S6Nzxa-Vrf"
+uri = "file://attached_assets/generated_videos/google-calendar-sync-training.mp4"
+type = "video"
+title = "Google Calendar Sync Training — Catalog Style"
+description = "Final 16:9 catalog-style training video: full-frame real CRM General Settings screenshots, the same bottom caption treatment as existing videos, and Kore voice-over."
+logical_id = "8aba0d9f-9f26-41b8-a848-aefa714db80a"
+
+[[outputs]]
+id = "ZHSBYCWe-jxV0sbgKapD5"
+uri = "file://attached_assets/generated_videos/general-settings-training.mp4"
+type = "video"
+title = "CompanySync General Settings Training — Sanitized"
+description = "Corrected 16:9 General Settings training video with aspect-ratio-preserving screen crops and fictional demo data only: Summit Peak Exteriors, Alex Morgan, example.com addresses, and a 555 phone number."
+logical_id = "1ebf2154-2984-4f8c-bbe5-67bc0bc2133e"
+content_hash = "sha256:4eed24a5544af5a4c516641046171cc3a71f6b6c1089b062ed86fe9e7ad5337d"
+size = 6981872
+mtime_ms = 1789284932282
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:b1978406-c443-40c2-a7a3-76001d9ab2cc/1ebf2154-2984-4f8c-bbe5-67bc0bc2133e/737fab36-a597-4e9d-85fa-c8de1fe39c69"
+storage_version_token = "1789284988800509"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "HTHa7MNx4W0TJIqlGdgVq"
+uri = "file://public/videos/clip29-accounting.mp4"
+type = "video"
+title = "CompanySync Training #29 — Accounting & Bookkeeping"
+description = "The completed 16:9 CompanySync training video for accounting and bookkeeping."
+logical_id = "2808328c-fae7-4c3a-9a43-03f2ad31ed6e"
+content_hash = "sha256:4cc217ced153f5d6442bef4af87070d00b193dfe018c130943f8c7aade95a9cd"
+size = 9525360
+mtime_ms = 1789300026392
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:b1978406-c443-40c2-a7a3-76001d9ab2cc/2808328c-fae7-4c3a-9a43-03f2ad31ed6e/b8291caa-4102-4acb-82fa-8694e9439ac5"
+storage_version_token = "1789302777309432"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "QFZErbEMVHfgHGo-Wn13o"
+uri = "file://public/videos/clip30-siding-estimator.mp4"
+type = "video"
+title = "CompanySync Training #30 — Siding & Exterior Measurements"
+description = "A 2:25 CompanySync training walkthrough covering guided photos, satellite and manual siding measurements, reports, and estimate creation."
+logical_id = "95d4f00f-6f79-4c30-a86e-507d0b68b0e5"
+content_hash = "sha256:bb52f648439a44b2197c9bde9de92e294063985431cb1bb283611de46626c38a"
+size = 13787720
+mtime_ms = 1789303922128
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:b1978406-c443-40c2-a7a3-76001d9ab2cc/95d4f00f-6f79-4c30-a86e-507d0b68b0e5/c5b23cff-c1a2-49be-9b2c-e71c4ea97f4d"
+storage_version_token = "1789304061600917"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "DQpB-ANLcrUvY0NE0oNiu"
+uri = "file://attached_assets/generated_videos/clip31-company-setup-part1.mp4"
+type = "video"
+title = "Company Setup Training — Part 1 (High-Resolution)"
+description = "Rebuilt from the PDF’s native embedded browser screenshot at full source resolution. 1920×1080 narrated video covering identity, branding, business defaults, and booking."
+logical_id = "ce1cdc88-842f-436d-8a79-8211232a5f0b"
+content_hash = "sha256:4e0d702e67e2c7ad0d2394eb05d6adadee14f021abba860fb22bcbd250267b62"
+size = 10634745
+mtime_ms = 1789470060947
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:b1978406-c443-40c2-a7a3-76001d9ab2cc/ce1cdc88-842f-436d-8a79-8211232a5f0b/c386985a-a74a-4a4b-a695-774eab683241"
+storage_version_token = "1789470251229449"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "qJaG9CtL-kTSlCZjyz4hR"
+uri = "file://attached_assets/generated_videos/clip32-company-setup-part2.mp4"
+type = "video"
+title = "Company Setup Training — Part 2 (High-Resolution)"
+description = "Rebuilt from the PDF’s native embedded browser screenshot at full source resolution. 1920×1080 narrated video covering PhotoSync and customer communication templates."
+logical_id = "42be589e-cb74-455d-adb7-0c3aa8b19bc2"
+content_hash = "sha256:dbe1c4ab1a5664b1b2fdff6d1b777d8c8b617e428767c48a889a38ad3eb3f07a"
+size = 10542050
+mtime_ms = 1789470097647
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:b1978406-c443-40c2-a7a3-76001d9ab2cc/42be589e-cb74-455d-adb7-0c3aa8b19bc2/7543352d-f716-4d8b-b8bc-1e42b2b8afa8"
+storage_version_token = "1789470252364604"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "t7dUykWCD0Ix3p_UEtNX9"
+uri = "file://attached_assets/generated_videos/clip33-company-setup-part3.mp4"
+type = "video"
+title = "Company Setup Training — Part 3 (High-Resolution)"
+description = "Rebuilt from the PDF’s native embedded browser screenshot at full source resolution. 1920×1080 narrated video covering escalations, voice commands, document defaults, and shortcuts."
+logical_id = "40556377-b619-4c8e-9f2c-975c6faf43ba"
+content_hash = "sha256:b2d68e6292c8222edb14145f5f293c9379bcb63f9b5de62fcd9006e12ff23fa6"
+size = 10614907
+mtime_ms = 1789470130504
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:b1978406-c443-40c2-a7a3-76001d9ab2cc/40556377-b619-4c8e-9f2c-975c6faf43ba/82b8c42a-b61b-4f94-af3b-e9243f10ef0b"
+storage_version_token = "1789470253558925"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "ZCyQraJ4JEdABXqodNX1K"
+uri = "file://public/videos/clip17-quickbooks.mp4"
+type = "video"
+title = "CompanySync QuickBooks Sync Training"
+description = "1080p narrated walkthrough covering QuickBooks connection, test versus production companies, sync counts, duplicate safeguards, expense and chart-of-accounts imports, invoice status, and automatic sync."
+logical_id = "aca5fbf4-c20b-4f2b-9261-1319c5d803c3"
+content_hash = "sha256:a9c262dbd72b5bb57f816c554f54ab7e44074d53b51f6dec6db53ad0e8ba2eef"
+size = 16421028
+mtime_ms = 1789729066338
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:b1978406-c443-40c2-a7a3-76001d9ab2cc/aca5fbf4-c20b-4f2b-9261-1319c5d803c3/6e267275-9d1b-436d-bfc8-eb6bf500b8a9"
+storage_version_token = "1789729145198875"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "0KonVPnBhho2BOMEeG9Hp"
+uri = "file://public/videos/clip22-photos.mp4"
+type = "video"
+title = "PhotoSync — Photo & Damage Reports"
+description = "Final replacement training video: real PhotoSync inspection screens showing upload and section organization, AI damage analysis, photo review, evidence sharing, scope of work, and the Generate & Send report dialog."
+logical_id = "93f7506a-9636-4b59-8bcd-d7e5b9bcca1d"
+content_hash = "sha256:432153a8988acfc3a5297b6efb0319e7812effdfeac73ddbc53a32f4633977b6"
+size = 13719863
+mtime_ms = 1789792262889
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:b1978406-c443-40c2-a7a3-76001d9ab2cc/93f7506a-9636-4b59-8bcd-d7e5b9bcca1d/0550cbb5-e832-4d78-b54b-903a84c80b32"
+storage_version_token = "1789792313753418"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "6YGU_gwgEt9Zhdju8_iTv"
+uri = "file://previews/insurance-claim-welcome-email.html"
+type = "html"
+title = "Insurance claim welcome email preview"
+description = "A visual sample of the actual welcome email copy and layout. Names, photos, phones, responsibilities, and company branding are placeholders—not real staff details."
+logical_id = "126f3da8-3f6d-4834-997a-49ba044275bf"
+content_hash = "sha256:9026575d3465f011d1d206d49107b10e9fca8fe689ad551c7d6703406afbd125"
+size = 5392
+mtime_ms = 1791431165090
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:b1978406-c443-40c2-a7a3-76001d9ab2cc/126f3da8-3f6d-4834-997a-49ba044275bf/f81b0b5a-d5f1-4d55-b2aa-4a73bf2cba45"
+storage_version_token = "1791431194988697"
+content_type = "text/html"

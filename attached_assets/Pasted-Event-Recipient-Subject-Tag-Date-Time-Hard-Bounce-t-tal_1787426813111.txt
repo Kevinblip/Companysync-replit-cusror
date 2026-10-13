@@ -1,0 +1,156 @@
+Event
+Recipient
+Subject
+Tag
+Date & Time
+Hard Bounce
+t
+talsmann@3050web.no
+Bekreft transaksjonen din
+—
+Aug 22, 2:01:39 PM
+Hard Bounce
+d
+daniel.bjanesoy@ocea.no
+Bekreft transaksjonen din
+—
+Aug 22, 1:55:56 PM
+Hard Bounce
+m
+myleif@bluezone.no
+Bekreft transaksjonen din
+—
+Aug 22, 1:54:56 PM
+Hard Bounce
+j
+js@fmhe.no
+Bekreft transaksjonen din
+—
+Aug 22, 1:51:40 PM
+Hard Bounce
+o
+ole.petter@malmin.nu
+Bekreft transaksjonen din
+—
+Aug 22, 1:49:38 PM
+Hard Bounce
+t
+titu@live.nodenne
+Bekreft transaksjonen din
+—
+Aug 22, 1:49:32 PM
+Hard Bounce
+m
+marte.karlsen@niomar.no
+Bekreft transaksjonen din
+—
+Aug 22, 1:49:19 PM
+Hard Bounce
+m
+marit.breivik@olympiatoppen.no
+Bekreft transaksjonen din
+—
+Aug 22, 1:15:12 PM
+Hard Bounce
+a
+aune@frisurf.no
+Bekreft transaksjonen din
+—
+Aug 22, 1:12:46 PM
+Hard Bounce
+a
+anita@ebnett.no
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:51 PM
+Hard Bounce
+j
+jakenigga@icloud.com
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:46 PM
+Hard Bounce
+n
+nils.erik@oppland-elektro.no
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:45 PM
+Hard Bounce
+h
+hans.guldentops@icloud.com
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:44 PM
+Hard Bounce
+s
+sondre@bodo-svommeklubb.no
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:32 PM
+Hard Bounce
+k
+kenmeland@icloud.com
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:28 PM
+Hard Bounce
+h
+heidiberentsen@me.com
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:24 PM
+Hard Bounce
+c
+carsten.sorlie@mac.com
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:16 PM
+Hard Bounce
+a
+aaselle@icloud.com
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:16 PM
+Hard Bounce
+h
+harald.rubach@luftfart.museum.no
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:12 PM
+Hard Bounce
+j
+julie.obinger@icloud.com
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:11 PM
+Hard Bounce
+k
+kirsten.borge@austagderfk.no
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:08 PM
+Hard Bounce
+k
+kyrre@egga.no
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:06 PM
+Hard Bounce
+g
+gustav.jensen@aibel.com
+Bekreft transaksjonen din
+—
+Aug 22, 1:11:00 PM
+Hard Bounce
+t
+tromsosport@me.com
+Bekreft transaksjonen din
+—
+Aug 22, 1:10:58 PM
+Hard Bounce
+s
+sandersandmael@icloud.com
+Bekreft transaksjonen din
+—
+Aug 22, 1:10:54 PM
+Messages are stored for 45 days. Customize →

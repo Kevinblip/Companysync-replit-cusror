@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<XactimateExport version="1.0">
+  <Header>
+    <ExportDate>2026-07-28</ExportDate>
+    <SourceSystem>CompanySync</SourceSystem>
+    <Carrier>State Farm Insurance</Carrier>
+  </Header>
+  <ClaimInformation>
+    <ClaimNumber>CLM-2026-0941A</ClaimNumber>
+    <PolicyNumber>POL-8830192</PolicyNumber>
+    <DateOfLoss>2026-06-12</DateOfLoss>
+    <TypeOfLoss>Wind / Hail</TypeOfLoss>
+    <Insured>
+      <Name>Kevin Stone</Name>
+      <PropertyAddress>1234 Main Street, Cleveland, OH 44114</PropertyAddress>
+      <Phone>(216) 555-0199</Phone>
+    </Insured>
+    <Contractor>
+      <CompanyName>Stone Roofing</CompanyName>
+      <ContactName>Kevin</ContactName>
+    </Contractor>
+  </ClaimInformation>
+  <LineItems>
+    <!-- Roof Replacement Scope -->
+    <LineItem itemNumber="1">
+      <Category>RFG</Category>
+      <Selector>300</Selector>
+      <Description>Remove 3-tab - composition shingle roofing - w/ felt</Description>
+      <Quantity>32.00</Quantity>
+      <Unit>SQ</Unit>
+      <UnitPrice>58.50</UnitPrice>
+      <Total>1872.00</Total>
+    </LineItem>
+    <LineItem itemNumber="2">
+      <Category>RFG</Category>
+      <Selector>300M</Selector>
+      <Description>Laminated - comp. shingle rfg. - w/ felt</Description>
+      <Quantity>35.20</Quantity>
+      <Unit>SQ</Unit>
+      <UnitPrice>285.00</UnitPrice>
+      <Total>10032.00</Total>
+      <Notes>Includes 10% waste factor</Notes>
+    </LineItem>
+    <LineItem itemNumber="3">
+      <Category>RFG</Category>
+      <Selector>FELT15</Selector>
+      <Description>Roofing felt - 15 lb.</Description>
+      <Quantity>32.00</Quantity>
+      <Unit>SQ</Unit>
+      <UnitPrice>22.00</UnitPrice>
+      <Total>704.00</Total>
+    </LineItem>
+    <LineItem itemNumber="4">
+      <Category>RFG</Category>
+      <Selector>IWS</Selector>
+      <Description>Ice &amp; water barrier</Description>
+      <Quantity>4.00</Quantity>
+      <Unit>SQ</Unit>
+      <UnitPrice>115.00</UnitPrice>
+      <Total>460.00</Total>
+    </LineItem>
+    <LineItem itemNumber="5">
+      <Category>RFG</Category>
+      <Selector>DRIP</Selector>
+      <Description>Drip edge</Description>
+      <Quantity>240.00</Quantity>
+      <Unit>LF</Unit>
+      <UnitPrice>3.10</UnitPrice>
+      <Total>744.00</Total>
+    </LineItem>
+  </LineItems>
+  <Totals>
+    <Subtotal>13812.00</Subtotal>
+    <OverheadPercentage>10.00</OverheadPercentage>
+    <ProfitPercentage>10.00</ProfitPercentage>
+    <OverheadAndProfit>2762.40</OverheadAndProfit>
+    <GrandTotal>16574.40</GrandTotal>
+  </Totals>
+</XactimateExport>

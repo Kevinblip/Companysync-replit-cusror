@@ -1,0 +1,33 @@
+### TASK: Overhaul 3D Model Generation & Enforce Parametric Roof/Wall Topology (Match Hover Standard)
+
+#### 1. Core Problem & Objective
+Our current 3D visualizer generates floating, disconnected roof planes with fragmented micro-ridges (e.g., 4 disjointed facets on a simple rectangular garage) above an open, flat-extruded box. We must replace this raw DSM surface draping with a **closed, parametric 3D topology engine** that creates continuous, watertight models matching Hover's clean geometry.
+
+---
+
+#### 2. Architectural Constraints & Primitive Snapping Rules
+1. **Footprint Regularization & Classification:**
+   - Detect standard geometric primitives (Rectangle / L-Shape / T-Shape).
+   - If footprint aspect ratio and satellite symmetry indicate a simple box (e.g., 32x32), restrict default roof typology to standard primitives: **Bilateral Gable** or **Four-Hip**.
+   - Strip out noisy micro-facets (< 15% total roof area or < 5 LF ridge segments) by projecting them into the dominant parent plane.
+
+2. **Watertight Mesh & Wall-to-Roof Snapping:**
+   - Eliminate all air gaps between the wall top-plate and roof planes.
+   - For Gable ends: Extend the wall polygons vertically as a continuous triangle from eave height ($H_{eave}$) to ridge height ($H_{ridge}$).
+   - For Eaves: Align roof lower boundary vertices directly with exterior wall top-plates (plus user-defined overhang, default 12").
+   - For Ridges: Snap intersecting opposing roof planes to a single, continuous shared edge ($E_{ridge}$).
+
+3. **Unified Single Ridge & Pitch Constraint:**
+   - A single rectangular gable section MUST have exactly **one continuous ridge line** along the primary axis.
+   - Enforce a single uniform pitch across opposing symmetric planes unless asymmetric shed roof is explicitly detected.
+
+4. **Openings & Trim Cuts:**
+   - Cut garage doors, service doors, and windows cleanly into the wall mesh surface as planar cutouts rather than rendering floating detached textures.
+   - Apply boundary edge-highlighting on trim, fascia, rake, and corners (as seen in Hover's visual feedback model).
+
+---
+
+#### 3. Execution & Validation Requirements
+- Build a shared `MeshGeometryBuilder` module that outputs Three.js / WebGL watertight geometry from the single Canonical Measurement Graph.
+- Ensure the 3D rendered surface areas, wall heights, and roof facets match 1:1 with the summary card quantities.
+- Render test cases on simple rectangular garages to verify clean, 2-plane gable roof output with zero floating facets or phantom ridges.

@@ -1,0 +1,24 @@
+Task: Implement #1178 - HOVER-Comparable Siding Reconstruction
+
+We need to replace our procedural 3D visualization and independent math calculations with a "canonical measurement graph" architecture. The 3D model, the estimate totals, and the waste calculations must all pull from the exact same JSON object. We will use satellite footprints as the scale anchor, and photos solely for elevation details.
+
+Step 1: Define the Canonical Measurement Graph
+Update src/pages/AIEstimator.jsx to manage a single source-of-truth state object for the property. This graph must represent the building footprint, wall facets, roof facets, and an array of rough openings (windows/doors) with specific coordinates relative to their parent wall facet.
+
+Step 2: Implement the Fusion Strategy (Satellite X/Z + Photo Y)
+Update functions/analyzeHousePhotosForSiding.ts to stop guessing total areas independently.
+
+It must take the exact wall widths from the Satellite/OSM footprint (the scale anchor).
+
+It must analyze uploaded photos and Street View (from functions/getStreetViewImages.ts) strictly to determine: (1) Eave height per facet, (2) Roof pitch/gable peaks, and (3) The bounding boxes of rough openings.
+
+It must return these values to populate the canonical graph.
+
+Step 3: Unify the 3D Renderer and Estimator
+Update src/components/estimator/HouseModel3D.jsx to render strictly from the canonical measurement graph. If a window exists in the graph, it renders on the model.
+
+Step 4: Strict Derivation for Math
+Ensure the estimating logic (waste, siding deductions, J-channel/trim linear feet) no longer uses independent AI guesses. It must run standard geometric math directly against the canonical graph (e.g., Wall Area = Width * Height, Net Siding = Wall Area - Rough Openings Area).
+
+Step 5: Run Reconciliation Checks
+Create a validation step that ensures the total SQ shown in the summary perfectly matches the 3D geometry rendered, throwing a visible UI warning if photo occlusion prevents a complete facade mapping.

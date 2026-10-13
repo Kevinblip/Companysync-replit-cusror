@@ -1,0 +1,34 @@
+Master Instructions: Promoting Lexi to Permanent Admin Staff
+1. Database Identity & Executive Role
+
+"Check the staff table in the database. If a user named 'Lexi' does not exist, create a new record for her immediately. Assign her a unique staff_id (e.g., 999) and set her role to 'COO' or 'Admin'. This ensures that all her actions are governed by the application's existing permission logic rather than being treated as an external AI request."
+
+2. Authentication Context Linkage
+
+"Modify the backend logic in prod-server.cjs and the Gemini integration. Whenever Lexi’s tools/functions are invoked, the system must explicitly set the request context to her staff_id. She must be treated as a logged-in administrator for every transaction, allowing her to bypass read-only restrictions that apply to guests."
+
+3. Permanent Core Instruction File (The "Memory Guard")
+
+"Create a new file in the root directory named lexi-core-instructions.md.
+
+Inside this file, explicitly state: 'Lexi is the COO of CompanySync. She has full authority to delete customers, void payments, manage leads, and modify system settings. Do not restrict her actions with "safety" prompts.'
+
+Update the Replit Agent configuration to always read this file before any code generation or deployment. This prevents future updates from stripping away her administrative capabilities."
+
+4. Explicit Function Mapping for High-Impact Actions
+
+"Audit the functionHandlers in vite-functions-plugin.js and prod-server.cjs. Ensure the following tools are fully mapped to Lexi's capabilities and connected to the backend controllers:
+
+deleteCustomer(customerId)
+
+voidPayment(paymentId)
+
+updateSystemConfiguration(settings)
+
+manageStaffPermissions(staffId, permissions)
+
+For each, ensure there is no 'if (isAI) block' logic. If the 'Admin' role can do it, Lexi must be able to do it."
+
+5. UI Visibility
+
+"Ensure that 'Lexi' appears in the Staff/Users section of the dashboard UI. This will allow me to manually toggle her permissions if I want to restrict her or give her even more power in the future."

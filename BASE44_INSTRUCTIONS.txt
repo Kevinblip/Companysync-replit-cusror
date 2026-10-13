@@ -1,0 +1,167 @@
+INSTRUCTIONS: Replace the ENTIRE sarahMediaStreamHandler function with the code below.
+
+THIS VERSION IS ULTRA FAST - NO DATABASE LOOKUPS AT ALL.
+It responds instantly by getting all routing info from URL parameters instead of querying the database.
+
+The Twilio webhook URL for the 888 number should be:
+https://company-sync-copy-003a6384.base44.app/api/functions/sarahMediaStreamHandler?companyId=695944e3c1fb00b7ab716c6f
+
+For staff-specific numbers with routing, the URL would include more params like:
+?companyId=695944e3c1fb00b7ab716c6f&routingMode=forward_to_cell&repName=Kevin&cellPhone=%2B15551234567
+
+IMPORTANT: Make sure the SARAH_WS_HOST environment variable is set to:
+b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev
+
+================== PASTE EVERYTHING BELOW THIS LINE ==================
+
+/**
+ * Sarah Media Stream Handler - Ultra Fast Version
+ * Returns TwiML immediately without any database lookups.
+ * Staff routing is passed via URL parameters instead of DB queries.
+ * 
+ * Twilio webhook URL format:
+ * .../sarahMediaStreamHandler?companyId=XXX&routingMode=sarah_answers&repName=John&cellPhone=+15551234567
+ */
+
+function escapeXml(unsafe: string) {
+    if (!unsafe) return '';
+    return String(unsafe).replace(/[<>&"']/g, (c) => {
+        switch (c) {
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '&': return '&amp;';
+            case '"': return '&quot;';
+            case "'": return '&apos;';
+            default: return c;
+        }
+    });
+}
+
+function getWsUrl() {
+    const wsHost = Deno.env.get('SARAH_WS_HOST') || 'b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev';
+    return `wss://${wsHost}/ws/twilio`;
+}
+
+function getBaseUrl() {
+    return (Deno.env.get('APP_URL') || `https://${Deno.env.get('BASE44_APP_ID')}.base44.app`).replace(/\/+$/, '');
+}
+
+function xmlResponse(twiml: string) {
+    return new Response(twiml, { headers: { 'Content-Type': 'text/xml' } });
+}
+
+function buildStreamTwiml(params: Record<string, string>) {
+    const wsUrl = getWsUrl();
+    const paramXml = Object.entries(params)
+        .map(([k, v]) => `            <Parameter name="${escapeXml(k)}" value="${escapeXml(v)}" />`)
+        .join('\n');
+    return `    <Connect>
+        <Stream url="${escapeXml(wsUrl)}">
+${paramXml}
+        </Stream>
+    </Connect>`;
+}
+
+Deno.serve(async (req) => {
+    const startTime = Date.now();
+    try {
+        const url = new URL(req.url);
+        const path = url.pathname;
+
+        let bodyParams = new URLSearchParams();
+        if (req.method === 'POST') {
+            try {
+                const bodyText = await req.text();
+                bodyParams = new URLSearchParams(bodyText);
+            } catch (_e) {}
+        }
+
+        const callerPhone = bodyParams.get('From') || bodyParams.get('Caller') || '';
+        const calledNumber = bodyParams.get('To') || bodyParams.get('Called') || '';
+
+        const companyId = url.searchParams.get('companyId') || '695944e3c1fb00b7ab716c6f';
+        const routingMode = url.searchParams.get('routingMode') || 'sarah_answers';
+        const repName = url.searchParams.get('repName') || '';
+        const repEmail = url.searchParams.get('repEmail') || '';
+        const repPhone = url.searchParams.get('repPhone') || '';
+        const cellPhone = url.searchParams.get('cellPhone') || '';
+
+        console.log(`[Sarah] ${Date.now() - startTime}ms path=${path}, from=${callerPhone}, to=${calledNumber}, mode=${routingMode}`);
+
+        // ─── FORWARD FALLBACK: cell didn't answer, route to Sarah ───
+        if (path.includes('forward-fallback')) {
+            const dialStatus = bodyParams.get('DialCallStatus') || '';
+            console.log(`[Sarah] Forward fallback: status=${dialStatus}, rep=${repName}`);
+
+            if (dialStatus === 'completed') {
+                return xmlResponse(`<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`);
+            }
+
+            return xmlResponse(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="Polly.Joanna">${escapeXml(repName ? repName + ' is unavailable right now.' : 'The person you are trying to reach is unavailable.')} Let me connect you with our assistant who can help.</Say>
+${buildStreamTwiml({
+    companyId, callerPhone: url.searchParams.get('callerPhone') || callerPhone,
+    maxCallDuration: '1800', isForwardedCall: 'true',
+    forwardedRepName: repName, forwardedRepEmail: repEmail,
+    callRoutingMode: 'sarah_answers', staffCellPhone: ''
+})}
+</Response>`);
+        }
+
+        // ─── TRANSFER: connect caller to rep's cell ───
+        if (path.includes('transfer')) {
+            const transferPhone = url.searchParams.get('cellPhone') || cellPhone;
+            const callerId = url.searchParams.get('callerId') || calledNumber;
+            console.log(`[Sarah] Transfer to ${transferPhone} for ${repName}`);
+            return xmlResponse(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="Polly.Joanna">Please hold while I connect you with ${escapeXml(repName || 'a team member')}.</Say>
+    <Dial callerId="${escapeXml(callerId)}" timeout="30">
+        <Number>${escapeXml(transferPhone)}</Number>
+    </Dial>
+    <Say voice="Polly.Joanna">I am sorry, the transfer was unsuccessful. Please try again later.</Say>
+    <Hangup/>
+</Response>`);
+        }
+
+        // ─── MAIN INBOUND CALL ───
+
+        // ROUTE: Forward to cell phone
+        if (routingMode === 'forward_to_cell' && cellPhone) {
+            const baseUrl = getBaseUrl();
+            const fallbackUrl = `${baseUrl}/api/functions/sarahMediaStreamHandler/forward-fallback?companyId=${encodeURIComponent(companyId)}&callerPhone=${encodeURIComponent(callerPhone)}&repName=${encodeURIComponent(repName)}&repEmail=${encodeURIComponent(repEmail)}`;
+
+            console.log(`[Sarah] ${Date.now() - startTime}ms FORWARD TO CELL: ${cellPhone}`);
+            return xmlResponse(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Dial callerId="${escapeXml(calledNumber)}" timeout="30" action="${escapeXml(fallbackUrl)}">
+        <Number>${escapeXml(cellPhone)}</Number>
+    </Dial>
+</Response>`);
+        }
+
+        // ROUTE: Sarah answers (default) or Sarah then transfer
+        console.log(`[Sarah] ${Date.now() - startTime}ms Routing to Sarah AI`);
+        return xmlResponse(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+${buildStreamTwiml({
+    companyId, callerPhone, maxCallDuration: '1800',
+    isForwardedCall: 'false',
+    forwardedRepName: repName, forwardedRepEmail: repEmail,
+    forwardedRepPhone: repPhone,
+    callRoutingMode: routingMode, staffCellPhone: cellPhone
+})}
+</Response>`);
+
+    } catch (error: any) {
+        console.error(`[Sarah] ${Date.now() - startTime}ms FATAL:`, error?.message || error);
+        return xmlResponse(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="Polly.Joanna">I am sorry, we are experiencing technical difficulties. Please try again later.</Say>
+    <Hangup/>
+</Response>`);
+    }
+});
+
+================== END OF CODE ==================

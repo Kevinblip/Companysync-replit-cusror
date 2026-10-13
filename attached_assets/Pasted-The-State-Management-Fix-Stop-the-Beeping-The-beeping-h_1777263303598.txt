@@ -1,0 +1,28 @@
+The "State Management" Fix (Stop the Beeping)
+The beeping happens because the phone’s browser is trying to maintain a "Full Duplex" (two-way) audio stream while processing image data.
+
+The Instruction: "Modify the Hands-Free toggle logic in InspectionCapture.jsx to implement a Quiet-on-Upload state. When isUploading is true, pause the sarahBridgeAPI listener and resume it only after the onUploadComplete callback fires. This prevents audio feedback loops and hardware lag on mobile devices."
+
+2. The "Context Switching" Logic (Allstate Style)
+You mentioned the adjuster says "Window damaged" or "Siding right." Your app needs to know what that means without you clicking buttons.
+
+The Instruction: "Update the sarahBridgeAPI handler to recognize Primary Keywords.
+
+If transcript contains 'Right' or 'Left' + 'Elevation', programmatically trigger the setActiveSection() function to switch the UI tab.
+
+If transcript contains 'Damage' + [Item Name], append that item directly to the sectionNotes state for the active section."
+
+3. Voice-to-Counter Mapping
+I see your Roof Accessories (Vents, Pipe Boots) use a manual [+] and [-] system.
+
+The Instruction: "Create a listener within the Hands-Free component that parses numbers. If the user says 'Add three pipe boots,' the pipeBoots state should increment by 3. This allows the rep to keep their phone in their pocket or holster while counting penetrations."
+
+4. The "Immediate ACV" Logic
+To truly beat Settle Up, you need to show the money.
+
+The Instruction: "Add a LiveEstimateSummary widget to the InspectionCapture sidebar. This widget should pull line-item prices from the convertSidingMeasurementsToLineItems logic (which we recently updated in Plan #6) and display a real-time 'Estimated Claim Value' based on the voice-added notes."
+
+5. Mobile Stability (The "PWA" push)
+Since you prefer cell phones, we need to bypass the browser's "Standard" mode which throttles the mic.
+
+The Instruction: "Ensure the manifest.json is fully configured for a 'Standalone' display. Add a prompt for first-time mobile users to 'Add to Home Screen' so the app runs with high-priority access to the microphone and camera, which eliminates the laptop-vs-mobile performance gap."

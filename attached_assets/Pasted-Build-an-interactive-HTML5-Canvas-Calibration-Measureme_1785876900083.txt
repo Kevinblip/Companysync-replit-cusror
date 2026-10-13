@@ -1,0 +1,41 @@
+Build an interactive HTML5 Canvas Calibration & Measurement Ruler overlay directly into the CrewCam Photo Viewer component in CompanySync.
+
+### Objective
+Allow users (or Vision AI pre-selection) to draw a known physical reference line on an elevation photo (e.g., standard 80" front door frame or siding reveal) to calculate exact wall heights (ground-to-eave and gable peak) using pixel-to-inches ratios.
+
+---
+
+### UI & UX Workflow Requirements
+
+1. **Canvas Overlay on CrewCam Viewer:**
+   - Render an SVG/HTML5 Canvas overlay on top of any active elevation photo in the CrewCam panel.
+   - Maintain vector scaling so window resize or image zooming does not alter pixel ratio math.
+
+2. **Calibration Reference (Line A - The Ruler):**
+   - Provide two draggable endpoints defining "Line A" (Color: Cyan/Blue).
+   - Display a dropdown/input preset for the reference length:
+     * Preset 1: Standard Front Door Height (Default: 80 inches / 6.67 ft)
+     * Preset 2: Standard Garage Door Height (Default: 84 inches / 7.0 ft)
+     * Preset 3: Siding Reveals (Default: 10 courses @ 4.5" = 45 inches)
+     * Preset 4: Custom Manual Input (Inches)
+
+3. **Target Measurement (Line B - The Eave Height):**
+   - Provide two draggable endpoints defining "Line B" (Color: Bright Yellow/Green).
+   - Position Line B from the ground/foundation line vertically to the eave/top wall plate.
+   - (Optional) Provide a secondary "Line C" (Color: Magenta) for Gable Peak height.
+
+4. **Real-Time Calculation & State Pipeline:**
+   - Execute real-time calculation as handles are dragged:
+     `wall_height_ft = (line_b_pixels / line_a_pixels) * (reference_inches / 12)`
+   - Live-display the calculated height in feet/inches directly on the photo header (e.g., "Calibrated Eave Height: 18' 6\"").
+   - Automatically update the elevation state `calibrated_eave_height_ft` and pass it to the Siding Calculation Engine, overriding default eave heights.
+
+5. **AI Auto-Placement Integration:**
+   - If Vision AI has already detected an entry door bounding box on the photo, automatically pre-place Line A across the door's vertical height and default Line B vertically across the photo center for instant 1-click confirmation.
+
+---
+
+### Technical Constraints & Stack
+- Build as a reusable React component (`PhotoCalibrationCanvas.jsx`).
+- Ensure touch-friendly drag handles for mobile/tablet field technicians in CrewCam.
+- Store calibrated height per photo elevation in the backend payload.

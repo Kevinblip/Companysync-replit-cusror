@@ -1,0 +1,54 @@
+CompanySync AI Estimator — TWEAK from photo lab (preview only)
+
+CONTEXT
+Lab on Malec / Huntington / McMullen Allen taught us: Solar roof OK; siding fails when (1) stone≠siding is lost, (2) all-wall extrusion becomes “siding SQ”, (3) 3D doesn’t look like the photos. Tweak existing estimator — do NOT redesign chrome.
+
+LOCKED PRESENT UI (do not change layout)
+- Navy sidebar + existing colored pills
+- Large 3D panel
+- Orange material-map banner
+- Vertical source photo thumbnails on the RIGHT
+- Blue footer: address | stories/type | siding faces only | SANITY-REVIEW
+Kevin locked this template. No new report chrome / no white PDF.
+
+HARD RULES
+1) Preview only. Do NOT Publish.
+2) Do NOT touch YICN CRM/Twilio/staff. Test on Wizard Test Co / dummy job only.
+3) No Hover/EagleView APIs. LLM never invents total squares.
+4) Keep Google Solar roof path working.
+5) List files changed when done.
+
+CODE TWEAKS
+
+A) MATERIAL MAP (restore stone vs siding)
+- From uploaded photos, classify each visible wall region: lap_siding | vertical_siding | stone | brick | stucco | glass | other.
+- Persist a materialMap on the job.
+- Stone/brick chimneys + stone veneer NEVER count toward sidingSqft.
+- “Siding” SQ = lap_siding + vertical_siding faces only (minus openings on those faces).
+- Banner must say what’s included/excluded (like: “stone 1st ≠ siding; dark lap 2nd; vertical over garage”).
+- If classifier can’t tell stone vs siding → Grade drop + SANITY-REVIEW + do not claim photos improved area.
+
+B) SIDING NUMBER (fix the Malec bug)
+- When building a SIDING estimate, primary number = sidingSqft from material map — NOT total wall area, NOT perimeter×stories×height on all faces.
+- Satellite footprint×height may be SANITY only, labeled footprint_extrusion.
+- If photos exist but area still extrusion-only, banner must say so (don’t lie “photos + satellite”).
+
+C) 3D MUST RESEMBLE PHOTOS
+- Presentation/Customer 3D: apply material textures from materialMap (stone texture on stone faces, lap on lap, vertical on vertical).
+- Punch openings or block Present (no blank walls).
+- Prefer photo-referenced materials over generic beige box.
+- Low-pitch vs steep roof: use Solar pitch when available (McMullen-style low overhang ≠ colonial steep).
+
+D) PRESENT GATE
+- Block Present if Grade D or materialMap missing when photos were uploaded.
+- Soft line: Estimate — verify on site.
+
+DONE WHEN
+- Dummy job with mixed stone+siding photos shows separate Stone vs Siding lines.
+- Siding SQ excludes stone.
+- Present 3D shows stone vs siding differently (not one flat material).
+- Roof Solar still works.
+- Reply: files changed + click-test path.
+
+OUT OF SCOPE
+Full new photogrammetry stack. No chrome redesign.

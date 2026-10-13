@@ -1,0 +1,216 @@
+
+--- Page 1 ---
+YICN Roofing
+675 Alpha Dr
+216-777-7154
+yicnteam@gmail.com
+ESTIMATE
+# EST-1751 (AI)
+To
+Bill Foster
+216-695-3908
+20749 Bowling Green Road, Maple Heights, OH 44137
+Estimate Date: 4/5/2026
+#
+Description
+Qty
+Unit
+Rate
+RCV
+ACV
+1
+Shingles, architectural asphalt
+18.57
+SQ $300.00
+$5571.00
+$5571.00
+2
+Underlayment, #30 felt
+18.57
+SQ
+$19.23
+$357.10
+$357.10
+3
+Ice & water barrier
+284.48
+LF
+$1.55
+$440.94
+$440.94
+4
+Starter strip, 3-tab asphalt
+209.44
+LF
+$1.92
+$402.12
+$402.12
+5
+Drip edge, metal
+209.44
+LF
+$2.31
+$483.81
+$483.81
+6
+Ridge cap, architectural asphalt
+52.64
+LF
+$6.54
+$344.27
+$344.27
+7
+Hip cap, architectural asphalt
+8.96
+LF
+$6.54
+$58.60
+$58.60
+8
+Valley metal - (W) profile - painted
+40.32
+LF
+$9.23
+$372.15
+$372.15
+9
+Step flashing, metal
+25.76
+LF
+$3.46
+$89.13
+$89.13
+10
+Remove roof covering, 3-tab composition shingle
+18.57
+SQ
+$57.70
+$1071.49
+$1071.49
+Thank you for your business!
+1/5
+
+--- Page 2 ---
+11
+R&R Roof vent - off ridge type -
+1
+EA
+$97.54
+$97.54
+$97.54
+12
+R&R Flashing - pipe jack -
+1
+EA
+$50.00
+$50.00
+$50.00
+13
+remove and replace 5" gutter
+35
+LF
+$8.00
+$280.00
+$280.00
+SUBTOTAL:
+$9618.15
+TOTAL:
+$9618.15
+Thank you for your business!
+2/5
+
+--- Page 3 ---
+ROOF MEASUREMENT SUMMARY
+20749 Bowling Green Road, Maple Heights, OH 44137
+ROOF AREA
+16.6 SQ
+1,658.48 sq ft
+ORDER QTY
+0.0 SQ
++10% waste
+PITCH
+6/12
+—
+CONFIDENCE
+A
+88%
+LINEAR MEASUREMENTS
+Length
+Confidence
+Ridge
+47.0 LF
+82%
+Hip
+8.0 LF
+85%
+Valley
+36.0 LF
+78%
+Rake
+90.0 LF
+82%
+Eave
+97.0 LF
+82%
+Step Flashing
+23.0 LF
+75%
+WASTE CALCULATION — 1,658.48 sq ft base
+Waste %
+5%
+10%
+12%
+15%
+17%
+20%
+Area (sqft)
+1,741
+1,824
+1,857
+1,907
+1,940
+1,990
+Squares
+17.4
+18.2
+18.6
+19.1
+19.4
+19.9
+6 segments detected. Area method: segment_sum.
+YICN Roofing — Generated 4/5/2026
+Thank you for your business!
+3/5
+
+--- Page 4 ---
+PROPERTY PHOTOS
+20749 Bowling Green Road, Maple Heights, OH 44137
+Aerial View — Satellite Imagery
+Directional Aerial Views (N / S / E / W)
+North View
+South View
+East View
+West View
+Satellite imagery sourced from Google Maps. Used for reference only.
+Thank you for your business!
+4/5
+
+--- Page 5 ---
+NOTE:
+This price is only valid for 30 days from estimate date, and is based on a deposit of half down upon acceptance of estimate and the
+remaining half due upon completion of work.
+The estimate is hereby based on seen, disclosed, or otherwise obvious damage. The repair of the covered loss may be higher than
+these figures because of other circumstances not yet discovered. Included in this estimate are the items that the Contractor believes
+necessary to return the property to pre loss condition.
+Unseen, undisclosed, or otherwise not obvious conditions, if discovered later or during the course of repairs, will be considered not
+included.
+If discovered, any necessary additional repairs will be submitted for supplemental coverage, based on current market pricing.
+Terms & Conditions:
+The following estimate is only an approximation of the damages suffered, or expenses incurred, by the insured. No warranty or
+representation with regard to the accuracy of the estimate is expressed or implied and none should be inferred. The actual damages
+suffered, or expenses incurred, could be higher or lower than the estimate, even significantly, depending on variances in a number of
+factors affecting the estimate and the accuracy of the information and assumptions upon which the estimate is based.
+Production Manager
+675 Alpha Dr
+Thank you for your business!
+5/5

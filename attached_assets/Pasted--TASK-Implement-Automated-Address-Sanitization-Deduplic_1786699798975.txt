@@ -1,0 +1,29 @@
+### TASK: Implement Automated Address Sanitization, Deduplication & Residential Filtering Pipeline
+
+#### 1. Core Problem & Objective
+When users import raw lead/canvassing lists, the system currently ingests duplicate entries (e.g., multi-tenant suites from commercial strips), commercial properties, and incomplete addresses (missing city, state, or ZIP). We need a robust backend sanitization service that cleans, validates, and standardizes these lists before they populate the Field Operations or route planner modules.
+
+---
+
+#### 2. Technical Requirements & Validation Rules
+
+1. **Deduplication Engine (Exact & Fuzzy Match):**
+   - Automatically detect and merge duplicate rows based on standardized street address strings (ignoring casing, punctuation, and standard abbreviations like St vs. Street, Rd vs. Road).
+   - Collapse multi-tenant/suite duplicates down to a single master parcel entry unless explicitly flagged as a commercial multi-unit building.
+
+2. **Commercial vs. Residential Filtering:**
+   - Cross-reference imported addresses against parcel land-use data or property classifications to automatically flag and filter out commercial plazas, malls, and industrial parks (e.g., Acme Plaza, Chapel Hill Mall, industrial complexes) when running residential door-to-door canvassing lists.
+   - Provide an optional toggle for users to include/exclude commercial properties.
+
+3. **Address Completeness & Geocoding Validation:**
+   - Reject or flag records missing critical fields (Street, City, State, or ZIP code) to prevent geocoding failures or erratic plotting in the route planner.
+   - Automatically append missing ZIP codes or state data if the street and city match a verified municipal database.
+
+4. **Radius & Zoning Constraints:**
+   - Enforce strict geospatial bounds (defaulting to user-selected radiuses like 1 mi, 2 mi, or 5 mi) around storm impact cores, dropping outliers that fall outside the active canvassing zone.
+
+---
+
+#### 3. Execution & Integration Requirements
+- Create a Python/Node.js validation script (`address_sanitizer.py` or equivalent service module) that runs automatically upon CSV/list import.
+- Return a pre-import summary report to the UI showing: Total Imported, Duplicates Removed, Commercial Properties Filtered, Invalid Addresses Flagged, and Final Cleaned Count ready for `[🗺️ Route Now]`.

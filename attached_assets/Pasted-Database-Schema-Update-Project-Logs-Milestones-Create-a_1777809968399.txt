@@ -1,0 +1,20 @@
+Database Schema Update (Project Logs & Milestones)
+​Create a project_logs Table: Add a table to store notes from both the homeowner and the admin. Columns should include: project_id, author_role (Homeowner/Admin), timestamp, content_body, and is_visible_to_homeowner (Boolean).
+​Update projects Table: Add a current_milestone ENUM field to track the project stage: CLAIM_APPROVED, PERMIT_FILED, MATERIAL_DELIVERY, TEAR_OFF, COMPLETION.
+​2. Backend Logic: The "Automation Wrapper"
+​Trigger Function: Create a function send_portal_update(project_id, milestone_type) that executes whenever a project status is changed in the CRM.
+​Twilio/SendGrid Integration: Use this function to trigger an SMS/Email to the homeowner using their unique_portal_url.
+​Dynamic URL Generation: Ensure every homeowner has a UUID-based URL (e.g., portal.companysync.com/view/uuid-123-abc) so they don't need to log in manually.
+​3. UI/Frontend Enhancements (Homeowner View)
+​Note Submission Component: Build a simple text-area component on the portal landing page where homeowners can "Add a Note." This should POST to the project_logs table.
+​The "Progress Tracker" Bar: Add a visual stepper component at the top of the portal that pulls from the current_milestone field to show the homeowner exactly where they are in the build process.
+​Photo Feed Integration: Create a gallery view that fetches images from the project folder (likely stored in S3 or Google Drive) and filters for photos tagged "Public" or "Homeowner View."
+​4. Sarah/Lexi Integration (AI Assistant Logic)
+​Event-Driven Context: Update the system prompts for your AI assistants. When a homeowner leaves a note, the assistant should be able to:
+​Acknowledge the note immediately via a "Received" status.
+​Check the project_logs and notify you if a note contains keywords like "leak," "dog," "gate," or "insurance."
+​Automate the weekly "Friday Recap" by summarizing the project_logs entries from that week into a brief text update.
+​Implementation Checklist for Your Next Replit Session:
+​[ ] API Endpoint: Create POST /api/portal/add-note for homeowner feedback.
+​[ ] API Endpoint: Create GET /api/portal/project-status to populate the progress bar.
+​[ ] Webhook: Set up a webhook from your CRM to Replit to fire the send_portal_update function on status changes.

@@ -1,0 +1,508 @@
+Manage skills that extend Agent capabilities
+External database detected. Remove DATABASE_URL from Secrets to use Replit database features.
+Search
+
+Time
+Deployment
+Source
+Log
+
+2026-09-01 22:02:54.78
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:00.23
+db69bf06
+User
+[Cron:createDailyBackup] Email failed for Seven Fold Roofing: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:00.23
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:00.23
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 006d021491bc7-6b40f92004fsm1551492eaf.15 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:03:00.23
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 006d021491bc7-6b40f92004fsm1551492eaf.15 - gsmtp
+
+2026-09-01 22:03:00.23
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:00.23
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:05.62
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:05.62
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:05.62
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 46e09a7af769-7f749f16501sm1240648a34.0 - gsmtp
+
+2026-09-01 22:03:05.62
+db69bf06
+User
+[Cron:createDailyBackup] Email failed for My Company: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:05.62
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 46e09a7af769-7f749f16501sm1240648a34.0 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:03:05.62
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:11.07
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 46e09a7af769-7f74caad7d0sm1249909a34.4 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:03:11.07
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:11.07
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:11.07
+db69bf06
+User
+[Cron:createDailyBackup] Email failed for My Company: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:11.07
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:11.07
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 46e09a7af769-7f74caad7d0sm1249909a34.4 - gsmtp
+
+2026-09-01 22:03:16.54
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:16.54
+db69bf06
+User
+[Cron:createDailyBackup] Email failed for mnrk: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:16.54
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:16.54
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:16.54
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 5614622812f47-4b69bd2800csm964321b6e.17 - gsmtp
+
+2026-09-01 22:03:16.54
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 5614622812f47-4b69bd2800csm964321b6e.17 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:03:41.05
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 5614622812f47-4b69b214817sm1008817b6e.12 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:03:41.05
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:41.05
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:41.06
+db69bf06
+User
+[Cron:createDailyBackup] Email failed for YICN Roofing: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:41.06
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 5614622812f47-4b69b214817sm1008817b6e.12 - gsmtp
+
+2026-09-01 22:03:41.06
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:46.37
+db69bf06
+User
+[Cron:createDailyBackup] Email failed for My Company: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:46.37
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 46e09a7af769-7f74d0b9203sm1288906a34.7 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:03:46.37
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:46.37
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 46e09a7af769-7f74d0b9203sm1288906a34.7 - gsmtp
+
+2026-09-01 22:03:46.37
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:51.78
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:51.78
+db69bf06
+User
+[Cron:createDailyBackup] Email failed for YICN Roofing: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:51.78
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 46e09a7af769-7f74f3e2d97sm1065039a34.13 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:03:51.78
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:51.78
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 46e09a7af769-7f74f3e2d97sm1065039a34.13 - gsmtp
+
+2026-09-01 22:03:51.78
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:57.27
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:57.27
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 586e51a60fabf-46f9a1052c6sm527967fac.4 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:03:57.27
+db69bf06
+User
+[Cron:createDailyBackup] Email failed for Anas Sqa's Company: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:03:57.27
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:57.27
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:03:57.27
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 586e51a60fabf-46f9a1052c6sm527967fac.4 - gsmtp
+
+2026-09-01 22:04:02.89
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:04:02.89
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:04:02.89
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 46e09a7af769-7f74caad7dbsm1105160a34.2 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:04:02.90
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 46e09a7af769-7f74caad7dbsm1105160a34.2 - gsmtp
+
+2026-09-01 22:04:02.90
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:04:02.90
+db69bf06
+User
+[Cron:createDailyBackup] Email failed for Abc Company: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:04:08.52
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:04:08.52
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 5614622812f47-4b69567db8dsm1068430b6e.0 - gsmtp
+
+2026-09-01 22:04:08.52
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:04:08.52
+db69bf06
+User
+[Cron:createDailyBackup] Email failed for Roofing Doctor: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:04:08.52
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 5614622812f47-4b69567db8dsm1068430b6e.0 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:04:08.52
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:06:20.15
+db69bf06
+User
+[GoogleAuth] Callback error: Failed to get access token
+
+2026-09-01 22:07:32.45
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 5614622812f47-4b69b820671sm903060b6e.15 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:07:32.45
+db69bf06
+User
+[Cron:processActionItemEscalation] Email send failed for brian.yicn@gmail.com: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:07:32.45
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:07:32.45
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 5614622812f47-4b69b820671sm903060b6e.15 - gsmtp
+
+2026-09-01 22:07:32.45
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:07:32.45
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:07:36.07
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:07:36.07
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 586e51a60fabf-46f30baafacsm2356278fac.5 - gsmtp
+
+2026-09-01 22:07:37.30
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 586e51a60fabf-46f9a1052c6sm537186fac.4 - gsmtp
+
+2026-09-01 22:07:37.30
+db69bf06
+User
+[Cron:processActionItemEscalation] Email send failed for raffy.vpa28@gmail.com: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:07:37.30
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:07:37.30
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:07:37.30
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:07:37.30
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 586e51a60fabf-46f9a1052c6sm537186fac.4 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:07:37.93
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 46e09a7af769-7f74caacab3sm1157845a34.6 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:07:37.93
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 46e09a7af769-7f74caacab3sm1157845a34.6 - gsmtp
+
+2026-09-01 22:07:37.93
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:07:37.93
+db69bf06
+User
+[Cron:processActionItemEscalation] Email send failed for raffy.vpa28@gmail.com: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:07:37.93
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:07:37.93
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:07:38.83
+db69bf06
+User
+454-4.7.0 go to
+
+2026-09-01 22:07:38.83
+db69bf06
+User
+[Cron:processActionItemEscalation] Email send failed for brian.yicn@gmail.com: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 22:07:38.83
+db69bf06
+User
+454 4.7.0 https://support.google.com/mail/answer/7126229 586e51a60fabf-46f330822basm2098071fac.15 - gsmtp) — ALL app email is DOWN until the smtp credentials are fixed.
+
+2026-09-01 22:07:38.83
+db69bf06
+User
+[EmailHealth] ⛔ EMAIL PROVIDER AUTH FAILURE (smtp HTTP 454: Invalid login: 454-4.7.0 Too many login attempts, please try again later. For more information,
+
+2026-09-01 23:52:32.39
+db69bf06
+User
+[Cron:checkStaleLeads] Error: relation "notifications" does not exist
+
+2026-09-02 01:30:23.30
+db69bf06
+User
+[serveUploadedFile] not found in object storage, DB, or disk: 908a3f66-f7ef-41e8-933c-62074fa2a753.png
+
+2026-09-02 01:35:14.80
+db69bf06
+User
+[Functions] Error: Not authenticated
+
+2026-09-02 01:37:19.84
+db69bf06
+User
+[serveUploadedFile] not found in object storage, DB, or disk: 908a3f66-f7ef-41e8-933c-62074fa2a753.png
+
+2026-09-02 01:37:23.92
+db69bf06
+User
+[Stripe Overview] pool is not defined
+
+2026-09-02 01:37:26.84
+db69bf06
+User
+[serveUploadedFile] not found in object storage, DB, or disk: 908a3f66-f7ef-41e8-933c-62074fa2a753.png
+
+2026-09-02 01:39:14.70
+db69bf06
+User
+[serveUploadedFile] not found in object storage, DB, or disk: 709f3653-ccdc-4f04-bd7a-c2b9dd424eb6.png
+
+2026-09-02 01:42:47.57
+db69bf06
+User
+[DB] 404 Not found: GET /api/local/admin/scan-orphan-companies
+
+2026-09-02 01:42:56.58
+db69bf06
+User
+[DB] 404 Not found: GET /api/local/admin/scan-orphan-companies
+
+2026-09-02 01:46:21.75
+db69bf06
+User
+[Security] IMPERSONATION WRITE BLOCKED (central): io.companysync@gmail.com attempted PUT /api/local/entity/StaffProfile/staff_companysync_001 while impersonating loc_mmdvp1h5_e8i9eb
+
+2026-09-02 01:47:21.32
+db69bf06
+User
+[Impersonation] view-as update error: column "view_as_user_email" of relation "impersonation_logs" does not exist
+
+2026-09-02 01:48:02.04
+db69bf06
+User
+[serveUploadedFile] not found in object storage, DB, or disk: 908a3f66-f7ef-41e8-933c-62074fa2a753.png
+
+2026-09-02 01:48:03.35
+db69bf06
+User
+[Stripe Overview] pool is not defined
+
+2026-09-02 01:56:15.75
+db69bf06
+User
+[createInvoiceFromUnlinkedPayment] Error: value "2026260354240" is out of range for type integer
+
+2026-09-02 02:29:34.69
+db69bf06
+User
+[serveUploadedFile] not found in object storage, DB, or disk: 709f3653-ccdc-4f04-bd7a-c2b9dd424eb6.png

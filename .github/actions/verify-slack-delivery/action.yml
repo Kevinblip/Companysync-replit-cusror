@@ -1,0 +1,110 @@
+name: Verify Slack Webhook Delivery
+description: >
+  Waits 15 s for Slack to index the message, then queries conversations.history
+  to confirm a message was received in the target channel within the last 2 minutes.
+  Emits ::warning:: when SLACK_BOT_TOKEN or SLACK_CHANNEL_ID is unconfigured —
+  delivery was confirmed only by the webhook HTTP 200 response in that case, and the
+  limitation is made visible in the run summary.
+  Emits ::warning:: when the message cannot be located (timing or channel mismatch).
+  Emits ::error:: on confirmed hard failures (invalid token, missing scope, wrong channel).
+  Effective only when a Slack Bot Token with channels:history scope and the Channel ID
+  are both provided; otherwise emits ::warning:: so the limitation is visible in the
+  run summary. Skipped automatically when secrets are absent (caller controls the if: guard).
+
+inputs:
+  message_keyword:
+    description: >
+      Case-insensitive keyword matched against the text field of recent Slack messages.
+      Used to locate the correct message among the 20 most-recent messages in the channel
+      within a 2-minute time window.
+    required: true
+  slack_label:
+    description: >
+      Human-readable label used in log and annotation messages
+      (e.g. "Slack heartbeat", "Privacy check failure alert").
+    required: true
+  slack_bot_token:
+    description: >
+      Slack Bot Token with channels:history scope (xoxb-...).
+      Used to call the conversations.history API to confirm message receipt.
+      When absent or empty, a ::warning:: is emitted and the step exits 0.
+    required: true
+  slack_channel_id:
+    description: >
+      Slack Channel ID (e.g. C01234567) corresponding to the incoming-webhook channel.
+      Used to scope the conversations.history query. Must match the channel the
+      webhook posts to — a mismatch will cause a ::warning:: (message not found).
+      When absent or empty, a ::warning:: is emitted and the step exits 0.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Verify delivery via Slack conversations.history API
+      shell: bash
+      env:
+        SLACK_BOT_TOKEN: ${{ inputs.slack_bot_token }}
+        SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+        MESSAGE_KEYWORD: ${{ inputs.message_keyword }}
+        SLACK_LABEL: ${{ inputs.slack_label }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "${SLACK_BOT_TOKEN}" ] || [ -z "${SLACK_CHANNEL_ID}" ]; then
+          echo "::warning::SLACK_BOT_TOKEN or SLACK_CHANNEL_ID is not configured — ${SLACK_LABEL} Slack delivery cannot be confirmed beyond the webhook HTTP status. Add SLACK_BOT_TOKEN (with channels:history scope) and SLACK_CHANNEL_ID to repository secrets to enable post-send verification."
+          exit 0
+        fi
+
+        echo "Waiting 15 s for Slack to index the message…"
+        sleep 15
+
+        OLDEST=$(date -u -d '2 minutes ago' +%s)
+        RESPONSE=$(curl -s -w "\n%{http_code}" \
+          -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+          "https://slack.com/api/conversations.history?channel=${SLACK_CHANNEL_ID}&oldest=${OLDEST}&limit=20")
+        HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+        BODY=$(echo "$RESPONSE" | head -n -1)
+
+        if [ "$HTTP_STATUS" != "200" ]; then
+          echo "::warning::Slack API returned HTTP ${HTTP_STATUS} — ${SLACK_LABEL} Slack delivery cannot be confirmed beyond the webhook HTTP status. Check SLACK_BOT_TOKEN secret."
+          exit 0
+        fi
+
+        API_OK=$(echo "$BODY" | jq -r '.ok // "false"')
+        if [ "$API_OK" != "true" ]; then
+          API_ERROR=$(echo "$BODY" | jq -r '.error // "unknown"')
+          case "$API_ERROR" in
+            invalid_auth|token_revoked|account_inactive)
+              echo "::error::${SLACK_LABEL} Slack verification failed — Slack API error: ${API_ERROR}. The SLACK_BOT_TOKEN secret may be invalid or revoked. Renew the token in the Slack app settings and update the repository secret."
+              exit 1
+              ;;
+            missing_scope)
+              echo "::error::${SLACK_LABEL} Slack verification failed — Slack API error: ${API_ERROR}. The SLACK_BOT_TOKEN is missing the channels:history scope. Add the scope to the Slack app, reinstall it, and update the token secret."
+              exit 1
+              ;;
+            channel_not_found|not_in_channel)
+              echo "::error::${SLACK_LABEL} Slack verification failed — Slack API error: ${API_ERROR}. SLACK_CHANNEL_ID (${SLACK_CHANNEL_ID}) is incorrect or the bot is not a member of the channel. Verify the channel ID and invite the bot to the channel."
+              exit 1
+              ;;
+            *)
+              echo "::warning::Slack API returned ok=false (error: ${API_ERROR}) — ${SLACK_LABEL} Slack delivery cannot be confirmed. Verify SLACK_BOT_TOKEN has channels:history scope and SLACK_CHANNEL_ID is correct."
+              exit 0
+              ;;
+          esac
+        fi
+
+        MATCHED=$(echo "$BODY" | jq \
+          --arg keyword "$MESSAGE_KEYWORD" \
+          '($keyword | ascii_downcase) as $kw |
+           [.messages[]? | select(
+              (.text // "") | ascii_downcase | contains($kw)
+            )] | .[0]')
+
+        if [ -z "$MATCHED" ] || [ "$MATCHED" = "null" ]; then
+          echo "::warning::No recent Slack message matching keyword '${MESSAGE_KEYWORD}' found in channel ${SLACK_CHANNEL_ID} within the last 2 minutes — delivery cannot be confirmed beyond the webhook HTTP 200 response. Verify that SLACK_WEBHOOK_URL posts to the same channel as SLACK_CHANNEL_ID, or increase the search window if message indexing is slow."
+          exit 0
+        fi
+
+        MSG_TS=$(echo "$MATCHED" | jq -r '.ts // "unknown"')
+        echo "Slack message timestamp : ${MSG_TS}"
+        echo "${SLACK_LABEL} Slack delivery confirmed — message matching '${MESSAGE_KEYWORD}' found in channel ${SLACK_CHANNEL_ID} (ts: ${MSG_TS})."

@@ -1,0 +1,34 @@
+================================================
+SNIPPET 07: VideoTrainingGenerator.jsx & TrainingVideoPlayer.jsx Fixes
+================================================
+FILES:
+  src/pages/VideoTrainingGenerator.jsx
+  src/pages/TrainingVideoPlayer.jsx
+DEPLOY TO: Base44 Frontend
+
+CHANGES SUMMARY:
+1. Fixed video link generation - uses relative URL instead of full origin URL
+   (broken when origin was Base44 preview sandbox URL)
+2. Removed ALL emojis from toast messages and UI text
+3. Professional text labels throughout
+
+KEY CHANGES:
+
+A) VIDEO LINK FIX (VideoTrainingGenerator.jsx):
+   BEFORE: const shareUrl = `${window.location.origin}${createPageUrl('TrainingVideoPlayer')}?id=${id}`;
+   AFTER:  const shareUrl = `${createPageUrl('TrainingVideoPlayer')}?id=${id}`;
+   
+   This affects both handleAddToKnowledgeBase() and handleBulkAddToKnowledgeBase()
+   The content stored in KB articles now uses relative paths that work in any environment.
+
+B) EMOJI REMOVAL (VideoTrainingGenerator.jsx):
+   All toast.success/toast.loading/toast.error calls cleaned of emoji prefixes
+   All UI labels cleaned (Master Narration, instructions, placeholders)
+   Status text cleaned ("Video generated" instead of "✅ Video generated")
+
+C) EMOJI REMOVAL (TrainingVideoPlayer.jsx):
+   Share link toast and download toast cleaned
+
+================================================
+FULL FILE REPLACEMENT NEEDED - See both files
+================================================

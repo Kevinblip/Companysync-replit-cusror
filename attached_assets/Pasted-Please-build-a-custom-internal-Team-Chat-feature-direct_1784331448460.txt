@@ -1,0 +1,24 @@
+Please build a custom internal Team Chat feature directly into our application that replicates the layout and core behavior of Google Chat, completely bypassing external messaging app dependencies. 
+
+Requirements:
+
+1. Database Schema Update:
+- Update our conversations database model to support a `type` property, distinguishing between 'dm' (1-on-1 direct message) and 'space' (group channel).
+- For conversations where `type` is 'space', include fields for `name` and `avatar_url`.
+- Implement a membership join system so multiple users (such as Raffy, Sonia, Vicky, etc.) can belong to a single space ID.
+
+2. UI Layout Alignment (Frontend View):
+- Update the left sidebar on the Team Chat view to show two distinct, collapsible categories: "Direct messages" and "Spaces".
+- List individual team members under Direct Messages and group rooms under Spaces.
+- Update the main chat window header component so that when a space is active, it displays the Space Name with a downward-pointing dropdown arrow next to it, mimicking Google Chat's look.
+
+3. Internal "System Bot" Alerts:
+- Hardcode a system user ID or dummy account named "CompanySync Bot" with a unique bot avatar.
+- Build an internal API endpoint or function hook (`sendSystemChatMessage(spaceId, messageText)`) that allows the system to send automated chat logs.
+- Tie this function into our Lead Manager and Accounting modules so that whenever an event happens (e.g., a new lead drops in, an invoice is paid, or a job status changes), a styled alert message is automatically posted into the designated Space under the CompanySync Bot name.
+
+4. File & Media Sharing:
+- Include a paperclip/image upload icon in the chat text input area.
+- Connect this file input to our cloud bucket storage so team members can drag, drop, or upload roof inspection photos and documents directly into the chat stream.
+
+Please generate the full backend schema/endpoints and update the frontend UI files to support this workspace chat flow.

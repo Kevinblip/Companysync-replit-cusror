@@ -1,0 +1,106 @@
+Task: Build an automated marketing video generation pipeline to create 15 short-form (9:16 vertical, 1080x1920) videos for Instagram Reels, TikTok, and Facebook. Each video must feature real, live screenshots of CompanySync, highlight a contractor pain point, demonstrate our solution in action, and conclude with a strong Call to Action (CTA).
+
+Phase 1: Video Engine Setup & Asset Collection
+1. Create a dynamic video generation script or utility (e.g., using Remotion, Puppeteer + FFmpeg, or an canvas rendering pipeline already in the project).
+2. Configure output specs for vertical mobile format:
+   - Resolution: 1080 x 1920
+   - Aspect Ratio: 9:16
+   - Duration: 15–30 seconds per video
+   - Frame Rate: 30 fps
+3. Set up automated screenshot capture (or point to existing assets in /attached_assets or app routes) to pull live UI views for key features:
+   - PhotoSync / Evidence Capture & Proof Package
+   - AI Estimator & Carrier PDF Exports
+   - Lead Manager / CRM Pipeline
+   - Subcontractor & Field Operations Tracking
+   - Smart Glasses / Hands-Free Inspection Workflow
+
+Phase 2: 15 Video Concept & Content Matrix
+Implement data configs for 15 distinct video scenes following this exact 3-part formula:
+[HOOK / PAIN POINT (0-4s)] ➔ [COMPANY SYNC SOLUTION / LIVE SCREENSHOT (4-20s)] ➔ [STRONG CTA (20-25s)]
+
+1. Video 1: Stalled Claims & Denials
+   - Pain: Desk adjusters denying scope due to weak photos.
+   - Feature: PhotoSync 4-Layer Proof Package & Brittle Test Proof.
+   - CTA: "Stop bleeding cash on supplements. Try CompanySync today!"
+
+2. Video 2: Hours Spent Writing Estimates
+   - Pain: Spending 3 hours every night writing Xactimate files.
+   - Feature: AI Estimator auto-generating carrier-ready estimates in seconds.
+   - CTA: "Take your evenings back. Start your trial at companysync.io."
+
+3. Video 3: Field Reps Missing Technical Photos
+   - Pain: Reps forgetting core samples or slope elevations on site.
+   - Feature: Keyword-Triggered Evidence Gates in PhotoSync.
+   - CTA: "Force compliance on the roof. Get CompanySync."
+
+4. Video 4: Retail vs. Insurance Inspection Confusion
+   - Pain: Clunky insurance forms cluttering simple retail cash bids.
+   - Feature: One-Click Inspection Mode Toggle (Insurance Claim vs. Retail).
+   - CTA: "Speed up retail sales. Visit companysync.io."
+
+5. Video 5: Unorganized Photo Dumps
+   - Pain: Adjusters refusing to review 100 random, uncategorized photos.
+   - Feature: Auto-Sorted Wide-to-Tight & Slope-by-Slope photo organizing.
+   - CTA: "Turn photo dumps into winnable claims. Start free today."
+
+6. Video 6: Missing Rotted Decking Proof
+   - Pain: Carriers rejecting decking supplements because proof was captured late.
+   - Feature: Production & Tear-off Photo Triggers.
+   - CTA: "Never miss a decking payout again. Get started now."
+
+7. Video 7: Organic & Two-Layer Roof Nightmares
+   - Pain: Getting stuck trying to spot-repair brittle, discontinued organic shingles.
+   - Feature: Automated Building Code Citations & Discontinued Spec Matching.
+   - CTA: "Prove replacement necessity instantly with CompanySync."
+
+8. Video 8: Lost Leads & Forgotten Follow-ups
+   - Pain: High-value storm leads falling through the cracks in chaotic spreadsheets.
+   - Feature: CompanySync Lead Manager & Pipeline Tracking.
+   - CTA: "Close more leads with less effort. Try CompanySync."
+
+9. Video 9: Subcontractor Miscommunication
+   - Pain: Crews installing incorrect materials or missing roof accessories on-site.
+   - Feature: Subcontractor & Project Operations Dashboard.
+   - CTA: "Run your jobs flawlessly. Get CompanySync today."
+
+10. Video 10: Hands-Free Inspection Efficiency
+    - Pain: Fumbling with clipboards and phones while balancing on steep roofs.
+    - Feature: Hands-Free Inspection & Voice Dictation Mode.
+    - CTA: "Inspect roofs faster and safer. Visit companysync.io."
+
+11. Video 11: Mismatched Estimate Totals
+    - Pain: Carriers rejecting estimates because layouts don't match Xactimate.
+    - Feature: Pixel-perfect Xactimate & Symbility PDF Exporter.
+    - CTA: "Generate trusted carrier estimates instantly."
+
+12. Video 12: Cash Flow Delays
+    - Pain: Waiting 60+ days for insurance check release.
+    - Feature: Complete Claims Defense Package upfront.
+    - CTA: "Get claims approved on day one. Start your free trial."
+
+13. Video 13: Disorganized Field Teams
+    - Pain: No real-time visibility into where field reps are or job status.
+    - Feature: Live Map & Assignment Dashboard.
+    - CTA: "Take total control of your field ops. Get CompanySync."
+
+14. Video 14: Customer Review Drop-off
+    - Pain: Great roof installs with zero Google reviews to show for it.
+    - Feature: Automated Review Requests & Action Items.
+    - CTA: "Build 5-star reputation automatically with CompanySync."
+
+15. Video 15: Software Overload & Scattered Tools
+    - Pain: Paying for 5 different apps (CRM, Photo app, Estimator, Maps).
+    - Feature: The All-in-One CompanySync Platform.
+    - CTA: "Replace your entire tech stack today. Visit companysync.io!"
+
+Phase 3: Visual & Audio Overlays
+1. Text Overlays: Render high-contrast, bold kinetic captions (yellow/white text on dark background) highlighting the pain points and solution features.
+2. App Transitions: Smooth zoom/pan animations over the live app screenshots to emphasize UI features (e.g., zooming in on the "Proof Package" button or AI estimate totals).
+3. CTA End-Card: Render a standardized, professional ending screen on all 15 videos displaying:
+   - CompanySync Logo
+   - Tagline: "The Ultimate Roofing Business Platform"
+   - URL: companysync.io
+   - Button animation: "Start Free Trial Today"
+
+Phase 4: Output Execution
+Run the batch generator script to compile and export all 15 video files into the output directory (e.g., `/public/generated_marketing_videos/`) ready for direct social media download.

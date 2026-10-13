@@ -1,0 +1,96 @@
+Here are the two exact fixes to apply to the other version:
+
+Fix 1 — Frontend: src/pages/IntegrationManager.jsx
+Find this block (the tab-separated CSV section, which starts around the line if (line.includes('\t'))):
+
+Find and replace — the tab-parsing block currently reads column parts[2] as the price. Replace the entire inner block (if (parts.length >= 3) { ... }) with this:
+
+if (parts.length >= 3) {
+  let description = parts[0].replace(/\s*\$\s*$/g, '').trim();
+  // Xactimate table format: Description | QTY | REMOVE | REPLACE | TAX | TOTAL
+  // Detect by: 5+ columns where cols 2-4 are both numeric
+  if (parts.length >= 5) {
+    const col2 = parseFloat(parts[2].replace(/[$,]/g, ''));
+    const col3 = parseFloat(parts[3].replace(/[$,]/g, ''));
+    const isXactimateTable = !isNaN(col2) && !isNaN(col3);
+    if (isXactimateTable) {
+      const removePrice = col2;
+      const replacePrice = col3;
+      // Use REPLACE price; fall back to REMOVE price for remove-only items
+      const effectivePrice = replacePrice > 0 ? replacePrice : removePrice;
+      if (!effectivePrice || effectivePrice <= 0) continue;
+      // Strip leading line number prefix ("1.  ", "21. ", etc.)
+      description = description.replace(/^\d+[,.]?\s+/, '').trim();
+      // Extract unit from QTY column: "1.00 EA" → "EA", "SQ" → "SQ"
+      const qtyField = parts[1] || '';
+      const unitMatch = qtyField.match(/(SQ|EA|LF|SF|HR|LS|WK|MO|YR|DA|CY|GL)/i);
+      const unit = unitMatch ? unitMatch[1].toUpperCase() : (qtyField.replace(/[\d.\s]/g, '').toUpperCase() || 'EA');
+      const code = description.replace(/\s+/g, '_').replace(/[^\w_]/g, '').substring(0, 20).toUpperCase();
+      let category = 'Other';
+      const descUpper = description.toUpperCase();
+      if (descUpper.includes('SHINGLE') || descUpper.includes('ROOF') || descUpper.includes('RFG')) category = 'Roofing';
+      else if (descUpper.includes('SIDING') || descUpper.includes('SID')) category = 'Siding';
+      else if (descUpper.includes('GUTTER') || descUpper.includes('GTR')) category = 'Exterior';
+      else if (descUpper.includes('DRYWALL') || descUpper.includes('PAINT')) category = 'Interior';
+      items.push({ code, description, unit: unit || 'EA', price: effectivePrice, category, source: pasteSource });
+      continue;
+    }
+  }
+  // Standard 3-column tab CSV: Description | Unit | Price
+  let unit = parts[1];
+  const price = parseFloat(parts[2].replace(/[$,]/g, ''));
+  if (!price || price <= 0) continue;
+  const code = description.replace(/\s+/g, '_').replace(/[^\w_]/g, '').substring(0, 20).toUpperCase();
+  let category = 'Other';
+  const descUpper = description.toUpperCase();
+  if (descUpper.includes('SHINGLE') || descUpper.includes('ROOF') || descUpper.includes('RFG')) category = 'Roofing';
+  else if (descUpper.includes('SIDING') || descUpper.includes('SID')) category = 'Siding';
+  else if (descUpper.includes('GUTTER') || descUpper.includes('GTR')) category = 'Exterior';
+  else if (descUpper.includes('DRYWALL') || descUpper.includes('PAINT')) category = 'Interior';
+  items.push({ code, description, unit: unit.toUpperCase() || 'EA', price, category, source: pasteSource });
+  continue;
+}
+Fix 2 — Backend: vite-functions-plugin.js
+Find the closing }; of the functionHandlers object (the last }; before the alias lines like functionHandlers.connectGoogleCalendar = ...). Add this handler before that closing };:
+
+  async bulkImportPriceList(params) {
+    const pool = getPool();
+    const { items, source, company_id } = params;
+    if (!company_id) throw new Error('company_id is required for bulk import');
+    if (!items || !Array.isArray(items) || items.length === 0) throw new Error('No items provided');
+    console.log(`[BulkImport] Starting: ${items.length} items, source=${source}, company=${company_id}`);
+    // Delete existing items for this source + company
+    try {
+      const del = await pool.query(
+        `DELETE FROM generic_entities WHERE entity_type = 'PriceListItem' AND company_id = $1 AND (data->>'source') = $2`,
+        [company_id, source]
+      );
+      console.log(`[BulkImport] Deleted ${del.rowCount} existing items for source=${source}`);
+    } catch (delErr) {
+      console.warn(`[BulkImport] Delete step warning: ${delErr.message}`);
+    }
+    // Insert in batches of 100
+    const batchSize = 100;
+    let imported = 0;
+    const now = new Date().toISOString();
+    for (let i = 0; i < items.length; i += batchSize) {
+      const batch = items.slice(i, i + batchSize);
+      const values = [];
+      const placeholders = batch.map((item, idx) => {
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2)}-${i + idx}`;
+        const data = JSON.stringify({ ...item, company_id });
+        values.push(id, 'PriceListItem', company_id, data, now, now);
+        const base = idx * 6;
+        return `($${base+1}, $${base+2}, $${base+3}, $${base+4}::jsonb, $${base+5}, $${base+6})`;
+      });
+      await pool.query(
+        `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date) VALUES ${placeholders.join(', ')}`,
+        values
+      );
+      imported += batch.length;
+      console.log(`[BulkImport] Batch ${Math.floor(i/batchSize)+1}: inserted ${batch.length} (total ${imported}/${items.length})`);
+    }
+    console.log(`[BulkImport] Complete: ${imported} items imported`);
+    return { success: true, imported, total: items.length };
+  },
+Key point: Fix 1 is the parse fix (was reading the REMOVE column instead of REPLACE). Fix 2 is the backend handler (was missing entirely, causing a silent empty response). Both are needed.

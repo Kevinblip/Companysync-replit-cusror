@@ -1,0 +1,61 @@
+MATERIAL PURCHASE LIST
+Customer,"Fabiano Fernandes"
+Address,"36965 VALLEY FORGE DR, SOLON, Ohio, 44139-2637"
+Date,"6/7/2026"
+
+SMART PURCHASE SUMMARY
+Material,Buy Qty,Unit,Calculation
+"Laminated/Architectural Shingles","27.52","bundle","3 bundles per SQ = 82.56 bundles. Round up to 83 bundles for purchase."
+
+FULL LINE ITEM BREAKDOWN
+Section,Code,Description,Qty,Unit,Rate,Amount,Buy Qty,Buy Unit
+"Material","","K-Style Aluminum Gutter, 5 inch",33.51,"LF",$10.39,$348.17,"",""
+"Material","","Aluminum Downspout, 2x3 inch",234.15,"LF",$8.99,$2105.01,"",""
+"Material","","Standard Gutter Screens",33.51,"LF",$4.98,$166.88,"",""
+"Material","","Laminated/Architectural Shingles",83.00,"bundle",$40.44,$3356.61,"27.52","bundle"
+"Material","","Continuous Starter Shingles",234.26,"LF",$2.18,$510.69,"27.52","bundle"
+"Material","","3-Tab Ridge Cap Shingles",188.29,"LF",$5.09,$958.40,"",""
+"Material","","15 lb. Roofing Felt",26.75,"SQ",$36.32,$971.56,"",""
+"Material","","Pre-Finished Aluminum Drip Edge",268.00,"LF",$3.71,$994.28,"",""
+"Material","","Shingle-Over Ridge Vent",40.23,"LF",$8.58,$345.17,"27.52","bundle"
+"Material","","Aluminum Static Roof Vent",6.00,"EA",$72.28,$433.68,"",""
+"Material","","Exterior Dusk-to-Dawn Light Fixture",3.00,"EA",$87.92,$263.76,"",""
+"Material","","Shelter/House Wrap Vapor Barrier",2795.76,"SF",$0.38,$1062.39,"",""
+"Material","","0.019 inch Aluminum Lap Siding",2470.86,"SF",$6.81,$16826.56,"",""
+"Material","","Aluminum J-Channel Trim",556.24,"LF",$3.74,$2080.34,"",""
+"Material","","Outside Aluminum Corner Trim",136.50,"LF",$6.42,$876.33,"",""
+"Material","","Inside Aluminum Corner Trim",63.00,"LF",$6.57,$413.91,"",""
+"Material","","Aluminum Window Screen (>10 SF)",4.00,"EA",$52.08,$208.32,"",""
+"Material","","Steel Flush Entry Door Slab",1.00,"EA",$413.44,$413.44,"",""
+"Material","","Exterior Lockset",1.00,"EA",$100.13,$100.13,"",""
+"Material","","Aluminum Window/Door Wrap (<4 Bends)",162.80,"LF",$8.84,$1439.15,"",""
+"Labor","","Tear Out K-Style Aluminum Gutter, 5 inch",31.91,"LF",$1.60,$51.06,"",""
+"Labor","","Tear Out Aluminum Downspout, 2x3 inch",223.00,"LF",$1.28,$285.44,"",""
+"Labor","","Tear Out Laminated/Architectural Shingles",25.48,"SQ",$73.76,$1879.40,"27.52","bundle"
+"Labor","","Install Laminated/Architectural Shingles",27.52,"SQ",$155.06,$4267.25,"27.52","bundle"
+"Labor","","Tear Out Height Allowance (2 Story Roof)",17.09,"SQ",$23.05,$393.92,"",""
+"Labor","","Replace Height Allowance (2 Story Roof)",17.09,"SQ",$26.13,$446.56,"",""
+"Labor","","Tear Out Steep Roof Charge (7/12-9/12)",8.86,"SQ",$19.36,$171.53,"",""
+"Labor","","Replace Steep Roof Charge (7/12-9/12)",8.86,"SQ",$36.68,$324.98,"",""
+"Labor","","Decking Cleaning",909.00,"SF",$0.41,$372.69,"",""
+"Labor","","Decking Staining (1 Coat)",909.00,"SF",$1.00,$909.00,"",""
+"Labor","","Deck Railing Cleaning",52.00,"LF",$2.10,$109.20,"",""
+"Labor","","Wood Deck Railing Painting (1 Coat)",52.00,"LF",$5.14,$267.28,"",""
+"Labor","","Tear Out Exterior Dusk-to-Dawn Light Fixture",3.00,"EA",$12.94,$38.82,"",""
+"Labor","","Tear Out 0.019 inch Aluminum Lap Siding",2331.00,"SF",$1.20,$2797.20,"",""
+"Labor","","Tear Out Aluminum J-Channel Trim",529.75,"LF",$0.48,$254.28,"",""
+"Labor","","Tear Out Outside Aluminum Corner Trim",130.00,"LF",$1.28,$166.40,"",""
+"Labor","","Tear Out Inside Aluminum Corner Trim",60.00,"LF",$1.28,$76.80,"",""
+"Labor","","Tear Out Height Allowance (Siding)",559.15,"SF",$0.08,$44.73,"",""
+"Labor","","Replace Height Allowance (Siding)",559.15,"SF",$0.38,$212.48,"",""
+"Labor","","Tear Out Aluminum Window Screen (>10 SF)",4.00,"EA",$1.52,$6.08,"",""
+"Labor","","Alter Door Opening",21.00,"SF",$3.53,$74.13,"",""
+"Labor","","Prime & Paint Flush Entry Door",2.00,"EA",$54.28,$108.56,"",""
+"Labor","","Tear Out Aluminum Window/Door Wrap (<4 Bends)",148.00,"LF",$0.88,$130.24,"",""
+"Labor","","Finish Carpenter Minimum Charge",1.00,"LS",$422.36,$422.36,"",""
+"Labor","","Electrical Minimum Charge",1.00,"LS",$454.08,$454.08,"",""
+"Other","","Dumpster, 20 Yard",1.00,"EA",$600.73,$600.73,"",""
+
+Materials Total,$33930.80
+Labor Total,$14264.91
+Grand Total,$48796.44

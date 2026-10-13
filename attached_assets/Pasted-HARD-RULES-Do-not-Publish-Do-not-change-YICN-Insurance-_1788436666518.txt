@@ -1,0 +1,51 @@
+HARD RULES
+- Do not Publish.
+- Do not change YICN / Insurance Claims Network customer, lead, invoice, Twilio, or staff records.
+- Do not run Auto Setup, Launch Checklist, or cleanupYICNAndCreateSaaS.
+- Do not delete Wizard Test Co or Wizard Test Two.
+- Do not remove DATABASE_URL.
+- Do not mention Resend. Email is Postmark and Amazon SES.
+- Do not log into the YICN tenant. Test only on Wizard Test Co or a dummy job there.
+- Do not add Hover, EagleView, Nearmap, or any third-party measuring API/SDK as a geometry source. Do not parse a Hover/EagleView file to build the house. We measure ourselves.
+- Do not send house photos to Gemini Vision or any LLM to invent roof/wall squares or vertex coordinates.
+- Do not delete public/, attached_assets/, or .git to “make room.” If disk is tight, stop and report. Do not buy storage.
+- List files changed. Stop. Do not Publish.
+
+WHY
+The 8-slot capture (Front, Front-Right, Right, Back-Right, Back, Back-Left, Left, Front-Left) is in place. The takeoff still extrudes a Google Solar footprint × wall height. That is a box, not a house. We need a real mesh from our own photos: photogrammetry / structure-from-motion. Same class of math a measuring app uses. No vendor account.
+
+FIX (preview only)
+Keep the 8-slot wizard and the garage-door scale tap (default double 16 ft, single 8 ft). Keep Google Solar only as an optional size PRIOR to snap to, never as the mesh itself.
+
+1) Mesh from the 8 photos
+   Treat each filled slot as a camera. Use adjacent pairs (Front↔FR, FR↔Right, Right↔BR, etc.).
+   Prefer, in this order:
+   A) OpenSfM or pycolmap / COLMAP if it installs in this Repl WITHOUT deleting project data and WITHOUT going over ~7.5 GB.
+   B) If A will not install, use OpenCV (Python cv2 or a small Python sidecar) for: feature detect + match on adjacent views, essential/homography, camera pose, then reconstruct wall/roof planes. Glue planes into ONE watertight-enough mesh.
+   C) If even B fails, stop and report. Do not fake a mesh by asking an LLM for coordinates. Do not go back to Solar-box extrusion as “the 3D.”
+
+2) Scale
+   EXIF focal length when present.
+   User tap on garage door, or typed 16 ft / 8 ft, is the scale bar.
+   After the mesh exists, report area in sqft off the mesh faces (siding walls vs roof called out separately). No “43.11 SQ” roofing label on a siding job.
+
+3) One assembled house
+   Garage must stay on the side the Left/Front-Left photos show. Do not flip.
+   No exploded roof shards. No fake 48×9 “NOT PHOTOGRAPHED” boxes.
+   If a corner slot is empty, block Generate and name the missing slots. Do not estimate from 4 sides.
+
+4) UI
+   3D View shows the mesh. Measurement Summary numbers must come from mesh face areas + counted openings in photos, with a confidence from reprojection/match quality — not a made-up Grade D on a Solar box.
+   Stories/height chips must match the mesh. Do not show “1 Story” on screen while math used 2 stories.
+
+5) Out of scope this job
+   Insurance line-item pricing, Xactimate export, publishing, YICN data.
+
+VERIFY IN PREVIEW (Wizard Test Co / dummy only)
+- Complete 8 slots + garage-door scale: one assembled mesh, garage on the correct side.
+- 4 sides only: Generate blocked, missing corners listed.
+- Wall/roof sqft change when the mesh changes, not when Solar footprint alone changes.
+- No LLM-invented vertices in logs. No Hover/EagleView calls.
+- Do not email. Do not publish.
+
+When done, list files changed. Stop. Do not Publish.

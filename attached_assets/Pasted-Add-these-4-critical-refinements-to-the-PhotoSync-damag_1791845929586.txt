@@ -1,0 +1,19 @@
+Add these 4 critical refinements to the PhotoSync damage analysis spec you just worked on (PREVIEW ONLY, do not publish):
+
+1. NO PIN-SPAM ON OVERVIEW PHOTOS:
+- When a photo is classified as "Overview" (wide slope shot, elevation shot, or drone overview), do NOT draw or return individual hail circle coordinates on the image overlay (hail_circles = []). 
+- Also add a spatial sanity check on all photos: hail is random, so never generate 20+ markers in a straight diagonal or horizontal line along shingle shadow lines, step-downs, or valley flashing.
+
+2. FIX HAIL/SQ AGGREGATION MATH (NO AVERAGING OR DOUBLE-COUNTING CLOSE-UPS):
+- Never calculate "Hail/SQ" by dividing total hail marks by the number of photos.
+- If a roof slope has one or more "Test Square" photos, calculate "Hail/SQ" using ONLY the Test Square count(s). Treat "Close-up" photos on that same slope as supporting verification evidence—do not add them on top of the Test Square count, and do not average them in.
+- If a roof slope ONLY has "Close-up" macro photos and no "Test Square" photo, label the summary badge "X Confirmed Hits (Close-Up)" instead of "X Hail/SQ" (because 1 hit on a 1-shingle macro photo is not 1 Hail/SQ).
+- For non-roof elevations/components (aluminum siding, vinyl siding, gutters, downspouts, vents/soft metals), label the summary badge "X Dents" or "X Impacts" rather than "Hail/SQ".
+
+3. CHALKED VS. UNCHALKED DETECTION:
+- Detect whether a photo already has human chalk annotations (chalk circles around hail hits, chalk lines on wind-creased tabs, or a drawn 10x10 test square) versus a raw unchalked photo.
+- If human chalk is present, count the human chalk marks accurately and inspect the center of each chalk circle/line to describe the underlying bruise, granule displacement, or crease in the AI Notes.
+- Never use robotic phrasing like "Counted 1 circle + 0 lines in this photo" in the UI notes. Always write in professional HAAG/insurance adjuster terminology.
+
+4. VERIFY IN PREVIEW:
+- Re-run the 4 photos on the "5420 mardale" inspection (and IMG_3778.jpg) so we can verify that the 71 and 100 straight-line valley circles on the wide slope photos are gone, the "1 Hail/SQ" close-up math bug is fixed, and the shingle type/exposure stays consistent across the roof.

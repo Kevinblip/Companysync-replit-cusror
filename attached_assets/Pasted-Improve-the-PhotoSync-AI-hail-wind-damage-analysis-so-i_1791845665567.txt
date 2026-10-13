@@ -1,0 +1,22 @@
+Improve the PhotoSync AI hail/wind damage analysis so it works like a human adjuster. PREVIEW ONLY. Do not publish. Do not change unrelated features, routes, or report layouts.
+
+1. MATERIAL FIRST: Before counting damage, identify the material in each photo (3-tab shingle, dimensional shingle, metal roof, aluminum siding, vinyl siding, steel siding, fiber cement, wood, gutter/downspout, vent/soft metal, window wrap). Return the material, a 0-100 confidence, and the visual clues used (chalky oxidation, sharp dents vs cracks, seam/lap style, sheen). If confidence is under 80, show a "Confirm material" prompt with the top 2-3 choices instead of guessing.
+
+2. FACTS SET ONCE: Store the confirmed material, shingle type, exposure, and layers per job and per elevation/slope, not per photo. Once a rep confirms or types an Inspector Correction, apply it to every photo of that elevation/slope and on Re-Analyze. AI Notes must never contradict a confirmed fact.
+
+3. RULES BY MATERIAL:
+- Aluminum/steel siding, gutters, vents, soft metals: count round dents; note approximate size.
+- Vinyl siding: count cracks, punctures, holes only.
+- Shingles: count only round hits with granule loss, bruising, or fractured mat. Exclude blisters, wear, scuffs, nail pops, shingle edges, shadows, pattern lines.
+- Wind: creased, lifted, torn, or missing tabs only.
+Give each hit its own confidence score. Only hits at 70 or above count toward totals; show lower ones as "possible" in a different color.
+
+4. PHOTO TYPE: Tag each photo Overview, Test Square, or Close-up (AI suggests, rep can change). Only Test Square and Close-up photos count toward hits per square. Never calculate hits per SQ from overview photos.
+
+5. SECTION NAMES: No "unknown" or "General" sections. Require Front/Rear/Left/Right or a slope name. If missing, ask the rep to pick.
+
+6. AI NOTES: Write in plain adjuster style: the material and how it was identified, what was found, the count, approximate impact size, whether it fits hail or another cause, and a severity call.
+
+7. LEARN FROM CORRECTIONS: Save every Inspector Correction (photo id, original AI answer, corrected answer) in a corrections table. Include the tenant's 10 most recent relevant corrections as examples in the AI prompt.
+
+TEST IN PREVIEW: Re-analyze IMG_3778.jpg (Left Elevation). It must identify aluminum siding (or ask), not vinyl. Show me before/after results for 3-5 photos. Do not publish.

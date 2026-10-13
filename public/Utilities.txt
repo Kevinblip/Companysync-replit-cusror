@@ -1,0 +1,1707 @@
+import React, { useState, useEffect } from 'react';
+import { base44 } from '@/api/base44Client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import useCurrentCompany from '@/components/hooks/useCurrentCompany';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { 
+  Wrench, 
+  RefreshCw, 
+  Database, 
+  Trash2, 
+  CheckCircle, 
+  AlertTriangle,
+  Building2,
+  DollarSign,
+  Users,
+  FileText,
+  Link as LinkIcon,
+  Download,
+  Archive,
+  Upload,
+  Eye,
+  Bell,
+  MessageSquare
+} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+
+export default function Utilities() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+  const [forceUpdate, setForceUpdate] = useState(true);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0, phase: '' });
+  const [downloadingLexi, setDownloadingLexi] = useState(false);
+  const [downloadingEstimator, setDownloadingEstimator] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false);
+  const fileInputRef = React.useRef(null);
+  const testFileInputRef = React.useRef(null);
+  const replaceFileInputRef = React.useRef(null);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: async () => {
+      // Use backend function to get ALL companies (including duplicates hidden by RLS)
+      try {
+        const response = await base44.functions.invoke('getAllCompanies', {});
+        console.log('🔍 getAllCompanies response:', response.data);
+        if (response.data?.companies) {
+          console.log(`✅ Found ${response.data.companies.length} total companies`);
+          return response.data.companies;
+        }
+      } catch (error) {
+        console.error('❌ Failed to fetch all companies via function:', error);
+      }
+      // Fallback to regular list - FILTER OUT DELETED
+      const regularList = await base44.entities.Company.filter({ is_deleted: { $ne: true } }, "-created_date", 10000);
+      console.log(`📋 Fallback: regular list returned ${regularList.length} active companies`);
+      return regularList;
+    },
+    initialData: [],
+  });
+
+  const { data: staffProfiles = [] } = useQuery({
+    queryKey: ['staff-profiles', user?.email],
+    queryFn: () => user ? base44.entities.StaffProfile.filter({ user_email: user.email }) : [],
+    enabled: !!user,
+    initialData: [],
+  });
+
+
+
+  const myStaffProfile = React.useMemo(() => {
+    if (!user) return null;
+    return staffProfiles.find(s => s.user_email === user.email);
+  }, [user, staffProfiles]);
+
+  const { company: myCompany } = useCurrentCompany(user);
+
+  const { data: customers = [] } = useQuery({
+    queryKey: ['customers', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Customer.filter({ company_id: myCompany.id }, "-created_date", 10000) : [],
+    initialData: [],
+    enabled: !!myCompany,
+  });
+
+  const { data: invoices = [] } = useQuery({
+    queryKey: ['invoices', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Invoice.filter({ company_id: myCompany.id }, "-created_date", 10000) : [],
+    initialData: [],
+    enabled: !!myCompany,
+  });
+
+  const { data: payments = [] } = useQuery({
+    queryKey: ['payments', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Payment.filter({ company_id: myCompany.id }, "-created_date", 10000) : [],
+    initialData: [],
+    enabled: !!myCompany,
+  });
+
+  // Fetch hierarchy for the current company
+  const { data: hierarchy, refetch: refetchHierarchy } = useQuery({
+    queryKey: ['company-hierarchy-utility', myCompany?.id],
+    queryFn: async () => {
+        if (!myCompany?.id) return null;
+        const res = await base44.functions.invoke('getCompanyHierarchy', { company_id: myCompany.id });
+        return res.data;
+    },
+    enabled: !!myCompany?.id
+  });
+
+  const createChildCompanyMutation = useMutation({
+    mutationFn: async (name) => {
+        const newCompany = await base44.entities.Company.create({
+            company_name: name,
+            email: `child-${Date.now()}@example.com`, // Temporary email
+            parent_company_id: myCompany.id,
+            created_by: user.email,
+            settings: { ...myCompany.settings } // Copy settings
+        });
+        
+        // Also create a staff profile for the user in the new company so they can access it
+        await base44.entities.StaffProfile.create({
+            user_email: user.email,
+            company_id: newCompany.id,
+            role_id: 'admin', // Simplified
+            is_administrator: true,
+            status: 'active'
+        });
+        
+        return newCompany;
+    },
+    onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['companies'] });
+        refetchHierarchy();
+        alert('✅ Child company created! You can now switch to it from the sidebar menu.');
+    }
+  });
+
+  const linkChildCompanyMutation = useMutation({
+    mutationFn: async (childId) => {
+        await base44.entities.Company.update(childId, {
+            parent_company_id: myCompany.id
+        });
+    },
+    onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['companies'] });
+        refetchHierarchy();
+        alert('✅ Company linked as child!');
+    }
+  });
+
+  // Calculate assignment stats
+  const myStats = React.useMemo(() => {
+    if (!user) return null;
+
+    const myCustomers = customers.filter(c => 
+      c.assigned_to_users?.includes(user.email) || c.assigned_to === user.email
+    );
+
+    const unassignedCustomers = customers.filter(c => 
+      !c.assigned_to_users || c.assigned_to_users.length === 0
+    );
+
+    const myInvoices = invoices.filter(inv => {
+      if (inv.commission_splits?.some(cs => cs.user_email === user.email)) return true;
+      if (inv.sale_agent === user.email) return true;
+      return false;
+    });
+
+    const unassignedInvoices = invoices.filter(inv => 
+      !inv.commission_splits || inv.commission_splits.length === 0
+    );
+
+    return {
+      totalCustomers: customers.length,
+      myCustomers: myCustomers.length,
+      unassignedCustomers: unassignedCustomers.length,
+      totalInvoices: invoices.length,
+      myInvoices: myInvoices.length,
+      unassignedInvoices: unassignedInvoices.length,
+      totalPayments: payments.length
+    };
+  }, [user, customers, invoices, payments]);
+
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+  const bulkAssignMutation = useMutation({
+    mutationFn: async () => {
+      console.log('🔄 Bulk assigning all customers and invoices to:', user.email);
+      
+      let customersUpdated = 0;
+      let invoicesUpdated = 0;
+      const totalItems = customers.length + invoices.length;
+      let currentItem = 0;
+
+      // Phase 1: Assign customers (with rate limiting)
+      setBulkProgress({ current: 0, total: customers.length, phase: 'Assigning customers...' });
+      
+      for (const customer of customers) {
+        try {
+          if (!customer.assigned_to_users || !customer.assigned_to_users.includes(user.email)) {
+            await base44.entities.Customer.update(customer.id, {
+              assigned_to_users: [user.email],
+              assigned_to: user.email
+            });
+            customersUpdated++;
+          }
+          currentItem++;
+          setBulkProgress({ current: currentItem, total: customers.length, phase: 'Assigning customers...' });
+          
+          // Add delay every 5 updates to avoid rate limiting
+          if (currentItem % 5 === 0) {
+            await sleep(500);
+          }
+        } catch (error) {
+          console.error('Failed to update customer:', customer.name, error.message);
+        }
+      }
+
+      // Phase 2: Assign invoices (with rate limiting)
+      setBulkProgress({ current: 0, total: invoices.length, phase: 'Assigning invoices...' });
+      currentItem = 0;
+
+      const myStaffProfile = staffProfiles.find(sp => sp.user_email === user.email);
+      
+      for (const invoice of invoices) {
+        try {
+          await base44.entities.Invoice.update(invoice.id, {
+            commission_splits: [{
+              user_email: user.email,
+              user_name: user.full_name || user.email,
+              split_percentage: 100,
+              role: 'Sales Rep'
+            }],
+            sale_agent: user.email,
+            sale_agent_name: user.full_name || user.email,
+            company_id: myCompany.id
+          });
+          invoicesUpdated++;
+          currentItem++;
+          setBulkProgress({ current: currentItem, total: invoices.length, phase: 'Assigning invoices...' });
+          
+          // Add delay every 5 updates to avoid rate limiting
+          if (currentItem % 5 === 0) {
+            await sleep(500);
+          }
+        } catch (error) {
+          console.error('Failed to update invoice:', invoice.invoice_number, error.message);
+        }
+      }
+
+      // Phase 3: Tag payments with company_id
+      setBulkProgress({ current: 0, total: payments.length, phase: 'Tagging payments...' });
+      currentItem = 0;
+      let paymentsUpdated = 0;
+
+      for (const payment of payments) {
+        try {
+          if (!payment.company_id || payment.company_id !== myCompany.id) {
+            await base44.entities.Payment.update(payment.id, {
+              company_id: myCompany.id
+            });
+            paymentsUpdated++;
+          }
+          currentItem++;
+          setBulkProgress({ current: currentItem, total: payments.length, phase: 'Tagging payments...' });
+          
+          // Add delay every 5 updates to avoid rate limiting
+          if (currentItem % 5 === 0) {
+            await sleep(500);
+          }
+        } catch (error) {
+          console.error('Failed to update payment:', payment.id, error.message);
+        }
+      }
+
+      setBulkProgress({ current: 0, total: 0, phase: 'Complete!' });
+      return { customersUpdated, invoicesUpdated, paymentsUpdated };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      alert(`✅ Bulk Assignment Complete!\n\n${data.customersUpdated} customers assigned\n${data.invoicesUpdated} invoices assigned\n${data.paymentsUpdated} payments tagged\n\nRefreshing data...`);
+      setBulkProgress({ current: 0, total: 0, phase: '' });
+    },
+    onError: (error) => {
+      alert(`❌ Bulk assignment failed: ${error.message}`);
+      setBulkProgress({ current: 0, total: 0, phase: '' });
+    }
+  });
+
+  const backfillCommissionsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await base44.functions.invoke('backfillInvoiceCommissions', {
+        companyId: myCompany.id,
+        forceUpdate: forceUpdate
+      });
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      alert(`✅ Commission Backfill Complete!\n\n${data.updated} invoices updated\n${data.skipped} invoices skipped\n${data.errors?.length || 0} errors`);
+    },
+    onError: (error) => {
+      alert(`❌ Backfill failed: ${error.message}`);
+    }
+  });
+
+  const linkEstimatesMutation = useMutation({
+    mutationFn: async () => {
+      const response = await base44.functions.invoke('linkAllEstimatesToCustomers', {});
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['estimates'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+
+      let message = `✅ Estimate Linking Complete!\n\n${data.linked} estimates linked to customers\n${data.skipped} skipped\n\nAll estimates now visible in customer profiles!`;
+
+      if (data.notFound && data.notFound.length > 0) {
+        message += `\n\n❌ Could not match these estimates:\n\n`;
+        data.notFound.forEach(item => {
+          message += `• ${item.estimate_number}: "${item.customer_name}"\n`;
+        });
+        if (data.skipped > data.notFound.length) {
+          message += `\n...and ${data.skipped - data.notFound.length} more`;
+        }
+      }
+
+      alert(message);
+    },
+    onError: (error) => {
+        alert(`❌ Linking failed: ${error.message}`);
+    }
+  });
+
+  const cleanupMutation = useMutation({
+    mutationFn: async () => {
+      // Pick the company owned by the user as the target to keep
+      const targetCompany = companies.find(c => c.created_by === user.email) || companies[0];
+      
+      const response = await base44.functions.invoke('cleanupAllOrphanedData', {
+        targetCompanyId: targetCompany.id,
+        dryRun: false
+      });
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['staff-profiles'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+      queryClient.invalidateQueries({ queryKey: ['estimates'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      
+      const stats = data.stats || {};
+      alert(`✅ Comprehensive Cleanup Complete!\n\n` +
+        `Customers deleted: ${stats.customers_deleted || 0}\n` +
+        `Leads deleted: ${stats.leads_deleted || 0}\n` +
+        `Estimates deleted: ${stats.estimates_deleted || 0}\n` +
+        `Invoices deleted: ${stats.invoices_deleted || 0}\n` +
+        `Payments deleted: ${stats.payments_deleted || 0}\n` +
+        `Tasks deleted: ${stats.tasks_deleted || 0}\n` +
+        `Projects deleted: ${stats.projects_deleted || 0}\n` +
+        `Calendar events deleted: ${stats.calendar_events_deleted || 0}\n` +
+        `Staff profiles deleted: ${stats.staff_profiles_deleted || 0}\n` +
+        `Duplicate companies deleted: ${stats.duplicate_companies_deleted || 0}\n\n` +
+        `Refreshing page...`
+      );
+      setTimeout(() => window.location.reload(), 2000);
+    },
+    onError: (error) => {
+      alert(`❌ Cleanup failed: ${error.message}`);
+    }
+  });
+
+  const fixPaymentsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await base44.functions.invoke('fixPaymentCompanyIds');
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      alert(`✅ Payment Fix Complete!\n\nFixed ${data.fixed} orphaned payments (out of ${data.total_orphaned} found).`);
+    },
+    onError: (error) => {
+      alert(`❌ Fix failed: ${error.message}`);
+    }
+  });
+
+  const deleteDuplicateLeadsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await base44.functions.invoke('deleteDuplicateLeads');
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+      alert(`✅ Duplicate Cleanup Complete!\n\nDeleted ${data.deleted_count} duplicate leads\nFound ${data.duplicate_groups} duplicate groups\nTotal leads: ${data.total_leads}\n\nRefreshing data...`);
+    },
+    onError: (error) => {
+      alert(`❌ Cleanup failed: ${error.message}`);
+    }
+  });
+
+  const dataIsolationCleanupMutation = useMutation({
+    mutationFn: async () => {
+      const response = await base44.functions.invoke('cleanupAllOrphanedData');
+      return response.data;
+    },
+    onSuccess: (data) => {
+      const stats = data.stats.deleted || {};
+      let msg = `✅ Data Isolation Cleanup Complete!\n\nProtected: CompanySync, YICN\n\nDeleted Orphaned Records:\n`;
+      Object.entries(stats).forEach(([entity, count]) => {
+        if (count > 0) msg += `• ${entity}: ${count}\n`;
+      });
+      if (data.stats.errors?.length > 0) {
+        msg += `\n⚠️ Errors:\n${data.stats.errors.join('\n')}`;
+      }
+      alert(msg);
+      window.location.reload();
+    },
+    onError: (error) => {
+      alert(`❌ Cleanup failed: ${error.message}`);
+    }
+  });
+
+  // 🔧 Smart duplicate detection for SaaS - only flag ACTUAL duplicates
+  const duplicateCompanies = React.useMemo(() => {
+    if (!user) return false;
+    
+    const ownedCompanies = companies.filter(c => c.created_by === user.email);
+    if (ownedCompanies.length <= 1) return false;
+    
+    // Check for ACTUAL duplicates (same name, created within 1 hour)
+    const duplicates = ownedCompanies.filter((c1, idx) => {
+      return ownedCompanies.some((c2, idx2) => {
+        if (idx >= idx2) return false;
+        const sameNameOrSimilar = c1.company_name?.toLowerCase().trim() === c2.company_name?.toLowerCase().trim();
+        const createdClose = Math.abs(new Date(c1.created_date) - new Date(c2.created_date)) < 3600000; // 1 hour
+        return sameNameOrSimilar && createdClose;
+      });
+    });
+    
+    return duplicates.length > 0;
+  }, [companies, user]);
+
+  console.log('🏢 Companies loaded:', companies.length, 'ACTUAL duplicates:', duplicateCompanies);
+  console.log('🔍 All company IDs:', companies.map(c => ({ id: c.id, name: c.company_name, created_by: c.created_by })));
+
+  // Download backup helper
+  const handleDownloadBackup = async (type) => {
+    try {
+      if (type === 'lexi') setDownloadingLexi(true); else setDownloadingEstimator(true);
+      const fn = type === 'lexi' ? 'lexiBackup' : 'estimatorBackup';
+      const { data } = await base44.functions.invoke(fn, {});
+      const content = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+      const blob = new Blob([content], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const date = new Date().toISOString().slice(0,10);
+      a.href = url;
+      a.download = `${type === 'lexi' ? 'lexi-backup' : 'ai-estimator-backup'}-${date}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Download failed: ' + (err?.message || 'Unknown error'));
+    } finally {
+      if (type === 'lexi') setDownloadingLexi(false); else setDownloadingEstimator(false);
+    }
+  };
+
+  // ADD: Run all data repairs at once (calls runDataRepairs backend)
+  const runRepairs = async () => {
+    try {
+      const { data } = await base44.functions.invoke('runDataRepairs', {});
+      console.log('🧹 runDataRepairs:', data);
+      alert(`Repairs Complete\n\nCleanup: ${data?.results?.cleanupAllOrphanedData ? 'OK' : 'Skipped'}\nFix Payments: ${data?.results?.fixPaymentCompanyIds ? 'OK' : 'Skipped'}\nLink Estimates: ${data?.results?.linkAllEstimatesToCustomers ? 'OK' : 'Skipped'}\nBackfill Commissions: ${data?.results?.backfillInvoiceCommissions ? 'OK' : 'Skipped'}\n\nLexi Test: ${data?.diagnostics?.lexi?.success ? 'OK' : 'Check Logs'}`);
+    } catch (e) {
+      alert('Failed to run repairs: ' + e.message);
+    }
+  };
+
+  const handleRestoreBackup = async (event, dryRun = false, replaceExisting = false) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (!dryRun && !replaceExisting) {
+      // Merge mode warning
+      if (!confirm('⚠️ RESTORE FROM BACKUP (MERGE MODE)\n\nThis will:\n• ADD backup records to your existing data\n• DUPLICATE everything\n\nUse "Replace Existing" button to delete current data first.\n\nContinue with merge?')) {
+        event.target.value = '';
+        return;
+      }
+    }
+
+    if (!dryRun && replaceExisting) {
+      // Replace mode warning
+      if (!confirm('🚨 REPLACE EXISTING DATA\n\nThis will:\n1. DELETE ALL current customers, leads, invoices, estimates, payments, tasks, projects, communications, and calendar events\n2. IMPORT data from the backup file\n\nThis action CANNOT be undone!\n\nType "DELETE AND RESTORE" to confirm.')) {
+        event.target.value = '';
+        return;
+      }
+      const userConfirmation = prompt('Type "DELETE AND RESTORE" to confirm:');
+      if (userConfirmation !== 'DELETE AND RESTORE') {
+        alert('❌ Cancelled - confirmation text did not match');
+        event.target.value = '';
+        return;
+      }
+    }
+
+    setRestoring(true);
+    try {
+      const text = await file.text();
+      const backupData = JSON.parse(text);
+      
+      console.log('📤 Uploading backup with', Object.keys(backupData).length, 'entity types');
+      console.log('Backup entity counts:', {
+        customers: backupData.customers?.length || 0,
+        leads: backupData.leads?.length || 0,
+        invoices: backupData.invoices?.length || 0,
+        estimates: backupData.estimates?.length || 0,
+        payments: backupData.payments?.length || 0
+      });
+      console.log('Mode:', { dryRun, replaceExisting });
+      
+      const response = await base44.functions.invoke('restoreFromBackup', {
+        backup: backupData,
+        dryRun: dryRun,
+        replaceExisting: replaceExisting,
+        targetCompanyId: myCompany?.id
+      });
+
+      console.log('📥 Restore response:', response);
+      
+      if (!response.data) {
+        throw new Error('No data returned from restore function');
+      }
+
+      if (response.data.success === false) {
+        throw new Error(response.data.error || 'Restore failed');
+      }
+
+      if (dryRun) {
+        alert(`🔍 DRY RUN RESULTS (No Changes Made)\n\n${response.data.summary}\n\nThis is what would happen if you restore. Your data is unchanged.`);
+      } else {
+        alert(`✅ Restore Complete!\n\n${response.data.summary || 'Backup restored successfully'}\n\nRefreshing page...`);
+        setTimeout(() => window.location.reload(), 2000);
+      }
+    } catch (error) {
+      console.error('❌ Restore error:', error);
+      alert(`❌ ${dryRun ? 'Test' : 'Restore'} failed: ${error.message}\n\nCheck browser console (F12) for details.`);
+    } finally {
+      setRestoring(false);
+      event.target.value = '';
+    }
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">System Utilities</h1>
+        <p className="text-gray-500 mt-1">Database maintenance and cleanup tools</p>
+      </div>
+
+      {/* Multi-Tenant Manager */}
+      <Card className="border-indigo-300 bg-indigo-50">
+        <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-indigo-600" />
+                Multi-Tenant Manager
+            </CardTitle>
+            <CardDescription>
+                Test parent/child company relationships
+            </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+            <div className="text-sm">
+                <p className="font-semibold">Current Hierarchy:</p>
+                {hierarchy?.parent ? (
+                    <div className="p-2 bg-white rounded border mt-1">
+                        <span className="text-xs text-gray-500">Parent:</span> {hierarchy.parent.company_name}
+                    </div>
+                ) : <div className="text-gray-500 italic mt-1">No parent company (This is a root or standalone company)</div>}
+                
+                <div className="mt-4">
+                    <p className="font-semibold">Children ({hierarchy?.children?.length || 0}):</p>
+                    <div className="space-y-2 mt-1">
+                        {hierarchy?.children?.map(child => (
+                            <div key={child.id} className="p-2 bg-white rounded border flex justify-between items-center">
+                                <span>{child.company_name}</span>
+                                <span className="text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded">Child</span>
+                            </div>
+                        ))}
+                        {(!hierarchy?.children || hierarchy.children.length === 0) && (
+                            <div className="text-gray-500 italic">No child companies linked</div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            <div className="pt-4 border-t border-indigo-200 space-y-3">
+                <p className="font-semibold text-sm">Actions:</p>
+                <Button 
+                    onClick={() => {
+                        const name = prompt("Enter name for new child company:");
+                        if (name) createChildCompanyMutation.mutate(name);
+                    }}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700"
+                    disabled={createChildCompanyMutation.isPending}
+                >
+                    {createChildCompanyMutation.isPending ? 'Creating...' : 'Create New Child Company'}
+                </Button>
+
+                <div className="flex gap-2">
+                     <Select onValueChange={(val) => {
+                         if(confirm(`Link company ID ${val} as a child of ${myCompany.company_name}?`)) {
+                             linkChildCompanyMutation.mutate(val);
+                         }
+                     }}>
+                        <SelectTrigger className="bg-white">
+                            <SelectValue placeholder="Link Existing Company as Child" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {companies
+                                .filter(c => c.id !== myCompany?.id && c.id !== hierarchy?.parent?.id && !hierarchy?.children?.some(child => child.id === c.id))
+                                .map(c => (
+                                <SelectItem key={c.id} value={c.id}>
+                                    {c.company_name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+            </div>
+        </CardContent>
+      </Card>
+
+      {/* One-Click Data Repair (always visible) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card className="border-blue-300 bg-blue-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Wrench className="w-5 h-5 text-blue-600" />
+              One-Click Data Repair
+            </CardTitle>
+            <CardDescription>
+              Fix hidden sales, link estimates, backfill commissions, and reattach payments
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button onClick={runRepairs} className="w-full bg-blue-600 hover:bg-blue-700">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Run Repairs Now
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="border-purple-300 bg-purple-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Bell className="w-5 h-5 text-purple-600" />
+              Notification Diagnostics
+            </CardTitle>
+            <CardDescription>
+              Test and troubleshoot notification systems
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button onClick={() => navigate(createPageUrl('NotificationDiagnostics'))} className="w-full bg-purple-600 hover:bg-purple-700">
+              <Bell className="w-4 h-4 mr-2" />
+              Open Diagnostics
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="border-green-300 bg-green-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MessageSquare className="w-5 h-5 text-green-600" />
+              Twilio SMS Diagnostics
+            </CardTitle>
+            <CardDescription>
+              Check your Twilio connection and recent SMS failures
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button 
+                onClick={async () => {
+                    try {
+                        const res = await base44.functions.invoke('checkTwilioStatus');
+                        const data = res.data;
+                        if (!data.success) {
+                            alert('❌ ' + (data.message || data.error));
+                            return;
+                        }
+                        
+                        let msg = `✅ Twilio Config Found\n\nAPI Connection: ${data.apiConnection.status === 'connected' ? '✅ Connected' : '❌ Failed'}\n`;
+                        if (data.apiConnection.error) msg += `Error: ${data.apiConnection.error}\n\n`;
+                        
+                        msg += `Main Number: ${data.twilioSettings.mainNumber || 'Missing ❌'}\n`;
+                        msg += `SMS Enabled: ${data.twilioSettings.enableSMS ? '✅' : '❌'}\n\n`;
+                        
+                        if (data.recentFailures && data.recentFailures.length > 0) {
+                            msg += `⚠️ Recent Failed SMS:\n`;
+                            data.recentFailures.forEach(f => {
+                                msg += `- To: ${f.to} (${new Date(f.date).toLocaleTimeString()})\n`;
+                            });
+                        } else {
+                            msg += `✅ No recent failures detected.`;
+                        }
+                        
+                        alert(msg);
+                    } catch (e) {
+                        alert('Error running diagnostics: ' + e.message);
+                    }
+                }}
+                className="w-full bg-green-600 hover:bg-green-700"
+            >
+              <MessageSquare className="w-4 h-4 mr-2" />
+              Check Connection
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      {duplicateCompanies && (
+        <Alert className="bg-red-50 border-red-300">
+          <AlertTriangle className="w-4 h-4 text-red-600" />
+          <AlertDescription className="text-red-900">
+            <strong>⚠️ Duplicate Companies Detected:</strong> You have {companies.length} company records. This causes data visibility issues and should be fixed immediately.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Assignment Statistics */}
+      {myStats && (
+        <Card className="bg-gradient-to-br from-blue-50 to-purple-50 border-blue-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-blue-600" />
+              Your Assignment Statistics
+            </CardTitle>
+            <CardDescription>
+              Showing data for {user?.full_name || user?.email}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="bg-white rounded-lg p-4 border">
+                <div className="text-sm text-gray-600 mb-1">Total Customers</div>
+                <div className="text-2xl font-bold">{myStats.totalCustomers}</div>
+              </div>
+              <div className="bg-white rounded-lg p-4 border border-green-300">
+                <div className="text-sm text-gray-600 mb-1">Your Customers</div>
+                <div className="text-2xl font-bold text-green-600">{myStats.myCustomers}</div>
+              </div>
+              <div className="bg-white rounded-lg p-4 border border-orange-300">
+                <div className="text-sm text-gray-600 mb-1">Unassigned Customers</div>
+                <div className="text-2xl font-bold text-orange-600">{myStats.unassignedCustomers}</div>
+              </div>
+              <div className="bg-white rounded-lg p-4 border">
+                <div className="text-sm text-gray-600 mb-1">Total Invoices</div>
+                <div className="text-2xl font-bold">{myStats.totalInvoices}</div>
+              </div>
+              <div className="bg-white rounded-lg p-4 border border-green-300">
+                <div className="text-sm text-gray-600 mb-1">Your Invoices</div>
+                <div className="text-2xl font-bold text-green-600">{myStats.myInvoices}</div>
+              </div>
+              <div className="bg-white rounded-lg p-4 border border-orange-300">
+                <div className="text-sm text-gray-600 mb-1">Unassigned Invoices</div>
+                <div className="text-2xl font-bold text-orange-600">{myStats.unassignedInvoices}</div>
+              </div>
+            </div>
+
+            {myStats.unassignedCustomers > 0 && (
+              <Alert className="mt-4 bg-orange-50 border-orange-300">
+                <AlertTriangle className="w-4 h-4 text-orange-600" />
+                <AlertDescription className="text-orange-900">
+                  <strong>⚠️ {myStats.unassignedCustomers} customers are not assigned to anyone.</strong> Use the bulk assign tool below to assign them all to yourself.
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Toggle for Advanced Tools - Only for Super Admin/Owner */}
+      {(myStaffProfile?.is_super_admin || myCompany?.created_by === user?.email || myCompany?.company_name?.toUpperCase().includes('YICN')) && (
+        <Card className="bg-gray-50 border-gray-300">
+          <CardContent className="py-4">
+            <Button
+              onClick={() => setShowAdvancedTools(!showAdvancedTools)}
+              variant="outline"
+              className="w-full"
+            >
+              {showAdvancedTools ? '🔒 Hide Advanced Tools' : '🔓 Show Advanced Tools'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {showAdvancedTools && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Test Notifications */}
+        <Card className="border-purple-300 bg-purple-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-purple-600" />
+              Test Payment Notifications
+            </CardTitle>
+            <CardDescription>
+              Test the automated notification system for payments
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="text-sm text-gray-700">
+              <p className="mb-2 font-semibold">🧪 This will:</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-600">
+                <li>Send bell notifications to all admins</li>
+                <li>Send email notifications to all admins</li>
+                <li>Send test receipt to a customer (if available)</li>
+                <li>Trigger payment workflow automation</li>
+              </ul>
+            </div>
+
+            <Button
+              onClick={async () => {
+                try {
+                  const allStaffProfiles = await base44.entities.StaffProfile.filter({ company_id: myCompany.id });
+                  const adminEmails = allStaffProfiles.filter(s => s.is_administrator).map(s => s.user_email);
+
+                  let bellSent = 0;
+                  let emailsSent = 0;
+                  const testRecipients = [...new Set([user.email, ...adminEmails])];
+
+                  for (const email of testRecipients) {
+                    try {
+                      await base44.entities.Notification.create({
+                        company_id: myCompany.id,
+                        user_email: email,
+                        title: '🧪 Test Payment Notification',
+                        message: 'This is a test notification from the payment system. All automations are working!',
+                        type: 'payment_received',
+                        link_url: '/payments',
+                        is_read: false
+                      });
+                      bellSent++;
+
+                      await base44.integrations.Core.SendEmail({
+                        to: email,
+                        from_name: myCompany.company_name || 'CrewCam',
+                        subject: '🧪 Test Notification - Payment System',
+                        body: `<h2>Test Notification</h2>
+                          <p>This is a test email from your payment notification system.</p>
+                          <p><strong>Status:</strong> ✅ All automations are working correctly!</p>
+                          <p><strong>Company:</strong> ${myCompany.company_name}</p>
+                          <p>When you record a payment, notifications like this will be sent to assignees and admins automatically.</p>`
+                      });
+                      emailsSent++;
+                    } catch (error) {
+                      console.error(`Notification failed for ${email}:`, error);
+                    }
+                  }
+
+                  queryClient.invalidateQueries({ queryKey: ['notifications'] });
+                  alert(`✅ Test complete! Sent ${bellSent} bell notifications and ${emailsSent} emails to: ${testRecipients.join(', ')}`);
+                } catch (error) {
+                  alert('Test failed: ' + error.message);
+                }
+              }}
+              disabled={!myCompany?.id || !user?.email}
+              className="w-full bg-purple-600 hover:bg-purple-700"
+            >
+              🧪 Test Notifications
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Recalculate Invoices */}
+        <Card className="border-blue-300 bg-blue-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className="w-5 h-5 text-blue-600" />
+              Recalculate Invoice Payments
+            </CardTitle>
+            <CardDescription>
+              Fix invoice payment totals that are out of sync
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="text-sm text-gray-700">
+              <p className="mb-2 font-semibold">🔄 This will:</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-600">
+                <li>Scan all invoices for payment mismatches</li>
+                <li>Recalculate amount_paid from actual payments</li>
+                <li>Update invoice status (sent, partially_paid, paid)</li>
+                <li>Fix any out-of-sync records</li>
+              </ul>
+            </div>
+
+            <Button
+              onClick={async () => {
+                if (confirm('Recalculate all invoice payment totals? This will fix any out-of-sync invoices.')) {
+                  try {
+                    const allPayments = myCompany ? await base44.entities.Payment.filter({ company_id: myCompany.id }, '-created_date', 10000) : [];
+                    const uniqueInvoiceNumbers = [...new Set(
+                      allPayments
+                        .filter(p => p.invoice_number && p.invoice_number !== 'none')
+                        .map(p => p.invoice_number)
+                    )];
+
+                    let fixed = 0;
+                    for (const invoiceNumber of uniqueInvoiceNumbers) {
+                      try {
+                        const result = await base44.functions.invoke('recalculateInvoicePayments', {
+                          invoice_number: invoiceNumber
+                        });
+                        if (result.data.success) {
+                          fixed++;
+                        }
+                      } catch (error) {
+                        console.error(`Failed to fix ${invoiceNumber}:`, error);
+                      }
+                    }
+
+                    queryClient.invalidateQueries({ queryKey: ['invoices'] });
+                    queryClient.invalidateQueries({ queryKey: ['payments'] });
+                    alert(`✅ Recalculated ${fixed} invoices!`);
+                  } catch (error) {
+                    alert('Failed: ' + error.message);
+                  }
+                }
+              }}
+              className="w-full bg-blue-600 hover:bg-blue-700"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Recalculate All Invoices
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Fix Payment Numbers */}
+        <Card className="border-orange-300 bg-orange-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className="w-5 h-5 text-orange-600" />
+              Fix Payment Numbers
+            </CardTitle>
+            <CardDescription>
+              Assign sequential payment numbers to records missing them
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="text-sm text-gray-700">
+              <p className="mb-2 font-semibold">🔢 This will:</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-600">
+                <li>Find payments without payment_number</li>
+                <li>Assign sequential numbers (PAY-2025-XXXX)</li>
+                <li>Maintain existing numbers</li>
+                <li>Update records safely</li>
+              </ul>
+            </div>
+
+            <Button
+              onClick={async () => {
+                if (confirm('Fix missing payment numbers for existing payments?')) {
+                  try {
+                    const result = await base44.functions.invoke('backfillPaymentNumbers');
+                    if (result.data.success) {
+                      queryClient.invalidateQueries({ queryKey: ['payments'] });
+                      alert(`✅ Fixed! Updated ${result.data.summary.successfully_assigned} payments.`);
+                    } else {
+                      alert('Fix failed: ' + result.data.error);
+                    }
+                  } catch (error) {
+                    alert('Fix failed: ' + error.message);
+                  }
+                }
+              }}
+              className="w-full bg-orange-600 hover:bg-orange-700"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Fix Missing Payment Numbers
+            </Button>
+          </CardContent>
+        </Card>
+        {/* Backups */}
+        <Card className="border-slate-300 bg-slate-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Archive className="w-5 h-5 text-slate-700" />
+              Backups
+            </CardTitle>
+            <CardDescription>Download full CRM backup or specific component backups</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button
+              onClick={async () => {
+                try {
+                  const response = await base44.functions.invoke('createDailyBackup', { companyId: myCompany?.id });
+                  const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' });
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  const date = new Date().toISOString().slice(0,10);
+                  a.href = url;
+                  a.download = `full-crm-backup-${date}.json`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  window.URL.revokeObjectURL(url);
+                  alert('✅ Full CRM backup downloaded successfully!');
+                } catch (error) {
+                  alert('❌ Backup failed: ' + error.message);
+                }
+              }}
+              className="w-full bg-blue-700 hover:bg-blue-800"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Download Full CRM Backup
+            </Button>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Button
+                onClick={() => handleDownloadBackup('lexi')}
+                disabled={downloadingLexi}
+                className="w-full bg-slate-700 hover:bg-slate-800"
+              >
+                {downloadingLexi ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Preparing Lexi Backup...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4 mr-2" />
+                    Download Lexi Backup
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={() => handleDownloadBackup('estimator')}
+                disabled={downloadingEstimator}
+                className="w-full bg-indigo-700 hover:bg-indigo-800"
+              >
+                {downloadingEstimator ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Preparing Estimator Backup...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4 mr-2" />
+                    Download AI Estimator Backup
+                  </>
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-gray-600">
+              Full backup includes all customers, leads, invoices, estimates, payments, tasks, projects, and more.
+            </p>
+            
+            <div className="pt-4 border-t mt-4">
+              <p className="text-sm font-semibold mb-3">Restore from Backup</p>
+              
+              <input
+                ref={testFileInputRef}
+                type="file"
+                accept=".json"
+                onChange={(e) => handleRestoreBackup(e, true, false)}
+                className="hidden"
+              />
+              <Button
+                onClick={() => testFileInputRef.current?.click()}
+                disabled={restoring}
+                variant="outline"
+                className="w-full mb-2"
+              >
+                {restoring ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Testing...
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-4 h-4 mr-2" />
+                    Test Restore (Dry Run)
+                  </>
+                )}
+              </Button>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                onChange={(e) => handleRestoreBackup(e, false, false)}
+                className="hidden"
+              />
+              <Button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={restoring}
+                variant="outline"
+                className="w-full mb-2 border-orange-300 text-orange-700 hover:bg-orange-50"
+              >
+                {restoring ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Restoring...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4 mr-2" />
+                    Merge Backup (Add to Existing)
+                  </>
+                )}
+              </Button>
+
+              <input
+                ref={replaceFileInputRef}
+                type="file"
+                accept=".json"
+                onChange={(e) => handleRestoreBackup(e, false, true)}
+                className="hidden"
+              />
+              <Button
+                onClick={() => replaceFileInputRef.current?.click()}
+                disabled={restoring}
+                className="w-full bg-red-600 hover:bg-red-700"
+              >
+                {restoring ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Replacing...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Replace Existing (Delete + Restore)
+                  </>
+                )}
+              </Button>
+              <p className="text-xs text-gray-600 mt-2">
+                ✅ Test first • ⚠️ Merge adds duplicates • 🚨 Replace deletes everything
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+        {/* Company Cleanup - Always visible */}
+        <Card className={duplicateCompanies ? "border-red-300 bg-red-50" : "border-gray-300"}>
+          <CardHeader>
+            <CardTitle className={`flex items-center gap-2 ${duplicateCompanies ? 'text-red-900' : 'text-gray-900'}`}>
+              <Building2 className="w-5 h-5" />
+              Company Cleanup
+            </CardTitle>
+            <CardDescription className={duplicateCompanies ? 'text-red-700' : 'text-gray-600'}>
+              {duplicateCompanies ? 'Fix duplicate company records causing data issues' : 'No duplicate companies detected'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {duplicateCompanies ? (
+              <>
+                <div className="text-sm text-red-900">
+                  <p className="mb-2 font-semibold">⚠️ Critical Issue Detected</p>
+                  <p className="mb-2">You have {companies.length} company records:</p>
+                  <div className="space-y-2">
+                    {companies.map(c => (
+                      <div key={c.id} className="flex items-center justify-between p-2 bg-white rounded border border-red-200">
+                        <span className="text-sm text-red-900">• {c.company_name || 'Unnamed Company'} (ID: {c.id.slice(0, 8)}...)</span>
+                        {!c.company_name?.includes('YICN') && !c.company_name?.includes('Insurance Claims Network') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={async () => {
+                              if (confirm(`⚠️ DELETE ${c.company_name}?\n\nThis will permanently delete this company record. Continue?`)) {
+                                try {
+                                  await base44.entities.Company.delete(c.id);
+                                  queryClient.invalidateQueries({ queryKey: ['companies'] });
+                                  alert(`✅ ${c.company_name} deleted successfully`);
+                                  window.location.reload();
+                                } catch (error) {
+                                  alert(`❌ Failed: ${error.message}`);
+                                }
+                              }
+                            }}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-100"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-sm font-semibold">This will delete ALL orphaned data:</p>
+                  <ul className="list-disc list-inside space-y-1 text-red-800 text-xs">
+                    <li>Customers, Leads, Estimates, Invoices</li>
+                    <li>Payments, Tasks, Projects, Calendar Events</li>
+                    <li>Proposals, Communications, Staff Profiles</li>
+                    <li>Duplicate company records</li>
+                  </ul>
+                  <p className="mt-2 text-sm font-bold">Your main company data will be preserved.</p>
+                </div>
+                
+                <Button
+                  onClick={() => {
+                    if (confirm('⚠️ DELETE ALL ORPHANED DATA\n\nThis will:\n1. Keep your main company and its data\n2. DELETE ALL data from duplicate companies (customers, leads, estimates, invoices, payments, tasks, etc.)\n3. Delete duplicate company records\n\nThis includes the duplicate Gina Hill and any other orphaned records.\n\nThis action CANNOT be undone. Continue?')) {
+                      cleanupMutation.mutate();
+                    }
+                  }}
+                  disabled={cleanupMutation.isPending}
+                  className="w-full bg-red-600 hover:bg-red-700"
+                >
+                  {cleanupMutation.isPending ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Cleaning Up...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete ALL Orphaned Data
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : (
+              <div className="text-sm text-gray-700">
+                <div className="flex items-center gap-2 p-4 bg-green-50 border border-green-200 rounded-lg mb-4">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <span className="text-green-800 font-medium">No cleanup needed - system is healthy</span>
+                </div>
+                
+                <div className="border rounded-lg p-3 bg-gray-50">
+                  <p className="text-sm font-semibold mb-2">Detected Companies ({companies.length}):</p>
+                  <ul className="space-y-2 text-xs text-gray-600 max-h-60 overflow-y-auto">
+                    {companies.map(c => (
+                      <li key={c.id} className="flex flex-col border-b border-gray-200 pb-2 last:border-0">
+                        <div className="flex justify-between">
+                          <span className="font-bold text-gray-800">{c.company_name || 'Unnamed'}</span>
+                          <span className="font-mono text-gray-400">{c.id.slice(0,8)}...</span>
+                        </div>
+                        <div className="flex justify-between mt-1">
+                          <span>Owner: {c.created_by}</span>
+                          <span>Created: {new Date(c.created_date).toLocaleDateString()}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Delete Duplicate Payments */}
+        <Card className="border-red-300 bg-red-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-red-600" />
+              Fix Revenue Doubling ($968k → $543k)
+            </CardTitle>
+            <CardDescription>
+              Remove duplicate payment records causing inflated revenue
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-gray-700">
+              <p className="mb-2 font-semibold">🔧 This utility will:</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-600">
+                <li>Scan all 2025 payments for duplicates</li>
+                <li>Group by customer + amount + date + reference</li>
+                <li>Keep the oldest payment in each duplicate group</li>
+                <li>Delete all duplicate copies</li>
+                <li>Correct dashboard revenue to ~$543k</li>
+              </ul>
+              <p className="mt-3 text-xs font-semibold text-red-800">
+                First click "Scan" to see what duplicates exist
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Button
+                onClick={async () => {
+                  try {
+                    const response = await base44.functions.invoke('findDuplicatePayments');
+                    const data = response.data;
+                    alert(`📊 Duplicate Payment Scan Results:\n\nTotal Payments: ${data.summary.total_payments}\nDuplicate Groups: ${data.summary.duplicate_groups}\nDuplicate Amount: $${data.summary.total_duplicate_amount?.toLocaleString()}\n\nCurrent Revenue: $${data.summary.current_revenue_shown?.toLocaleString()}\nActual Revenue: $${data.summary.actual_revenue_after_dedup?.toLocaleString()}\n\n${data.recommendation}\n\nCheck the function in Dashboard → Code to see all duplicates.`);
+                  } catch (error) {
+                    alert(`❌ Scan failed: ${error.message}`);
+                  }
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-700"
+              >
+                <DollarSign className="w-4 h-4 mr-2" />
+                Scan for Duplicates
+              </Button>
+
+              <Button
+                onClick={async () => {
+                  if (confirm('🧹 Delete ALL duplicate payments?\n\nThis will:\n• Keep the oldest payment in each duplicate group\n• Delete all duplicate copies\n• Fix revenue from $968k to ~$543k\n\nContinue?')) {
+                    try {
+                      const response = await base44.functions.invoke('deleteDuplicatePayments');
+                      queryClient.invalidateQueries({ queryKey: ['payments'] });
+                      alert(`✅ Success!\n\nDeleted ${response.data.deleted_count} duplicate payments\nCorrected revenue: $${response.data.estimated_corrected_revenue?.toLocaleString()}\n\nRefreshing dashboard...`);
+                      window.location.reload();
+                    } catch (error) {
+                      alert(`❌ Failed: ${error.message}`);
+                    }
+                  }
+                }}
+                className="w-full bg-red-600 hover:bg-red-700"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete Duplicates
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+
+
+        {/* Bulk Assign Everything */}
+        <Card className="border-purple-300 bg-purple-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-purple-600" />
+              Bulk Assign All Data
+            </CardTitle>
+            <CardDescription>
+              Assign ALL customers, invoices, and payments to yourself
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-gray-700">
+              <p className="mb-2 font-semibold">⚡ Quick Fix - This will:</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-600">
+                <li>Assign ALL {myStats?.totalCustomers || 0} customers to you</li>
+                <li>Assign ALL {myStats?.totalInvoices || 0} invoices to you</li>
+                <li>Tag ALL {myStats?.totalPayments || 0} payments to your company</li>
+                <li>Set you as the sales rep with 100% commission</li>
+                <li>Apply your {staffProfiles.find(sp => sp.user_email === user?.email)?.commission_rate || 10}% commission rate</li>
+                <li>Process with delays to avoid rate limits</li>
+              </ul>
+            </div>
+
+            {bulkProgress.total > 0 && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>{bulkProgress.phase}</span>
+                  <span>{bulkProgress.current} / {bulkProgress.total}</span>
+                </div>
+                <Progress value={(bulkProgress.current / bulkProgress.total) * 100} />
+              </div>
+            )}
+            
+            <Button
+              onClick={() => {
+                if (confirm(`🚀 BULK ASSIGN EVERYTHING\n\nThis will assign ALL customers, invoices, and payments to you (${user?.full_name || user?.email}).\n\nTotal customers: ${myStats?.totalCustomers || 0}\nTotal invoices: ${myStats?.totalInvoices || 0}\nTotal payments: ${myStats?.totalPayments || 0}\n\nThis may take a few minutes. Continue?`)) {
+                  bulkAssignMutation.mutate();
+                }
+              }}
+              disabled={bulkAssignMutation.isPending || !user}
+              className="w-full bg-purple-600 hover:bg-purple-700"
+            >
+              {bulkAssignMutation.isPending ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  {bulkProgress.phase || 'Processing...'}
+                </>
+              ) : (
+                <>
+                  <Users className="w-4 h-4 mr-2" />
+                  Assign Everything to Me
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Create Customers from Invoices */}
+        <Card className="border-green-300 bg-green-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-green-600" />
+              Create Customers from Invoices
+            </CardTitle>
+            <CardDescription>
+              Extract customer names from invoices and create Customer records
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-gray-700">
+              <p className="mb-2 font-semibold">👥 This utility will:</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-600">
+                <li>Scan all {myStats?.totalInvoices || 0} invoices for customer names</li>
+                <li>Create Customer records for any names not yet in the system</li>
+                <li>Assign them to the sales rep from the invoice</li>
+                <li>Skip customers that already exist</li>
+              </ul>
+              <p className="mt-3 text-xs font-semibold text-green-800">
+                Perfect for restoring old customer data from imported invoices
+              </p>
+            </div>
+            
+            <Button
+              onClick={async () => {
+                if (confirm('👥 Create Customer records from all invoices?\n\nThis will extract unique customer names from invoices and create Customer records.\n\nContinue?')) {
+                  try {
+                    const response = await base44.functions.invoke('createCustomersFromInvoices', { companyId: myCompany.id });
+                    queryClient.invalidateQueries({ queryKey: ['customers'] });
+                    alert(`✅ Success!\n\nCreated ${response.data.created} new customers from invoices.\n\nRefreshing...`);
+                  } catch (error) {
+                    alert(`❌ Failed: ${error.message}`);
+                  }
+                }
+              }}
+              disabled={!myCompany}
+              className="w-full bg-green-600 hover:bg-green-700"
+            >
+              <Users className="w-4 h-4 mr-2" />
+              Create Customers from Invoices
+            </Button>
+          </CardContent>
+        </Card>
+
+
+
+
+
+        {/* Link Tasks to Customers */}
+        <Card className="border-indigo-300 bg-indigo-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <LinkIcon className="w-5 h-5 text-indigo-600" />
+              Link Tasks to Customers
+            </CardTitle>
+            <CardDescription>
+              Review and link unlinked tasks to customers/leads
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-gray-700">
+              <p className="mb-2 font-semibold">🔗 This tool will:</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-600">
+                <li>Show all tasks without a "Related To" link</li>
+                <li>Suggest matching customers/leads automatically</li>
+                <li>Let you approve or manually select the correct match</li>
+                <li>Make tasks visible in customer/lead profiles</li>
+              </ul>
+            </div>
+            
+            <Button
+              onClick={() => navigate(createPageUrl('TaskCustomerLinker'))}
+              className="w-full bg-indigo-600 hover:bg-indigo-700"
+            >
+              <LinkIcon className="w-4 h-4 mr-2" />
+              Open Task Linker Tool
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Scan Duplicate Customers (Safe) */}
+        <Card className="border-blue-300 bg-blue-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-blue-600" />
+              Scan for Duplicate Customers (Safe)
+            </CardTitle>
+            <CardDescription>
+              Check for duplicates without deleting anything
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-gray-700">
+              <p className="mb-2 font-semibold">🔍 This scan will:</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-600">
+                <li>Find customers with matching name, email, or phone</li>
+                <li>Show which one would be kept (most complete data)</li>
+                <li>List which ones would be deleted</li>
+                <li>NOT delete anything - read-only scan</li>
+              </ul>
+              <p className="mt-3 text-xs font-semibold text-blue-800">
+                Safe to run - no changes will be made
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Button
+                onClick={async () => {
+                  try {
+                    const response = await base44.functions.invoke('scanDuplicateCustomers');
+                    const data = response.data;
+
+                    if (data.summary.duplicate_groups_found === 0) {
+                      alert(`✅ No Duplicates Found!\n\nYour ${data.summary.total_customers} customers are all unique.\n\nYour data is clean!`);
+                    } else {
+                      // Build detailed duplicate info
+                      let message = `📊 Duplicate Scan Results:\n\nTotal Customers: ${data.summary.total_customers}\nDuplicate Groups: ${data.summary.duplicate_groups_found}\nDuplicates to Remove: ${data.summary.total_duplicates_to_delete}\nCustomers After Cleanup: ${data.summary.customers_after_cleanup}\n\n`;
+
+                      // Show each duplicate group
+                      data.duplicate_groups.forEach((group, idx) => {
+                        message += `\n${idx + 1}. ${group.name}\n`;
+                        message += `   ✅ KEEPING: #${group.will_keep.customer_number} (score: ${group.will_keep.score})\n`;
+                        group.will_delete.forEach(d => {
+                          message += `   ❌ DELETING: #${d.customer_number} (score: ${d.score})\n`;
+                        });
+                      });
+
+                      message += `\n${data.recommendation}`;
+                      alert(message);
+                    }
+                  } catch (error) {
+                    alert(`❌ Scan failed: ${error.message}`);
+                  }
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-700"
+              >
+                <Users className="w-4 h-4 mr-2" />
+                Scan for Duplicates
+              </Button>
+
+              <Button
+                onClick={async () => {
+                  if (confirm('🧹 Delete ALL duplicate customers?\n\nThis will:\n• Keep the customer with most data\n• Delete all duplicate copies\n\nRun the scan first to see what will be deleted. Continue?')) {
+                    try {
+                      const response = await base44.functions.invoke('deleteDuplicateCustomers');
+                      queryClient.invalidateQueries({ queryKey: ['customers'] });
+                      alert(`✅ Success!\n\nDeleted ${response.data.deleted_count} duplicate customers\nRemaining: ${response.data.remaining_count} customers\n\nRefreshing...`);
+                      window.location.reload();
+                    } catch (error) {
+                      alert(`❌ Failed: ${error.message}`);
+                    }
+                  }
+                }}
+                className="w-full bg-red-600 hover:bg-red-700"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete Duplicates
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Data Isolation Cleanup */}
+        <Card className="border-red-300 bg-red-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-red-600" />
+              Data Isolation Cleanup
+            </CardTitle>
+            <CardDescription>
+              Remove orphaned records not linked to any valid company
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-gray-700">
+              <p className="mb-2 font-semibold">🛡️ Security Cleanup:</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-600">
+                <li>Scans all records (Leads, Customers, Invoices, etc.)</li>
+                <li>Identifies records with missing or invalid Company IDs</li>
+                <li><strong>Protects:</strong> CompanySync, YICN, and all valid active companies</li>
+                <li>Deletes orphaned data to ensure strict tenant isolation</li>
+              </ul>
+            </div>
+
+            <Button
+              onClick={() => {
+                if (confirm('⚠️ RUN DATA ISOLATION CLEANUP?\n\nThis will permanently delete records that are not linked to a valid company.\n\nCompanySync and YICN data is protected.\n\nContinue?')) {
+                  dataIsolationCleanupMutation.mutate();
+                }
+              }}
+              disabled={dataIsolationCleanupMutation.isPending}
+              className="w-full bg-red-600 hover:bg-red-700"
+            >
+              {dataIsolationCleanupMutation.isPending ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  Cleaning...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Clean Orphaned Data
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Delete Duplicate Leads */}
+        <Card className="border-red-300 bg-red-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-red-600" />
+              Delete Duplicate Leads
+            </CardTitle>
+            <CardDescription>
+              Find and remove duplicate leads from GoHighLevel
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-gray-700">
+              <p className="mb-2 font-semibold">🧹 This utility will:</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-600">
+                <li>Scan for duplicate leads by GHL ID, email, and phone</li>
+                <li>Keep the most complete/oldest lead in each group</li>
+                <li>Delete all other duplicates</li>
+                <li>Show you what was deleted</li>
+              </ul>
+              <p className="mt-3 text-xs font-semibold text-red-800">
+                Use this to fix the 3+ duplicate leads issue from GHL
+              </p>
+            </div>
+
+            <Button
+              onClick={() => {
+                if (confirm('🧹 Delete ALL duplicate leads?\n\nThis will:\n• Find leads with same GHL ID, email, or phone\n• Keep the best/oldest one\n• Delete all duplicates\n\nContinue?')) {
+                  deleteDuplicateLeadsMutation.mutate();
+                }
+              }}
+              disabled={deleteDuplicateLeadsMutation.isPending}
+              className="w-full bg-red-600 hover:bg-red-700"
+            >
+              {deleteDuplicateLeadsMutation.isPending ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  Cleaning Up...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete Duplicate Leads
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+
+
+
+
+
+
+
+
+
+        {/* Data Status Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-blue-600" />
+              System Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex justify-between items-center py-2 border-b">
+              <span className="text-sm text-gray-600">Company Status</span>
+              {myCompany ? (
+                <span className="flex items-center gap-1 text-sm text-green-600 font-medium">
+                  <CheckCircle className="w-4 h-4" />
+                  Active
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-sm text-red-600 font-medium">
+                  <AlertTriangle className="w-4 h-4" />
+                  Not Found
+                </span>
+              )}
+            </div>
+            <div className="flex justify-between items-center py-2 border-b">
+              <span className="text-sm text-gray-600">Duplicate Companies</span>
+              {duplicateCompanies ? (
+                <span className="text-sm text-red-600 font-medium">{companies.length} found</span>
+              ) : (
+                <span className="text-sm text-green-600 font-medium">None</span>
+              )}
+            </div>
+            {myCompany && (
+              <div className="pt-2 space-y-2">
+                <div>
+                  <p className="text-xs text-gray-500">Selected Company:</p>
+                  <p className="text-sm font-semibold text-gray-900">{myCompany.company_name}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Company ID:</p>
+                  <p className="text-xs font-mono text-gray-700">{myCompany.id}</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}

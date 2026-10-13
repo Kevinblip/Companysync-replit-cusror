@@ -1,0 +1,77 @@
+GOOGLE CALENDAR FIX - STEP BY STEP
+====================================
+
+THE PROBLEM: All Google Calendar functions had the old Base44 URL 
+(ai-crm-pro-10afd77e.base44.app) hardcoded. Your current app is at 
+company-sync-copy-003a6384.base44.app.
+
+====================================
+STEP 1: UPDATE GOOGLE CLOUD CONSOLE
+====================================
+
+Go to: https://console.cloud.google.com/apis/credentials
+
+1. Find your OAuth 2.0 Client ID and click the EDIT (pencil) icon
+2. Under "Authorized redirect URIs", ADD these TWO URIs:
+
+   https://company-sync-copy-003a6384.base44.app/api/functions/userGoogleCalendarCallback
+   
+   https://company-sync-copy-003a6384.base44.app/api/functions/googleCalendarCallback
+
+3. REMOVE any old URIs that point to ai-crm-pro-10afd77e.base44.app
+4. Click SAVE
+5. WAIT 2-3 minutes for changes to propagate
+
+====================================
+STEP 2: UPDATE BASE44 FUNCTIONS
+====================================
+
+You need to update these 4 functions in your Base44 project. For each one:
+- Open the function in Base44's function editor  
+- Replace the ENTIRE contents with the updated code from the corresponding file in this Replit project
+
+Functions to update (in order of importance):
+
+1. connectUserGoogleCalendar  → copy from functions/connectUserGoogleCalendar.ts
+2. userGoogleCalendarCallback → copy from functions/userGoogleCalendarCallback.ts
+3. connectGoogleCalendar      → copy from functions/connectGoogleCalendar.ts  
+4. googleCalendarCallback     → copy from functions/googleCalendarCallback.ts
+
+Optional (diagnostic tools - update if you want accurate debug info):
+5. debugGoogleOAuth           → copy from functions/debugGoogleOAuth.ts
+6. checkGoogleSetup           → copy from functions/checkGoogleSetup.ts
+7. diagnoseGoogleCalendar     → copy from functions/diagnoseGoogleCalendar.ts
+
+The ONLY change in each file is replacing:
+  ai-crm-pro-10afd77e.base44.app
+with:
+  company-sync-copy-003a6384.base44.app
+
+====================================
+STEP 3: TEST THE CONNECTION
+====================================
+
+1. Go to your calendar page in the Base44 app
+2. If already "connected", click Disconnect first
+3. Click "Connect Google Calendar"
+4. Google should show the consent screen
+5. Grant permissions
+6. You should be redirected back to your calendar with a success message
+
+====================================
+TROUBLESHOOTING
+====================================
+
+If you get "redirect_uri_mismatch":
+- Double-check that the EXACT URI is in Google Cloud Console
+- Make sure there are no trailing spaces or slashes
+- Wait a full 3 minutes after saving in Google Console
+
+If you get "access_denied":
+- Make sure your email is added as a Test User in the OAuth consent screen
+- Go to: https://console.cloud.google.com/apis/credentials/consent
+- Click "Edit App" → go to "Test users" step → add your email
+
+If you get "invalid_client":
+- Check that GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set correctly
+  in your Base44 environment variables

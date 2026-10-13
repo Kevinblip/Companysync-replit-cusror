@@ -1,0 +1,34 @@
+HARD RULES
+- Do not Publish.
+- Do not change YICN / Insurance Claims Network / companysync_master_001 Twilio, phone webhooks, or company records.
+- Do not run Auto Setup, Launch Checklist, or cleanupYICNAndCreateSaaS.
+- Do not delete Wizard Test Co or Wizard Test Two.
+- Do not remove DATABASE_URL.
+- Do not click Save & Connect Twilio on any live tenant.
+
+WHAT BROKE
+Live proof on getcompanysync.com after tonight’s publish: a brand-new company (Wizard Test Two) opened Quick Setup → Integrations → Phone & SMS. Status was “Not connected” (good — no Twilio row for that company). But Account SID showed io.companysync@gmail.com and Auth Token was filled with dots. Phone was still the empty placeholder. Nobody clicked Save.
+
+That SID value is an email, not a Twilio AC… SID. The Quick Setup form state starts as empty strings. So this is almost certainly the browser autofilling the saved getcompanysync.com login into Account SID (looks like a username) and Auth Token (type=password). A real subscriber on their own computer would get THEIR saved login stuffed in, or ours if they ever used this browser. Either way the fields must never look prefilled.
+
+Keep last night’s save-guard: reject saving a SID/phone that belongs to another company, YICN, or the master account.
+
+FIX (small, only Quick Setup Twilio fields + the GET that feeds them)
+1) On Quick Setup Integrations Twilio inputs:
+   - Account SID: autoComplete="off", name="twilio_account_sid", placeholder stays AC…
+   - Auth Token: type="password", autoComplete="new-password", name="twilio_auth_token"
+   - Phone: autoComplete="off", name="twilio_phone_number"
+   - Put autoComplete="off" on the wrapping form/card too.
+2) Never copy process.env TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER (or any platform/master row) into those inputs as defaults.
+3) GET Twilio for Quick Setup: if this company has no TwilioSettings row of its own, return empty sid/token/phone. Filter by the logged-in user’s StaffProfile company_id only. Never first() across the table. Never match by created_by email of a different company.
+4) If a stored account_sid does not start with "AC", treat it as junk for this form — show blank, do not paint it into the inputs.
+5) Leave the “Not connected” rule as-is: connected only when THIS company’s row has a real AC… SID AND a phone.
+
+VERIFY IN REPLIT PREVIEW (not live)
+- Open Quick Setup as a brand-new company (or Wizard Test Two if the preview DB has it).
+- Integrations → Twilio: SID, token, and phone must be visually empty even if the browser has a saved password for the site.
+- Status Not connected.
+- Do not Save.
+- Confirm YICN Twilio is unchanged.
+
+When done, tell me the files you changed. Do not publish.

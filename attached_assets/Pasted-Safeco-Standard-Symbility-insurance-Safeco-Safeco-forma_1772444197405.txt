@@ -1,0 +1,409 @@
+Safeco Standard (Symbility)
+insurance
+Safeco
+Safeco format compatible with Symbility pricing
+7
+[]
+[]
+true
+Depreciation %
+false
+true
+RCV
+ACV
+false
+0
+true
+true
+true
+Claim Number
+true
+Insurance Company
+true
+Policy Number
+true
+Deductible Amount
+false
+Adjuster Name
+Adjuster Phone
+true
+false
+false
+letter
+medium
+green
+true
+
+Contractor Standard (CompanySync)
+contractor
+Standard contractor format without RCV/ACV columns
+7
+[]
+[]
+false
+false
+false
+false
+0
+true
+true
+true
+Claim Number
+true
+Insurance Company
+true
+Policy Number
+true
+Deductible Amount
+false
+Adjuster Name
+Adjuster Phone
+true
+false
+false
+letter
+medium
+gray
+true
+
+State Farm Standard (Age/Life)
+insurance
+State Farm
+State Farm format with age/life depreciation columns
+7
+[]
+[]
+false
+true
+true
+RCV
+ACV
+false
+0
+true
+true
+true
+Claim Number
+true
+Insurance Company
+true
+Policy Number
+true
+Deductible Amount
+false
+Adjuster Name
+Adjuster Phone
+true
+false
+false
+letter
+medium
+blue
+true
+
+State Farm Standard (Xactimate)
+insurance
+State Farm
+State Farm format compatible with Xactimate pricing
+7
+[]
+[]
+false
+true
+true
+RCV
+ACV
+false
+0
+true
+true
+true
+Claim Number
+true
+Insurance Company
+true
+Policy Number
+true
+Deductible Amount
+false
+Adjuster Name
+Adjuster Phone
+true
+false
+false
+letter
+medium
+blue
+true
+
+State Farm Standard (Age/Life)
+insurance
+State Farm
+🏦 State Farm AGE/LIFE format - Shows depreciation as Age/Life years (15/30 = 50% off). Auto-calculates ACV from RCV based on material lifespan. Includes O&P, claim details, and adjuster fields.
+9
+["Code","Description","Qty","Unit","Unit Price","RCV","Age/Life","Depr %","ACV"]
+[]
+true
+true
+{"shingles":{"life_years":30,"default_age":15},"underlayment":{"life_years":20,"default_age":10},"felt":{"life_years":20,"default_age":10},"flashing":{"life_years":20,"default_age":10},"ice_water_shield":{"life_years":20,"default_age":0}}
+true
+RCV
+ACV
+true
+10
+0
+true
+true
+true
+Claim Number
+true
+Insurance Company
+true
+Policy Number
+true
+Deductible Amount
+false
+Adjuster Name
+Adjuster Phone
+true
+YICN Roofing State Farm Preferred Contractor 216-999-6222
+All work meets State Farm guidelines. Questions? Contact your adjuster.
+false
+false
+letter
+medium
+red
+true
+
+Contractor Standard (CompanySync)
+contractor
+🔨 Direct-to-customer contractor format - Simple Item/Qty/Rate/Amount layout. No insurance calculations or depreciation. Clean, professional look for retail jobs.
+6
+["Item","Qty","Rate","Amount"]
+[]
+false
+false
+false
+false
+0
+true
+true
+true
+Claim Number
+true
+Insurance Company
+true
+Policy Number
+true
+Deductible Amount
+false
+Adjuster Name
+Adjuster Phone
+true
+YICN Roofing 216-999-6222 | kevinstone@yicnteam.com 675 Alpha Dr, Highland Heights, OH 44143
+A 5-year workmanship warranty backs all work. If for any reason, the property owner or contractor selected have questions concerning our estimate, they should contact your claim representative directly.
+false
+false
+letter
+medium
+green
+true
+
+Safeco Standard (Symbility)
+insurance
+Safeco
+🛡️ Safeco/Liberty Mutual/Erie format - Full RCV/ACV with detailed depreciation breakdown, O&P calculations, tax breakdown, and coverage summary. Used by Symbility estimators.
+8
+["Description","Qty","Unit","Tax","Total"]
+[]
+true
+false
+true
+Replacement Cost
+Actual Cash Value
+true
+10
+0
+true
+true
+true
+Claim Number
+true
+Insurance Company
+true
+Policy Number
+true
+Deductible Amount
+false
+Adjuster Name
+Adjuster Phone
+true
+YICN Roofing Safeco/Liberty Mutual/Erie Approved 216-999-6222
+THIS ESTIMATE REPRESENTS OUR CURRENT EVALUATION OF THE COVERED DAMAGES TO THE STRUCTURE.
+false
+false
+letter
+medium
+blue
+true
+
+State Farm Standard (Copy)
+insurance
+State Farm
+Standard State Farm estimate format with RCV/ACV calculations
+7
+["Code","Description","Quantity","Unit","Unit Price","Tax","RCV"]
+[]
+false
+true
+RCV
+ACV
+false
+10
+true
+true
+true
+false
+letter
+medium
+blue
+true
+
+Safeco Standard (Symbility)
+insurance
+Safeco / Liberty Mutual
+Standard Safeco format used by Liberty Mutual and Erie. Full RCV/ACV calculations with detailed depreciation breakdown.
+10
+["Description","Quantity","Unit Price","Total O&P","Total Taxes","RC","Depreciation","ACV"]
+[]
+true
+Depreciation
+true
+RCV
+ACV
+true
+10
+8
+true
+true
+Thank you for participating in our Guaranteed Repair Network (GRN), a service that provides you with a network of experienced contractors.
+THIS ESTIMATE REPRESENTS OUR CURRENT EVALUATION OF THE COVERED DAMAGES TO YOUR INSURED PROPERTY AND MAY BE REVISED AS WE CONTINUE TO EVALUATE YOUR CLAIM.
+false
+true
+letter
+small
+blue
+true
+
+Contractor Standard (CompanySync)
+contractor
+Simple contractor format for direct customer estimates. Clean line item layout with quantity, rate, tax, and amount. No insurance calculations.
+4
+["Item","Qty","Rate","Amount"]
+[]
+false
+false
+RCV
+ACV
+false
+0
+false
+true
+A 5-year workmanship warranty backs all work. If for any reason, the property experiences any leakage around the area that was repaired or replaced, we will gladly fix the problem at no charge.
+false
+false
+letter
+medium
+green
+true
+
+State Farm Standard (Xactimate)
+insurance
+State Farm
+Standard State Farm insurance estimate format with minimal depreciation display. Used by most State Farm adjusters.
+7
+["Description","Quantity","Unit Price","Tax","RCV","ACV"]
+[]
+false
+Depreciation
+true
+RCV
+ACV
+false
+10
+7.5
+true
+true
+This estimate is priced based on estimated market pricing for the cost of materials, labor, and other factors at the time of the loss.
+ALL AMOUNTS PAYABLE ARE SUBJECT TO THE TERMS, CONDITIONS AND LIMITS OF YOUR POLICY.
+true
+false
+letter
+medium
+red
+true
+
+State Farm Standard (Xactimate)
+insurance
+State Farm
+Standard State Farm insurance estimate format with minimal depreciation display. Includes RCV/ACV calculations, tax breakdown, and trade summary.
+6
+false
+true
+RCV
+ACV
+true
+ALL AMOUNTS PAYABLE ARE SUBJECT TO THE TERMS, CONDITIONS AND LIMITS OF YOUR POLICY.
+true
+
+Safeco Standard (Symbility)
+insurance
+Safeco
+Standard Safeco format used by Liberty Mutual and Erie. Full RCV/ACV calculations with detailed depreciation breakdown, O&P columns, and coverage summary.
+10
+true
+true
+RCV
+ACV
+true
+THIS ESTIMATE REPRESENTS OUR CURRENT EVALUATION OF THE COVERED DAMAGES TO YOUR INSURED PROPERTY AND MAY BE REVISED AS WE CONTINUE TO EVALUATE YOUR CLAIM.
+true
+
+Contractor Standard (CompanySync)
+contractor
+Simple contractor format for direct customer estimates. Clean line item layout with quantity, rate, tax, and amount. No depreciation or insurance calculations.
+4
+false
+false
+RCV
+ACV
+true
+A 5-year workmanship warranty backs all work. Price valid for 30 days from estimate date.
+true
+
+Allstate Standard
+insurance
+Allstate
+Allstate insurance format similar to Xactimate with detailed line items and RCV/ACV breakdown.
+7
+false
+true
+RCV
+ACV
+true
+Payment subject to policy terms and conditions.
+true
+
+Farmers Standard
+insurance
+Farmers
+Farmers Insurance standard format with depreciation and RCV/ACV calculations.
+8
+true
+true
+RCV
+ACV
+true
+All claim payments subject to policy provisions, limits, and deductibles.
+true
+

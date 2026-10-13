@@ -1,0 +1,115 @@
+
+--- Page 1 ---
+CompanySync
+io.companysnc@gmail.com
+ESTIMATE
+# EST-8 (AI)
+To
+Customer
+5420 Mardale Avenue, Bedford Heights, OH 44146
+Estimate Date: 3/13/2026
+#
+Description
+Qty
+Unit
+Rate
+RCV
+ACV
+1
+Shingles, architectural asphalt
+32.89
+SQ $350.00
+$11511.50
+$11511.50
+2
+Underlayment, #30 felt
+32.89
+SQ
+$25.00
+$822.25
+$822.25
+3
+Ice & water barrier
+619.36
+LF
+$2.02
+$1251.11
+$1251.11
+4
+Starter strip, 3-tab asphalt
+268.80
+LF
+$2.50
+$672.00
+$672.00
+5
+Drip edge, metal
+268.80
+LF
+$3.00
+$806.40
+$806.40
+6
+Ridge cap, architectural asphalt
+35.84
+LF
+$8.50
+$304.64
+$304.64
+7
+Hip cap, architectural asphalt
+140
+LF
+$8.50
+$1190.00
+$1190.00
+8
+Valley metal - (W) profile - painted
+24.64
+LF
+$12.00
+$295.68
+$295.68
+9
+Step flashing, metal
+24.64
+LF
+$4.50
+$110.88
+$110.88
+10
+Remove roof covering, 3-tab composition shingle
+32.89
+SQ
+$75.00
+$2466.75
+$2466.75
+Thank you for your business!
+1/3
+
+--- Page 2 ---
+SUBTOTAL:
+$19431.21
+TOTAL:
+$19431.21
+Thank you for your business!
+2/3
+
+--- Page 3 ---
+NOTE:
+This price is only valid for 30 days from estimate date, and is based on a deposit of half down upon acceptance of estimate and the
+remaining half due upon completion of work.
+The estimate is hereby based on seen, disclosed, or otherwise obvious damage. The repair of the covered loss may be higher than
+these figures because of other circumstances not yet discovered. Included in this estimate are the items that the Contractor believes
+necessary to return the property to pre loss condition.
+Unseen, undisclosed, or otherwise not obvious conditions, if discovered later or during the course of repairs, will be considered not
+included.
+If discovered, any necessary additional repairs will be submitted for supplemental coverage, based on current market pricing.
+Terms & Conditions:
+The following estimate is only an approximation of the damages suffered, or expenses incurred, by the insured. No warranty or
+representation with regard to the accuracy of the estimate is expressed or implied and none should be inferred. The actual damages
+suffered, or expenses incurred, could be higher or lower than the estimate, even significantly, depending on variances in a number of
+factors affecting the estimate and the accuracy of the information and assumptions upon which the estimate is based.
+Production Manager
+Thank you for your business!
+3/3

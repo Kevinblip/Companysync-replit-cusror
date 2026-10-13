@@ -1,0 +1,1831 @@
+import React, { useState, useEffect, useMemo } from "react";
+import { useOfflineStatus } from "@/hooks/useOfflineStatus";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import {
+  LayoutDashboard,
+  Users,
+  UserPlus,
+  Calendar,
+  MessageSquare,
+  FileText,
+  DollarSign,
+  Briefcase,
+  Sparkles,
+  Settings,
+  Bell,
+  Search,
+  ChevronDown,
+  LogOut,
+  Bot,
+  Clock,
+  Activity,
+  ShoppingCart,
+  UserCircle,
+  MapPin,
+  Video,
+  UserCog,
+  Wallet,
+  Calculator,
+  Mail,
+  CreditCard,
+  Receipt,
+  Layout as LayoutIcon,
+  FileSignature,
+  Map as MapIcon,
+  Headphones,
+  ClipboardList,
+  BookOpen,
+  Wrench,
+  BarChart3,
+  Plug,
+  Shield,
+  ArrowLeft,
+  Upload,
+  Phone,
+  MessageCircle,
+  Cloud,
+  Layers,
+  Menu,
+  Camera,
+  Zap,
+  X,
+  ChevronRight,
+  ChevronLeft,
+  Building2,
+  Percent,
+  Tag,
+  Workflow,
+  CheckCircle2,
+  Palette,
+  AlertTriangle,
+  RefreshCw,
+  Lock,
+  Trash2,
+} from "lucide-react";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarHeader,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import ProductTour from "@/components/tour/ProductTour";
+import TourTrigger from "@/components/tour/TourTrigger";
+import { HelpCircle } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+import Dialer from "@/components/communication/Dialer";
+import EmailDialog from "@/components/communication/EmailDialog";
+import SMSDialog from "@/components/communication/SMSDialog";
+import MobileNav from "@/components/MobileNav";
+import FloatingActionButton from "@/components/FloatingActionButton";
+import ConflictAlertListener from "@/components/ConflictAlertListener";
+import { Toaster, toast } from "sonner";
+import GoogleMeetButton from "@/components/communication/GoogleMeetButton";
+import TrialReminderBanner from "@/components/TrialReminderBanner";
+import ImpersonationBanner from "@/components/ImpersonationBanner";
+import { useFeatureRestriction, FeatureRestrictedModal } from "@/components/FeatureRestrictedModal";
+import PullToRefresh from "@/components/PullToRefresh";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+const useMediaQuery = (query) => {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const media = window.matchMedia(query);
+    if (media.matches !== matches) {
+      setMatches(media.matches);
+    }
+
+    const listener = () => setMatches(media.matches);
+    media.addEventListener('change', listener);
+    
+    return () => media.removeEventListener('change', listener);
+  }, [matches, query]);
+
+  return matches;
+};
+
+export default function Layout({ children, currentPageName }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [user, setUser] = React.useState(null);
+  const [openMenu, setOpenMenu] = React.useState(null);
+  const [showDialer, setShowDialer] = React.useState(false);
+  const [showEmailDialog, setShowEmailDialog] = React.useState(false);
+  const [showSMSDialog, setShowSMSDialog] = React.useState(false);
+  // CRITICAL: Always initialize to false - main menu should show on app load
+  // Never auto-show settings menu based on URL - only when user clicks Settings button
+  const [showSettingsMenu, setShowSettingsMenu] = React.useState(false);
+  const [notificationsOpen, setNotificationsOpen] = React.useState(false);
+  const [tourOpen, setTourOpen] = React.useState(false);
+  const [showDeleteAccountDialog, setShowDeleteAccountDialog] = React.useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = React.useState(false);
+
+  const queryClient = useQueryClient();
+  const { restrictedFeature, setRestrictedFeature, checkFeatureAccess } = useFeatureRestriction();
+  const { isOnline, pendingCount, failedCount, isSyncing } = useOfflineStatus();
+
+  const isMobile = useMediaQuery("(max-width: 768px)");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  
+  // Close sidebar on mobile on initial load
+  React.useEffect(() => {
+    if (isMobile && sidebarOpen) {
+      setSidebarOpen(false);
+    }
+  }, [isMobile]);
+
+  // Check for impersonation
+  const [impersonationData, setImpersonationData] = React.useState(null);
+
+  React.useEffect(() => {
+    const companyId = sessionStorage.getItem('impersonating_company_id');
+    const companyName = sessionStorage.getItem('impersonating_company_name');
+    
+    if (companyId && companyName) {
+      setImpersonationData({ companyId, companyName });
+    } else {
+      setImpersonationData(null);
+    }
+  }, []);
+
+
+
+  React.useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  // Get impersonation ID directly
+  const impersonatedId = typeof window !== 'undefined' ? sessionStorage.getItem('impersonating_company_id') : null;
+
+  // Fetch SPECIFIC impersonated company
+  const { data: impersonatedCompany } = useQuery({
+    queryKey: ['layout-impersonated-company', impersonatedId],
+    queryFn: async () => {
+      if (!impersonatedId) return null;
+      const results = await base44.entities.Company.filter({ id: impersonatedId });
+      return results && results.length > 0 ? results[0] : null;
+    },
+    enabled: !!impersonatedId
+  });
+
+  const { data: companies = [], isLoading: isLoadingCompanies } = useQuery({
+    queryKey: ['layout-companies-list', user?.email], 
+    queryFn: async () => {
+      if (!user) return [];
+      // Fetch owned companies
+      const owned = await base44.entities.Company.filter({ created_by: user.email, is_deleted: { $ne: true } });
+
+      // Fetch companies from staff profiles
+      const myProfiles = await base44.entities.StaffProfile.filter({ user_email: user.email });
+      const companyIds = myProfiles.map(p => p.company_id).filter(id => id);
+
+      let staffed = [];
+      if (companyIds.length > 0) {
+         const promises = companyIds.map(id => base44.entities.Company.filter({ id }));
+         const results = await Promise.all(promises);
+         staffed = results.flat();
+      }
+
+      // Merge and dedupe
+      const all = [...owned, ...staffed];
+      const unique = Array.from(new Map(all.map(item => [item.id, item])).values());
+      return unique.sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+    },
+    enabled: !!user,
+    initialData: [],
+  });
+
+  const { data: staffProfiles = [], isLoading: isLoadingStaffProfiles } = useQuery({
+    queryKey: ['staff-profiles', user?.email],
+    queryFn: () => user ? base44.entities.StaffProfile.filter({ user_email: user.email }) : [],
+    enabled: !!user,
+    initialData: [],
+  });
+
+  const myStaffProfile = React.useMemo(() => {
+    if (!user) return null;
+    return staffProfiles.find(s => s.user_email === user.email);
+  }, [user, staffProfiles]);
+
+  // Update last_login for the current user (Consolidated duplicated effect)
+  React.useEffect(() => {
+    if (myStaffProfile && myStaffProfile.id) {
+      const lastLogin = myStaffProfile.last_login ? new Date(myStaffProfile.last_login) : new Date(0);
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      
+      if (lastLogin < fiveMinutesAgo) {
+        base44.entities.StaffProfile.update(myStaffProfile.id, {
+          last_login: new Date().toISOString()
+        }).catch(err => console.error("Failed to update last_login", err));
+      }
+    }
+  }, [myStaffProfile]);
+
+  const { data: userRole = [] } = useQuery({
+    queryKey: ['user-role', myStaffProfile?.role_id],
+    queryFn: () => myStaffProfile?.role_id ? base44.entities.StaffRole.filter({ id: myStaffProfile.role_id }) : [],
+    enabled: !!myStaffProfile?.role_id && !myStaffProfile?.is_administrator,
+    initialData: [],
+  });
+
+  const rolePermissions = userRole[0]?.permissions || {};
+
+  const hasPermission = (feature, capability = 'view') => {
+    if (user?.email === 'yicnteam@gmail.com') return true;
+    if (myStaffProfile?.is_super_admin) return true;
+    if (myStaffProfile?.is_administrator) return true;
+    if (!userRole[0]) return false;
+
+    const rolePermissions = userRole[0]?.permissions || {};
+
+    if (capability === 'view') {
+      return rolePermissions[feature]?.view === true || 
+             rolePermissions[feature]?.view_own === true || 
+             rolePermissions[feature]?.view_global === true;
+    }
+    if (capability === 'edit') {
+      return rolePermissions[feature]?.edit === true || 
+             rolePermissions[feature]?.edit_own === true;
+    }
+    if (capability === 'delete') {
+      return rolePermissions[feature]?.delete === true || 
+             rolePermissions[feature]?.delete_own === true;
+    }
+    return rolePermissions[feature]?.[capability] === true;
+  };
+
+  const myCompany = React.useMemo(() => {
+    // 1. Priority: Impersonated Company (fetched specifically)
+    if (impersonatedCompany) return impersonatedCompany;
+
+    // 2. Fallback: Check list for impersonated ID
+    if (impersonatedId && companies.length > 0) {
+      const target = companies.find(c => c.id === impersonatedId);
+      if (target) return target;
+    }
+
+    if (!user) return null;
+
+    // 3. PRIORITY: Use company from user's staff profile
+    const myProfiles = staffProfiles.filter(s => s.user_email === user.email);
+    
+    if (myProfiles.length > 0) {
+      // If user has multiple staff profiles, prefer the non-CompanySync one
+      // CompanySync is the platform admin company and should never bleed into subscriber sessions
+      let bestProfile = myProfiles[0];
+      if (myProfiles.length > 1) {
+        const nonPlatformProfile = myProfiles.find(p => {
+          const company = companies.find(c => c.id === p.company_id);
+          return company && company.company_name !== 'CompanySync';
+        });
+        if (nonPlatformProfile) bestProfile = nonPlatformProfile;
+      }
+      
+      if (bestProfile?.company_id) {
+        const profileCompany = companies.find(c => c.id === bestProfile.company_id);
+        if (profileCompany) return profileCompany;
+      }
+    }
+
+    // 4. Fallback: Get all companies owned by the user
+    const ownedCompanies = companies.filter(c => c.created_by === user.email);
+
+    if (ownedCompanies.length === 0) {
+      if (staffProfiles.length === 0) return null;
+
+      if (staffProfiles.length > 1) {
+        const profilesByCompany = {};
+        staffProfiles.forEach(profile => {
+          const cid = profile.company_id;
+          if (!profilesByCompany[cid]) {
+            profilesByCompany[cid] = [];
+          }
+          profilesByCompany[cid].push(profile);
+        });
+
+        let bestCompanyId = null;
+        let maxStaff = 0;
+
+        Object.entries(profilesByCompany).forEach(([companyId, profiles]) => {
+          if (profiles.length > maxStaff) {
+            maxStaff = profiles.length;
+            bestCompanyId = companyId;
+          }
+        });
+
+        if (bestCompanyId) {
+          return companies.find(c => c.id === bestCompanyId);
+        }
+      }
+
+      const staffProfile = staffProfiles[0];
+      if (staffProfile?.company_id) {
+        return companies.find(c => c.id === staffProfile.company_id);
+      }
+
+      return null;
+    }
+
+    // 5. If multiple owned companies, prefer non-CompanySync one
+    if (ownedCompanies.length > 1) {
+      // First try to match staff profile
+      const myProfile = myProfiles[0];
+      if (myProfile?.company_id) {
+        const matchingCompany = ownedCompanies.find(c => c.id === myProfile.company_id);
+        if (matchingCompany) return matchingCompany;
+      }
+      // Then prefer non-platform company
+      const nonPlatformCompany = ownedCompanies.find(c => c.company_name !== 'CompanySync');
+      if (nonPlatformCompany) return nonPlatformCompany;
+    }
+
+    // 6. Otherwise return the newest owned company
+    const sortedByNewest = [...ownedCompanies].sort((a, b) => 
+      new Date(b.created_date) - new Date(a.created_date)
+    );
+
+    return sortedByNewest[0];
+  }, [user, companies, staffProfiles, impersonatedCompany, impersonatedId]);
+
+
+
+
+
+  // Fetch platform-level restrictions (CompanySync/YICN only)
+  const { data: platformMenuSettings = [] } = useQuery({
+    queryKey: ['platform-menu-settings'],
+    queryFn: () => base44.entities.PlatformMenuSettings.list(),
+    initialData: [],
+  });
+
+  const platformRestrictions = platformMenuSettings[0];
+
+  const { data: menuSettings = [] } = useQuery({
+    queryKey: ['menu-settings', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.MenuSettings.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const currentMenuSettings = menuSettings[0];
+
+  const { data: myCompanyHierarchy } = useQuery({
+    queryKey: ['company-hierarchy', myCompany?.id],
+    queryFn: async () => {
+      if (!myCompany?.id) return null;
+      const response = await base44.functions.invoke('getCompanyHierarchy', { company_id: myCompany.id });
+      return response.data;
+    },
+    enabled: !!myCompany?.id,
+  });
+
+
+
+  const { data: notifications = [] } = useQuery({
+    queryKey: ['notifications', user?.email, myCompany?.id],
+    queryFn: () => (user && myCompany?.id) ? base44.entities.Notification.filter({ 
+      user_email: user.email,
+      company_id: myCompany.id 
+    }, "-created_date", 50) : [],
+    enabled: !!user && !!myCompany?.id,
+    initialData: [],
+    refetchInterval: 30000,
+  });
+
+  const unreadCount = notifications.filter(n => !n.is_read).length;
+
+  // Play notification sound when new notifications arrive
+  const prevUnreadCountRef = React.useRef(unreadCount);
+  React.useEffect(() => {
+    if (unreadCount > prevUnreadCountRef.current && prevUnreadCountRef.current !== 0) {
+      // Play ding sound
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.value = 800;
+      oscillator.type = 'sine';
+      
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
+    }
+    prevUnreadCountRef.current = unreadCount;
+  }, [unreadCount]);
+
+  const handleNotificationClick = async (notification) => {
+    if (!notification.is_read) {
+      await base44.entities.Notification.update(notification.id, {
+        is_read: true,
+        read_at: new Date().toISOString()
+      });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    }
+
+    if (notification.link_url) {
+      navigate(notification.link_url);
+      setNotificationsOpen(false);
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    const unreadNotifications = notifications.filter(n => !n.is_read);
+    for (const notification of unreadNotifications) {
+      await base44.entities.Notification.update(notification.id, {
+        is_read: true,
+        read_at: new Date().toISOString()
+      });
+    }
+    queryClient.invalidateQueries({ queryKey: ['notifications'] });
+  };
+
+  const handleDeleteAccount = async () => {
+    setIsDeletingAccount(true);
+    try {
+      await base44.functions.invoke('deleteUserAccount', { email: user.email });
+      base44.auth.logout();
+    } catch (error) {
+      console.error("Failed to delete account:", error);
+      alert("Failed to delete account. Please try again.");
+      setIsDeletingAccount(false);
+      setShowDeleteAccountDialog(false);
+    }
+  };
+
+  const getNotificationIcon = (type) => {
+    switch (type) {
+      case 'task_assigned': return '📋';
+      case 'task_comment': return '💬';
+      case 'estimate_created': return '📄';
+      case 'estimate_accepted': return '✅';
+      case 'invoice_created': return '🧾';
+      case 'invoice_paid': return '💰';
+      case 'lead_created': return '🎯';
+      case 'customer_created': return '👤';
+      case 'payment_received': return '💵';
+      case 'project_started': return '🚀';
+      default: return '🔔';
+    }
+  };
+
+  const getTimeAgo = (timestamp) => {
+    const now = new Date();
+    const time = new Date(timestamp);
+    const diffMs = now - time;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return time.toLocaleDateString();
+  };
+
+  const defaultNavigationItems = useMemo(() => [
+    { id: 'dashboard', title: "Dashboard", url: createPageUrl("Dashboard"), icon: LayoutDashboard, order: 0 },
+    
+    {
+      id: 'ai-tools',
+      title: "AI Tools",
+      icon: Sparkles,
+      order: 1,
+      enabled: true,
+      submenu: [
+        { id: 'ai-estimator', title: "AI Estimator", url: createPageUrl("AIEstimator"), enabled: true },
+        { id: 'lexi', title: "Lexi AI Assistant", url: createPageUrl("AIAssistant"), enabled: true },
+        { id: 'lexi-memory', title: "Lexi Memory", url: createPageUrl("LexiMemory"), enabled: true },
+        { id: 'permit-assistant', title: "Permit Assistant", url: createPageUrl("PermitAssistant"), enabled: true },
+        { id: 'daily-reports', title: "Daily Reports", url: createPageUrl("DailyReports"), enabled: true },
+        { id: 'ai-staff', title: "AI Team", url: createPageUrl("AIStaff"), enabled: true },
+        { id: 'ai-training', title: "AI Memory", url: createPageUrl("AITraining"), enabled: true },
+        { id: 'video-training', title: "Video Training Generator", url: createPageUrl("VideoTrainingGenerator"), enabled: true },
+      ]
+    },
+
+    {
+      id: 'lead-manager',
+      title: "Lead Manager",
+      icon: UserPlus,
+      order: 2,
+      submenu: [
+        { id: 'all-leads', title: "All Leads", url: createPageUrl("Leads") },
+        { id: 'lead-finder', title: "Lead Finder", url: createPageUrl("LeadFinder") },
+        { id: 'storm-tracking', title: "Storm Tracking", url: createPageUrl("StormTracking") },
+      ]
+    },
+
+    {
+      id: 'sales',
+      title: "Sales",
+      icon: ShoppingCart,
+      order: 3,
+      submenu: [
+        { id: 'customers', title: "Customers", url: createPageUrl("Customers") },
+        { id: 'sales-dashboard', title: "Sales Dashboard", url: createPageUrl("SalesDashboard") },
+        { id: 'estimates', title: "Estimates", url: createPageUrl("Estimates") },
+        { id: 'proposals', title: "Proposals", url: createPageUrl("Proposals") },
+        { id: 'invoices', title: "Invoices", url: createPageUrl("Invoices") },
+        { id: 'payments', title: "Payments", url: createPageUrl("Payments") },
+        { id: 'items', title: "Items & Pricing", url: createPageUrl("Items") },
+        { id: 'commissions', title: "Commission Tracker", url: createPageUrl("CommissionReport") },
+        { id: 'family-commissions', title: "Family Commissions", url: createPageUrl("FamilyCommissions") },
+        ]
+        },
+
+        {
+          id: 'accounting',
+          title: "Accounting",
+          icon: Wallet,
+          order: 3.7,
+          submenu: [
+            { id: 'accounting-setup', title: "Setup Wizard", url: createPageUrl("AccountingSetup") },
+            { id: 'accounting-dashboard', title: "Dashboard", url: createPageUrl("AccountingDashboard") },
+            { id: 'bills', title: "Bills & Payables", url: createPageUrl("Bills") },
+            { id: 'transactions', title: "Transactions", url: createPageUrl("Transactions") },
+            { id: 'journal-entry', title: "Journal Entry", url: createPageUrl("JournalEntry") },
+            { id: 'transfer', title: "Transfer", url: createPageUrl("TransferFunds") },
+            { id: 'chart-of-accounts', title: "Chart of Accounts", url: createPageUrl("ChartOfAccountsPage") },
+            { id: 'reconcile', title: "Reconcile", url: createPageUrl("BankReconciliation") },
+            { id: 'reports', title: "Reports", url: createPageUrl("AccountingReports") },
+            { id: 'expenses', title: "Expenses", url: createPageUrl("Expenses") },
+            { id: 'payouts', title: "Payouts", url: createPageUrl("Payouts") },
+          ]
+          },
+
+    {
+      id: 'field-operations',
+      title: "Field Operations",
+      icon: MapPin,
+      order: 3.5,
+      submenu: [
+        { id: 'field-sales-tracker', title: "Field Sales Tracker", url: createPageUrl("FieldSalesTracker") },
+        { id: 'field-rep-app', title: "Work Territory", url: createPageUrl("FieldRepApp") },
+        { id: 'territory-manager', title: "Territory Manager", url: createPageUrl("TerritoryManager") },
+      ]
+    },
+
+    {
+      id: 'operations',
+      title: "Operations",
+      icon: Briefcase,
+      order: 4,
+      submenu: [
+        { id: 'crewcam-dashboard', title: "CrewCam Dashboard", url: createPageUrl("InspectionsDashboard") },
+        { id: 'new-crewcam', title: "New CrewCam Job", url: createPageUrl("NewInspection") },
+        { id: 'crewcam-capture', title: "CrewCam Capture", url: createPageUrl("InspectionCapture") },
+        { id: 'ai-damage', title: "AI Damage Analysis", url: createPageUrl("DroneInspections") },
+        { id: 'subcontractors', title: "Subcontractors", url: createPageUrl("Subcontractors") },
+        { id: 'tasks', title: "Tasks", url: createPageUrl("Tasks") },
+        { id: 'review-requests', title: "Review Requests", url: createPageUrl("ReviewRequests") },
+        { id: 'reminders', title: "Reminders", url: createPageUrl("Reminders") },
+        { id: 'projects', title: "Projects", url: createPageUrl("Projects") },
+        { id: 'activity', title: "Activity Feed", url: createPageUrl("Activity") },
+      ]
+    },
+    { id: 'smart-glasses', title: "Smart Glasses", url: createPageUrl("SmartGlassesSetup"), icon: Camera, order: 4.1 },
+
+    { id: 'calendar', title: "Calendar", url: createPageUrl("Calendar"), icon: Calendar, order: 5 },
+
+    {
+      id: 'communication',
+      title: "Communication",
+      icon: MessageSquare,
+      order: 6,
+      submenu: [
+        { id: 'live-call-dashboard', title: "Live Call Dashboard", url: createPageUrl("LiveCallDashboard") },
+        { id: 'communication-hub', title: "Communication Hub", url: createPageUrl("Communication") },
+        { id: 'campaigns', title: "Campaign Manager", url: createPageUrl("Campaigns") },
+        { id: 'ad-builder', title: "Ad Builder", url: createPageUrl("MarcusMarketing") },
+        { id: 'workflow-automation', title: "Workflow Automation", url: createPageUrl("Workflows") },
+        { id: 'ai-dashboard', title: "AI Dashboard", url: createPageUrl("CommunicationDashboard") },
+        { id: 'mailbox', title: "Mailbox", url: createPageUrl("Mailbox") },
+        { id: 'messages', title: "Messages", url: createPageUrl("Messages") },
+        { id: 'zoom', title: "Zoom Meeting", url: createPageUrl("ZoomMeeting") },
+      ]
+    },
+
+    {
+      id: 'documents',
+      title: "Documents",
+      icon: FileText,
+      order: 7,
+      submenu: [
+        { id: 'all-documents', title: "All Documents", url: createPageUrl("Documents") },
+        { id: 'contracts', title: "Contracts", url: createPageUrl("Contracts") },
+        { id: 'contract-templates', title: "Contract Templates", url: createPageUrl("ContractTemplates") },
+        { id: 'contract-signing', title: "Contract Signing", url: createPageUrl("ContractSigning") },
+      ]
+    },
+
+    {
+      id: 'reports',
+      title: "Reports",
+      icon: BarChart3,
+      order: 8,
+      submenu: [
+        { id: 'analytics-dashboard', title: "Analytics", url: createPageUrl("Analytics") },
+        { id: 'report-builder', title: "Report Builder", url: createPageUrl("ReportBuilder") },
+        { id: 'sales-reports', title: "Sales Reports", url: createPageUrl("Reports") + "?category=sales" },
+        { id: 'competitor-analysis', title: "Competitor Analysis", url: createPageUrl("CompetitorAnalysis") },
+      ]
+    },
+
+    { id: 'map', title: "Map", url: createPageUrl("Map"), icon: MapIcon, order: 9 },
+    { id: 'knowledge-base', title: "Knowledge Base", url: createPageUrl("KnowledgeBase"), icon: BookOpen, order: 10 },
+    { id: 'subscription', title: "Subscription", url: createPageUrl("Pricing"), icon: CreditCard, order: 11 },
+    { id: 'feature-comparison', title: "Feature Comparison", url: createPageUrl("FeatureComparison"), icon: Layers, order: 11.5 },
+    { id: 'coming-soon', title: "Coming Soon", url: createPageUrl("ComingSoon"), icon: Sparkles, order: 12 },
+    ], []);
+
+  const settingsMenuItems = useMemo(() => {
+    const allItems = [
+      { id: 'saas-admin', title: "SaaS Admin Dashboard", url: createPageUrl("SaaSAdminDashboard"), icon: Shield, platformOnly: true },
+      { id: 'platform-menu-restrictions', title: "Platform Menu Restrictions", url: createPageUrl("PlatformMenuRestrictions"), icon: Lock, platformOnly: true },
+      { id: 'backup-manager', title: "Backup Manager", url: createPageUrl("BackupManager"), icon: Shield },
+      { id: 'cleanup-restart', title: "Cleanup & Restart", url: createPageUrl("CleanupAndRestart"), icon: RefreshCw, platformOnly: true },
+      { id: 'feature-comparison', title: "Feature Comparison", url: createPageUrl("FeatureComparison"), icon: Layers },
+      { id: 'quick-setup', title: "Quick Setup", url: createPageUrl("QuickSetup"), icon: Zap },
+      { id: 'launch-checklist', title: "Launch Checklist", url: createPageUrl("LaunchChecklist"), icon: CheckCircle2 },
+      { id: 'general-settings', title: "General Settings", url: createPageUrl("GeneralSettings"), icon: Settings },
+      { id: 'company-setup', title: "Company Setup", url: createPageUrl("CompanySetup"), icon: Building2 },
+      { id: 'stripe-connect', title: "Accept Payments", url: createPageUrl("StripeConnect"), icon: CreditCard },
+      { id: 'pdf-branding', title: "PDF Branding", url: createPageUrl("PDFBranding"), icon: Palette },
+      { id: 'report-templates', title: "Report Templates", url: createPageUrl("ReportTemplates"), icon: FileText },
+      { id: 'staff-management', title: "Staff Management", url: createPageUrl("StaffManagement"), icon: UserCog },
+      { id: 'roles-management', title: "Roles & Permissions", url: createPageUrl("RolesManagement"), icon: Shield },
+      { id: 'round-robin', title: "Round Robin Settings", url: createPageUrl("RoundRobinSettings"), icon: RefreshCw },
+      { id: 'templates', title: "Templates", url: createPageUrl("Templates"), icon: FileText },
+      { id: 'data-import', title: "Data Import", url: createPageUrl("DataImport"), icon: Upload },
+      { id: 'property-importer', title: "Property Importer", url: createPageUrl("PropertyDataImporter"), icon: Upload },
+      { id: 'utilities', title: "Utilities", url: createPageUrl("Utilities"), icon: Wrench, platformOnly: true },
+      { id: 'one-click-repair', title: "One-Click Repair", url: createPageUrl("RunRepairs"), icon: Wrench, platformOnly: true },
+      { id: 'custom-fields', title: "Custom Fields", url: createPageUrl("CustomFields"), icon: Layers },
+      { id: 'menu-setup', title: "Menu Customization", url: createPageUrl("MenuSetup"), icon: LayoutIcon },
+      { id: 'email-templates', title: "Email Templates", url: createPageUrl("EmailTemplates"), icon: Mail },
+      { id: 'sms-templates', title: "SMS Templates", url: createPageUrl("SMSTemplates"), icon: MessageCircle },
+      { id: 'integration-manager', title: "Integrations", url: createPageUrl("IntegrationManager"), icon: Plug },
+      { id: 'google-chat', title: "Google Chat", url: createPageUrl("GoogleChatSettings"), icon: MessageCircle },
+      { id: 'slack', title: "Slack", url: createPageUrl("SlackSettings"), icon: MessageCircle },
+    ];
+
+    // Filter out platform-only items: ONLY CompanySync (the actual platform owner) can see these
+    // Never show to impersonated companies or any other subscriber
+    const impersonatingId = typeof window !== 'undefined' ? sessionStorage.getItem('impersonating_company_id') : null;
+    const isActualPlatformOwner = !impersonatingId && myCompany?.company_name === 'CompanySync';
+    return isActualPlatformOwner ? allItems : allItems.filter(item => !item.platformOnly);
+  }, [myCompany]);
+
+  const isSettingsPage = React.useMemo(() => {
+    return settingsMenuItems.some(item => location.pathname === item.url);
+  }, [location.pathname, settingsMenuItems]);
+
+  // REMOVED: Auto-opening settings menu based on URL
+  // Settings menu now ONLY opens when user explicitly clicks the "Settings" button
+  // This ensures sidebar always starts with main menu (Dashboard, AI Tools, etc.)
+
+  const displayNavigationItems = useMemo(() => {
+    const baseItems = defaultNavigationItems;
+
+    // Check if this is a platform company (CompanySync or YICN) - they bypass platform restrictions
+    const isPlatformCompany = myCompany?.company_name === 'CompanySync' || myCompany?.company_name?.toUpperCase().includes('YICN');
+
+    // 🔒 PLATFORM-LEVEL RESTRICTIONS (CompanySync/YICN controls what ALL subscribers see)
+    // BUT: Platform companies themselves are NOT affected by these restrictions
+    let filteredItems = baseItems.filter(item => {
+      // Platform companies bypass platform restrictions - they control via Menu Customization only
+      if (isPlatformCompany) return true;
+      
+      // Check if this item is restricted at platform level
+      if (platformRestrictions?.restricted_items) {
+        const isRestricted = platformRestrictions.restricted_items.some(r => r.id === item.id);
+        if (isRestricted) {
+          console.log(`🚫 Platform restriction: Hiding "${item.title}" for all subscribers`);
+          return false;
+        }
+      }
+      return true;
+    }).map(item => {
+      // Platform companies bypass platform restrictions
+      if (isPlatformCompany) return item;
+      
+      // Filter submenu items based on platform restrictions
+      if (item.submenu && platformRestrictions?.restricted_submenu_items) {
+        const filteredSubmenu = item.submenu.filter(sub => {
+          const isRestricted = platformRestrictions.restricted_submenu_items.some(
+            r => r.parent_id === item.id && r.submenu_id === sub.id
+          );
+          if (isRestricted) {
+            console.log(`🚫 Platform restriction: Hiding "${item.title} → ${sub.title}" for all subscribers`);
+            return false;
+          }
+          return true;
+        });
+        return { ...item, submenu: filteredSubmenu };
+      }
+      return item;
+    });
+
+    // 🎯 SUBSCRIPTION-BASED FEATURE GATING
+      const isYICN = myCompany?.company_name?.toUpperCase().includes('YICN');
+      const subscriptionPlan = myCompany?.subscription_plan || 'trial';
+      // Plan hierarchy: Basic=$59(0), Business=$149(1), Enterprise=$299(2)
+      // Trial grants Enterprise-level ACCESS (feature gating only) so users can explore all features
+      const planHierarchy = { trial: 2, basic: 0, freelance: 0, starter: 0, business: 1, professional: 1, enterprise: 2, legacy: 2, unlimited: 2 };
+      const currentPlanLevel = isYICN ? 999 : (planHierarchy[subscriptionPlan] !== undefined ? planHierarchy[subscriptionPlan] : 0);
+
+    // Filter features by subscription plan
+    filteredItems = filteredItems.filter(item => {
+      // AI Tools - Business+ only (except basic Lexi)
+      if (item.id === 'ai-tools' && currentPlanLevel < 1) {
+        // Basic/Trial get limited AI Tools submenu
+        return true; // We'll filter submenu items below
+      }
+
+      // Field Operations - Business+ only
+      if (item.id === 'field-operations' && currentPlanLevel < 1) return false;
+
+      // Reports - Business+ only
+      if (item.id === 'reports' && currentPlanLevel < 1) return false;
+
+      // Accounting - Enterprise only
+      if (item.id === 'accounting' && currentPlanLevel < 2) return false;
+
+      return true;
+    });
+
+    // 🔐 Filter by role permissions (if not admin)
+    if (!myStaffProfile?.is_administrator && userRole[0]) {
+      filteredItems = baseItems.map(item => {
+        // AI Tools submenu filtering
+        if (item.id === 'ai-tools') {
+          const submenu = item.submenu?.filter(sub => {
+            if (sub.id === 'ai-estimator') return hasPermission('ai_estimator');
+            if (sub.id === 'lexi') return hasPermission('lexi_ai');
+            if (sub.id === 'lexi-memory') return hasPermission('lexi_ai');
+            if (sub.id === 'daily-reports') return hasPermission('lexi_ai');
+            if (sub.id === 'ai-staff') return hasPermission('ai_staff');
+            return true;
+          }) || [];
+          
+          return submenu.length > 0 ? { ...item, submenu } : null;
+        }
+
+        // Lead Manager submenu
+        if (item.id === 'lead-manager') {
+          if (!hasPermission('leads')) return null;
+          
+          // First filter by MenuSettings (check both submenuItems and submenu fields)
+          let filteredSubmenu = item.submenu || [];
+          const customItem = currentMenuSettings?.menu_items?.find(mi => mi.id === 'lead-manager');
+          const customSubmenuData = customItem?.submenuItems || customItem?.submenu || [];
+          if (customSubmenuData.length > 0) {
+            filteredSubmenu = filteredSubmenu.filter(sub => {
+              const customSub = customSubmenuData.find(cs => cs.id === sub.id);
+              if (!customSub) return true;
+              return customSub.enabled !== false;
+            });
+          }
+          
+          // Then filter by permissions
+          const submenu = filteredSubmenu.filter(sub => {
+            if (sub.id === 'storm-tracking') return hasPermission('storm_tracking');
+            if (sub.id === 'property-importer') return hasPermission('property_importer');
+            if (sub.id === 'lead-finder') return hasPermission('lead_finder');
+            return hasPermission('leads');
+          }) || [];
+          return { ...item, submenu };
+        }
+
+        // Sales submenu
+        if (item.id === 'sales') {
+          const submenu = item.submenu?.filter(sub => {
+            if (sub.id === 'customers') return hasPermission('customers');
+            if (sub.id === 'estimates') return hasPermission('estimates');
+            if (sub.id === 'invoices') return hasPermission('invoices');
+            if (sub.id === 'payments') return hasPermission('payments');
+            if (sub.id === 'proposals') return hasPermission('proposals');
+            if (sub.id === 'items') return hasPermission('items');
+            if (sub.id === 'commissions') return hasPermission('commission_report');
+            return false;
+          }) || [];
+          return submenu.length > 0 ? { ...item, submenu } : null;
+        }
+
+        // Accounting submenu - show for admins or users with access
+        if (item.id === 'accounting') {
+          if (myStaffProfile?.is_super_admin || myStaffProfile?.is_administrator) {
+            return item;
+          }
+          // Only show if user has explicit accounting access permission
+          if (!myStaffProfile?.can_access_accounting) {
+            return null;
+          }
+          return item;
+        }
+
+        // Operations submenu
+        if (item.id === 'operations') {
+          const submenu = item.submenu?.filter(sub => {
+            if (sub.id.includes('crewcam') || sub.id.includes('inspection')) return hasPermission('inspections');
+            if (sub.id.includes('drone')) return hasPermission('drone_analysis');
+            if (sub.id === 'tasks' || sub.id === 'task-importer') return hasPermission('tasks');
+            if (sub.id === 'projects') return hasPermission('projects');
+            return true;
+          }) || [];
+          return submenu.length > 0 ? { ...item, submenu } : null;
+        }
+
+        // Communication submenu
+        if (item.id === 'communication') {
+          if (!hasPermission('communication_hub')) return null;
+          const submenu = item.submenu?.filter(sub => {
+            if (sub.id === 'campaigns') return hasPermission('campaigns');
+            if (sub.id === 'workflow-automation') return hasPermission('workflows');
+            if (sub.id === 'mailbox') return hasPermission('mailbox');
+            return hasPermission('communication_hub');
+          }) || [];
+          return { ...item, submenu };
+        }
+
+        // Documents submenu
+        if (item.id === 'documents') {
+          if (!hasPermission('documents')) return null;
+          const submenu = item.submenu?.filter(sub => {
+            if (sub.id.includes('contract')) return hasPermission('contracts');
+            return hasPermission('documents');
+          }) || [];
+          return { ...item, submenu };
+        }
+
+        // Reports submenu
+        if (item.id === 'reports') {
+          if (!hasPermission('reports')) return null;
+          return item;
+        }
+
+        // Single pages
+        if (item.id === 'calendar') return hasPermission('calendar') ? item : null;
+        if (item.id === 'map') return hasPermission('map') ? item : null;
+        if (item.id === 'knowledge-base') return hasPermission('knowledge_base') ? item : null;
+        if (item.id === 'subscription') return item; // Always show
+
+        return item;
+      }).filter(Boolean);
+    }
+
+    // Also filter submenu items based on subscription (YICN gets everything)
+    if (!isYICN) {
+      filteredItems = filteredItems.map(item => {
+        if (item.submenu) {
+          let filteredSubmenu = [...item.submenu];
+
+          // AI Tools submenu filtering
+          if (item.id === 'ai-tools') {
+            filteredSubmenu = filteredSubmenu.filter(sub => {
+              // Basic/Trial: Only Lexi AI Assistant and basic AI Estimator
+              if (currentPlanLevel === 0) {
+                return ['lexi', 'ai-estimator'].includes(sub.id);
+              }
+              // Business: All AI tools except Video Training and Daily Reports
+              if (currentPlanLevel === 1) {
+                return !['video-training', 'daily-reports', 'permit-assistant'].includes(sub.id);
+              }
+              // Enterprise: Everything
+              return true;
+            });
+          }
+
+          // Lead Manager submenu filtering
+          if (item.id === 'lead-manager') {
+            // First apply MenuSettings filtering (check both submenuItems and submenu fields)
+            const customItem = currentMenuSettings?.menu_items?.find(mi => mi.id === 'lead-manager');
+            const customSubmenuData = customItem?.submenuItems || customItem?.submenu || [];
+            if (customSubmenuData.length > 0) {
+              filteredSubmenu = filteredSubmenu.filter(sub => {
+                const customSub = customSubmenuData.find(cs => cs.id === sub.id);
+                if (!customSub) return true;
+                return customSub.enabled !== false;
+              });
+            }
+            // Then apply subscription filtering
+            filteredSubmenu = filteredSubmenu.filter(sub => {
+              // Storm Tracking - Business+ only
+              if (sub.id === 'storm-tracking' && currentPlanLevel < 1) return false;
+              // Lead Finder - Business+ only
+              if (sub.id === 'lead-finder' && currentPlanLevel < 1) return false;
+              // Lead Inspections - Business+ only
+              if (sub.id === 'lead-inspections' && currentPlanLevel < 1) return false;
+              return true;
+            });
+          }
+
+          // Sales submenu filtering
+          if (item.id === 'sales') {
+            filteredSubmenu = filteredSubmenu.filter(sub => {
+              // Commission tracking - Business+ only
+              if ((sub.id === 'commissions' || sub.id === 'family-commissions') && currentPlanLevel < 1) return false;
+              return true;
+            });
+          }
+
+          // Operations submenu filtering
+          if (item.id === 'operations') {
+            filteredSubmenu = filteredSubmenu.filter(sub => {
+              // AI Damage Analysis - Business+ only
+              if (sub.id === 'ai-damage' && currentPlanLevel < 1) return false;
+              // Subcontractors - Enterprise only
+              if (sub.id === 'subcontractors' && currentPlanLevel < 2) return false;
+              // Review Requests - Business+ only
+              if (sub.id === 'review-requests' && currentPlanLevel < 1) return false;
+              return true;
+            });
+          }
+
+          // Communication submenu filtering
+          if (item.id === 'communication') {
+            filteredSubmenu = filteredSubmenu.filter(sub => {
+              // Campaigns - Business+ only
+              if (sub.id === 'campaigns' && currentPlanLevel < 1) return false;
+              // Workflow Automation - Business+ only
+              if (sub.id === 'workflow-automation' && currentPlanLevel < 1) return false;
+              // Live Call Dashboard - Business+ only
+              if (sub.id === 'live-call-dashboard' && currentPlanLevel < 1) return false;
+              return true;
+            });
+          }
+
+          // Documents submenu filtering
+          if (item.id === 'documents') {
+            filteredSubmenu = filteredSubmenu.filter(sub => {
+              // Contract signing - Business+ only
+              if (sub.id.includes('contract') && currentPlanLevel < 1) return false;
+              return true;
+            });
+          }
+
+          return { ...item, submenu: filteredSubmenu };
+        }
+        return item;
+      });
+    }
+
+    if (!currentMenuSettings?.menu_items) {
+      return filteredItems;
+    }
+
+    const customItems = currentMenuSettings.menu_items;
+    
+    return filteredItems
+      .map(defaultItem => {
+        const customItem = customItems.find(item => item.id === defaultItem.id);
+        
+        if (defaultItem.id === 'ai-tools') {
+          // Check if item is disabled in menu settings
+          if (customItem?.enabled === false) {
+            return null;
+          }
+
+          const item = {
+            ...defaultItem,
+            order: customItem?.order ?? defaultItem.order,
+            enabled: customItem?.enabled ?? true,
+          };
+          // Filter submenu items based on enabled status from MenuSettings
+          if (item.submenu && customItem?.submenuItems) {
+            item.submenu = item.submenu.filter(sub => {
+              const customSub = customItem.submenuItems.find(cs => cs.id === sub.id);
+              // If no custom setting for this sub, show it by default
+              if (!customSub) return true;
+              return customSub.enabled !== false;
+            });
+          }
+          return item;
+        }
+
+        if (defaultItem.id === 'operations') {
+          // Check if item is disabled in menu settings
+          if (customItem?.enabled === false) {
+            return null;
+          }
+
+          const item = {
+            ...defaultItem,
+            order: customItem?.order ?? defaultItem.order,
+            enabled: customItem?.enabled ?? true,
+          };
+          // Filter submenu items based on enabled status from MenuSettings (check both submenuItems and submenu)
+          const customSubmenuData = customItem?.submenuItems || customItem?.submenu || [];
+          if (item.submenu && customSubmenuData.length > 0) {
+            item.submenu = item.submenu.filter(sub => {
+              const customSub = customSubmenuData.find(cs => cs.id === sub.id);
+              if (!customSub) return true;
+              return customSub.enabled !== false;
+            });
+          }
+          return item;
+        }
+
+        if (defaultItem.id === 'accounting') {
+          // Always show Accounting for admins, check permissions for others
+          if (customItem?.enabled === false) {
+            return null;
+          }
+
+          return {
+            ...defaultItem,
+            order: customItem?.order ?? defaultItem.order,
+            enabled: customItem?.enabled ?? true,
+          };
+        }
+
+        if (defaultItem.id === 'subscription') {
+          // Check if item is disabled in menu settings
+          if (customItem?.enabled === false) {
+            return null;
+          }
+
+          return {
+            ...defaultItem,
+            order: customItem?.order ?? defaultItem.order,
+            enabled: customItem?.enabled ?? true,
+          };
+        }
+        
+        // Check if item is disabled
+        if (customItem && customItem.enabled === false) {
+          return null;
+        }
+
+        // If no custom item found, show the default item
+        if (!customItem) {
+          return defaultItem;
+        }
+
+        const item = {
+          ...defaultItem,
+          order: customItem.order ?? defaultItem.order,
+          enabled: customItem.enabled ?? true,
+        };
+
+        // Filter submenu items based on MenuSettings
+        if (item.submenu && customItem?.submenuItems) {
+          item.submenu = item.submenu.filter(sub => {
+            const customSub = customItem.submenuItems.find(cs => cs.id === sub.id);
+            // If customSub doesn't exist, show it (default behavior)
+            // If customSub exists, only show if enabled is not explicitly false
+            if (!customSub) return true;
+            return customSub.enabled !== false;
+          });
+        }
+
+        return item;
+        })
+      .filter(Boolean)
+      .sort((a, b) => a.order - b.order);
+  }, [currentMenuSettings, platformRestrictions, defaultNavigationItems, myStaffProfile, userRole, myCompany?.subscription_plan]);
+
+  React.useEffect(() => {
+    console.log('🔍 Route changed to:', location.pathname);
+    
+    const currentMenuItem = displayNavigationItems.find(item => {
+      if (item.url === location.pathname) return true;
+      if (item.submenu) {
+        return item.submenu.some(sub => 
+          sub.url === location.pathname || 
+          sub.url === location.pathname + location.search
+        );
+      }
+      return false;
+    });
+
+    if (currentMenuItem && currentMenuItem.submenu) {
+      console.log('✅ Setting openMenu to:', currentMenuItem.title);
+      setOpenMenu(currentMenuItem.title);
+    } else {
+      console.log('❌ Closing all menus');
+      setOpenMenu(null);
+    }
+  }, [location.pathname, location.search, displayNavigationItems]);
+
+  const toggleMenu = (title) => {
+    console.log('👆 User clicked menu:', title);
+    console.log('   Currently open menu:', openMenu);
+    
+    setOpenMenu(prev => {
+      if (prev === title) {
+        console.log('  → Closing', title);
+        return null;
+      } else {
+        console.log('  → Opening ONLY', title);
+        return title;
+      }
+    });
+  };
+
+  const handleBack = () => {
+    if (location.key !== "default") {
+      navigate(-1);
+    } else {
+      navigate(createPageUrl("Dashboard"));
+    }
+  };
+
+  const handleMobileMenuClick = () => {
+    setSidebarOpen(prev => !prev);
+  };
+
+
+
+  const isYICN = myCompany?.company_name?.toUpperCase().includes('YICN');
+  const subscriptionPlan = myCompany?.subscription_plan || 'trial';
+  // Trial grants full access (Enterprise level) to let users explore all features
+  const planHierarchy = { trial: 2, basic: 0, freelance: 0, starter: 0, business: 1, professional: 1, enterprise: 2 };
+  const currentPlanLevel = isYICN ? 999 : (planHierarchy[subscriptionPlan] !== undefined ? planHierarchy[subscriptionPlan] : 0);
+
+  const handleNavigationClick = (e, url, featureId) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    console.log('🎯 Navigating to:', url);
+
+    // Check feature access if featureId provided
+    if (featureId && !checkFeatureAccess(featureId, currentPlanLevel, isYICN)) {
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      const narrow = window.matchMedia('(max-width: 1024px)').matches;
+      if (narrow) {
+        setSidebarOpen(false);
+        setTimeout(() => setSidebarOpen(false), 0);
+      }
+    }
+
+    setOpenMenu(null);
+    setShowSettingsMenu(false);
+
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        const narrow = window.matchMedia('(max-width: 1024px)').matches;
+        if (narrow) setSidebarOpen(false);
+      }
+      navigate(url);
+    }, 10);
+  };
+
+  React.useEffect(() => {
+    const narrow = typeof window !== 'undefined'
+      ? window.matchMedia('(max-width: 1024px)').matches
+      : isMobile;
+    if (narrow) {
+      console.log('📍 Route changed, closing sidebar');
+      setSidebarOpen(false);
+    }
+  }, [location.pathname, isMobile]);
+
+  // 🔧 Smart duplicate detection for SaaS
+  const showDuplicateWarning = React.useMemo(() => {
+    if (location.pathname === createPageUrl('Utilities')) return false;
+    if (!user) return false;
+    
+    const ownedCompanies = companies.filter(c => c.created_by === user.email);
+    if (ownedCompanies.length <= 1) return false;
+    
+    // Check for ACTUAL duplicates (same name, created within 1 hour)
+    const duplicates = ownedCompanies.filter((c1, idx) => {
+      return ownedCompanies.some((c2, idx2) => {
+        if (idx >= idx2) return false;
+        const sameNameOrSimilar = c1.company_name?.toLowerCase().trim() === c2.company_name?.toLowerCase().trim();
+        const createdClose = Math.abs(new Date(c1.created_date) - new Date(c2.created_date)) < 3600000; // 1 hour
+        return sameNameOrSimilar && createdClose;
+      });
+    });
+    
+    return duplicates.length > 0;
+  }, [companies, user, location.pathname]);
+
+  // 🔒 SECURITY: Exclude customer-facing public pages from Layout
+  const isPublicPage = currentPageName === 'sign-contract-customer' || 
+                       location.pathname.includes('sign-contract-customer') ||
+                       currentPageName === 'TrainingVideoPlayer' ||
+                       location.pathname.includes('TrainingVideoPlayer') ||
+                       currentPageName === 'ViewEstimate' ||
+                       location.pathname.toLowerCase().includes('viewestimate') ||
+                       currentPageName === 'BetaQuestionnaire' ||
+                       location.pathname.includes('BetaQuestionnaire');
+
+  if (isPublicPage) {
+    return <>{children}</>;
+  }
+
+  // QuickSetup redirect handled by Dashboard for new users only
+
+  // Removed cloned/staging badge logic
+
+  return (
+    <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
+      <Toaster richColors position="top-right" />
+      <ConflictAlertListener user={user} notifications={notifications} />
+      <ImpersonationBanner 
+        impersonationData={impersonationData}
+        onStopImpersonation={() => setImpersonationData(null)}
+      />
+
+      {/* Mobile Backdrop Overlay - tap anywhere to close */}
+      {isMobile && sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40"
+          onClick={() => setSidebarOpen(false)}
+          onTouchStart={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <style>{`
+        :root {
+          --sat: env(safe-area-inset-top);
+          --sar: env(safe-area-inset-right);
+          --sab: env(safe-area-inset-bottom);
+          --sal: env(safe-area-inset-left);
+        }
+
+        body {
+          /* Standard mobile behavior */
+        }
+
+        header {
+          padding-top: max(12px, var(--sat));
+          padding-left: max(16px, var(--sal));
+          padding-right: max(16px, var(--sar));
+        }
+
+        [data-sidebar="sidebar"] {
+          background: linear-gradient(180deg, #1e3a8a 0%, #1e40af 50%, #7c3aed 100%) !important;
+        }
+        
+        [data-sidebar="sidebar"] > div:last-child {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
+        }
+        
+        [data-sidebar="sidebar"] .sidebar-content-wrapper {
+          flex: 1;
+          overflow-y: auto;
+          overflow-x: hidden;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior: contain;
+        }
+        
+        @media (max-width: 768px) {
+          [data-sidebar="sidebar"] {
+            max-height: 100vh;
+            max-height: 100dvh;
+            z-index: 51 !important;
+            position: fixed !important;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            box-shadow: 4px 0 24px rgba(0,0,0,0.25);
+          }
+
+          [data-sidebar="sidebar"] .sidebar-content-wrapper {
+            max-height: calc(100vh - 80px);
+            max-height: calc(100dvh - 80px);
+            padding-bottom: 6rem;
+          }
+
+          main > div {
+            padding-bottom: 4rem !important;
+          }
+
+          /* Mobile: prevent iOS zoom on inputs */
+          input, textarea, select {
+            font-size: 16px !important;
+          }
+
+          /* Dialogs: don't force transform/position overrides - let each dialog handle its own mobile layout */
+        }
+      `}</style>
+      <div className="min-h-screen flex w-full bg-background">
+        <Sidebar className="border-r border-blue-700">
+          <SidebarHeader className="p-6 border-b border-blue-700 flex-shrink-0">
+            {showSettingsMenu ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Settings className="w-6 h-6 text-white" />
+                  <h2 className="font-bold text-white text-lg">Setup</h2>
+                </div>
+                <button 
+                  onClick={() => setShowSettingsMenu(false)} 
+                  className="text-white hover:bg-white/10 p-2 rounded-lg transition-colors"
+                  title="Back to main menu"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            ) : (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild disabled={!myCompanyHierarchy?.parent && (!myCompanyHierarchy?.children || myCompanyHierarchy.children.length === 0)}>
+                  <button className="flex items-center gap-3 w-full hover:bg-white/10 p-2 rounded-lg transition-colors text-left group">
+                    {myCompany?.logo_url ? (
+                      <img 
+                        src={myCompany.logo_url} 
+                        alt={myCompany.company_name || "Company Logo"} 
+                        className="w-10 h-10 rounded-lg object-cover bg-white p-1 flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center flex-shrink-0">
+                        <Sparkles className="w-6 h-6 text-blue-600" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <h2 className="font-bold text-white text-lg truncate flex items-center gap-2">
+                        {myCompany?.company_name || "Loading..."}
+                        {(myCompanyHierarchy?.parent || (myCompanyHierarchy?.children && myCompanyHierarchy.children.length > 0)) && (
+                          <ChevronDown className="w-4 h-4 opacity-50 group-hover:opacity-100" />
+                        )}
+                      </h2>
+                      <p className="text-xs text-blue-200 truncate">
+                        {myCompany?.company_tagline || "Smart Business Management"}
+                      </p>
+                    </div>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-64" align="start">
+                  {myCompanyHierarchy?.parent && (
+                    <>
+                      <DropdownMenuItem onClick={() => {
+                        sessionStorage.setItem('impersonating_company_id', myCompanyHierarchy.parent.id);
+                        sessionStorage.setItem('impersonating_company_name', myCompanyHierarchy.parent.company_name);
+                        window.location.reload();
+                      }}>
+                        <Building2 className="w-4 h-4 mr-2" />
+                        <div className="flex flex-col">
+                          <span className="font-medium">{myCompanyHierarchy.parent.company_name}</span>
+                          <span className="text-xs text-muted-foreground">Parent Company</span>
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
+                  
+                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                    Current Location
+                  </div>
+                  <DropdownMenuItem disabled className="bg-accent">
+                    <span className="font-medium">{myCompany?.company_name}</span>
+                  </DropdownMenuItem>
+
+                  {myCompanyHierarchy?.children && myCompanyHierarchy.children.length > 0 && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                        Child Locations
+                      </div>
+                      <ScrollArea className="h-[200px]">
+                        {myCompanyHierarchy.children.map(child => (
+                          <DropdownMenuItem key={child.id} onClick={() => {
+                            sessionStorage.setItem('impersonating_company_id', child.id);
+                            sessionStorage.setItem('impersonating_company_name', child.company_name);
+                            window.location.reload();
+                          }}>
+                            <MapPin className="w-4 h-4 mr-2" />
+                            <span>{child.company_name}</span>
+                          </DropdownMenuItem>
+                        ))}
+                      </ScrollArea>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </SidebarHeader>
+
+          {!isOnline && (
+            <div className="mx-3 mt-2 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-md flex items-center gap-2" data-testid="offline-banner">
+              <Cloud className="w-4 h-4 text-amber-500 flex-shrink-0" />
+              <span className="text-xs text-amber-400 font-medium">Offline Mode</span>
+              {pendingCount > 0 && (
+                <span className="ml-auto text-xs text-amber-300">{pendingCount} pending</span>
+              )}
+            </div>
+          )}
+          {isOnline && isSyncing && (
+            <div className="mx-3 mt-2 px-3 py-2 bg-blue-500/10 border border-blue-500/20 rounded-md flex items-center gap-2" data-testid="syncing-banner">
+              <Cloud className="w-4 h-4 text-blue-400 animate-pulse flex-shrink-0" />
+              <span className="text-xs text-blue-300 font-medium">Syncing {pendingCount} items...</span>
+            </div>
+          )}
+          {isOnline && !isSyncing && pendingCount > 0 && (
+            <div className="mx-3 mt-2 px-3 py-2 bg-green-500/10 border border-green-500/20 rounded-md flex items-center gap-2" data-testid="pending-sync-banner">
+              <Cloud className="w-4 h-4 text-green-400 flex-shrink-0" />
+              <span className="text-xs text-green-300 font-medium">{pendingCount} items to sync</span>
+            </div>
+          )}
+
+          <div className="sidebar-content-wrapper">
+              <SidebarContent className="p-3 pb-24">
+
+
+              <SidebarGroup>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {!showSettingsMenu ? (
+                      <>
+                        {displayNavigationItems.map((item) => (
+                          <SidebarMenuItem key={item.id} id={`menu-item-${item.id}`}>
+                            {item.submenu ? (
+                              <Collapsible open={openMenu === item.title} onOpenChange={() => {
+                                toggleMenu(item.title);
+                                // Auto-close on mobile when opening submenu
+                                if (typeof window !== 'undefined') {
+                                  const narrow = window.matchMedia('(max-width: 1024px)').matches;
+                                  if (narrow && openMenu !== item.title) {
+                                    // Closing submenu on mobile - close sidebar
+                                    setTimeout(() => setSidebarOpen(false), 300);
+                                  }
+                                }
+                              }}>
+                                <CollapsibleTrigger asChild>
+                                  <SidebarMenuButton
+                                    className="hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 w-full justify-between min-h-[44px]"
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      {item.icon && <item.icon className="w-5 h-5" />}
+                                      <span className="font-medium">{item.title}</span>
+                                    </div>
+                                    <ChevronDown className={`w-4 h-4 transition-transform ${openMenu === item.title ? 'rotate-180' : ''}`} />
+                                  </SidebarMenuButton>
+                                </CollapsibleTrigger>
+                                <CollapsibleContent className="ml-8 mt-1 space-y-1">
+                                  {item.submenu.map((subitem) => (
+                                    <SidebarMenuButton
+                                      key={subitem.id}
+                                      id={`menu-item-${subitem.id}`}
+                                      asChild
+                                      className={`hover:bg-white/10 text-white text-sm transition-all duration-200 rounded-lg min-h-[44px] ${
+                                        location.pathname + location.search === subitem.url ? 'bg-white/20' : ''
+                                      }`}
+                                    >
+                                      <Link 
+                                        to={subitem.url} 
+                                        className="flex items-center gap-3 px-3 py-2" 
+                                        onClick={(e) => handleNavigationClick(e, subitem.url, subitem.id)}
+                                      >
+                                        <span>{subitem.title}</span>
+                                      </Link>
+                                    </SidebarMenuButton>
+                                  ))}
+                                </CollapsibleContent>
+                              </Collapsible>
+                            ) : (
+                              <SidebarMenuButton
+                                asChild
+                                className={`hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 min-h-[44px] ${
+                                  location.pathname === item.url ? 'bg-white/20 shadow-lg' : ''
+                                }`}
+                              >
+                                <Link 
+                                  to={item.url} 
+                                  className="flex items-center gap-3 px-3 py-3" 
+                                  onClick={(e) => handleNavigationClick(e, item.url)}
+                                >
+                                  {item.icon && <item.icon className="w-5 h-5" />}
+                                  <span className="font-medium">{item.title}</span>
+                                </Link>
+                              </SidebarMenuButton>
+                            )}
+                          </SidebarMenuItem>
+                        ))}
+
+                        {(myStaffProfile?.is_administrator || myCompany?.created_by === user?.email || user?.email === 'yicnteam@gmail.com') && (
+                          <SidebarMenuItem>
+                            <SidebarMenuButton
+                              onClick={() => setShowSettingsMenu(true)}
+                              className="hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 min-h-[44px] w-full justify-between bg-gradient-to-r from-purple-600/30 to-blue-600/30"
+                            >
+                              <div className="flex items-center gap-3">
+                                <Settings className="w-5 h-5" />
+                                <span className="font-medium">Settings</span>
+                              </div>
+                              <ChevronRight className="w-4 h-4" />
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {settingsMenuItems.map(item => (
+                          <SidebarMenuItem key={item.id}>
+                            <SidebarMenuButton
+                              asChild
+                              className={`hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 min-h-[44px] ${
+                                location.pathname === item.url ? 'bg-white/20 shadow-lg' : ''
+                              }`}
+                            >
+                              <Link 
+                                to={item.url} 
+                                className="flex items-center gap-3 px-3 py-3"
+                                onClick={(e) => handleNavigationClick(e, item.url, item.id)}
+                              >
+                                <item.icon className="w-5 h-5" />
+                                <span className="font-medium">{item.title}</span>
+                              </Link>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        ))}
+                      </>
+                    )}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            </SidebarContent>
+          </div>
+        </Sidebar>
+
+        <main className="flex-1 flex flex-col" style={{ marginTop: impersonationData ? '60px' : '0' }}>
+          <header className="bg-gradient-to-r from-blue-600 via-blue-500 to-purple-600 border-b border-blue-400 px-4 md:px-6 pt-12 pb-3 md:py-4 shadow-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 md:gap-4">
+                <SidebarTrigger className="text-white hover:bg-white/10 p-2 rounded-lg transition-colors duration-200" />
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleBack}
+                  className="text-white hover:bg-white/10 flex items-center gap-2 min-h-[44px]"
+                  type="button"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span className="hidden md:inline">Back</span>
+                </Button>
+
+
+              </div>
+
+              <div className="flex items-center gap-1 md:gap-2">
+                <GoogleMeetButton companyId={myCompany?.id} />
+
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="text-white hover:bg-white/10 min-h-[44px] min-w-[44px]"
+                  onClick={() => setShowDialer(true)}
+                  title="Make a call"
+                >
+                  <Phone className="w-5 h-5" />
+                </Button>
+
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="text-white hover:bg-white/10 min-h-[44px] min-w-[44px]"
+                  onClick={() => setShowEmailDialog(true)}
+                  title="Send email"
+                >
+                  <Mail className="w-5 h-5" />
+                </Button>
+
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="text-white hover:bg-white/10 min-h-[44px] min-w-[44px]"
+                  onClick={() => setShowSMSDialog(true)}
+                  title="Send SMS"
+                >
+                  <MessageCircle className="w-5 h-5" />
+                </Button>
+
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="text-white hover:bg-white/10 min-h-[44px] min-w-[44px]"
+                  onClick={() => setTourOpen(true)}
+                  title="Take a Tour"
+                >
+                  <HelpCircle className="w-5 h-5" />
+                </Button>
+
+                <div className="w-px h-6 bg-white/20 mx-1 md:mx-2 hidden md:block"></div>
+
+                <Popover open={notificationsOpen} onOpenChange={setNotificationsOpen}>
+                  <PopoverTrigger asChild>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="text-white hover:bg-white/10 min-h-[44px] min-w-[44px] relative"
+                      title="Notifications"
+                    >
+                      <Bell className="w-5 h-5" />
+                      {unreadCount > 0 && (
+                        <Badge className="absolute -top-1 -right-1 h-5 min-w-5 flex items-center justify-center p-0 bg-red-500 text-white text-xs">
+                          {unreadCount > 99 ? '99+' : unreadCount}
+                        </Badge>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-96 p-0" align="end">
+                    <div className="flex items-center justify-between p-4 border-b">
+                      <h3 className="font-semibold text-lg">Notifications</h3>
+                      {unreadCount > 0 && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={handleMarkAllAsRead}
+                          className="text-xs"
+                        >
+                          Mark all as read
+                        </Button>
+                      )}
+                    </div>
+                    <ScrollArea className="h-[400px]">
+                      {notifications.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+                          <Bell className="w-12 h-12 mb-3 text-gray-300" />
+                          <p className="text-sm font-medium">No notifications yet</p>
+                          <p className="text-xs mt-1">We'll notify you when something important happens</p>
+                        </div>
+                      ) : (
+                        <div className="divide-y">
+                          {notifications
+                            .sort((a, b) => new Date(b.created_date) - new Date(a.created_date))
+                            .map((notification) => (
+                              <div
+                                key={notification.id}
+                                onClick={() => handleNotificationClick(notification)}
+                                className={`p-4 hover:bg-gray-50 cursor-pointer transition-colors ${
+                                  !notification.is_read ? 'bg-blue-50' : ''
+                                }`}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <div className="text-2xl flex-shrink-0">
+                                    {getNotificationIcon(notification.type)}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="flex-1">
+                                        <p className={`text-sm ${!notification.is_read ? 'font-semibold' : 'font-medium'}`}>
+                                          {notification.title}
+                                        </p>
+                                        <p className="text-xs text-gray-600 mt-1">
+                                          {notification.message}
+                                        </p>
+                                        <p className="text-xs text-gray-400 mt-2">
+                                          {getTimeAgo(notification.created_date)}
+                                        </p>
+                                      </div>
+                                      {!notification.is_read && (
+                                        <div className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0 mt-1.5"></div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </PopoverContent>
+                </Popover>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="text-white hover:bg-white/10 flex items-center gap-2 min-h-[44px]">
+                      <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center">
+                        <span className="text-blue-600 font-semibold text-sm">
+                          {user?.full_name?.[0] || 'U'}
+                        </span>
+                      </div>
+                      <span className="hidden md:inline font-medium">{user?.full_name || 'User'}</span>
+                      <ChevronDown className="w-4 h-4 hidden md:block" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+
+                    <DropdownMenuItem 
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        base44.auth.logout();
+                      }}
+                    >
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Logout
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          </header>
+
+          <div className="px-4 md:px-6 pt-4">
+            <TrialReminderBanner user={user} myCompany={myCompany} />
+          </div>
+
+          {showDuplicateWarning && (
+            <Alert className="mx-6 mt-4 bg-red-50 border-red-300">
+              <AlertTriangle className="w-4 h-4 text-red-600" />
+              <AlertDescription className="text-red-900">
+                <strong>⚠️ Data Issue Detected:</strong> We detected multiple company profiles created by you, which may cause data visibility problems.
+                {' '}
+                <Button
+                  variant="link"
+                  className="text-red-600 underline p-0 h-auto"
+                  onClick={() => navigate(createPageUrl('Utilities'))}
+                >
+                  Go to Utilities → Company Cleanup
+                </Button>
+                {' '}to fix this now.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <div className="flex-1 overflow-auto relative">
+            {children}
+          </div>
+          
+          {isMobile && <MobileNav allNavItems={displayNavigationItems} user={user} company={myCompany} />}
+          
+          {isMobile && <FloatingActionButton />}
+        </main>
+      </div>
+
+      <Dialer
+        open={showDialer}
+        onOpenChange={setShowDialer}
+      />
+      <EmailDialog
+        open={showEmailDialog}
+        onOpenChange={setShowEmailDialog}
+      />
+      <SMSDialog
+        open={showSMSDialog}
+        onOpenChange={setShowSMSDialog}
+        companyId={myCompany?.id}
+      />
+      
+      <ProductTour 
+        isOpen={tourOpen} 
+        onClose={() => setTourOpen(false)} 
+      />
+      <TourTrigger onStartTour={() => setTourOpen(true)} myCompany={myCompany} myStaffProfile={myStaffProfile} />
+
+      <FeatureRestrictedModal 
+        restrictedFeature={restrictedFeature} 
+        onClose={() => setRestrictedFeature(null)} 
+      />
+
+
+      </SidebarProvider>
+      );
+      }

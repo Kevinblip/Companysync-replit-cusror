@@ -1,0 +1,311 @@
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+
+/**
+ * Sarah Media Stream Handler - Real-time voice via Twilio Media Streams + Gemini Live API
+ * WITH Advanced Call Routing per Staff Member
+ * 
+ * Flow:
+ * 1. Twilio calls this endpoint when a call comes in
+ * 2. We look up the called number to find the company
+ * 3. We check if the number belongs to a specific staff member
+ * 4. Based on staff routing settings (forward_to_cell, sarah_answers, sarah_then_transfer):
+ *    - forward_to_cell: Dial staff cell phone, fall back to Sarah if no answer
+ *    - sarah_answers: Connect to Gemini stream with rep context
+ *    - sarah_then_transfer: Connect to Gemini, Sarah collects info then transfers
+ * 5. If unavailable, override to sarah_answers
+ */
+
+// ─── In-memory settings cache ───
+const settingsCache: Record<string, any> = {};
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+async function loadSettings(companyId: string, base44Client: any) {
+    const now = Date.now();
+    const cached = settingsCache[companyId];
+    if (cached && (now - cached.ts) < CACHE_TTL_MS) {
+        return cached.data;
+    }
+
+    const [settingsResult, trainingResult] = await Promise.allSettled([
+        base44Client.asServiceRole.entities.AssistantSettings.filter({ company_id: companyId }),
+        base44Client.asServiceRole.entities.AITrainingData.filter({ company_id: companyId, is_active: true })
+    ]);
+
+    const sarahSettings = settingsResult.status === 'fulfilled' ? settingsResult.value[0] : null;
+    if (!sarahSettings) {
+        const fallback = { sarahSettings: null, systemPrompt: '', knowledgeBase: '', voiceId: 'Kore' };
+        settingsCache[companyId] = { ts: now, data: fallback };
+        return fallback;
+    }
+
+    const systemPrompt = sarahSettings.system_prompt || '';
+    const voiceId = sarahSettings.voice_id || 'Kore';
+
+    const kbParts: string[] = [];
+    if (sarahSettings.knowledge_base) kbParts.push(sarahSettings.knowledge_base);
+    if (sarahSettings.custom_responses) kbParts.push(JSON.stringify(sarahSettings.custom_responses));
+
+    let trainingData = trainingResult.status === 'fulfilled' ? trainingResult.value : [];
+    if (trainingData.length > 0) {
+        for (const td of trainingData.sort((a: any, b: any) => (b.priority || 0) - (a.priority || 0)).slice(0, 5)) {
+            if (td.content) kbParts.push(`[${td.title || td.data_type}]: ${td.content.substring(0, 1500)}`);
+        }
+    }
+
+    const result = { sarahSettings, systemPrompt, knowledgeBase: kbParts.join('\n\n'), voiceId };
+    settingsCache[companyId] = { ts: now, data: result };
+    return result;
+}
+
+// ─── Staff lookup helper ───
+async function lookupStaffByNumber(base44Client: any, companyId: string, calledNumber: string) {
+    try {
+        const cleanNum = calledNumber.replace(/\D/g, '');
+        const allStaff = await base44Client.asServiceRole.entities.StaffProfile.filter({ company_id: companyId }, '-updated_date', 500);
+        
+        for (const staff of allStaff) {
+            const staffNum = ((staff as any).twilio_number || '').replace(/\D/g, '');
+            if (staffNum && staffNum === cleanNum) {
+                console.log(`[Routing] Matched staff ${(staff as any).full_name} for number ${cleanNum}`);
+                return {
+                    id: staff.id,
+                    full_name: (staff as any).full_name || '',
+                    email: (staff as any).email || '',
+                    phone: (staff as any).phone || '',
+                    cell_phone: (staff as any).cell_phone || '',
+                    call_routing_mode: (staff as any).call_routing_mode || 'sarah_answers',
+                    availability_status: (staff as any).availability_status || 'available',
+                };
+            }
+        }
+    } catch (e: any) {
+        console.error('[Routing] Staff lookup error:', e.message);
+    }
+    return null;
+}
+
+// ─── Company lookup helper ───
+async function lookupCompanyByPhone(base44Client: any, calledNumber: string) {
+    try {
+        const cleanNum = calledNumber.replace(/\D/g, '');
+        const twilioSettings = await base44Client.asServiceRole.entities.TwilioSettings.filter({});
+        
+        for (const ts of twilioSettings) {
+            const mainNum = ((ts as any).main_phone_number || '').replace(/\D/g, '');
+            if (mainNum && mainNum === cleanNum) {
+                return (ts as any).company_id;
+            }
+            const additionalNums = (ts as any).additional_numbers || [];
+            for (const an of additionalNums) {
+                const addNum = (an || '').replace(/\D/g, '');
+                if (addNum && addNum === cleanNum) {
+                    return (ts as any).company_id;
+                }
+            }
+        }
+        
+        const allStaff = await base44Client.asServiceRole.entities.StaffProfile.filter({});
+        for (const staff of allStaff) {
+            const staffNum = ((staff as any).twilio_number || '').replace(/\D/g, '');
+            if (staffNum && staffNum === cleanNum) {
+                return (staff as any).company_id;
+            }
+        }
+    } catch (e: any) {
+        console.error('[Routing] Company lookup error:', e.message);
+    }
+    return null;
+}
+
+function escapeXml(unsafe: string) {
+    if (!unsafe) return '';
+    return String(unsafe).replace(/[<>&"']/g, (c) => {
+        switch (c) {
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '&': return '&amp;';
+            case '"': return '&quot;';
+            case "'": return '&apos;';
+            default: return c;
+        }
+    });
+}
+
+// ─── Main handler ───
+Deno.serve(async (req) => {
+    try {
+        const url = new URL(req.url);
+        const path = url.pathname;
+        
+        // Parse Twilio form body
+        let bodyParams = new URLSearchParams();
+        if (req.method === 'POST') {
+            try {
+                const bodyText = await req.text();
+                bodyParams = new URLSearchParams(bodyText);
+            } catch (e) {}
+        }
+        
+        const callerPhone = bodyParams.get('From') || bodyParams.get('Caller') || '';
+        const calledNumber = bodyParams.get('To') || bodyParams.get('Called') || url.searchParams.get('To') || '';
+        
+        // Get company ID from query param or look it up
+        let companyId = url.searchParams.get('companyId') || '';
+        const companyName = decodeURIComponent(url.searchParams.get('companyName') || '');
+        
+        // Create base44 client
+        let base44: any = null;
+        try {
+            base44 = createClientFromRequest(req);
+        } catch (e: any) {
+            console.log('[Sarah] Could not create client from request (expected for Twilio):', e.message);
+        }
+        
+        // ─── FORWARD FALLBACK HANDLER ───
+        if (path.includes('forward-fallback')) {
+            const fbCompanyId = url.searchParams.get('companyId') || '';
+            const fbCallerPhone = url.searchParams.get('callerPhone') || '';
+            const fbRepName = url.searchParams.get('repName') || '';
+            const fbRepEmail = url.searchParams.get('repEmail') || '';
+            const fbMaxDuration = url.searchParams.get('maxDuration') || '1800';
+            const dialStatus = bodyParams.get('DialCallStatus') || '';
+            
+            console.log(`[Sarah] Forward fallback: status=${dialStatus}, company=${fbCompanyId}, rep=${fbRepName}`);
+            
+            if (dialStatus === 'completed') {
+                return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`, {
+                    headers: { 'Content-Type': 'text/xml' }
+                });
+            }
+            
+            const appUrl = (Deno.env.get('APP_URL') || `https://${Deno.env.get('BASE44_APP_ID')}.base44.app`).replace(/\/+$/, '');
+            const wsUrl = `${appUrl.replace('https://', 'wss://').replace('http://', 'ws://')}/api/functions/geminiLiveCallStream?companyId=${encodeURIComponent(fbCompanyId)}`;
+            
+            const fallbackTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="Polly.Joanna">${fbRepName ? fbRepName + ' is unavailable right now.' : 'The person you are trying to reach is unavailable.'} Let me connect you with our AI assistant who can help.</Say>
+    <Connect>
+        <Stream url="${escapeXml(wsUrl)}">
+            <Parameter name="companyId" value="${escapeXml(fbCompanyId)}" />
+            <Parameter name="callerPhone" value="${escapeXml(fbCallerPhone)}" />
+            <Parameter name="maxCallDuration" value="${fbMaxDuration}" />
+            <Parameter name="isForwardedCall" value="true" />
+            <Parameter name="forwardedRepName" value="${escapeXml(fbRepName)}" />
+            <Parameter name="forwardedRepEmail" value="${escapeXml(fbRepEmail)}" />
+            <Parameter name="callRoutingMode" value="sarah_answers" />
+        </Stream>
+    </Connect>
+</Response>`;
+            return new Response(fallbackTwiml, { headers: { 'Content-Type': 'text/xml' } });
+        }
+        
+        // ─── TRANSFER HANDLER ───
+        if (path.includes('transfer')) {
+            const cellPhone = url.searchParams.get('cellPhone') || '';
+            const callerId = url.searchParams.get('callerId') || '';
+            const repName = url.searchParams.get('repName') || '';
+            
+            console.log(`[Sarah] Transfer: connecting to ${cellPhone} for rep ${repName}`);
+            
+            const transferTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="Polly.Joanna">Please hold while I connect you with ${repName || 'a team member'}.</Say>
+    <Dial callerId="${escapeXml(callerId)}" timeout="30">
+        <Number>${escapeXml(cellPhone)}</Number>
+    </Dial>
+    <Say voice="Polly.Joanna">I'm sorry, the transfer was unsuccessful. Please try again later.</Say>
+    <Hangup/>
+</Response>`;
+            return new Response(transferTwiml, { headers: { 'Content-Type': 'text/xml' } });
+        }
+
+        // ─── MAIN INBOUND CALL HANDLER ───
+        console.log(`[Sarah] Incoming call: from=${callerPhone}, to=${calledNumber}`);
+        
+        // Look up company by phone number if not provided
+        if (!companyId && base44 && calledNumber) {
+            companyId = await lookupCompanyByPhone(base44, calledNumber) || '';
+        }
+        
+        // Fallback to default company
+        if (!companyId) {
+            companyId = '695944e3c1fb00b7ab716c6f';
+            console.log(`[Sarah] No company found for ${calledNumber}, using default`);
+        }
+        
+        // Look up staff member for this number
+        let staffRouting: any = null;
+        let forwardedRepName = '';
+        let forwardedRepEmail = '';
+        let forwardedRepPhone = '';
+        let isForwardedCall = false;
+        
+        if (base44 && calledNumber) {
+            staffRouting = await lookupStaffByNumber(base44, companyId, calledNumber);
+            if (staffRouting) {
+                isForwardedCall = true;
+                forwardedRepName = staffRouting.full_name || '';
+                forwardedRepEmail = staffRouting.email || '';
+                forwardedRepPhone = staffRouting.cell_phone || staffRouting.phone || '';
+                console.log(`[Sarah] STAFF ROUTING: rep=${forwardedRepName}, mode=${staffRouting.call_routing_mode}, availability=${staffRouting.availability_status}, cell=${forwardedRepPhone}`);
+            }
+        }
+        
+        // Determine effective routing mode
+        const effectiveRoutingMode = staffRouting
+            ? (staffRouting.availability_status === 'unavailable' ? 'sarah_answers' : (staffRouting.call_routing_mode || 'sarah_answers'))
+            : 'sarah_answers';
+        const cellPhone = staffRouting?.cell_phone || staffRouting?.phone || forwardedRepPhone || '';
+        
+        console.log(`[Sarah] Effective routing: mode=${effectiveRoutingMode}, cell=${cellPhone}, company=${companyId}`);
+        
+        // ─── ROUTE: Forward to Cell Phone ───
+        if (effectiveRoutingMode === 'forward_to_cell' && cellPhone) {
+            const appUrl = (Deno.env.get('APP_URL') || `https://${Deno.env.get('BASE44_APP_ID')}.base44.app`).replace(/\/+$/, '');
+            const fallbackUrl = `${appUrl}/api/functions/sarahMediaStreamHandler/forward-fallback?companyId=${encodeURIComponent(companyId)}&callerPhone=${encodeURIComponent(callerPhone)}&repName=${encodeURIComponent(forwardedRepName)}&repEmail=${encodeURIComponent(forwardedRepEmail)}&maxDuration=1800`;
+            
+            const forwardTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Dial callerId="${escapeXml(calledNumber)}" timeout="30" action="${escapeXml(fallbackUrl)}">
+        <Number>${escapeXml(cellPhone)}</Number>
+    </Dial>
+</Response>`;
+            console.log(`[Sarah] FORWARD TO CELL: caller=${callerPhone}, forwarding to ${cellPhone} for rep ${forwardedRepName}`);
+            return new Response(forwardTwiml, { headers: { 'Content-Type': 'text/xml' } });
+        }
+        
+        // ─── ROUTE: Sarah Answers (or Sarah Then Transfer) ───
+        const appUrl = (Deno.env.get('APP_URL') || `https://${Deno.env.get('BASE44_APP_ID')}.base44.app`).replace(/\/+$/, '');
+        const wsUrl = `${appUrl.replace('https://', 'wss://').replace('http://', 'ws://')}/api/functions/geminiLiveCallStream?companyId=${encodeURIComponent(companyId)}`;
+        
+        console.log(`[Sarah] Returning TwiML with Stream -> ${wsUrl}`);
+        
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect>
+        <Stream url="${escapeXml(wsUrl)}">
+            <Parameter name="companyId" value="${escapeXml(companyId)}" />
+            <Parameter name="callerPhone" value="${escapeXml(callerPhone)}" />
+            <Parameter name="maxCallDuration" value="1800" />
+            <Parameter name="isForwardedCall" value="${isForwardedCall ? 'true' : 'false'}" />
+            <Parameter name="forwardedRepName" value="${escapeXml(forwardedRepName)}" />
+            <Parameter name="forwardedRepEmail" value="${escapeXml(forwardedRepEmail)}" />
+            <Parameter name="forwardedRepPhone" value="${escapeXml(forwardedRepPhone)}" />
+            <Parameter name="callRoutingMode" value="${effectiveRoutingMode}" />
+            <Parameter name="staffCellPhone" value="${escapeXml(cellPhone)}" />
+        </Stream>
+    </Connect>
+</Response>`;
+        
+        return new Response(twiml, { headers: { 'Content-Type': 'text/xml' } });
+        
+    } catch (error: any) {
+        console.error('[Sarah] FATAL ERROR in sarahMediaStreamHandler:', error);
+        const fallbackTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="Polly.Joanna">I'm sorry, we're experiencing technical difficulties. Please try again later.</Say>
+    <Hangup/>
+</Response>`;
+        return new Response(fallbackTwiml, { headers: { 'Content-Type': 'text/xml' } });
+    }
+});

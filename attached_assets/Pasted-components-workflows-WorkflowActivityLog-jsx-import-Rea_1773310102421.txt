@@ -1,0 +1,509 @@
+components/workflows/WorkflowActivityLog.jsx
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Activity, CheckCircle2, XCircle, Clock, ChevronRight, ChevronDown, User, RefreshCw } from "lucide-react";
+import { format } from "date-fns";
+
+export default function WorkflowActivityLog() {
+  const [expandedId, setExpandedId] = useState(null);
+
+  const { data: executions = [], isLoading, refetch } = useQuery({
+    queryKey: ['workflow-executions-log'],
+    queryFn: () => base44.entities.WorkflowExecution.list("-created_date", 50),
+    refetchInterval: 10000
+  });
+
+  const toggleExpand = (id) => setExpandedId(expandedId === id ? null : id);
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'completed': return 'bg-green-100 text-green-700 border-green-200';
+      case 'failed': return 'bg-red-100 text-red-700 border-red-200';
+      case 'active': return 'bg-blue-100 text-blue-700 border-blue-200';
+      case 'waiting_for_trigger': return 'bg-orange-100 text-orange-700 border-orange-200';
+      default: return 'bg-gray-100 text-gray-700 border-gray-200';
+    }
+  };
+
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case 'completed': return <CheckCircle2 className="w-4 h-4" />;
+      case 'failed': return <XCircle className="w-4 h-4" />;
+      case 'active': return <Activity className="w-4 h-4 animate-pulse" />;
+      case 'waiting_for_trigger': return <Clock className="w-4 h-4" />;
+      default: return <Activity className="w-4 h-4" />;
+    }
+  };
+
+  if (isLoading) return <div className="p-8 text-center text-gray-500"><Activity className="w-8 h-8 mx-auto mb-2 animate-pulse" />Loading activity log...</div>;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="flex items-center gap-2">
+          <Activity className="w-5 h-5 text-blue-600" />
+          Recent Workflow Activity
+        </CardTitle>
+        <Button variant="ghost" size="sm" onClick={() => refetch()}>
+          <RefreshCw className="w-4 h-4 mr-2" />Refresh
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {executions.length === 0 ? (
+          <div className="text-center py-8 text-gray-500"><p>No workflow activity found.</p></div>
+        ) : (
+          <div className="space-y-4">
+            {executions.map((exec) => (
+              <div key={exec.id} className={`border rounded-lg transition-all duration-200 ${expandedId === exec.id ? 'bg-gray-50 border-blue-200 shadow-sm' : 'bg-white hover:border-blue-200'}`}>
+                <div className="p-4 flex items-center justify-between cursor-pointer" onClick={() => toggleExpand(exec.id)}>
+                  <div className="flex items-center gap-4 flex-1">
+                    <div className={`p-2 rounded-full ${getStatusColor(exec.status).split(' ')[0]}`}>
+                      {getStatusIcon(exec.status)}
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                        {exec.workflow_name}
+                        <span className="text-gray-400 text-xs font-normal">• {format(new Date(exec.created_date), 'MMM d, h:mm a')}</span>
+                      </h4>
+                      <div className="flex items-center gap-3 text-sm text-gray-600 mt-1">
+                        <div className="flex items-center gap-1"><User className="w-3 h-3" />{exec.entity_name} ({exec.entity_type})</div>
+                        {exec.current_step > 0 && <span className="text-xs bg-gray-200 px-2 py-0.5 rounded-full">Step {exec.current_step}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge variant="outline" className={`${getStatusColor(exec.status)} capitalize`}>{exec.status?.replace(/_/g, ' ')}</Badge>
+                    {expandedId === exec.id ? <ChevronDown className="w-5 h-5 text-gray-400" /> : <ChevronRight className="w-5 h-5 text-gray-400" />}
+                  </div>
+                </div>
+
+                {expandedId === exec.id && (
+                  <div className="px-4 pb-4 pt-0 border-t border-gray-100 mt-2">
+                    <h5 className="text-sm font-semibold text-gray-700 mt-3 mb-2">Execution Log</h5>
+                    <ScrollArea className="h-[200px] rounded border bg-white p-2">
+                      {exec.execution_log && exec.execution_log.length > 0 ? (
+                        <div className="space-y-2">
+                          {exec.execution_log.slice().reverse().map((log, idx) => (
+                            <div key={idx} className="flex items-start gap-2 text-sm p-2 rounded hover:bg-gray-50">
+                              <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${log.success ? 'bg-green-500' : 'bg-red-500'}`} />
+                              <div className="flex-1">
+                                <div className="flex justify-between">
+                                  <span className="font-medium text-gray-900 capitalize">{log.action?.replace(/_/g, ' ')} (Step {log.step})</span>
+                                  <span className="text-xs text-gray-400">{log.timestamp ? format(new Date(log.timestamp), 'h:mm:ss a') : ''}</span>
+                                </div>
+                                <p className={`text-gray-600 mt-0.5 ${!log.success ? 'text-red-600' : ''}`}>{log.message}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-500 text-center py-4">No logs available</p>
+                      )}
+                    </ScrollArea>
+                    {exec.next_action_time && exec.status === 'active' && (
+                      <div className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded flex items-center gap-2">
+                        <Clock className="w-4 h-4" />
+                        Next action scheduled for: {format(new Date(exec.next_action_time), 'MMM d, h:mm a')}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+functions/autoTriggerWorkflows.js
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+
+Deno.serve(async (req) => {
+  try {
+    const base44 = createClientFromRequest(req);
+    const body = await req.json();
+    console.log('📥 Entity webhook received:', body);
+
+    let eventType = body.event_type;
+    let entityName = body.entity_name;
+    let entityId = body.entity_id;
+    let entityData = body.entity_data || body.data || {};
+    let oldData = body.old_data;
+    let companyId = body.company_id || entityData.company_id;
+
+    if (body.event) {
+      eventType = body.event.type;
+      entityName = body.event.entity_name;
+      entityId = body.event.entity_id;
+    }
+
+    if (eventType === 'create') eventType = 'created';
+    if (eventType === 'update') eventType = 'updated';
+    if (eventType === 'delete') eventType = 'deleted';
+
+    if (!companyId) {
+      return Response.json({ success: true, message: 'No company_id found' });
+    }
+
+    let triggerType = null;
+    const old_data = oldData;
+    const entity_data = entityData;
+    const entity_name = entityName;
+    const event_type = eventType;
+    const entity_id = entityId;
+
+    switch (entity_name) {
+      case 'Lead':
+        if (event_type === 'created') triggerType = 'lead_created';
+        else if (event_type === 'updated' && old_data?.status !== entity_data?.status) {
+          triggerType = 'lead_status_changed';
+          entityData = { ...entityData, old_status: old_data.status, new_status: entity_data.status };
+        }
+        break;
+      case 'Customer':
+        if (event_type === 'created') triggerType = 'customer_created';
+        break;
+      case 'Estimate':
+        if (event_type === 'created') triggerType = 'estimate_created';
+        else if (event_type === 'updated' && old_data?.status !== entity_data?.status) {
+          if (entity_data.status === 'sent') triggerType = 'estimate_sent';
+          else if (entity_data.status === 'accepted') triggerType = 'estimate_accepted';
+        }
+        break;
+      case 'Invoice':
+        if (event_type === 'created') triggerType = 'invoice_created';
+        else if (event_type === 'updated' && old_data?.status !== entity_data?.status) {
+          if (entity_data.status === 'paid') triggerType = 'invoice_paid';
+          else if (entity_data.status === 'overdue') triggerType = 'invoice_overdue';
+        }
+        break;
+      case 'Payment':
+        if (event_type === 'created') triggerType = 'payment_received';
+        break;
+      case 'Task':
+        if (event_type === 'created' && entity_data.assigned_to) triggerType = 'task_assigned';
+        else if (event_type === 'updated') {
+          if (old_data?.status !== entity_data?.status) triggerType = 'task_status_changed';
+          else if (old_data?.assigned_to !== entity_data?.assigned_to) triggerType = 'task_assigned';
+        }
+        break;
+      case 'Proposal':
+        if (event_type === 'created') triggerType = 'proposal_created';
+        else if (event_type === 'updated' && old_data?.status !== entity_data?.status) {
+          triggerType = 'proposal_status_changed';
+          entityData = { ...entityData, old_status: old_data.status, new_status: entity_data.status };
+        }
+        break;
+      case 'Project':
+        if (event_type === 'created') triggerType = 'project_created';
+        else if (event_type === 'updated' && old_data?.status !== entity_data?.status) triggerType = 'project_status_changed';
+        break;
+    }
+
+    if (!triggerType) return Response.json({ success: true, message: 'No trigger needed' });
+
+    const workflows = await base44.asServiceRole.entities.Workflow.filter({
+      company_id: companyId,
+      trigger_type: triggerType,
+      is_active: true
+    });
+
+    if (!workflows || workflows.length === 0) {
+      return Response.json({ success: true, message: `No workflows configured for ${triggerType}` });
+    }
+
+    for (const workflow of workflows) {
+      try {
+        await base44.asServiceRole.functions.invoke('executeWorkflow', {
+          workflow_id: workflow.id,
+          entity_data: {
+            ...entityData,
+            entity_type: entity_name,
+            entity_id: entity_id,
+            customer_name: entityData?.name || entityData?.customer_name || entityData?.contact_name,
+            customer_email: entityData?.email || entityData?.customer_email || entityData?.contact_email,
+            customer_phone: entityData?.phone || entityData?.customer_phone || entityData?.contact_phone,
+            lead_name: entityData?.name,
+            lead_email: entityData?.email,
+            lead_phone: entityData?.phone,
+            app_url: 'https://ai-crm-pro.10afd77e.base44.app'
+          }
+        });
+      } catch (error) {
+        console.error(`❌ Failed to execute workflow ${workflow.workflow_name}:`, error);
+      }
+    }
+
+    return Response.json({
+      success: true,
+      message: `Triggered ${workflows.length} workflows`,
+      trigger_type: triggerType,
+      workflows_triggered: workflows.map(w => w.workflow_name)
+    });
+
+  } catch (error) {
+    console.error('💥 Auto-trigger error:', error);
+    return Response.json({ error: error.message, stack: error.stack }, { status: 500 });
+  }
+});
+functions/executeWorkflow.js
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { Resend } from 'npm:resend@4.0.0';
+import twilio from 'npm:twilio@5.0.0';
+
+async function sendSMSInternal(base44, { to, body, companyId, contactName, userEmail }) {
+    if (!to || !body) throw new Error('Missing to/body');
+    const envSid = Deno.env.get("TWILIO_ACCOUNT_SID");
+    const envToken = Deno.env.get("TWILIO_AUTH_TOKEN");
+    const envPhone = Deno.env.get("TWILIO_PHONE_NUMBER");
+    let dbSettings = null;
+    let targetCompanyId = companyId;
+    if (!targetCompanyId && userEmail && userEmail !== 'workflow') {
+        const staff = await base44.asServiceRole.entities.StaffProfile.filter({ user_email: userEmail });
+        if (staff?.length > 0 && staff[0].company_id) targetCompanyId = staff[0].company_id;
+        else {
+            const companies = await base44.asServiceRole.entities.Company.filter({ created_by: userEmail });
+            if (companies?.length > 0) targetCompanyId = companies[0].id;
+        }
+    }
+    if (targetCompanyId) {
+        const settings = await base44.asServiceRole.entities.TwilioSettings.filter({ company_id: targetCompanyId });
+        if (settings?.length > 0) dbSettings = settings[0];
+    }
+    const clean = (val) => val ? String(val).trim().replace(/[\s\u200B-\u200D\uFEFF"']/g, '') : '';
+    const isValidSid = (sid) => clean(sid).startsWith('AC');
+    let finalSid = '', finalToken = '', finalPhone = '', source = '';
+    if (dbSettings && isValidSid(dbSettings.account_sid) && dbSettings.auth_token && dbSettings.main_phone_number) {
+        finalSid = clean(dbSettings.account_sid); finalToken = clean(dbSettings.auth_token); finalPhone = clean(dbSettings.main_phone_number); source = 'DB';
+    }
+    if (!finalSid && isValidSid(envSid) && envToken && envPhone) {
+        finalSid = clean(envSid); finalToken = clean(envToken); finalPhone = clean(envPhone); source = 'ENV';
+    }
+    if (!finalSid.startsWith('AC')) throw new Error('Twilio is not configured for this company.');
+    if (!finalToken) throw new Error('Missing Twilio Auth Token.');
+    if (!finalPhone) throw new Error('Missing Twilio Phone Number.');
+    const client = twilio(finalSid, finalToken);
+    const message = await client.messages.create({ body, from: finalPhone, to });
+    if (targetCompanyId) {
+        try {
+            await base44.asServiceRole.entities.Communication.create({
+                company_id: targetCompanyId, contact_phone: to, contact_name: contactName || 'Unknown',
+                communication_type: 'sms', direction: 'outbound', message: body,
+                twilio_sid: message.sid, status: 'sent', created_by: userEmail || 'system'
+            });
+        } catch (logError) { console.error('[SMS] Failed to log to DB:', logError); }
+    }
+    return { success: true, sid: message.sid };
+}
+
+function calculateNextRecurrence(fromDate, pattern) {
+  const next = new Date(fromDate);
+  const [hours, minutes] = (pattern.time_of_day || '09:00').split(':').map(Number);
+  switch (pattern.frequency) {
+    case 'daily': next.setDate(next.getDate() + (pattern.interval || 1)); break;
+    case 'weekly': {
+      const targetDays = pattern.days_of_week || [1];
+      const currentDay = next.getDay();
+      let daysToAdd = targetDays.find(d => d > currentDay) - currentDay;
+      if (daysToAdd <= 0) daysToAdd = (7 - currentDay) + targetDays[0];
+      next.setDate(next.getDate() + daysToAdd);
+      break;
+    }
+    case 'monthly': {
+      const targetDay = pattern.day_of_month || 1;
+      next.setMonth(next.getMonth() + (pattern.interval || 1));
+      next.setDate(Math.min(targetDay, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
+      break;
+    }
+    case 'yearly': next.setFullYear(next.getFullYear() + (pattern.interval || 1)); break;
+  }
+  next.setHours(hours, minutes, 0, 0);
+  return next;
+}
+
+function replaceVariables(text, data, companyInfo = null) {
+  if (!text) return text;
+  const normalizedEmail = data?.customer_email || data?.contact_email || data?.email || data?.lead_email || '';
+  const normalizedPhone = data?.customer_phone || data?.contact_phone || data?.phone || data?.lead_phone || '';
+  const normalizedName = data?.customer_name || data?.contact_name || data?.lead_name || data?.name || 'Customer';
+  const normalizedAddress = data?.address || data?.property_address || data?.street || '';
+  const companyName = companyInfo?.company_name || data?.company_name || 'Our Company';
+  const companyPhone = companyInfo?.phone || data?.company_phone || '';
+  const companyEmail = companyInfo?.email || data?.company_email || '';
+  const companyAddress = companyInfo?.address || data?.company_address || '';
+  const companyWebsite = companyInfo?.website || data?.company_website || '';
+  const scheduleLink = data?.schedule_link || '#';
+  const serviceArea = data?.service_area || data?.city || data?.state || 'your area';
+
+  const varMap = {
+    '{contact_name}': normalizedName, '{customer_name}': normalizedName, '{lead_name}': normalizedName, '{name}': normalizedName,
+    '{contact_email}': normalizedEmail, '{customer_email}': normalizedEmail, '{lead_email}': normalizedEmail, '{email}': normalizedEmail,
+    '{contact_phone}': normalizedPhone, '{customer_phone}': normalizedPhone, '{lead_phone}': normalizedPhone, '{phone}': normalizedPhone,
+    '{address}': normalizedAddress, '{property_address}': normalizedAddress,
+    '{company_name}': companyName, '{company_phone}': companyPhone, '{company_email}': companyEmail,
+    '{company_address}': companyAddress, '{company_website}': companyWebsite,
+    '{estimate_number}': data?.estimate_number || '', '{invoice_number}': data?.invoice_number || '',
+    '{project_name}': data?.project_name || '', '{amount}': data?.amount || data?.payment_amount || '',
+    '{status}': data?.status || '', '{source}': data?.source || '',
+    '{app_url}': data?.app_url || 'https://ai-crm-pro.10afd77e.base44.app',
+    '{schedule_link}': scheduleLink, '{service_area}': serviceArea,
+  };
+
+  let result = text;
+  for (const [placeholder, value] of Object.entries(varMap)) {
+    result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), value);
+  }
+  return result;
+}
+
+async function sendEmail(base44, action, entityData, workflowCompanyId, companyInfo = null) {
+  let recipients = [];
+  const recipientList = (action.recipient || '').split(',').map(r => r.trim()).filter(r => r);
+  for (const recipient of recipientList) {
+    if (recipient === 'lead' || recipient === 'customer') {
+      const resolvedEmail = entityData.email || entityData.customer_email || entityData.contact_email || entityData.lead_email;
+      if (resolvedEmail && resolvedEmail.includes('@')) recipients.push(resolvedEmail);
+    } else if (recipient.includes('@')) {
+      recipients.push(recipient);
+    }
+  }
+  if (recipients.length === 0) throw new Error(`No email addresses found. Recipient field: "${action.recipient}"`);
+
+  const subject = replaceVariables(action.email_subject || 'Notification', entityData, companyInfo);
+  const body = replaceVariables(action.email_body || '', entityData, companyInfo);
+  const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
+  if (!RESEND_API_KEY) throw new Error('RESEND_API_KEY not configured');
+  const resend = new Resend(RESEND_API_KEY);
+
+  let finalHtml = body;
+  if (body && !body.includes('<!DOCTYPE') && !body.includes('<html>')) {
+    finalHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{margin:0;padding:0;font-family:Arial,sans-serif;}a{color:#3b82f6;}</style></head><body>${body}</body></html>`;
+  }
+
+  const result = await resend.emails.send({
+    from: `noreply@mycrewcam.com`,
+    to: recipients,
+    subject: subject,
+    html: finalHtml
+  });
+  if (result.error) throw new Error(`Resend error: ${JSON.stringify(result.error)}`);
+  return { success: true, recipients, subject };
+}
+
+async function sendSMS(base44, action, entityData, workflowCompanyId) {
+  let recipient = action.recipient;
+  if (recipient === 'lead' || recipient === 'customer') {
+    recipient = entityData.contact_phone || entityData.customer_phone || entityData.phone;
+  }
+  if (!recipient) { console.warn('⚠️ No phone number for SMS'); return; }
+  const message = replaceVariables(action.sms_message || '', entityData);
+  await sendSMSInternal(base44, { to: recipient, body: message, contactName: entityData.contact_name || entityData.name, companyId: workflowCompanyId, userEmail: 'workflow' });
+}
+
+async function createTask(base44, action, entityData, workflowCompanyId) {
+  const title = replaceVariables(action.task_title || 'Task', entityData);
+  const description = replaceVariables(action.task_description || '', entityData);
+  await base44.asServiceRole.entities.Task.create({
+    company_id: workflowCompanyId, name: title, description, status: 'not_started',
+    related_to: entityData.contact_name || entityData.customer_name || entityData.name
+  });
+}
+
+async function executeAction(base44, action, entityData, workflowCompanyId, companyInfo = null) {
+  const actionType = action.action_type || action.type;
+  switch (actionType) {
+    case 'send_email': return await sendEmail(base44, action, entityData, workflowCompanyId, companyInfo);
+    case 'send_sms': await sendSMS(base44, action, entityData, workflowCompanyId); break;
+    case 'create_task': await createTask(base44, action, entityData, workflowCompanyId); break;
+    case 'wait': console.log('⏳ Wait action (handled by scheduling)'); break;
+    default: console.warn(`⚠️ Unknown action type: ${action.action_type}`);
+  }
+}
+
+async function executeWorkflowInstance(base44, workflow, entityData) {
+  const workflowCompanyId = workflow.company_id;
+  let companyInfo = null;
+  if (workflowCompanyId) {
+    const companies = await base44.asServiceRole.entities.Company.filter({ id: workflowCompanyId });
+    companyInfo = companies[0];
+  }
+
+  const allActions = workflow.actions || workflow.steps || [];
+  const sortedActions = [...allActions].sort((a, b) => (a.step || 0) - (b.step || 0));
+
+  const results = [];
+  let lastExecutedStep = 0;
+  let stoppedAtAction = null;
+
+  for (const action of sortedActions) {
+    const delayMinutes = action.delay_minutes || action.config?.delay_minutes || 0;
+    const isWait = action.action_type === 'wait';
+    if (isWait || delayMinutes > 0) { stoppedAtAction = action; break; }
+    try {
+      const result = await executeAction(base44, action, entityData, workflowCompanyId, companyInfo);
+      results.push({ step: action.step, success: true, result });
+      lastExecutedStep = action.step;
+    } catch (error) {
+      results.push({ step: action.step, success: false, error: error.message });
+      lastExecutedStep = action.step;
+    }
+  }
+
+  if (stoppedAtAction) {
+    const delayMinutes = stoppedAtAction.delay_minutes || 0;
+    const nextActionTime = new Date(Date.now() + delayMinutes * 60 * 1000);
+    const currentStepToStore = stoppedAtAction.action_type === 'wait' ? stoppedAtAction.step : lastExecutedStep;
+    await base44.asServiceRole.entities.WorkflowExecution.create({
+      company_id: workflowCompanyId,
+      workflow_id: workflow.id,
+      workflow_name: workflow.workflow_name,
+      entity_type: entityData.entity_type || 'Unknown',
+      entity_id: entityData.entity_id || 'unknown',
+      entity_name: entityData.contact_name || entityData.customer_name || entityData.name || 'Unknown',
+      entity_data: entityData,
+      current_step: currentStepToStore,
+      status: 'active',
+      next_action_time: nextActionTime.toISOString(),
+      completed_steps: results.map(r => r.step),
+      execution_log: [{ step: 0, action: 'workflow_started', timestamp: new Date().toISOString(), success: true, message: `Started. Completed ${results.length} immediate steps.` }]
+    });
+  }
+
+  await base44.asServiceRole.entities.Workflow.update(workflow.id, {
+    execution_count: (workflow.execution_count || 0) + 1,
+    last_executed: new Date().toISOString()
+  });
+}
+
+Deno.serve(async (req) => {
+  try {
+    const base44 = createClientFromRequest(req);
+    const body = await req.json();
+    const { workflow_id, workflowId, entity_data, entityData, entity_type, entity_id } = body;
+    const finalWorkflowId = workflow_id || workflowId;
+    const finalEntityData = {
+      ...(entity_data || entityData || {}),
+      entity_type: (entity_data?.entity_type || entityData?.entity_type || entity_type),
+      entity_id: (entity_data?.entity_id || entityData?.entity_id || entity_id)
+    };
+    if (!finalWorkflowId) return Response.json({ error: 'Workflow ID required' }, { status: 400 });
+
+    const workflows = await base44.asServiceRole.entities.Workflow.filter({ id: finalWorkflowId });
+    if (!workflows || workflows.length === 0) return Response.json({ error: 'Workflow not found' }, { status: 404 });
+    const workflow = workflows[0];
+    if (!workflow.is_active) return Response.json({ error: 'Workflow is not active' }, { status: 400 });
+
+    await executeWorkflowInstance(base44, workflow, finalEntityData);
+    return Response.json({ success: true, message: 'Workflow executed successfully', workflowName: workflow.workflow_name });
+
+  } catch (error) {
+    console.error('💥 ERROR in executeWorkflow:', error);
+    return Response.json({ error: error.message, stack: error.stack }, { status: 500 });
+  }
+});

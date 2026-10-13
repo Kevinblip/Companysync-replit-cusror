@@ -1,0 +1,306 @@
+name: "Check staging privacy gate"
+description: >
+  Preflight gate for production deploys. Looks up the most recent
+  "Post-Deploy Portal Privacy Check" workflow run that targeted staging
+  for the commit being promoted (the staging job inside that workflow,
+  which itself runs after every staging deploy), and fails this step
+  if that staging run did not succeed.
+
+  This is meant to be wired into a production deploy workflow as the
+  first job, with the deploy job depending on it via `needs:`. A failure
+  here exits non-zero with a clear error and blocks the deploy. Set
+  the `allow_override` input to "true" (typically from a
+  workflow_dispatch input) to bypass the gate in an emergency.
+
+  Audit log (audit/privacy-overrides.md):
+    Every use of the emergency override appends a timestamped row to
+    audit/privacy-overrides.md in the repository and pushes it back to
+    the branch that triggered the deploy. This file is the durable,
+    human-readable record of all bypass events and survives long after
+    the Actions run's retention window expires. To review past overrides,
+    open audit/privacy-overrides.md in the repository — no digging
+    through expired CI runs required.
+
+inputs:
+  sha:
+    description: "Commit SHA being promoted to production. Defaults to github.sha."
+    required: false
+    default: ""
+  workflow_file:
+    description: >
+      Filename of the staging privacy check workflow (the one that
+      contains the post-deploy-privacy-check-staging job).
+    required: false
+    default: "post-deploy-privacy-check.yml"
+  staging_job_name:
+    description: >
+      Name of the job inside the privacy check workflow that runs
+      against staging. Must match the `name:` field of that job.
+    required: false
+    default: "Portal Privacy Smoke Test (Staging)"
+  allow_override:
+    description: >
+      If "true", a failing or missing staging privacy check is
+      surfaced as a warning instead of blocking the deploy. Use only
+      for documented emergency promotions.
+    required: false
+    default: "false"
+  override_justification:
+    description: >
+      Free-text reason for the override (incident ticket, rollback
+      rationale, etc.). Written into the audit log entry. Required
+      when allow_override is "true".
+    required: false
+    default: ""
+  actor:
+    description: >
+      GitHub login of the person who triggered the override. Written
+      into the audit log entry. Defaults to github.actor.
+    required: false
+    default: ""
+  github_token:
+    description: "GitHub token used to query the Actions API. Defaults to GITHUB_TOKEN."
+    required: false
+    default: ""
+  slack_webhook_url:
+    description: >
+      Slack Incoming Webhook URL. When set, a Slack message is posted
+      to this URL whenever the gate blocks a deploy (exit 1 path only;
+      no message is sent on success or when the override is used).
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Verify staging privacy check passed for this commit
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token != '' && inputs.github_token || github.token }}
+        REPO: ${{ github.repository }}
+        SHA: ${{ inputs.sha != '' && inputs.sha || github.sha }}
+        WORKFLOW_FILE: ${{ inputs.workflow_file }}
+        STAGING_JOB_NAME: ${{ inputs.staging_job_name }}
+        ALLOW_OVERRIDE: ${{ inputs.allow_override }}
+        OVERRIDE_JUSTIFICATION: ${{ inputs.override_justification }}
+        ACTOR: ${{ inputs.actor != '' && inputs.actor || github.actor }}
+        API: ${{ github.api_url }}
+        SLACK_WEBHOOK_URL: ${{ inputs.slack_webhook_url }}
+        DEPLOY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        GITHUB_REF_NAME: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+
+        emit_summary() {
+          # $1 = markdown line(s)
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+
+        notify_slack_blocked() {
+          # $1 = human-readable reason; staging_run_url may be empty for early failures
+          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
+            return 0
+          fi
+          local reason="$1"
+          local staging_link=""
+          if [ -n "${staging_run_url:-}" ]; then
+            staging_link="\n*Failed staging privacy run:* ${staging_run_url}"
+          fi
+          local payload
+          payload=$(printf '{
+  "text": ":no_entry: *Production deploy BLOCKED by privacy gate*\n*Repo:* %s\n*Commit:* `%s`\n*Reason:* %s%s\n*Blocked deploy run:* %s"
+}' "$REPO" "$SHA" "$reason" "$staging_link" "$DEPLOY_RUN_URL")
+          curl -s -X POST -H "Content-Type: application/json" \
+               -d "$payload" \
+               "$SLACK_WEBHOOK_URL" || true
+        }
+
+        # ── Audit log ────────────────────────────────────────────────────────
+        # Appends a row to audit/privacy-overrides.md and pushes it back to
+        # the repo. This is the durable record of every gate bypass; it
+        # survives long after the Actions run expires.
+        #
+        # FAIL-CLOSED: if the commit or push fails the job fails and the
+        # deploy does NOT proceed. An override without a committed audit
+        # entry is not acceptable.
+        commit_audit_log() {
+          # $1 = blocked_staging_run_url (may be empty)
+          local blocked_url="${1:-N/A}"
+          local timestamp
+          timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          local audit_file="audit/privacy-overrides.md"
+
+          # Sanitize justification for Markdown table safety: collapse
+          # newlines to a space and escape pipe characters so the table
+          # row stays parseable.
+          local safe_justification
+          safe_justification=$(printf '%s' "$OVERRIDE_JUSTIFICATION" \
+            | tr '\n\r' '  ' \
+            | sed 's/|/\\|/g')
+
+          # Create the file with a header if it does not exist yet.
+          if [ ! -f "$audit_file" ]; then
+            mkdir -p audit
+            cat > "$audit_file" <<'HEADER'
+# Privacy Gate Override Audit Log
+
+This file is the durable record of every emergency bypass of the
+staging privacy gate. It is committed back to the repository automatically
+each time `allow_privacy_check_override` is used in the Deploy to Production
+workflow. Entries survive long after the GitHub Actions run retention window.
+
+| Timestamp (UTC) | Actor | Commit SHA | Blocked Staging Run | Justification |
+|-----------------|-------|-----------|---------------------|---------------|
+HEADER
+          fi
+
+          # Append the new audit row.
+          printf '| %s | @%s | `%s` | %s | %s |\n' \
+            "$timestamp" \
+            "$ACTOR" \
+            "$SHA" \
+            "$blocked_url" \
+            "$safe_justification" \
+            >> "$audit_file"
+
+          # Commit and push. Use a dedicated committer identity for CI commits.
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$audit_file"
+          if git diff --cached --quiet; then
+            echo "Audit log unchanged — nothing to commit."
+            return 0
+          fi
+          git commit -m "audit: record privacy gate override for ${SHA:0:7} by @${ACTOR} [skip ci]
+
+Timestamp : $timestamp
+Actor     : @$ACTOR
+Commit    : $SHA
+Deploy run: $DEPLOY_RUN_URL
+Blocked staging run: $blocked_url
+Justification: $safe_justification"
+
+          # Push back to the branch that triggered the deploy.
+          # This MUST succeed — a deploy without a durable audit entry is
+          # not permitted. The job fails here if the push fails.
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+        }
+
+        block_or_warn() {
+          # $1 = error message
+          local msg="$1"
+          if [ "${ALLOW_OVERRIDE,,}" = "true" ]; then
+            # Justification is mandatory when the override is used.
+            # Strip whitespace and refuse an empty or blank value.
+            local trimmed_justification
+            trimmed_justification=$(printf '%s' "${OVERRIDE_JUSTIFICATION:-}" | tr -d '[:space:]')
+            if [ -z "$trimmed_justification" ]; then
+              echo "::error::override_justification is required when allow_privacy_check_override is true. Re-run the workflow and provide a non-empty justification explaining why the staging privacy gate is being bypassed."
+              exit 1
+            fi
+
+            echo "::warning::OVERRIDE ENABLED — staging privacy gate bypassed: $msg"
+            emit_summary "## ⚠️ Staging privacy gate **bypassed**"
+            emit_summary ""
+            emit_summary "Override input was set to \`true\` for commit \`$SHA\`."
+            emit_summary ""
+            emit_summary "**Actor:** @${ACTOR}"
+            emit_summary ""
+            emit_summary "**Justification:** ${OVERRIDE_JUSTIFICATION}"
+            emit_summary ""
+            emit_summary "Reason gate would have blocked: $msg"
+            emit_summary ""
+            emit_summary "A permanent audit entry is being committed to \`audit/privacy-overrides.md\`."
+            commit_audit_log "${staging_run_url:-}"
+            exit 0
+          fi
+          echo "::error::$msg"
+          emit_summary "## ❌ Production deploy blocked"
+          emit_summary ""
+          emit_summary "$msg"
+          emit_summary ""
+          emit_summary "To bypass in a documented emergency, re-run the deploy"
+          emit_summary "with the \`allow_privacy_check_override\` input set to \`true\`."
+          notify_slack_blocked "$msg"
+          exit 1
+        }
+
+        if [ -z "$SHA" ]; then
+          block_or_warn "No commit SHA provided to staging privacy gate."
+        fi
+
+        echo "Looking up staging privacy check runs for commit $SHA in $REPO ..."
+
+        # Pull the most recent runs of the privacy check workflow that were
+        # tied to this exact commit. `head_sha` filters server-side. We ask
+        # for completed runs only so an in-flight staging check forces a wait
+        # rather than a false green.
+        runs_json=$(
+          curl --fail --silent --show-error \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${API}/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?head_sha=${SHA}&status=completed&per_page=20"
+        ) || block_or_warn "Could not query GitHub Actions API for workflow ${WORKFLOW_FILE}."
+
+        total=$(printf '%s' "$runs_json" | jq '.total_count // 0')
+        if [ "$total" -eq 0 ]; then
+          block_or_warn "No completed '${WORKFLOW_FILE}' run found for commit ${SHA}. Deploy to staging and let the post-deploy privacy check finish before promoting."
+        fi
+
+        # Walk runs newest-first, find the first one whose staging job ran,
+        # and read that job's conclusion. We look at the *job*, not the
+        # workflow's overall conclusion, because the workflow also contains
+        # a production job that's irrelevant here (and might itself be
+        # failing for other reasons).
+        run_count=$(printf '%s' "$runs_json" | jq '.workflow_runs | length')
+        i=0
+        staging_conclusion=""
+        staging_run_id=""
+        staging_run_url=""
+        while [ "$i" -lt "$run_count" ]; do
+          run_id=$(printf '%s' "$runs_json" | jq -r ".workflow_runs[$i].id")
+          run_url=$(printf '%s' "$runs_json" | jq -r ".workflow_runs[$i].html_url")
+
+          # Fail closed: if we cannot read the newest candidate run's jobs,
+          # treat the gate as blocked rather than silently falling through
+          # to an older run that might be stale or unrelated.
+          jobs_json=$(
+            curl --fail --silent --show-error \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${API}/repos/${REPO}/actions/runs/${run_id}/jobs?per_page=50"
+          ) || block_or_warn "Could not read jobs for staging privacy run ${run_id} (${run_url}). Refusing to fall back to an older run for commit ${SHA}."
+
+          conclusion=$(
+            printf '%s' "$jobs_json" \
+              | jq -r --arg name "$STAGING_JOB_NAME" \
+                  '.jobs[] | select(.name == $name) | .conclusion' \
+              | head -n1
+          )
+
+          if [ -n "$conclusion" ] && [ "$conclusion" != "null" ]; then
+            staging_conclusion="$conclusion"
+            staging_run_id="$run_id"
+            staging_run_url="$run_url"
+            break
+          fi
+          i=$((i+1))
+        done
+
+        if [ -z "$staging_conclusion" ]; then
+          block_or_warn "Found ${total} run(s) of ${WORKFLOW_FILE} for commit ${SHA}, but none included a '${STAGING_JOB_NAME}' job. The staging privacy check has not run for this commit yet."
+        fi
+
+        echo "Latest staging privacy check for ${SHA}: ${staging_conclusion} (run ${staging_run_url})"
+
+        if [ "$staging_conclusion" != "success" ]; then
+          block_or_warn "Staging privacy check for commit ${SHA} concluded '${staging_conclusion}'. See ${staging_run_url}. Fix the regression and re-run the staging deploy before promoting to production."
+        fi
+
+        emit_summary "## ✅ Staging privacy gate passed"
+        emit_summary ""
+        emit_summary "Commit \`$SHA\` — staging privacy check [run ${staging_run_id}](${staging_run_url}) succeeded."

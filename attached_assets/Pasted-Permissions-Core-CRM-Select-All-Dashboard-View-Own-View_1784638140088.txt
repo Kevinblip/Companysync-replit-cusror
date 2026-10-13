@@ -1,0 +1,693 @@
+Permissions
+Core CRM
+Select All
+Dashboard
+
+View Own
+
+View Global
+Leads
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+Customers
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+Estimates
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+
+View All Templates
+Proposals
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+
+View All Templates
+Invoices
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+Payments
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+Items
+
+View
+
+Create
+
+Edit
+
+Delete
+Projects
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+
+Create Timesheets
+
+Edit Milestones
+Tasks
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+
+Edit Timesheets
+
+Delete Own Timesheets
+
+Delete Global Timesheets
+Reminders
+
+View Own
+
+View Global
+
+Create
+
+Edit
+
+Delete
+Contracts
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+AI & Automation
+Select All
+AI Estimator
+
+View
+
+Create
+
+Generate Images
+
+Generate Audio
+Lexi AI
+
+View
+
+Chat
+
+Edit Memory
+Permit Assistant
+
+View
+
+Generate
+Daily Reports
+
+View
+
+Generate
+AI Staff
+
+View
+
+Create
+
+Edit
+Video Training
+
+View
+
+Create
+
+Generate
+Workflows
+
+View
+
+Create
+
+Edit
+
+Delete
+
+Activate
+Campaigns
+
+View
+
+Create
+
+Edit
+
+Delete
+
+Send
+Inspections & Field Work
+Select All
+Inspections
+
+View Own
+
+View Global
+
+Create
+
+Capture Photos
+
+Edit Own
+
+Delete Own
+Lead Inspections
+
+View Own
+
+Create
+
+Edit
+Drone Analysis
+
+View
+
+Upload
+
+Analyze
+Storm Tracking
+
+View
+
+Generate Leads
+Property Importer
+
+View
+
+Import
+Lead Finder
+
+View
+
+Search
+
+Export
+Field Sales Tracker
+
+View
+
+Track Activity
+Field Rep App
+
+View
+
+Log Activity
+Territory Manager
+
+View
+
+Create
+
+Edit
+
+Assign
+Subcontractors
+
+View
+
+Create
+
+Edit
+
+Delete
+
+Search
+Communication
+Select All
+Communication Hub
+
+View Own
+
+View Global
+
+Audio Call
+
+Video Call
+
+Send Sms
+
+Send Email
+Live Call Dashboard
+
+View
+
+View Global
+Mailbox
+
+View Own
+
+View Global
+
+Send
+
+Delete Own
+Messages
+
+View Own
+
+View Global
+
+Send
+Email Templates
+
+View
+
+Create
+
+Edit
+
+Delete
+SMS Templates
+
+View
+
+Create
+
+Edit
+
+Delete
+Zoom Meeting
+
+View
+
+Create
+Finance & Accounting (⚠️ Restricted)
+Select All
+Bills
+
+View Own
+
+View Global
+
+Create
+
+Edit
+
+Approve
+
+Delete
+Accounting Setup
+
+View
+
+Configure
+Accounting Dashboard
+
+View Own
+
+View Global
+Transactions
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+Journal Entry
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+Transfer Funds
+
+View
+
+Create
+
+Approve
+Chart of Accounts
+
+View
+
+Create
+
+Edit
+
+Delete
+Bank Reconciliation
+
+View
+
+Reconcile
+Accounting Reports
+
+View Own
+
+View Global
+
+Export
+Expenses
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+Payouts
+
+View Own
+
+View Global
+
+Create
+
+Approve
+
+Process
+Commission Report
+
+View Own
+
+View Global
+Family Commissions
+
+View Own
+
+View Global
+
+Create
+
+Edit
+
+Process Payouts
+Documents & Files
+Select All
+Documents
+
+View Own
+
+View Global
+
+Upload
+
+Delete Own
+Contract Templates
+
+View
+
+Create
+
+Edit
+
+Delete
+Contract Signing
+
+View Own
+
+View Global
+
+Create
+
+Send
+
+Edit
+
+Delete
+Knowledge Base
+
+View
+
+Create
+
+Edit
+
+Delete
+Reports & Analytics
+Select All
+Reports
+
+View Own
+
+View Global
+
+View Timesheets Report
+Analytics Dashboard
+
+View Own
+
+View Global
+Report Builder
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+Sales Reports
+
+View Own
+
+View Global
+Sales Dashboard
+
+View Own
+
+View Global
+Competitor Analysis
+
+View
+
+Create
+Administrative (🔒 Manager/Admin Only)
+Select All
+General Settings
+
+View
+
+Edit
+Notification Diagnostics
+
+View
+
+Run
+Company Setup
+
+View
+
+Edit
+PDF Branding
+
+View
+
+Edit
+Report Templates
+
+View
+
+Create
+
+Edit
+
+Delete
+Staff Management
+
+View
+
+Create
+
+Edit
+
+Delete
+Roles Management
+
+View
+
+Create
+
+Edit
+
+Delete
+Round Robin Settings
+
+View
+
+Edit
+Templates
+
+View
+
+Create
+
+Edit
+
+Delete
+Data Import
+
+View
+
+Import
+Task Importer
+
+View
+
+Import
+Utilities
+
+View
+
+Cleanup
+
+Run Repairs
+Bulk Import
+
+View
+
+Import
+Custom Fields
+
+View
+
+Create
+
+Edit
+
+Delete
+Menu Setup
+
+View
+
+Edit
+Tax Rates
+
+View
+
+Create
+
+Edit
+
+Delete
+Integration Manager
+
+View
+
+Configure
+Google Chat Settings
+
+View
+
+Configure
+Slack Settings
+
+View
+
+Configure
+Other Features
+Select All
+Calendar
+
+View Own
+
+View Global
+
+Create
+
+Edit Own
+
+Delete Own
+Activity
+
+View Own
+
+View Global
+Review Requests
+
+View Own
+
+View Global
+
+Create
+
+Send
+Map
+
+View
+Subscription
+
+View
+
+Manage

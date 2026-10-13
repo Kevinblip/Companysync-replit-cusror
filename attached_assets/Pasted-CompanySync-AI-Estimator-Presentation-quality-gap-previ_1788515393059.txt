@@ -1,0 +1,43 @@
+CompanySync AI Estimator — Presentation quality gap (preview only)
+
+CONTEXT
+User compared live Present view to Monty’s mocks. Shell/pills are OK. The 3D looks blocky/CAD and is NOT close enough for leads. Fix Present + Aerial LOOK. Do NOT redesign chrome. Do NOT hardcode Malec or any demo house numbers/photos — every job uses that job’s address + photos.
+
+SOURCE OF TRUTH
+- Chrome: existing navy sidebar + pill row + light rounded viewer panel + orange assumption + blue tech footer (Build mode only).
+- Attached live screenshot = current broken Present.
+- Attached Monty aerial/present mocks = TARGET LOOK for lighting, materials, framing, aerial — NOT a house to copy geometry from.
+
+HARD RULES
+1) Do NOT invent a new report UI / white PDF / second capture wizard.
+2) Do NOT Publish. Do NOT touch YICN CRM/Twilio/staff. Test on Wizard Test Co / dummy job only.
+3) Do NOT invent squares with an LLM. Roof from Google Solar (Satellite takeoff). Walls/materials from that job’s photos.
+4) One data model for Build + Present + Aerial — same numbers, different skin.
+5) List files changed when done.
+
+FIX A — Presentation / Customer view (lead skin)
+- When pill is “Presentation render” or “Customer view”:
+  - HIDE the 2D elevation blueprint drawings above the 3D panel (those stay in Build / N facade / technical views only).
+  - Upgrade Three.js (or current) materials: asphalt shingle texture + subtle bump on roof; horizontal siding texture from classified material (vinyl/wood/etc); stone/stucco where detected.
+  - NEVER leave a facade flat pure blue or a wing as an untextured white box — if material unknown, use neutral warm gray siding + orange assumption “material unconfirmed”.
+  - Soft hemisphere/environment light + gentle ground contact shadow; white/light gray ground like product shot.
+  - Default camera: 3/4 hero angle, house fully framed, slight top tilt — not a weird cropped CAD angle.
+  - Keep “Drag / scroll to zoom”.
+  - Soft one-line disclaimer under panel for Present: “Estimate measurements — verify on site” (not the loud Build assumption banner unless they toggle Build).
+
+FIX B — Aerial roof pill
+- Must show TOP-DOWN / orthographic aerial (Solar footprint + roof facets), white/light edge lines on shingles, soft shadow.
+- NOT the same perspective 3D as Presentation.
+- Footer (Build) can show roof ft² / squares / pitch / footprint=solar.
+- If Solar missing: empty state in same panel — do not fake a roof.
+
+FIX C — Geometry honesty (don’t over-promise)
+- Improve Solar extrusion so roof pitch/height aren’t cartoon-tall when Solar provides pitch.
+- Attached garage / wings must share materials with main house unless photos say otherwise.
+- Do NOT claim photogrammetry mesh in this pass unless already implemented — this pass is Present polish + Aerial top-down + less broken materials.
+
+DONE WHEN
+- Presentation/Customer: no blueprints overhead, textured walls/roof, no blue/white missing materials, hero camera, soft shadow.
+- Aerial: true top-down Solar look.
+- Same shell; per-job data only.
+- Reply: files changed + click path to verify on a dummy job.

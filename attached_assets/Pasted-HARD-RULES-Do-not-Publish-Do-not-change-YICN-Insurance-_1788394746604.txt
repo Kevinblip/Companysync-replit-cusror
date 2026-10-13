@@ -1,0 +1,33 @@
+HARD RULES
+- Do not Publish.
+- Do not change YICN / Insurance Claims Network / companysync_master_001 records, Twilio, or webhooks.
+- Do not run Auto Setup, Launch Checklist, or cleanupYICNAndCreateSaaS.
+- Do not delete Healthy Edge Trial (healthyedge365@gmail.com), Wizard Test Co, or Wizard Test Two.
+- Do not remove DATABASE_URL.
+- Do not add or switch to Resend. Email is Postmark and Amazon SES. Do not mention Resend.
+
+WHY
+New-subscriber welcome mail is currently From io.companysync@gmail.com. A real trial to healthyedge365@gmail.com was sent that way at 8:11 PM ET. Gmail-as-From is why welcome can land in spam. getcompanysync.com SPF already has include:amazonses.com (and sparkpost/swipeone). There is no Postmark DKIM (pm._domainkey) on the domain. DMARC on getcompanysync.com is p=none.
+
+FIX
+1) Platform mail to new subscribers (welcome after /api/signup, password reset, trial emails) must send:
+   From name: CompanySync
+   From address: hello@getcompanysync.com
+   Reply-To: io.companysync@gmail.com
+   via the EXISTING Postmark or AWS SES integration (POSTMARK_SERVER_TOKEN or SES creds already in env). Do not add a new provider.
+
+2) Do not spoof hello@getcompanysync.com through Gmail SMTP. If the only path is Gmail SMTP, stop and report that — we will not publish a fake From.
+
+3) If Postmark/SES says the domain getcompanysync.com is not verified, do not invent DNS keys. Print the exact DKIM/CNAME/TXT values the provider shows so we can add them in Cloudflare.
+
+4) Leave YICN staff digests and action-item mail behavior alone if they are company-scoped. This change is platform subscriber mail only.
+
+5) Keep using Postmark or SES. No Resend.
+
+VERIFY IN PREVIEW
+- Show the code path: which function sends signup welcome, which From it will use, Postmark vs SES.
+- Do not send mail to YICN staff or real customers.
+- You may send ONE test to healthyedge365@gmail.com from hello@getcompanysync.com if the provider will accept it; otherwise skip send and report “domain not verified” plus the DNS records needed.
+- Do not publish.
+
+When done, list files changed, provider used, and any DNS records we must add.

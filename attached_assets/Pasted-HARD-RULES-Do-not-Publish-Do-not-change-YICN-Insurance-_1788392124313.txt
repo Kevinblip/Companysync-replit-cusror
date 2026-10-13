@@ -1,0 +1,42 @@
+HARD RULES
+- Do not Publish.
+- Do not change YICN / Insurance Claims Network / companysync_master_001 records, Twilio, or webhooks.
+- Do not run Auto Setup, Launch Checklist, or cleanupYICNAndCreateSaaS.
+- Do not delete Wizard Test Co or Wizard Test Two.
+- Do not remove DATABASE_URL.
+- Do not switch email to Resend. CompanySync sends mail with Postmark and Amazon SES. Do not mention Resend in the product or these pages.
+
+WHY
+getcompanysync.com/privacy and /terms currently show the logged-out marketing shell plus the Sign In form. There is no public Privacy Policy or Terms page. Signup copy says “you agree to our Terms of Service and Privacy Policy” with nowhere public to read them. Google Calendar branding review also needs a real, logged-out privacy URL.
+
+FIX
+1) Add public pages that load WITH NO LOGIN at:
+   - https://getcompanysync.com/privacy
+   - https://getcompanysync.com/terms
+   Also accept /Privacy and /Terms (redirect to lowercase).
+   These must be outside the auth gate (same idea as /signup and /PublicPricing). Logged-in users can still view them.
+
+2) Privacy Policy must be a real policy, not a one-liner. Include:
+   - Product: CompanySync CRM at getcompanysync.com
+   - Contact: io.companysync@gmail.com
+   - What we collect: account email/name, company profile, customers/jobs the subscriber enters, logs, cookies/session
+   - Optional connections the subscriber turns on: Google Calendar (calendar and calendar.events), Twilio phone/SMS, Stripe payments, their own Postmark/Amazon SES email
+   - Google Calendar: we only access a calendar after the user clicks Connect; we use it to show and create their business events; we do not sell that data
+   - We do not sell personal information
+   - How to ask for deletion / questions: email io.companysync@gmail.com
+   - Last updated: September 2, 2026
+   Keep it plain English. Do not invent an LLC name. Do not copy YICN Roofing’s customer data into the policy. Do not mention Resend.
+
+3) Terms of Service: 14-day free trial, no card required to start, paid plans after trial, subscriber owns their customer/job data, acceptable use, we can suspend abuse, contact io.companysync@gmail.com. Last updated September 2, 2026.
+
+4) Signup, login, and footer: “Terms of Service” and “Privacy Policy” must be actual links to those URLs.
+
+5) Logged-out visitor hitting /privacy or /terms must see the document, not “Welcome Back / Sign in”.
+
+VERIFY IN REPLIT PREVIEW (logged out)
+- Open /privacy and /terms: full policy text, no login overlay.
+- Open /signup: Terms and Privacy are clickable and land on those pages.
+- /PublicPricing still loads logged out.
+- Do not log into YICN. Do not publish.
+
+When done, list the files changed.

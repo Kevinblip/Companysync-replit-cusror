@@ -1,0 +1,2332 @@
+Filters
+company_id
+workflow_id
+workflow_name
+entity_type
+entity_id
+entity_name
+current_step
+status
+next_action_time
+waiting_for_event
+trigger_timeout
+recurring_schedule
+completed_steps
+ai_data
+execution_log
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+69a4816a6a2a4f5cb5118b05
+Mike Jones
+1
+active
+2026-03-01T19:12:27.018Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-03-01T18:12:27.018Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+69a4816a6a2a4f5cb5118b05
+Mike Jones
+1
+active
+2026-03-01T19:12:25.791Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-03-01T18:12:25.791Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+69a4816a6a2a4f5cb5118b05
+Mike Jones
+0
+active
+2026-03-15T18:12:20.339Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-03-01T18:12:20.339Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+69a4816a6a2a4f5cb5118b05
+Mike Jones
+0
+active
+2026-03-15T18:12:19.019Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-03-01T18:12:19.019Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+69a4816a6a2a4f5cb5118b05
+Mike Jones
+1
+active
+2026-03-01T18:42:18.799Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-03-01T18:12:18.800Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+69a4816a6a2a4f5cb5118b05
+Mike Jones
+1
+active
+2026-03-01T18:42:17.263Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-03-01T18:12:17.271Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+69a4816a6a2a4f5cb5118b05
+Mike Jones
+1
+active
+2026-03-01T18:27:13.292Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-03-01T18:12:13.292Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+69a4816a6a2a4f5cb5118b05
+Mike Jones
+1
+active
+2026-03-01T18:27:13.181Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-03-01T18:12:13.181Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6999898016cc920f2a3059ec
+Caller
+1
+active
+2026-02-21T11:31:57.841Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-21T10:31:57.841Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6999898016cc920f2a3059ec
+Caller
+1
+active
+2026-02-21T11:31:56.799Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-21T10:31:56.799Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6999898016cc920f2a3059ec
+Caller
+0
+active
+2026-03-07T10:31:51.415Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-21T10:31:51.415Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6999898016cc920f2a3059ec
+Caller
+0
+active
+2026-03-07T10:31:51.047Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-21T10:31:51.047Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6999898016cc920f2a3059ec
+Caller
+1
+active
+2026-02-21T11:01:50.142Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-21T10:31:50.142Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6999898016cc920f2a3059ec
+Caller
+1
+active
+2026-02-21T11:01:49.645Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-21T10:31:49.645Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6999898016cc920f2a3059ec
+Caller
+1
+active
+2026-02-21T10:46:46.287Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-21T10:31:46.287Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6999898016cc920f2a3059ec
+Caller
+1
+active
+2026-02-21T10:46:46.275Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-21T10:31:46.275Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6998f21f810141245138e353
+KRISTINA LONGINO
+1
+active
+2026-02-21T00:46:04.900Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T23:46:04.900Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6998f21f810141245138e353
+KRISTINA LONGINO
+1
+active
+2026-02-21T00:46:04.663Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T23:46:04.663Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6998f21f810141245138e353
+KRISTINA LONGINO
+0
+active
+2026-03-06T23:45:58.831Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-20T23:45:58.831Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6998f21f810141245138e353
+KRISTINA LONGINO
+0
+active
+2026-03-06T23:45:58.445Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-20T23:45:58.445Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6998f21f810141245138e353
+KRISTINA LONGINO
+1
+active
+2026-02-21T00:15:57.438Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T23:45:57.439Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6998f21f810141245138e353
+KRISTINA LONGINO
+1
+active
+2026-02-21T00:15:56.389Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T23:45:56.390Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6998f21f810141245138e353
+KRISTINA LONGINO
+1
+active
+2026-02-21T00:00:53.590Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T23:45:53.590Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6998f21f810141245138e353
+KRISTINA LONGINO
+1
+active
+2026-02-21T00:00:52.577Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T23:45:52.577Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+69988b7945c2c547e977597f
+Mike Jones
+1
+active
+2026-02-20T17:28:05.852Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T16:28:05.852Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+69988b7945c2c547e977597f
+Mike Jones
+1
+active
+2026-02-20T17:28:05.011Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T16:28:05.012Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+69988b7945c2c547e977597f
+Mike Jones
+0
+active
+2026-03-06T16:27:59.242Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-20T16:27:59.243Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+69988b7945c2c547e977597f
+Mike Jones
+0
+active
+2026-03-06T16:27:59.151Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-20T16:27:59.151Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+69988b7945c2c547e977597f
+Mike Jones
+1
+active
+2026-02-20T16:57:57.881Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T16:27:57.882Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+69988b7945c2c547e977597f
+Mike Jones
+1
+active
+2026-02-20T16:57:57.550Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T16:27:57.550Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+69988b7945c2c547e977597f
+Mike Jones
+1
+active
+2026-02-20T16:42:54.693Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T16:27:54.693Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+69988b7945c2c547e977597f
+Mike Jones
+1
+active
+2026-02-20T16:42:54.590Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T16:27:54.590Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6997ac6b97351e44cf005f50
+Caller
+1
+active
+2026-02-20T01:36:24.754Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T00:36:24.754Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6997ac6b97351e44cf005f50
+Caller
+0
+active
+2026-03-06T00:36:17.443Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-20T00:36:17.443Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6997ac6b97351e44cf005f50
+Caller
+1
+active
+2026-02-20T01:06:16.209Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T00:36:16.209Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6997ac6b97351e44cf005f50
+Caller
+1
+active
+2026-02-20T00:51:12.700Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-20T00:36:12.700Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+699751f1564b164caad0b461
+Marcia banks
+1
+active
+2026-02-19T19:10:26.661Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-19T18:10:26.662Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+699751f1564b164caad0b461
+Marcia banks
+0
+active
+2026-03-05T18:10:18.799Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T18:10:18.799Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+699751f1564b164caad0b461
+Marcia banks
+1
+active
+2026-02-19T18:40:17.291Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-19T18:10:17.291Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+699751f2e3741b8e45fd2d9f
+Marcia banks
+0
+active
+2027-02-19T18:10:16.045Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T18:10:16.045Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+699751f1564b164caad0b461
+Marcia banks
+1
+active
+2026-02-19T18:25:13.364Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-19T18:10:13.364Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+699751f2e3741b8e45fd2d9f
+Marcia banks
+0
+active
+2026-05-20T18:10:13.330Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T18:10:13.330Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6996fdc7d21f7cdc4f41e642
+jason
+1
+active
+2026-02-19T13:11:17.031Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-19T12:11:17.031Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6996fdc7d21f7cdc4f41e642
+jason
+1
+active
+2026-02-19T13:11:14.653Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-19T12:11:14.653Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6996fdc7d21f7cdc4f41e642
+jason
+0
+active
+2026-03-05T12:11:11.736Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T12:11:11.736Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6996fdc7d21f7cdc4f41e642
+jason
+1
+active
+2026-02-19T12:41:10.556Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-19T12:11:10.556Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6996fdc7d21f7cdc4f41e642
+jason
+0
+active
+2026-03-05T12:11:08.640Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T12:11:08.640Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6996fdc7d21f7cdc4f41e642
+jason
+1
+active
+2026-02-19T12:26:07.799Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-19T12:11:07.799Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6996fdc7d21f7cdc4f41e642
+jason
+1
+active
+2026-02-19T12:41:07.258Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-19T12:11:07.258Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6996fdc7d21f7cdc4f41e642
+jason
+1
+active
+2026-02-19T13:11:06.043Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-19T12:11:06.043Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6996fdc7d21f7cdc4f41e642
+jason
+1
+active
+2026-02-19T12:26:04.020Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-19T12:11:04.020Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6996fdc7d21f7cdc4f41e642
+jason
+0
+active
+2026-03-05T12:11:00.265Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T12:11:00.265Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6996fdc7d21f7cdc4f41e642
+jason
+1
+active
+2026-02-19T12:40:58.284Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-19T12:10:58.284Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6996fdc7d21f7cdc4f41e642
+jason
+1
+active
+2026-02-19T12:25:55.748Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-19T12:10:55.748Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6996fccae44a6a67977208a3
+another test 2
+0
+active
+2027-02-19T12:06:52.264Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T12:06:52.264Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6996fccae44a6a67977208a3
+another test 2
+0
+active
+2027-02-19T12:06:51.604Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T12:06:51.604Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6996fccae44a6a67977208a3
+another test 2
+0
+active
+2026-05-20T12:06:50.992Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T12:06:50.992Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6996fccae44a6a67977208a3
+another test 2
+0
+active
+2026-05-20T12:06:50.541Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T12:06:50.541Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6996fccae44a6a67977208a3
+another test 2
+0
+active
+2027-02-19T12:06:43.251Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T12:06:43.251Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6996fccae44a6a67977208a3
+another test 2
+0
+active
+2026-05-20T12:06:42.132Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T12:06:42.132Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6996c4a2eaf289e10d55bda9
+last test
+0
+active
+2027-02-19T08:07:17.047Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T08:07:17.047Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6996c4a2eaf289e10d55bda9
+last test
+0
+active
+2027-02-19T08:07:15.999Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T08:07:15.999Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6996c4a2eaf289e10d55bda9
+last test
+0
+active
+2026-05-20T08:07:15.948Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T08:07:15.948Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6996c4a2eaf289e10d55bda9
+last test
+0
+active
+2026-05-20T08:07:14.888Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T08:07:14.888Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6996c4a2eaf289e10d55bda9
+last test
+0
+active
+2027-02-19T08:07:08.634Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T08:07:08.635Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6996c4a2eaf289e10d55bda9
+last test
+0
+active
+2026-05-20T08:07:06.831Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T08:07:06.831Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6996af726662866ae7d6ad30
+another test
+0
+active
+2027-02-19T06:36:52.779Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T06:36:52.779Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6996af726662866ae7d6ad30
+another test
+0
+active
+2027-02-19T06:36:52.197Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T06:36:52.197Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6996af726662866ae7d6ad30
+another test
+0
+active
+2026-05-20T06:36:51.642Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T06:36:51.642Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6996af726662866ae7d6ad30
+another test
+0
+active
+2026-05-20T06:36:50.944Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T06:36:50.944Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6996af726662866ae7d6ad30
+another test
+0
+active
+2027-02-19T06:36:44.000Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T06:36:44.000Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6996af726662866ae7d6ad30
+another test
+0
+active
+2026-05-20T06:36:42.225Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-19T06:36:42.226Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6996493766b17c7aa7d7f73b
+test 123
+0
+active
+2027-02-18T23:21:08.600Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T23:21:08.600Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6996493766b17c7aa7d7f73b
+test 123
+0
+active
+2026-05-19T23:21:07.282Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T23:21:07.282Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6996493766b17c7aa7d7f73b
+test 123
+0
+active
+2027-02-18T23:20:53.487Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T23:20:53.487Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6996493766b17c7aa7d7f73b
+test 123
+0
+active
+2026-05-19T23:20:52.064Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T23:20:52.064Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6996493766b17c7aa7d7f73b
+test 123
+0
+active
+2027-02-18T23:20:43.079Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T23:20:43.080Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6996493766b17c7aa7d7f73b
+test 123
+0
+active
+2026-05-19T23:20:41.992Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T23:20:41.993Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6996369433c17dd7f553cdf5
+Ms. Walker
+0
+active
+2027-02-18T22:01:10.031Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T22:01:10.031Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6996369433c17dd7f553cdf5
+Ms. Walker
+0
+active
+2026-05-19T22:01:08.469Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T22:01:08.469Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e8
+Abandoned Estimate Recovery
+Estimate
+699635e183938f9cde99e378
+Ms. Walker
+0
+active
+2026-02-25T21:58:17.213Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T21:58:17.214Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+699635e067a000a6bd5f600a
+Ms. Walker
+0
+active
+2027-02-18T21:58:12.917Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T21:58:12.917Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ee
+Estimate Sent Follow-Up
+Estimate
+699635e183938f9cde99e378
+Ms. Walker
+1
+active
+2026-02-19T21:58:12.797Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-18T21:58:12.797Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478db
+Estimate Follow-up Sequence
+Estimate
+699635e183938f9cde99e378
+Ms. Walker
+1
+active
+2026-02-20T21:58:11.501Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T21:58:11.501Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+699635e067a000a6bd5f600a
+Ms. Walker
+0
+active
+2026-05-19T21:58:11.439Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T21:58:11.439Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e8
+Abandoned Estimate Recovery
+estimate
+699635e183938f9cde99e378
+Ms. Walker
+0
+active
+2026-02-25T21:58:09.023Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T21:58:09.023Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ee
+Estimate Sent Follow-Up
+estimate
+699635e183938f9cde99e378
+Ms. Walker
+1
+active
+2026-02-19T21:58:05.843Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-18T21:58:05.843Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478db
+Estimate Follow-up Sequence
+estimate
+699635e183938f9cde99e378
+Ms. Walker
+1
+active
+2026-02-20T21:58:03.883Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-18T21:58:03.883Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6994e643a81137ea21919117
+Mark Johnson
+1
+active
+2026-02-17T23:06:29.603Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-17T22:06:29.603Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6994e643a81137ea21919117
+Mark Johnson
+0
+active
+2026-03-03T22:06:23.607Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-17T22:06:23.607Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6994e63cc13c6d81a7459b06
+Mark Johnson
+1
+active
+2026-02-17T23:06:23.205Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-17T22:06:23.205Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6994e643a81137ea21919117
+Mark Johnson
+1
+active
+2026-02-17T22:36:22.273Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-17T22:06:22.273Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6994e62f07ffb388a2b382ba
+Mark Johnson
+1
+active
+2026-02-17T23:06:17.520Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-17T22:06:17.520Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6994e643a81137ea21919117
+Mark Johnson
+1
+active
+2026-02-17T22:21:15.498Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-17T22:06:15.498Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6994e63cc13c6d81a7459b06
+Mark Johnson
+0
+active
+2026-03-03T22:06:11.512Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-17T22:06:11.512Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6994e63cc13c6d81a7459b06
+Mark Johnson
+1
+active
+2026-02-17T22:36:09.869Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-17T22:06:09.869Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6994e63cc13c6d81a7459b06
+Mark Johnson
+1
+active
+2026-02-17T22:21:05.804Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-17T22:06:05.805Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6994e62f07ffb388a2b382ba
+Mark Johnson
+0
+active
+2026-03-03T22:06:04.364Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 0 immediate steps. Next: step 1 (delay)","success":true,"timestamp":"2026-02-17T22:06:04.364Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6994e62f07ffb388a2b382ba
+Mark Johnson
+1
+active
+2026-02-17T22:36:02.445Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-17T22:06:02.445Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6994e62f07ffb388a2b382ba
+Mark Johnson
+1
+active
+2026-02-17T22:20:56.413Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Completed 1 immediate steps. Next: step 2 (delay)","success":true,"timestamp":"2026-02-17T22:05:56.413Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+69937018007cfdf76603a884
+Sam Lichtman-Mikol
+1
+active
+2026-02-16T20:30:09.765Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T19:30:09.765Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+69937018007cfdf76603a884
+Sam Lichtman-Mikol
+0
+active
+2026-03-02T19:30:00.365Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T19:30:00.366Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+69937018007cfdf76603a884
+Sam Lichtman-Mikol
+1
+active
+2026-02-16T19:59:58.761Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T19:29:58.761Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+69937018007cfdf76603a884
+Sam Lichtman-Mikol
+1
+active
+2026-02-16T19:44:50.099Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T19:29:50.100Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+69934b2c2a9533c03089ca81
+Chad Sohl
+1
+active
+2026-02-16T17:52:36.101Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T16:52:36.101Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+69934b2c2a9533c03089ca81
+Chad Sohl
+0
+active
+2026-03-02T16:52:24.758Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T16:52:24.758Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+69934b2c2a9533c03089ca81
+Chad Sohl
+1
+active
+2026-02-16T17:22:22.151Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T16:52:22.151Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+69934b2c2a9533c03089ca81
+Chad Sohl
+1
+active
+2026-02-16T17:07:13.937Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T16:52:13.937Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e8
+Abandoned Estimate Recovery
+Estimate
+6992bc01c2db878efd07b353
+Victor Ruiz
+0
+active
+2026-02-23T06:41:26.749Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T06:41:26.749Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ee
+Estimate Sent Follow-Up
+Estimate
+6992bc01c2db878efd07b353
+Victor Ruiz
+1
+active
+2026-02-17T06:41:23.756Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T06:41:23.757Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478db
+Estimate Follow-up Sequence
+Estimate
+6992bc01c2db878efd07b353
+Victor Ruiz
+2
+active
+2026-02-18T06:41:22.152Z
+[2,4]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T06:41:22.152Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6992bbed5cf5e09de2ac85c6
+Victor Ruiz
+0
+active
+2027-02-16T06:41:03.539Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T06:41:03.539Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6992bbed5cf5e09de2ac85c6
+Victor Ruiz
+0
+active
+2026-05-17T06:41:02.219Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T06:41:02.219Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e8
+Abandoned Estimate Recovery
+Estimate
+6992bbdda224b151c04b04f8
+Victor Ruiz
+0
+active
+2026-02-23T06:40:52.475Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T06:40:52.475Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ee
+Estimate Sent Follow-Up
+Estimate
+6992bbdda224b151c04b04f8
+Victor Ruiz
+1
+active
+2026-02-17T06:40:48.934Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T06:40:48.934Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478db
+Estimate Follow-up Sequence
+Estimate
+6992bbdda224b151c04b04f8
+Victor Ruiz
+2
+active
+2026-02-18T06:40:46.992Z
+[2,4]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-16T06:40:46.992Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+69920af38890ff8406896aa9
+Michael Jones
+1
+active
+2026-02-15T19:06:09.430Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T18:06:09.430Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+69920af38890ff8406896aa9
+Michael Jones
+0
+active
+2026-03-01T18:06:02.070Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T18:06:02.070Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+69920af38890ff8406896aa9
+Michael Jones
+1
+active
+2026-02-15T18:36:00.726Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T18:06:00.726Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+69920af38890ff8406896aa9
+Michael Jones
+1
+active
+2026-02-15T18:20:56.740Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T18:05:56.740Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6991b51e9085ac6197748901
+George Smith
+1
+active
+2026-02-15T12:59:53.188Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T11:59:53.188Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6991b51e9085ac6197748901
+George Smith
+0
+active
+2026-03-01T11:59:47.195Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T11:59:47.195Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6991b51e9085ac6197748901
+George Smith
+1
+active
+2026-02-15T12:29:46.001Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T11:59:46.001Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6991b51e9085ac6197748901
+George Smith
+1
+active
+2026-02-15T12:14:42.897Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T11:59:42.897Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6991b51083e868686003d749
+George Smith
+1
+active
+2026-02-15T12:59:40.726Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T11:59:40.726Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6991b51083e868686003d749
+George Smith
+0
+active
+2026-03-01T11:59:34.761Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T11:59:34.761Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6991b51083e868686003d749
+George Smith
+1
+active
+2026-02-15T12:29:33.622Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T11:59:33.622Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6991b51083e868686003d749
+George Smith
+1
+active
+2026-02-15T12:14:29.837Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T11:59:29.837Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6991aca1ebef1965d4e8db80
+Kevin
+1
+active
+2026-02-15T12:23:42.218Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T11:23:42.219Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6991aca1ebef1965d4e8db80
+Kevin
+0
+active
+2026-03-01T11:23:36.034Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T11:23:36.034Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6991aca1ebef1965d4e8db80
+Kevin
+1
+active
+2026-02-15T11:53:34.190Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T11:23:34.190Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6991aca1ebef1965d4e8db80
+Kevin
+1
+active
+2026-02-15T11:38:30.817Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T11:23:30.817Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+69916799e5ab828a297eb630
+Test Lead Example
+1
+active
+2026-02-15T07:29:10.294Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T06:29:10.294Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+69916799e5ab828a297eb630
+Test Lead Example
+0
+active
+2026-03-01T06:29:03.154Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T06:29:03.154Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+69916799e5ab828a297eb630
+Test Lead Example
+1
+active
+2026-02-15T06:59:01.867Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T06:29:01.867Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+69916799e5ab828a297eb630
+Test Lead Example
+1
+active
+2026-02-15T06:43:58.072Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T06:28:58.073Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+699164ee35d5cce8e826367c
+Victor Ruiz
+1
+active
+2026-02-15T07:17:48.728Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T06:17:48.728Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+699164ee35d5cce8e826367c
+Victor Ruiz
+0
+active
+2026-03-01T06:17:42.038Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T06:17:42.038Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+699164ee35d5cce8e826367c
+Victor Ruiz
+1
+active
+2026-02-15T06:47:40.647Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T06:17:40.647Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+699164ee35d5cce8e826367c
+Victor Ruiz
+1
+active
+2026-02-15T06:32:36.528Z
+[1]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-15T06:17:36.529Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+698ce5dcd743c89b0f3b3e18
+Mike Jones
+0
+active
+2027-02-11T20:26:23.337Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-11T20:26:23.338Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+698ce5dcd743c89b0f3b3e18
+Mike Jones
+0
+active
+2026-05-12T20:26:22.142Z
+[]
+[{"action":"workflow_started","step":0,"message":"Workflow execution started. Next action: delay","success":true,"timestamp":"2026-02-11T20:26:22.142Z"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+6989cff40528df8cabab03b0
+John
+1
+active
+2026-02-09T13:16:23.321Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-09T12:16:23.321Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+6989cff40528df8cabab03b0
+John
+0
+active
+2026-02-23T12:16:13.375Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-09T12:16:13.375Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+6989cff40528df8cabab03b0
+John
+1
+active
+2026-02-09T12:46:11.300Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-09T12:16:11.300Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6989cff593ae4860d493952c
+John
+0
+active
+2027-02-09T12:16:08.277Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-09T12:16:08.278Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+6989cff40528df8cabab03b0
+John
+1
+active
+2026-02-09T12:31:06.337Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-09T12:16:06.337Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6989cff593ae4860d493952c
+John
+0
+active
+2026-05-10T12:16:05.912Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-09T12:16:05.912Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662dd73a4d91c6f6c47890
+30-Day Lead Nurture Campaign
+Lead
+69893f62bc202c97110b13c1
+Kevin
+1
+active
+2026-02-09T02:59:34.400Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-09T01:59:34.400Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e7
+Lost Lead Win-Back Campaign
+Lead
+69893f62bc202c97110b13c1
+Kevin
+0
+active
+2026-02-23T01:59:24.138Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-09T01:59:24.138Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e0
+Emergency Storm Response
+Lead
+69893f62bc202c97110b13c1
+Kevin
+1
+active
+2026-02-09T02:29:22.142Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-09T01:59:22.142Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478ed
+New Lead Welcome Sequence
+Lead
+69893f62bc202c97110b13c1
+Kevin
+1
+active
+2026-02-09T02:14:16.598Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-09T01:59:16.598Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+69889d39da23b505046abac8
+Rad
+0
+active
+2027-02-08T14:27:25.614Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-08T14:27:25.614Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+69889d39da23b505046abac8
+Rad
+0
+active
+2026-05-09T14:27:22.268Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-08T14:27:22.268Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6985ac3e022a0dd3f0d64641
+test
+0
+active
+2027-02-06T08:54:45.799Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-06T08:54:45.799Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6985ac3e022a0dd3f0d64641
+test
+0
+active
+2026-05-07T08:54:43.271Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-06T08:54:43.271Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6985ac3e022a0dd3f0d64641
+test
+0
+active
+2027-02-06T08:54:40.799Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-06T08:54:40.799Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6985ac3e022a0dd3f0d64641
+test
+0
+active
+2026-05-07T08:54:38.884Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-06T08:54:38.884Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+6985ac3e022a0dd3f0d64641
+test
+0
+active
+2027-02-06T08:54:32.015Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-06T08:54:32.016Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+6985ac3e022a0dd3f0d64641
+test
+0
+active
+2026-05-07T08:54:29.879Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-02-06T08:54:29.879Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+697a8be28e83b3d0e8dd2c3b
+Mike John
+0
+active
+2027-01-28T22:21:52.016Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-01-28T22:21:52.016Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+697a8be28e83b3d0e8dd2c3b
+Mike John
+0
+active
+2026-04-28T22:21:49.873Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-01-28T22:21:49.873Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+697a8be28e83b3d0e8dd2c3b
+Mike John
+0
+active
+2027-01-28T22:21:35.850Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-01-28T22:21:35.850Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+697a8be28e83b3d0e8dd2c3b
+Mike John
+0
+active
+2026-04-28T22:21:32.884Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-01-28T22:21:32.885Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+697a661acf85be9f3f079f1b
+New Test
+0
+active
+2027-01-28T19:40:26.294Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-01-28T19:40:26.294Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+697a661acf85be9f3f079f1b
+New Test
+0
+active
+2026-04-28T19:40:23.340Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-01-28T19:40:23.340Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+69721bf229469ae92cc45337
+Raffy
+0
+active
+2027-01-22T12:46:45.235Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-01-22T12:46:45.235Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+69721bf229469ae92cc45337
+Raffy
+0
+active
+2026-04-22T12:46:43.460Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-01-22T12:46:43.460Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e9
+Customer Birthday/Anniversary
+Customer
+69721bf229469ae92cc45337
+Raffy
+0
+active
+2027-01-22T12:46:26.484Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-01-22T12:46:26.485Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+695944e3c1fb00b7ab716c6f
+69662e643a4d91c6f6c478e5
+Seasonal Maintenance Reminder
+Customer
+69721bf229469ae92cc45337
+Raffy
+0
+active
+2026-04-22T12:46:17.290Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2026-01-22T12:46:17.291Z","success":true,"message":"Workflow execution started. Next action: delay"}]
+
+68ede230c2c0fa4f4b43ce84
+68f17887ef0d4ccf3aba27c3
+New Lead Welcome Sequence
+Unknown
+unknown
+Test Lead
+0
+completed
+2025-11-18T22:38:44.897Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T22:23:44.897Z","success":true,"message":"Workflow execution started"}]
+
+68ede230c2c0fa4f4b43ce84
+68f17887ef0d4ccf3aba27c9
+Abandoned Estimate Recovery
+Unknown
+unknown
+Test Customer
+0
+completed
+2025-11-25T22:22:40.270Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T22:22:40.270Z","success":true,"message":"Workflow execution started"}]
+
+69254a6a25361a3a1ad78062
+none
+No workflow for invoice_created
+Invoice
+692659b9f3f595a223985de3
+Francesca Laing
+0
+completed
+[]
+{"intent":null,"sentiment":null,"confidence":null,"summary":null,"issue_description":null,"issue_type":null,"service_type":null}
+[{"step":0,"action":"no_workflow_found","timestamp":"2025-11-26T01:37:03.627Z","success":false,"message":"No active workflows configured for trigger: invoice_created"}]
+
+691f7a4f3c043d8edc2b96e2
+none
+No workflow for task_created
+Task
+69206980646b820c8461cc2a
+Tree Removal & Electrical Repairs (Insurance) - Reginald Fields
+0
+completed
+[]
+{"intent":null,"sentiment":null,"confidence":null,"summary":null,"issue_description":null,"issue_type":null,"service_type":null}
+[{"step":0,"action":"no_workflow_found","timestamp":"2025-11-21T13:30:45.449Z","success":false,"message":"No active workflows configured for trigger: task_created"}]
+
+69254a6a25361a3a1ad78062
+none
+No workflow for invoice_created
+Invoice
+69265d0a4aa199dab9826932
+Kevin
+0
+completed
+[]
+{"intent":null,"sentiment":null,"confidence":null,"summary":null,"issue_description":null,"issue_type":null,"service_type":null}
+[{"step":0,"action":"no_workflow_found","timestamp":"2025-11-26T01:51:12.516Z","success":false,"message":"No active workflows configured for trigger: invoice_created"}]
+
+6917a3780bd4ffe5f74befeb
+68f17887ef0d4ccf3aba27cd
+Payment Received Thank You
+Unknown
+unknown
+Test Customer
+0
+completed
+2025-11-18T22:31:27.269Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T21:31:27.269Z","success":true,"message":"Workflow execution started"}]
+
+68ede230c2c0fa4f4b43ce84
+68f17887ef0d4ccf3aba27c8
+Emergency Storm Response
+Unknown
+unknown
+Test Lead
+0
+completed
+2025-11-18T22:52:27.731Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T22:22:27.731Z","success":true,"message":"Workflow execution started"}]
+
+68ede230c2c0fa4f4b43ce84
+68f17887ef0d4ccf3aba27c3
+New Lead Welcome Sequence
+Unknown
+unknown
+Test Lead
+0
+completed
+2025-11-18T21:28:02.657Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T21:13:02.657Z","success":true,"message":"Workflow execution started"}]
+
+69254a6a25361a3a1ad78062
+692a0765ba15e95999f1c46c
+30-Day Lead Nurture Campaign
+Unknown
+unknown
+Kevin Stone
+1
+failed
+2025-12-05T11:47:55.761Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2025-12-05T10:47:55.761Z","success":true,"message":"Workflow execution started. Next action: delay"},{"step":1,"action":"validation_failed","timestamp":"2025-12-05T11:48:01.612Z","success":false,"message":"Missing valid entity data (entity_type=Unknown, entity_id=unknown). Workflow cannot execute without proper customer/lead information."}]
+
+68ede230c2c0fa4f4b43ce84
+68f17887ef0d4ccf3aba27c8
+Emergency Storm Response
+Unknown
+unknown
+Test Lead
+0
+completed
+2025-11-18T22:53:46.184Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T22:23:46.184Z","success":true,"message":"Workflow execution started"}]
+
+69254a6a25361a3a1ad78062
+692a0765ba15e95999f1c46c
+30-Day Lead Nurture Campaign
+Lead
+6937667b7e8f911bc45e9091
+Kevin Stone
+10
+completed
+2025-12-13T01:02:02.699Z
+[1,1,2]
+[{"step":0,"action":"workflow_started","timestamp":"2025-12-09T00:00:09.714Z","success":true,"message":"Workflow execution started. Next action: delay"},{"step":1,"action":"send_sms","timestamp":"2025-12-09T01:01:45.853Z","success":true,"message":"SMS sent to 2163318323"},{"step":2,"action":"create_task","timestamp":"2025-12-10T01:02:02.699Z","success":true,"message":"Task created"}]
+
+691f7a4f3c043d8edc2b96e2
+none
+No workflow for lead_created
+Lead
+692447aa47dd4f3e8f3cbab1
+James Webb
+0
+completed
+[]
+{"intent":null,"sentiment":null,"confidence":null,"summary":null,"issue_description":null,"issue_type":null,"service_type":null}
+[{"step":0,"action":"no_workflow_found","timestamp":"2025-11-24T11:55:26.279Z","success":false,"message":"No active workflows configured for trigger: lead_created"}]
+
+69254a6a25361a3a1ad78062
+692a0765ba15e95999f1c46c
+30-Day Lead Nurture Campaign
+Lead
+6937667b7e8f911bc45e9091
+Kevin Stone
+10
+completed
+2025-12-10T01:02:19.529Z
+[1,1]
+[{"step":0,"action":"workflow_started","timestamp":"2025-12-09T00:00:12.657Z","success":true,"message":"Workflow execution started. Next action: delay"},{"step":1,"action":"send_sms","timestamp":"2025-12-09T01:02:19.529Z","success":true,"message":"SMS sent to 2163318323"}]
+
+68ede230c2c0fa4f4b43ce84
+68f17887ef0d4ccf3aba27ca
+Lost Lead Win-Back Campaign
+Unknown
+unknown
+Test Lead
+0
+completed
+2025-12-02T22:23:47.121Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T22:23:47.121Z","success":true,"message":"Workflow execution started"}]
+
+69254a6a25361a3a1ad78062
+none
+No workflow for invoice_created
+Invoice
+69277ae1fe98c8eb8fe0c43a
+Earl Cook
+0
+completed
+[]
+{"intent":null,"sentiment":null,"confidence":null,"summary":null,"issue_description":null,"issue_type":null,"service_type":null}
+[{"step":0,"action":"no_workflow_found","timestamp":"2025-11-26T22:10:49.427Z","success":false,"message":"No active workflows configured for trigger: invoice_created"}]
+
+68ede230c2c0fa4f4b43ce84
+68f18e20a24b2aac95793e2d
+Estimate Follow-up Sequence
+Unknown
+unknown
+Test Customer
+0
+completed
+2025-11-20T22:22:42.060Z
+[2,4]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T22:22:42.060Z","success":true,"message":"Workflow execution started"}]
+
+68ede230c2c0fa4f4b43ce84
+68f17887ef0d4ccf3aba27ca
+Lost Lead Win-Back Campaign
+Unknown
+unknown
+Test Lead
+0
+completed
+2025-12-02T21:13:05.009Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T21:13:05.009Z","success":true,"message":"Workflow execution started"}]
+
+68ede230c2c0fa4f4b43ce84
+68f17887ef0d4ccf3aba27ca
+Lost Lead Win-Back Campaign
+Unknown
+unknown
+Test Lead
+0
+completed
+2025-12-02T22:22:28.929Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T22:22:28.929Z","success":true,"message":"Workflow execution started"}]
+
+6917a3780bd4ffe5f74befeb
+68f17887ef0d4ccf3aba27d0
+Referral Request After Payment
+Unknown
+unknown
+Test Customer
+0
+completed
+2025-11-21T21:31:28.147Z
+[]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T21:31:28.147Z","success":true,"message":"Workflow execution started"}]
+
+68ede230c2c0fa4f4b43ce84
+68f17887ef0d4ccf3aba27c8
+Emergency Storm Response
+Unknown
+unknown
+Test Lead
+0
+completed
+2025-11-18T21:43:04.118Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T21:13:04.118Z","success":true,"message":"Workflow execution started"}]
+
+69254a6a25361a3a1ad78062
+none
+No workflow for estimate_created
+Estimate
+69259a7e543f3015d124154e
+Francesca Laing
+0
+completed
+[]
+{"intent":null,"sentiment":null,"confidence":null,"summary":null,"issue_description":null,"issue_type":null,"service_type":null}
+[{"step":0,"action":"no_workflow_found","timestamp":"2025-11-25T12:01:06.719Z","success":false,"message":"No active workflows configured for trigger: estimate_created"}]
+
+68ede230c2c0fa4f4b43ce84
+68f17887ef0d4ccf3aba27c4
+Estimate Sent Follow-Up
+Unknown
+unknown
+Test Customer
+0
+completed
+2025-11-19T22:22:39.318Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T22:22:39.319Z","success":true,"message":"Workflow execution started"}]
+
+68ede230c2c0fa4f4b43ce84
+68f17887ef0d4ccf3aba27c3
+New Lead Welcome Sequence
+Unknown
+unknown
+Test Lead
+0
+completed
+2025-11-18T22:37:25.835Z
+[1]
+[{"step":0,"action":"workflow_started","timestamp":"2025-11-18T22:22:25.835Z","success":true,"message":"Workflow execution started"}]
+

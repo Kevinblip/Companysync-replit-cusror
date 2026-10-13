@@ -1,0 +1,458 @@
+📸 Photo Siding Measurements
+
+7 photos | House | 2 stories | wallHt=14.5ft (photo_calibration (7 anchor(s))) | 6w + 2d + 1gd deducted | footprint=roof_eave
+
+Grade C
+82% · ±15%
+
+Net Wall Area
+
+12.70 SQ
+
+1,270 sqft net
+
+✏️ Correct any number below, then tap Rebuild Estimate
+
+Perimeter (LF)
+
+📷 Photo
+
+89
+Stories
+
+2
+Wall Ht (ft)
+
+total
+
+15
+Windows
+
+6
+Doors
+
+2
+Garage Doors
+
+1
+Gable Rise (ft)
+
+0 = none
+
+4
+Actual Openings
+
+0=auto · ×15 sqft
+
+0
+Measurement Summary
+🏠 3D View
+Siding
+1,270 ft²
+Brick excluded
+−288 ft² (21%)
+Windows
+6
+Doors
+2
+Garage Doors
+1
+Shutters
+4
+Fascia
+44 ft
+Soffit
+66 ft²
+Trim
+25 ft²
+Roof Perimeter
+89 ft
+Material
+vinyl
+Condition
+good
+Deductions
+
+🪟 6 windows
+
+🪪 4 shutters
+
+🚪 2 doors
+
+🏠 1 garage door
+
+−153 sqft openings
+
+🧱 21% brick −288 sqft
+
+Material / Condition
+
+🎨 vinyl
+
+📊 good cond.
+
+📐 moderate complexity
+
+🛰️ Satellite dims
+
+Per-Photo Breakdown
+
+FL Corner
+
+story
+
+0w 0d
+
+90% conf
+
+Front
+
+story
+
+2w 1d
+
+80% conf
+
+Back
+
+story
+
+4w 1d
+
+90% conf
+
+BR Corner
+
+story
+
+3w 0d
+
+90% conf
+
+BL Corner
+
+story
+
+2w 0d
+
+90% conf
+
+Detail 1
+
+story
+
+0w 0d
+
+90% conf
+
+Detail 2
+
+story
+
+2w 0d
+
+95% conf
+
+Build Siding Estimate
+
+AI Damage Observations
+LOW RISK
+🔩 Soft Metals & Flashing
+
+• 19 LF valley metal — include in scope. W-metal or ice-and-water underlap required.
+
+• 10 LF step flashing — walls/dormers present. Verify each run matches adjuster scope.
+
+• 8 LF apron/kickout flashing — critical for water intrusion claims.
+
+• 108 LF rake — include drip edge on all rake edges per code.
+
+• 89 LF eave drip edge — required along all eaves per IRC R905.
+
+🪟 Windows & Flashing
+
+• Building complexity suggests multiple window/door surrounds. Inspect each for seal failure and cracked casing.
+
+• 2-story building — include second-floor window wrap/flashing in scope; frequently missed by adjusters.
+
+• Step flashing present — check adjacent window head flashing and J-channel integration.
+
+🏠 Roofing
+
+• Standard cross gable roof — 12% waste. Normal scope expected.
+
+🌧️ Gutters & Fascia
+
+• 89 LF eave — full perimeter gutter replacement in scope. Include all downspout drops and miters.
+
+🏗️ Siding
+
+• 558 ft² net wall area, 2-story building — verify each elevation with adjuster.
+
+• 4 outside corners (52 LF) — include all corner trim in scope.
+
+🚗 Garage Doors
+
+• Inspect garage door panels, trim, and J-channel for hail damage. Include in claim if dented.
+
+14.4 SQ roof · 558 ft² walls · AI-derived scope — verify field measurements before claim submission
+
+Gutters & Downspouts
+
+Include in estimate
+Start Over
+Add Manual Measurement
+
+🔍
+Auto-Detect Garage/Shed
+Type:
+🏠 House
+🏗️ Garage
+🏚️ Shed
+Add Structure (Pin on Map)
+🔄 Regenerate Estimate
+Switch to Manual Drawing for Better Accuracy
+🏗️ **Welcome back!**
+
+Your AI Estimator is configured for **roofing, siding** with:
+• Primary materials: laminated shingles, vinyl siding, 5" gutters
+• Pricing source: Xactimate
+
+• Using favorites: Yes
+
+Choose your mode: Upload documents OR use satellite measurements!
+📍 **Property confirmed:** 20638 Centuryway Rd, Maple Heights, OH 44137, USA
+
+✨ **Choose your measurement method:**
+
+1️⃣ **AI Auto-Detect** (30-60 seconds) - Let AI analyze the roof automatically
+2️⃣ **Manual Drawing** (Most Accurate) - Draw lines yourself on the satellite map
+
+Click the button below to choose!
+🤖 **AI is analyzing the roof from satellite imagery...**
+
+⏱️ This takes 30-60 seconds...
+**Analyzed Main Property**
+
+**Roof Area:** 14.38 SQ | **Pitch:** 6/12 (averaged across 5 roof sections: 6/12, 7/12, 3/12, 1/12)
+**Order Qty:** 16.1 SQ (+12% waste)
+**Estimate Quality:** B (+/- 10%)
+
+Review the measurements, add gutters, or add more structures. When ready, click "Generate Estimate".
+🛰️ **Siding measurements ready — review before building estimate**
+
+📐 **Wall Area:** 8.60 SQ (860 sqft)
+🏠 **2 stories** × 15ft eave | 6 windows | 2 doors | 1 garage door(s)
+📐 **Gable area included:** 81 sqft (0.81 SQ, 4ft rise)
+📸 **Footprint: Photo-derived** (satellite unavailable or mismatched)
+🎨 **Material:** vinyl (good condition)
+📊 **Confidence:** Grade C 82% (±15%)
+
+✏️ **Review the Measurement Summary below. Correct any numbers, then tap "Build Siding Estimate".**
+✅ **Created Complete Siding Estimate!**
+
+📊 **12 items** • **Total: $4,871.83**
+
+🏠 Wall Area: 6.14 SQ (614 SF)
+Wall Top: 89 LF
+Wall Bottom: 89 LF
+Inside Corners: 0 (0 LF)
+Outside Corners: 4 (52 LF)
+
+💡 *Ask AI to "add 10% waste" or "add 15% waste" when ready. Use "AI Review" to check for missing items like soffit, fascia, or trim*
+✅ **Siding measured — 📷 7 uploaded photos + satellite**
+
+📐 Roof eave perimeter (89 LF from roof measurement)
+
+📐 **Wall Area:** 5.58 SQ (558 sqft)
+🏠 **2 stories × 13ft** | 2 windows | 0 doors | 1 garage door(s)
+🎨 **Material:** vinyl (good)
+📊 **Confidence:** Grade C 82% (±15%)
+
+Line items populated. Use **"Build Siding Estimate"** to rebuild with adjusted measurements.
+Ask a question...
+
+Dumpster
+10% Waste
+O&P
+Steep
+High Roof
+Pipe Boot
+Plywood
+Vent
+Skylight
+15% Markup
+Permit
+Customers
+Template:
+
+Auto (based on pricing)
+Pricing:
+
+Xactimate
+Select Existing Contact (Optional)
+Search customers & leads...
+Link PhotoSync Job (Optional)
+None - No inspection photos
+Name
+John Smith
+Email
+john@example.com
+Phone
+(555) 123-4567
+Address
+20638 Centuryway Rd, Maple Heights, OH 44137, USA
+Claim Number
+CLM-2024-001
+Insurance Company
+State Farm
+Adjuster Name
+John Doe
+Adjuster Phone
+(555) 123-4567
+Notes
+Additional project notes...
+Estimates
+🏠 Shingles
+12 Line Items
+$4,871.83
+EN
+ES
+#	Code	
+DescriptionColor/Brand
+Qty	Unit	Rate	Tax	O&P	RC	Dep %	ACV	
+1	
+SID REM
+
+Remove siding, vinyl or aluminum
+6.138000000000001
+SQ
+45
+$0.00	$55.24	$331.45	
+$331.45	
+
+2	
+SID VS
+
+Vinyl siding, standard grade
+6.138000000000001
+SQ
+425
+$0.00	$521.73	$3130.38	
+$3130.38	
+
+3	
+SID J
+
+J-channel, vinyl (Top)
+89
+LF
+3.5
+$0.00	$62.30	$373.80	
+$373.80	
+
+4	
+SID J
+
+J-channel, vinyl (Bottom)
+89
+LF
+3.5
+$0.00	$62.30	$373.80	
+$373.80	
+
+5	
+SID OC
+
+Outside corner, vinyl
+52
+LF
+4.25
+$0.00	$44.20	$265.20	
+$265.20	
+
+6	
+SID SS
+
+Starter strips, vinyl (12 ft ea) — 89 LF ÷ 12
+8
+EA
+8.5
+$0.00	$13.60	$81.60	
+$81.60	
+
+7	
+WP
+
+House wrap / weather barrier
+6.138000000000001
+SQ
+55
+$0.00	$67.52	$405.11	
+$405.11	
+
+8	
+COMPLETE_RENAIL
+
+complete re-nail
+2
+EA
+21
+$0.00	$8.40	$50.40	
+$50.40	
+
+9	
+CAULK
+
+Caulk, exterior grade (tube)
+2
+EA
+8
+$0.00	$3.20	$19.20	
+$19.20	
+
+10	
+EL BOX
+
+Electrical box extension (light box)
+1
+EA
+15
+$0.00	$3.00	$18.00	
+$18.00	
+
+11	
+SID WB
+
+Exterior water spigot / hose bib (cut-in & reconnect)
+1
+EA
+75
+$0.00	$15.00	$90.00	
+$90.00	
+
+12	
+HAUL_OFF
+
+haul off)
+1
+EA
+589.38
+$0.00	$117.88	$707.26	
+$707.26	
+
+Add Blank Row
+Browse Items
+Subtotal:
+$4871.83
+Total O&P (20%):
+$974.37
+RC:
+$5846.20
+ACV:
+$5846.20
+
+Tools
+
+Export
+Send Invoice

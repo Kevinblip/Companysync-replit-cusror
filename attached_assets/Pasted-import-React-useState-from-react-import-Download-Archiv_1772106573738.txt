@@ -1,0 +1,338 @@
+import React, { useState } from 'react';
+import { Download, Archive, X, RefreshCw, CheckSquare, Square } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { updatePhotoSections } from '@/functions/updatePhotoSections';
+import { toast } from 'sonner';
+import { base44 } from '@/api/base44Client';
+
+export default function PhotoGallery({ photos, jobId }) {
+  const [selectedPhoto, setSelectedPhoto] = useState(null);
+  const [downloadingIndividual, setDownloadingIndividual] = useState(null);
+  const [downloadingZip, setDownloadingZip] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState(new Set());
+
+  const addTextToImage = async (imageUrl, section, caption) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        
+        // Draw the image
+        ctx.drawImage(img, 0, 0);
+        
+        // Add text overlay at the bottom
+        const padding = 20;
+        const fontSize = Math.max(24, img.width / 30);
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(0, img.height - (fontSize * 2 + padding * 2), img.width, fontSize * 2 + padding * 2);
+        
+        // Draw section
+        ctx.fillStyle = 'white';
+        ctx.fillText(section || 'Inspection Photo', padding, img.height - fontSize - padding);
+        
+        // Draw caption
+        if (caption) {
+          ctx.font = `${fontSize * 0.8}px Arial`;
+          ctx.fillText(caption, padding, img.height - padding);
+        }
+        
+        canvas.toBlob(resolve, 'image/jpeg', 0.95);
+      };
+      img.src = imageUrl;
+    });
+  };
+
+  const downloadIndividualPhoto = async (photo) => {
+    setDownloadingIndividual(photo.id);
+    try {
+      const blob = await addTextToImage(photo.file_url, photo.section, photo.caption);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `photo-${photo.section || 'inspection'}-${photo.id}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    } catch (error) {
+      console.error('Error downloading photo:', error);
+    } finally {
+      setDownloadingIndividual(null);
+    }
+  };
+
+  const downloadAllAsZip = async () => {
+    if (photos.length === 0) return;
+    
+    setDownloadingZip(true);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      
+      for (const photo of photos) {
+        const blob = await addTextToImage(photo.file_url, photo.section, photo.caption);
+        const filename = `photo-${photo.section || 'inspection'}-${photo.id}.jpg`;
+        zip.file(filename, blob);
+      }
+      
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = window.URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `inspection-photos-${jobId}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    } catch (error) {
+      console.error('Error creating zip:', error);
+    } finally {
+      setDownloadingZip(false);
+    }
+  };
+
+  const togglePhotoSelection = (photoId) => {
+    const newSet = new Set(selectedPhotoIds);
+    if (newSet.has(photoId)) {
+      newSet.delete(photoId);
+    } else {
+      newSet.add(photoId);
+    }
+    setSelectedPhotoIds(newSet);
+  };
+
+  const selectAll = () => {
+    setSelectedPhotoIds(new Set(photos.map(p => p.id)));
+  };
+
+  const deselectAll = () => {
+    setSelectedPhotoIds(new Set());
+  };
+
+  const updateSelectedPhotos = async () => {
+    if (selectedPhotoIds.size === 0) {
+      toast.error('No photos selected');
+      return;
+    }
+
+    const newSection = prompt('Enter new section name (e.g., "Back Slope"):');
+    if (!newSection) return;
+
+    setUpdating(true);
+    try {
+      for (const photoId of selectedPhotoIds) {
+        await base44.entities.JobMedia.update(photoId, { section: newSection });
+      }
+      toast.success(`Updated ${selectedPhotoIds.size} photos to "${newSection}"`);
+      setSelectedPhotoIds(new Set());
+      setSelectionMode(false);
+      window.location.reload();
+    } catch (error) {
+      toast.error('Failed to update: ' + error.message);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  if (!photos || photos.length === 0) {
+    return <p className="text-gray-500 text-center py-8">No photos captured yet</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Action Buttons */}
+      <div className="flex gap-2 flex-wrap items-center">
+        <Button
+          onClick={downloadAllAsZip}
+          disabled={downloadingZip}
+          className="gap-2"
+          variant="default"
+        >
+          <Archive className="w-4 h-4" />
+          {downloadingZip ? 'Creating ZIP...' : `Download All (${photos.length})`}
+        </Button>
+        
+        {!selectionMode ? (
+          <Button
+            onClick={() => setSelectionMode(true)}
+            className="gap-2"
+            variant="outline"
+          >
+            <CheckSquare className="w-4 h-4" />
+            Select Photos
+          </Button>
+        ) : (
+          <>
+            <Button
+              onClick={selectAll}
+              className="gap-2"
+              variant="outline"
+              size="sm"
+            >
+              Select All
+            </Button>
+            <Button
+              onClick={deselectAll}
+              className="gap-2"
+              variant="outline"
+              size="sm"
+            >
+              Deselect All
+            </Button>
+            <Button
+              onClick={updateSelectedPhotos}
+              disabled={updating || selectedPhotoIds.size === 0}
+              className="gap-2"
+              variant="default"
+            >
+              <RefreshCw className="w-4 h-4" />
+              {updating ? 'Updating...' : `Update ${selectedPhotoIds.size} Selected`}
+            </Button>
+            <Button
+              onClick={() => {
+                setSelectionMode(false);
+                setSelectedPhotoIds(new Set());
+              }}
+              className="gap-2"
+              variant="ghost"
+              size="sm"
+            >
+              Cancel
+            </Button>
+          </>
+        )}
+      </div>
+
+      {/* Photo Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        {photos.map((photo) => (
+          <div key={photo.id} className={`relative group bg-white rounded-lg overflow-hidden shadow ${
+            selectedPhotoIds.has(photo.id) ? 'ring-4 ring-blue-500' : ''
+          }`}>
+            <img
+              src={photo.file_url}
+              alt={photo.section || 'Inspection photo'}
+              className="w-full h-48 object-cover cursor-pointer hover:opacity-75 transition-opacity"
+              onClick={() => {
+                if (selectionMode) {
+                  togglePhotoSelection(photo.id);
+                } else {
+                  setSelectedPhoto(photo);
+                }
+              }}
+            />
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+              <button
+                onClick={() => {
+                  if (selectionMode) {
+                    togglePhotoSelection(photo.id);
+                  } else {
+                    setSelectedPhoto(photo);
+                  }
+                }}
+                className="text-white text-sm font-medium"
+              >
+                {selectionMode ? (selectedPhotoIds.has(photo.id) ? 'Deselect' : 'Select') : 'View'}
+              </button>
+            </div>
+            
+            {selectionMode && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  togglePhotoSelection(photo.id);
+                }}
+                className="absolute top-2 left-2 bg-white rounded-full p-1 z-10 hover:bg-gray-100"
+              >
+                {selectedPhotoIds.has(photo.id) ? (
+                  <CheckSquare className="w-5 h-5 text-blue-600" />
+                ) : (
+                  <Square className="w-5 h-5 text-gray-400" />
+                )}
+              </button>
+            )}
+            <div className="p-2 bg-gray-50 text-xs text-gray-700">
+              {photo.section && (
+                <div className="font-medium">{photo.section}</div>
+              )}
+              {photo.caption && (
+                <div className="text-gray-600 mt-1">{photo.caption}</div>
+              )}
+            </div>
+            {!selectionMode && (
+              <Button
+                size="sm"
+                onClick={() => downloadIndividualPhoto(photo)}
+                disabled={downloadingIndividual === photo.id}
+                className="absolute top-2 right-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg"
+              >
+                <Download className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Photo Modal */}
+      {selectedPhoto && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setSelectedPhoto(null)}
+        >
+          <div
+            className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold text-lg">{selectedPhoto.section || 'Photo'}</h3>
+                <button
+                  onClick={() => setSelectedPhoto(null)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              {selectedPhoto.caption && (
+                <p className="text-sm text-gray-600">{selectedPhoto.caption}</p>
+              )}
+            </div>
+            <div className="flex-1 overflow-auto flex items-center justify-center p-4">
+              <img
+                src={selectedPhoto.file_url}
+                alt={selectedPhoto.section || 'Inspection photo'}
+                className="max-w-full max-h-full object-contain"
+              />
+            </div>
+            <div className="p-4 border-t flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setSelectedPhoto(null)}
+              >
+                Close
+              </Button>
+              <Button
+                onClick={() => {
+                  downloadIndividualPhoto(selectedPhoto);
+                  setSelectedPhoto(null);
+                }}
+                disabled={downloadingIndividual === selectedPhoto.id}
+                className="gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Download
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

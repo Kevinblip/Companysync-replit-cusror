@@ -1,0 +1,413 @@
+AI Estimator
+Upload any report or use satellite measurements to generate estimates
+
+Training Library
+Merge Docs
+Settings
+Customer:
+
+Auto (based on pricing)
+Amount:
+
+Custom
+Upload
+Storm Tracking
+AI Satellite Measurement
+
+🚧 Coming Soon
+🛰️ Default
+☀️ Clear
+❄️ Winter
+📅 Recent
+12819 Hoy Avenue, Cleveland, OH 44105
+
+Top-down · NN
+E
+S
+W
+3D
+AI Roof Estimate
+12819 Hoy Avenue, Cleveland, OH 44105
+
+Source: Google Solar API - Verify on-site
+
+B
+10% tolerance
+Estimate quality
+
+Roof Area:
+11.42SQ
+Pitch: 10/12 • Cross Gable
+
+Order Qty:
+13.13SQ
++15% waste included
+
+Pitch Multiplier:
+1.302x
+Applied to satellite footprint
+
+Ridge
+48.0 LF
+56%
+Hip
+0.0 LF
+52%
+Valley
+21.0 LF
+55%
+Rake
+83.0 LF
+55%
+Eave
+96.0 LF
+62%
+Step Flash
+11.0 LF
+52%
+Apron Flash
+8.0 LF
+--%
+Geometric Validation:
+
+P
+Outline vs Area:
+Eave+Rake ratio 1.32 within normal range
+P
+Eave/Rake ratio:
+1.2:1
+Confidence Breakdown:
+
+Source:
+78%
+Complexity:
+95%
+Geometry:
+95%
+Pitch:
+88%
+AI Notes:
+
+5 segments → cross_gable roof detected. Area: segment_sum. No calibration data yet — upload EagleView/Hover reports to improve accuracy.
+
+Measure Siding from Satellite
+📷 Measure Siding from House Photos
+▼ Expand
+AI Damage Observations
+LOW RISK
+🔩 Soft Metals & Flashing
+
+• 21 LF valley metal — include in scope. W-metal or ice-and-water underlap required.
+
+• 11 LF step flashing — walls/dormers present. Verify each run matches adjuster scope.
+
+• 8 LF apron/kickout flashing — critical for water intrusion claims.
+
+• 83 LF rake — include drip edge on all rake edges per code.
+
+• 96 LF eave drip edge — required along all eaves per IRC R905.
+
+🏠 Roofing
+
+• Standard cross gable roof — 15% waste. Normal scope expected.
+
+• Steep pitch (10/12) — labor steep-slope supplement applicable. Verify carrier allows.
+
+🌧️ Gutters & Fascia
+
+• 96 LF eave — full perimeter gutter replacement in scope. Include all downspout drops and miters.
+
+🪟 Windows & Flashing
+
+• Step flashing present — check adjacent window head flashing and J-channel integration.
+
+🚗 Garage Doors
+
+• Inspect garage door panels, trim, and J-channel for hail damage. Include in claim if dented.
+
+11.4 SQ roof · AI-derived scope — verify field measurements before claim submission
+
+Gutters & Downspouts
+
+Include in estimate
+Gutter Length (LF)
+96
+💡 Auto-filled based on eave measurements (96.00 LF)
+
+Number of Downspouts
+3
+💡 Estimated: 1 downspout per 35 LF of gutter
+
+Start Over
+Add Manual Measurement
+
+🔍
+Auto-Detect Garage/Shed
+Type:
+🏠 House
+🏗️ Garage
+🏚️ Shed
+Add Structure (Pin on Map)
+
+📷
+Aerial Views — 45° Oblique Roof Analysis
+▲ Hide
+Satellite roof views from 4 compass directions. Use the interactive map above (N/E/S/W + 3D buttons) to see 45° oblique angles.
+
+
+North
+
+East
+
+South
+
+West
+Roof from 4 compass directions · Red dot = property center
+
+🔄 Regenerate Estimate
+Switch to Manual Drawing for Better Accuracy
+✅ Saved!
+📍 **Property confirmed:** 12819 Hoy Avenue, Cleveland, OH 44105
+
+✨ **Choose your measurement method:**
+
+1️⃣ **AI Auto-Detect** (30-60 seconds) - Let AI analyze the roof automatically
+2️⃣ **Manual Drawing** (Most Accurate) - Draw lines yourself on the satellite map
+
+Click the button below to choose!
+🤖 **AI is analyzing the roof from satellite imagery...**
+
+⏱️ This takes 30-60 seconds...
+**Analyzed Main Property**
+
+**Roof Area:** 11.42 SQ | **Pitch:** 10/12
+**Order Qty:** 13.1 SQ (+15% waste)
+**Estimate Quality:** B (+/- 10%)
+
+Review the measurements, add gutters, or add more structures. When ready, click "Generate Estimate".
+**Created Complete Roof Estimate!**
+
+**13 items** | **Total: $9,239.448** | **$809/SQ**
+
+Roof: 11.42 SQ | Order Qty: 12.79 SQ (+12% waste) | Pitch: 10/12 | Gutters: 96 LF | Downspouts: 3
+
+Waste (12%) auto-applied to materials (12.79 SQ order qty). Say "make it $520 per sq" to adjust pricing.
+🏷️ Insurance Mode ON
+— AI will include all required insurance line items, no O&P
+12819
+
+Dumpster
+10% Waste
+O&P
+Steep
+High Roof
+Pipe Boot
+Plywood
+Vent
+Skylight
+15% Markup
+Permit
+Customers
+Template:
+
+Auto (based on pricing)
+Pricing:
+
+Custom
+Select Existing Contact (Optional)
+Search customers & leads...
+Link CrewCam Job (Optional)
+None - No inspection photos
+Name
+John Smith
+Email
+john@example.com
+Phone
+(555) 123-4567
+Address
+12819 Hoy Avenue, Cleveland, OH 44105
+Claim Number
+CLM-2024-001
+Insurance Company
+State Farm
+Adjuster Name
+John Doe
+Adjuster Phone
+(555) 123-4567
+Notes
+Additional project notes...
+Estimates
+🏠 Shingles
+13 Line Items
+$9,239.448
+EN
+ES
+#	Code	Description	Color	Brand	Qty	Unit	Rate	RCV	Dep %	ACV	
+1	
+3_TAB__25_YR
+
+3 tab - 25 yr. - comp. shingle roofing
+e.g., Black
+e.g., CertainTeed
+12.79
+SQ
+273
+$3491.67	
+$3491.67	
+
+2	
+ROOFING_FELT
+
+Roofing felt - synthetic underlayment - Standard grade
+e.g., Black
+e.g., CertainTeed
+12.79
+SQ
+45.48
+$581.69	
+$581.69	
+
+3	
+ICE__WATER_B
+
+Ice & water barrier
+e.g., Black
+e.g., CertainTeed
+407.68
+SF
+2.02
+$823.51	
+$823.51	
+
+4	
+ASPHALT_STAR
+
+Asphalt starter - universal starter course
+e.g., Black
+e.g., CertainTeed
+200.48
+LF
+2.18
+$437.05	
+$437.05	
+
+5	
+RR_DRIP_EDGE
+
+R&R Drip edge
+e.g., Black
+e.g., CertainTeed
+200.48
+LF
+3.16
+$633.52	
+$633.52	
+
+6	
+RR_RIDGE_CAP
+
+R&R Ridge cap - venting ridge cap shingles
+e.g., Black
+e.g., CertainTeed
+53.76
+LF
+12.59
+$676.84	
+$676.84	
+
+7	
+RR_VALLEY_W
+
+R&R Valley "W" flashing
+e.g., Black
+e.g., CertainTeed
+23.52
+LF
+7.12
+$167.46	
+$167.46	
+
+8	
+RR_FLASHING_14
+
+R&R Flashing, 14" wide
+e.g., Black
+e.g., CertainTeed
+12.32
+LF
+5.52
+$68.01	
+$68.01	
+
+9	
+REMOVE_3_TAB
+
+Remove 3 tab - 25 yr. - comp. shingle roofing
+e.g., Black
+e.g., CertainTeed
+12.79
+SQ
+76.31
+$976.00	
+$976.00	
+
+10	
+RFG GTR
+
+Gutter / downspout - aluminum - up to 5"
+e.g., Black
+e.g., CertainTeed
+96
+LF
+10.33
+$991.68	
+$991.68	
+
+11	
+DNSPOUT
+
+Downspout - aluminum - 2" x 3"
+e.g., Black
+e.g., CertainTeed
+3
+EA
+45
+$135.00	
+$135.00	
+
+12	
+RR_FLASHING_PIPE_JACK
+
+R&R Flashing - pipe jack
+e.g., Black
+e.g., CertainTeed
+2
+EA
+59.37
+$118.74	
+$118.74	
+
+13	
+RR_ROOF_VENT_TURTLE
+
+R&R Roof vent - turtle type - Plastic
+e.g., Black
+e.g., CertainTeed
+2
+EA
+69.14
+$138.28	
+$138.28	
+
+Add Blank Row
+Browse Items
+RCV:
+$9239.45
+ACV:
+$9239.45
+
+Tools
+
+Export
+Send Invoice
+Save

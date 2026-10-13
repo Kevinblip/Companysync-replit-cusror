@@ -1,0 +1,139 @@
+============================================================
+SNIPPET 1: SETTINGS PAGE - Call Direction Settings Card
+============================================================
+
+WHERE TO ADD: In your SarahSettings (Susan Settings) page on Base44,
+find the section after the Voice settings and BEFORE the System Prompt.
+Paste this entire card block there.
+
+REQUIRED IMPORTS (add to your existing imports if not already there):
+  PhoneOutgoing, PhoneIncoming, Zap, Clock, MessageSquare from lucide-react
+
+DEFAULT STATE VALUES (add these to your form defaults):
+  inbound_calls_enabled: true,
+  outbound_calls_enabled: false,
+  auto_call_new_leads: false,
+  auto_call_delay_minutes: 5,
+  outbound_greeting: "",
+  send_sms_after_booking: true,
+
+ALSO add these to wherever you load existing settings into the form:
+  outbound_calls_enabled: rec.outbound_calls_enabled ?? false,
+  auto_call_new_leads: rec.auto_call_new_leads ?? false,
+  auto_call_delay_minutes: rec.auto_call_delay_minutes ?? 5,
+  outbound_greeting: rec.outbound_greeting || "",
+  send_sms_after_booking: rec.send_sms_after_booking !== false,
+  inbound_calls_enabled: rec.inbound_calls_enabled !== false,
+
+============================================================
+JSX CODE - Paste this block:
+============================================================
+
+<Card className="mt-6 border-green-200 bg-green-50/30">
+  <CardHeader className="pb-3">
+    <div className="flex items-center gap-2">
+      <PhoneOutgoing className="w-5 h-5 text-green-600" />
+      <CardTitle className="text-base">Call Direction Settings</CardTitle>
+    </div>
+    <CardDescription className="text-xs">
+      Control whether your assistant handles incoming calls, makes outgoing calls to new leads, or both.
+    </CardDescription>
+  </CardHeader>
+  <CardContent className="space-y-5">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <PhoneIncoming className="w-4 h-4 text-blue-600" />
+            <Label>Accept Incoming Calls</Label>
+          </div>
+          <Switch
+            checked={form.inbound_calls_enabled}
+            onCheckedChange={(v) => onChange("inbound_calls_enabled", v)}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">Answers calls from customers calling your business number.</p>
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <PhoneOutgoing className="w-4 h-4 text-green-600" />
+            <Label>Make Outgoing Calls</Label>
+          </div>
+          <Switch
+            checked={form.outbound_calls_enabled}
+            onCheckedChange={(v) => onChange("outbound_calls_enabled", v)}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">Proactively calls new leads to qualify them and book inspections.</p>
+      </div>
+    </div>
+
+    {form.outbound_calls_enabled && (
+      <div className="border-t pt-4 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-amber-600" />
+                <Label>Auto-Call New Leads</Label>
+              </div>
+              <Switch
+                checked={form.auto_call_new_leads}
+                onCheckedChange={(v) => onChange("auto_call_new_leads", v)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">Automatically call new leads within a set delay. Only during business hours.</p>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-muted-foreground" />
+              <Label>Auto-Call Delay (minutes)</Label>
+            </div>
+            <Select
+              value={String(form.auto_call_delay_minutes)}
+              onValueChange={(v) => onChange("auto_call_delay_minutes", parseInt(v))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">1 minute (instant)</SelectItem>
+                <SelectItem value="3">3 minutes</SelectItem>
+                <SelectItem value="5">5 minutes</SelectItem>
+                <SelectItem value="10">10 minutes</SelectItem>
+                <SelectItem value="15">15 minutes</SelectItem>
+                <SelectItem value="30">30 minutes</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">How long to wait after a lead is created before calling.</p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="w-4 h-4 text-blue-600" />
+            <Label>Send SMS Confirmation After Booking</Label>
+          </div>
+          <Switch
+            checked={form.send_sms_after_booking}
+            onCheckedChange={(v) => onChange("send_sms_after_booking", v)}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Custom Outbound Greeting (optional)</Label>
+          <Textarea
+            rows={3}
+            value={form.outbound_greeting}
+            onChange={(e) => onChange("outbound_greeting", e.target.value)}
+            placeholder="Leave blank for default. Example: Hi, this is {agent} from {brand}. I'm reaching out because you recently inquired about roofing services..."
+          />
+          <p className="text-xs text-muted-foreground">{"Supports {agent}, {brand} placeholders. If blank, uses built-in outbound script."}</p>
+        </div>
+      </div>
+    )}
+  </CardContent>
+</Card>

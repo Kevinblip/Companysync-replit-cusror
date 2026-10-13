@@ -1,0 +1,71 @@
+interface DetectedWindow {
+  id: string;
+  heightInches: number;
+  widthInches: number;
+  hasLeftShutter: boolean;
+  hasRightShutter: boolean;
+}
+
+interface DetectedAwning {
+  location: 'door' | 'window' | 'patio';
+  widthInches: number;
+  projectionInches: number;
+  materialType: 'shingle' | 'metal' | 'fabric';
+}
+
+export class AccessoryDetector {
+  /**
+   * Calculates shutter pair counts, individual unit dimensions, and total surface area
+   */
+  public processShutters(windows: DetectedWindow[]) {
+    let pairCount = 0;
+    let totalShutterSqFt = 0;
+    const inventory: Array<{ windowId: string; shutterSize: string }> = [];
+
+    windows.forEach(w => {
+      if (w.hasLeftShutter && w.hasRightShutter) {
+        pairCount++;
+        // Standard shutter width is half the window width; height matches window height
+        const shutterWidthInches = Math.round(w.widthInches / 2);
+        const pairAreaSqFt = (2 * (shutterWidthInches * w.heightInches)) / 144;
+        
+        totalShutterSqFt += pairAreaSqFt;
+        inventory.push({
+          windowId: w.id,
+          shutterSize: `${shutterWidthInches}" W x ${w.heightInches}" H`
+        });
+      }
+    });
+
+    return {
+      shutter_pair_count: pairCount,
+      shutter_total_sqft: Math.round(totalShutterSqFt),
+      shutter_inventory: inventory
+    };
+  }
+
+  /**
+   * Calculates awning surface area and project scope
+   */
+  public processAwnings(awnings: DetectedAwning[]) {
+    let totalAwningSqFt = 0;
+
+    const summary = awnings.map(a => {
+      const areaSqFt = (a.widthInches * a.projectionInches) / 144;
+      totalAwningSqFt += areaSqFt;
+
+      return {
+        location: a.location,
+        material: a.materialType,
+        dimensions: `${a.widthInches}" W x ${a.projectionInches}" Depth`,
+        area_sqft: Math.round(areaSqFt)
+      };
+    });
+
+    return {
+      awning_count: awnings.length,
+      awning_total_sqft: Math.round(totalAwningSqFt),
+      awning_breakdown: summary
+    };
+  }
+}

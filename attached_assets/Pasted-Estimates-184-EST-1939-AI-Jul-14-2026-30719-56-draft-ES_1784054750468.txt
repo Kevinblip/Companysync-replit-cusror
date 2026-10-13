@@ -1,0 +1,925 @@
+Estimates (184)
+EST-1939 (AI)
+Jul 14, 2026
+$30719.56
+draft
+
+EST-1927 (AI)
+Jul 7, 2026
+$32804.74
+converted
+
+EST-1877 (AI)
+Jun 10, 2026
+$32068.13
+converted
+
+EST-1809 (AI)
+May 16, 2026
+$27563.97
+converted
+
+EST-1940 (AI)
+Jul 14, 2026
+$5892.61
+draft
+
+EST-1938 (AI)
+Jul 14, 2026
+$7151.02
+draft
+
+EST-1936 (AI)
+Jul 13, 2026
+$626.33
+draft
+
+EST-1935 (AI)
+Jul 12, 2026
+$19219.29
+draft
+
+EST-1935 (AI)
+Jul 12, 2026
+$19219.29
+draft
+
+EST-1935 (AI)
+Jul 12, 2026
+$19219.29
+draft
+
+EST-1934 (AI)
+Jul 11, 2026
+$14684.21
+draft
+
+EST-1934 (AI)
+Jul 11, 2026
+$14684.21
+draft
+
+EST-1931 (AI)
+Jul 10, 2026
+$10655.18
+draft
+
+EST-1926 (AI)
+Jul 7, 2026
+$25468.10
+converted
+
+EST-1910 (AI)
+Jun 26, 2026
+$19306.49
+draft
+
+EST-1905 (AI)
+Jun 24, 2026
+$37619.33
+converted
+
+EST-1901 (AI)
+Jun 19, 2026
+$11934.87
+converted
+
+EST-1900 (AI)
+Jun 18, 2026
+$14805.37
+converted
+
+↳ SUPP
+EST-1907
+— Supplement of EST-1900 (AI)
+Jun 25, 2026
+$19702.70
+draft
+
+EST-1899 (AI)
+Jun 18, 2026
+$10804.50
+draft
+
+EST-1898 (AI)
+Jun 18, 2026
+$12655.15
+draft
+
+EST-1892 (AI)
+Jun 14, 2026
+$11457.27
+draft
+
+EST-1890 (AI)
+Jun 13, 2026
+$27184.75
+draft
+
+EST-1885 (AI)
+Jun 12, 2026
+$22333.12
+converted
+
+EST-1882 (AI)
+Jun 11, 2026
+$9859.43
+draft
+
+EST-1881 (AI)
+Jun 10, 2026
+$10070.00
+converted
+
+EST-1879 (AI)
+Jun 10, 2026
+$17862.46
+converted
+
+EST-1878 (AI)
+Jun 10, 2026
+$12439.91
+converted
+
+EST-1874 (AI)
+Jun 9, 2026
+$5956.64
+sent
+
+EST-1873 (AI)
+Jun 9, 2026
+$4897.98
+draft
+
+EST-1872 (AI)
+Jun 8, 2026
+$36732.14
+converted
+
+EST-1867 (AI)
+Jun 5, 2026
+$38448.96
+draft
+
+EST-1865 (AI)
+Jun 3, 2026
+$16393.96
+draft
+
+EST-1864 (AI)
+Jun 3, 2026
+$9662.00
+converted
+
+EST-1862 (AI)
+May 30, 2026
+$8875.71
+draft
+
+EST-1860 (AI)
+May 29, 2026
+$6658.01
+draft
+
+EST-1858 (AI)
+May 29, 2026
+$13568.38
+converted
+
+EST-1857 (AI)
+May 29, 2026
+$8166.31
+draft
+
+EST-1856 (AI)
+May 29, 2026
+$28708.85
+draft
+
+EST-1853
+May 26, 2026
+$14821.07
+sent
+
+EST-1852 (AI)
+May 26, 2026
+$13150.09
+draft
+
+EST-1851 (AI)
+May 26, 2026
+$11000.20
+draft
+
+EST-1850 (AI)
+May 26, 2026
+$11550.20
+draft
+
+EST-1849 (AI)
+May 26, 2026
+$13151.19
+converted
+
+EST-1848 (AI)
+May 26, 2026
+$1400.00
+draft
+
+EST-1847 (AI)
+May 26, 2026
+$11050.01
+draft
+
+EST-1846 (AI)
+May 26, 2026
+$11850.03
+draft
+
+EST-1845 (AI)
+May 26, 2026
+$9350.00
+draft
+
+EST-1844 (AI)
+May 26, 2026
+$10349.99
+draft
+
+EST-1843 (AI)
+May 26, 2026
+$1634.64
+draft
+
+EST-1842 (AI)
+May 26, 2026
+$9918.78
+draft
+
+EST-1840 (AI)
+May 25, 2026
+$9523.04
+draft
+
+EST-1839
+May 25, 2026
+$9900.06
+draft
+
+EST-1838
+May 25, 2026
+$0.00
+draft
+
+EST-1837
+May 25, 2026
+$14311.69
+draft
+
+EST-1836
+May 25, 2026
+$10526.32
+draft
+
+EST-1835
+May 25, 2026
+$0.00
+draft
+
+EST-1834
+May 25, 2026
+$8120.84
+draft
+
+EST-1833
+May 25, 2026
+$12708.38
+draft
+
+EST-1832
+May 25, 2026
+$0.00
+draft
+
+EST-1831 (AI)
+May 24, 2026
+$25640.59
+converted
+
+EST-1830
+May 23, 2026
+$0.00
+draft
+
+EST-1829 (AI)
+May 23, 2026
+$438142.02
+draft
+
+EST-1826 (AI)
+May 23, 2026
+$25547.46
+draft
+
+EST-1818 (AI)
+May 20, 2026
+$13126.06
+draft
+
+EST-1813 (AI)
+May 19, 2026
+$5765.82
+draft
+
+EST-1810 (AI)
+May 17, 2026
+$17377.58
+draft
+
+EST-1808 (AI)
+May 16, 2026
+$32717.67
+draft
+
+EST-1806 (AI)
+May 14, 2026
+$14362.75
+draft
+
+EST-1805 (AI)
+May 13, 2026
+$13415.00
+draft
+
+↳ SUPP
+EST-1903
+— Supplement of EST-1805 (AI)
+Jun 22, 2026
+$10262.94
+draft
+
+EST-1802 (AI)
+May 12, 2026
+$1853.54
+draft
+
+EST-1800 (AI)
+May 12, 2026
+$5411.15
+draft
+
+EST-1797 (AI)
+May 12, 2026
+$12000.00
+converted
+
+EST-1796 (AI)
+May 12, 2026
+$34929.71
+draft
+
+EST-1794 (AI)
+May 11, 2026
+$38243.59
+draft
+
+EST-1792 (AI)
+May 9, 2026
+$1743.23
+draft
+
+EST-1791 (AI)
+May 8, 2026
+$2495.77
+converted
+
+EST-1 (AI)
+May 6, 2026
+$7500.00
+draft
+
+EST-1775 (AI)
+Apr 20, 2026
+$10772.53
+draft
+
+EST-1774 (AI)
+Apr 20, 2026
+$17580.71
+draft
+
+EST-1769 (AI)
+Apr 16, 2026
+$11807.12
+converted
+
+EST-1767 (AI)
+Apr 15, 2026
+$10000.00
+converted
+
+EST-1766 (AI)
+Apr 12, 2026
+$11925.79
+converted
+
+EST-1765 (AI)
+Apr 11, 2026
+$99443.30
+draft
+
+EST-1758 (AI)
+Apr 8, 2026
+$10657.05
+draft
+
+EST-1751 (AI)
+Apr 5, 2026
+$9618.15
+sent
+
+EST-1749 (AI)
+Apr 1, 2026
+$8690.95
+draft
+
+EST-1746 (AI)
+Apr 1, 2026
+$10683.00
+draft
+
+EST-1745 (AI)
+Mar 31, 2026
+$5463.01
+converted
+
+EST-1742 (AI)
+Mar 29, 2026
+$6480.19
+converted
+
+EST-1741
+Mar 29, 2026
+$500.00
+draft
+
+EST-1740 (AI)
+Mar 29, 2026
+$9437.85
+draft
+
+EST-1738 (AI)
+Mar 27, 2026
+$7848.60
+converted
+
+EST-1735 (AI)
+Mar 26, 2026
+$19277.16
+draft
+
+EST-1733 (AI)
+Mar 25, 2026
+$12380.00
+draft
+
+EST-273 (AI)
+Mar 24, 2026
+$11387.55
+draft
+
+Estimate -1617
+Mar 24, 2026
+$12341.52
+draft
+
+Estimate -1618
+Mar 24, 2026
+$3195.34
+draft
+
+Estimate -1619
+Mar 24, 2026
+$3195.34
+draft
+
+Estimate -1620
+Mar 24, 2026
+$8820.00
+draft
+
+Estimate -1621
+Mar 24, 2026
+$7840.00
+draft
+
+Estimate -1622
+Mar 24, 2026
+$29865.88
+draft
+
+Estimate -1623
+Mar 24, 2026
+$12341.52
+draft
+
+Estimate -1624
+Mar 24, 2026
+$2650.00
+draft
+
+Estimate -1625
+Mar 24, 2026
+$4987.10
+draft
+
+Estimate -1626
+Mar 24, 2026
+$12550.58
+draft
+
+Estimate -1627
+Mar 24, 2026
+$9730.62
+draft
+
+Estimate -1628
+Mar 24, 2026
+$12390.14
+draft
+
+Estimate -1629
+Mar 24, 2026
+$9140.10
+draft
+
+Estimate -1630
+Mar 24, 2026
+$7680.07
+draft
+
+Estimate -1631
+Mar 24, 2026
+$9100.20
+draft
+
+Estimate -1632
+Mar 24, 2026
+$9000.43
+draft
+
+Estimate -1633
+Mar 24, 2026
+$15000.00
+draft
+
+Estimate -1634
+Mar 24, 2026
+$9800.13
+draft
+
+Estimate -1635
+Mar 24, 2026
+$547.90
+draft
+
+Estimate -1636
+Mar 24, 2026
+$74400.62
+draft
+
+Estimate -1637
+Mar 24, 2026
+$9208.22
+draft
+
+Estimate -1638
+Mar 24, 2026
+$74400.78
+draft
+
+Estimate -1639
+Mar 24, 2026
+$19200.07
+draft
+
+Estimate -1640
+Mar 24, 2026
+$31500.79
+draft
+
+Estimate -1642
+Mar 24, 2026
+$7000.00
+draft
+
+Estimate -1643
+Mar 24, 2026
+$7870.45
+draft
+
+Estimate -1644
+Mar 24, 2026
+$21408.94
+draft
+
+Estimate -1646
+Mar 24, 2026
+$10780.23
+draft
+
+Estimate -1647
+Mar 24, 2026
+$6541.00
+draft
+
+Estimate -1648
+Mar 24, 2026
+$40260.04
+draft
+
+Estimate -1649
+Mar 24, 2026
+$5390.29
+draft
+
+Estimate -1650
+Mar 24, 2026
+$14553.72
+draft
+
+Estimate -1652
+Mar 24, 2026
+$9148.96
+draft
+
+Estimate -1653
+Mar 24, 2026
+$6370.42
+draft
+
+Estimate -1654
+Mar 24, 2026
+$21485.04
+draft
+
+Estimate -1655
+Mar 24, 2026
+$7840.84
+draft
+
+Estimate -1656
+Mar 24, 2026
+$6824.92
+draft
+
+Estimate -1657
+Mar 24, 2026
+$10750.24
+draft
+
+Estimate -1658
+Mar 24, 2026
+$18409.01
+draft
+
+Estimate -1659
+Mar 24, 2026
+$10170.06
+draft
+
+Estimate -1660
+Mar 24, 2026
+$8740.25
+draft
+
+Estimate -1661
+Mar 24, 2026
+$10510.19
+draft
+
+Estimate -1662
+Mar 24, 2026
+$11590.13
+draft
+
+Estimate -1663
+Mar 24, 2026
+$9900.80
+draft
+
+Estimate -1664
+Mar 24, 2026
+$16678.91
+draft
+
+Estimate -1665
+Mar 24, 2026
+$12390.14
+draft
+
+Estimate -1666
+Mar 24, 2026
+$9900.15
+draft
+
+Estimate -1667
+Mar 24, 2026
+$22050.00
+draft
+
+Estimate -1668
+Mar 24, 2026
+$13840.37
+draft
+
+Estimate -1669
+Mar 24, 2026
+$7630.78
+draft
+
+Estimate -1670
+Mar 24, 2026
+$6271.79
+draft
+
+Estimate -1671
+Mar 24, 2026
+$2950.40
+draft
+
+Estimate -1672
+Mar 24, 2026
+$7725.24
+draft
+
+Estimate -1673
+Mar 24, 2026
+$15878.96
+draft
+
+Estimate -1674
+Mar 24, 2026
+$13686.86
+draft
+
+Estimate -1675
+Mar 24, 2026
+$15702.84
+draft
+
+Estimate -1676
+Mar 24, 2026
+$3680.70
+draft
+
+Estimate -1677
+Mar 24, 2026
+$1750.00
+draft
+
+Estimate -1678
+Mar 24, 2026
+$12750.00
+draft
+
+Estimate -1680
+Mar 24, 2026
+$5195.56
+draft
+
+Estimate -1682
+Mar 24, 2026
+$9872.45
+draft
+
+Estimate -1683
+Mar 24, 2026
+$5475.58
+draft
+
+Estimate -1684
+Mar 24, 2026
+$14655.74
+draft
+
+Estimate -1686
+Mar 24, 2026
+$16273.99
+draft
+
+EST-1693 (AI)
+Mar 24, 2026
+$17003.70
+accepted
+
+EST-1696 (AI)
+Mar 24, 2026
+$8014.59
+draft
+
+EST-1697 (AI)
+Mar 24, 2026
+$31662.30
+accepted
+
+EST-1698 (AI)
+Mar 24, 2026
+$5604.09
+draft
+
+EST-1699 (AI)
+Mar 24, 2026
+$3466.00
+draft
+
+EST-1702
+Mar 24, 2026
+$150.00
+draft
+
+EST-1709 (AI)
+Mar 24, 2026
+$14090.22
+converted
+
+EST-1710 (AI)
+Mar 24, 2026
+$9520.12
+draft
+
+EST-1711 (AI)
+Mar 24, 2026
+$7960.11
+draft
+
+EST-1712 (AI)
+Mar 24, 2026
+$10660.11
+draft
+
+EST-1713 (AI)
+Mar 24, 2026
+$9300.11
+draft
+
+EST-1714 (AI)
+Mar 24, 2026
+$12500.00
+draft
+
+EST-1717 (AI)
+Mar 24, 2026
+$12500.00
+draft
+
+EST-1718 (AI)
+Mar 24, 2026
+$18000.00
+draft
+
+EST-1721 (AI)
+Mar 24, 2026
+$10340.07
+draft
+
+EST-1725 (AI)
+Mar 24, 2026
+$10494.96
+draft
+
+EST-1727 (AI)
+Mar 24, 2026
+$0.00
+sent
+
+EST-1729 (AI)
+Mar 24, 2026
+$14360.00
+draft
+
+EST-21 (AI)
+Mar 21, 2026
+$9265.70
+converted
+
+EST-18 (AI)
+Mar 20, 2026
+$14360.00
+converted
+
+EST-15 (AI)
+Mar 17, 2026
+$22975.43
+converted
+
+EST-11 (AI)
+Mar 16, 2026
+$8380.04
+draft
+
+EST-10 (AI)
+Mar 16, 2026
+$13980.20
+draft
+

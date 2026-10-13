@@ -1,0 +1,36 @@
+Please build a parametric 3D House Viewer Component in CompanySync using @react-three/fiber and @react-three/drei (Three.js) to dynamically render a 3D wireframe and textured house based on measurement outputs.
+
+1. Install Required Dependencies
+Install Three.js and React Three Fiber helper packages:
+npm install three @react-three/fiber @react-three/drei
+
+2. Create the 3D Viewer Component (components/AIEstimator/HouseModel3D.jsx)
+Create a standalone React component that accepts measurement props (perimeter, wallHeight, roofPitch, roofArea, storyCount, hasStoneWainscot).
+
+Canvas Setup: Use <Canvas> from @react-three/fiber with <OrbitControls>, soft ambient lighting, directional sunlight, and a light ground shadow plane.
+
+Procedural Walls: Extrude a rectangular or L-shaped box geometry matching the footprint dimensions and wall height (e.g., using storyCount * 9 or explicit wallHeight).
+
+Procedural Roof: Render gable/hip roof geometry on top of the walls angled to match the roofPitch (e.g., 6/12 pitch angle).
+
+Stone Wainscot (Optional Toggle): If hasStoneWainscot is enabled, split the lower 3 feet of the main wall geometry to render a distinct stone texture material.
+
+3. Material & Texture Mapping
+Apply basic procedural or seamless canvas textures for visual representation:
+
+Roofing Material: Architectural shingle pattern/color (dark charcoal/gray).
+
+Siding Material: Horizontal lap vinyl siding texture.
+
+Wainscot Material: Stacked stone / manufactured veneer texture.
+
+4. UI Dashboard Integration
+Add a toggle button on the AI Estimator dashboard (next to the AI Satellite/Measurement panel) labeled "Toggle 3D View".
+
+Allow live interactive controls:
+
+Rotate/Zoom: 360-degree rotation and scroll-to-zoom using mouse/touch.
+
+Measurement Overlay Mode: Toggle dimension labels (Linear Feet and Square Feet) directly on the 3D wall and roof facets.
+
+Wainscot Preview: Toggle the 3-foot stone wainscot band on/off to update the visual model and link it to the stone line item in the estimate generator.

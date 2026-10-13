@@ -1,0 +1,26 @@
+### TASK: Implement Satellite-to-Photo Cross-Calibration Pipeline for Dynamic Roof Measurements
+
+#### 1. Core Objective
+The current measurement pipeline treats satellite data (Google Solar API) and photo analysis (Vision AI) as independent, static silos. Uploading ground photos currently fails to dynamically update the baseline roof measurements. We must implement a fused calculation engine where photo-derived pitch and geometry automatically override and recalculate the satellite baseline.
+
+---
+
+#### 2. Technical Implementation Specifications
+
+1. **True Pitch Extraction (Vision AI Layer):**
+   - Update the photo analysis pipeline to explicitly calculate the roof pitch (e.g., 4/12, 6/12, 9/12) by analyzing gable rakes, eave angles, and ridge lines visible in the uploaded ground-level photos.
+   - If multiple photos show conflicting pitches, default to the dominant pitch of the primary structure or calculate a weighted average based on facet visibility.
+
+2. **The Fused Geometry Engine (Math & Recalculation):**
+   - Isolate the raw 2D footprint area (flat square footage) from the Solar API satellite polygon.
+   - When photos are uploaded and analyzed, mathematically apply the true photo-derived pitch to the 2D footprint using the standard pitch multiplier formula: 
+     `True 3D Area = 2D Area / cos(arctan(Pitch / 12))`
+   - Discard the raw satellite 3D mesh area entirely once the photo pitch is acquired.
+
+3. **State Management & UI Updates:**
+   - Automatically update the React state (`setRoofArea`, `setPitch`, etc.) with the newly calculated 3D roof area.
+   - Recalculate all dependent metrics: Total Squares, Waste Percentage formulas, and linear footage for ridges/hips based on the newly scaled 3D geometry.
+   - In the UI Summary Card, flag the updated metrics with a visual indicator (e.g., "Photo-Verified Pitch" or a green badge) so the user knows the satellite baseline has been successfully overridden by ground truth data.
+
+4. **3D Mesh Recalibration:**
+   - Pass the new photo-derived pitch parameter into `HouseModel3D.jsx` to force the extruded parametric solid to snap to the correct angle, abandoning the noisy satellite Digital Surface Model (DSM) slopes.

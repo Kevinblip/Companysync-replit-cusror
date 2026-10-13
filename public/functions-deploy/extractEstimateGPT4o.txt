@@ -1,0 +1,273 @@
+import { createClientFromRequest } from 'npm:@base44/sdk@0.7.1';
+
+async function getCompanyId(base44: any, user: any): Promise<string | null> {
+  try {
+    if (user.company_id) return user.company_id;
+    const staffProfiles = await base44.asServiceRole.entities.StaffProfile.filter({ user_email: user.email });
+    return staffProfiles[0]?.company_id || null;
+  } catch { return null; }
+}
+
+async function checkAIUsage(base44: any, companyId: string): Promise<{ allowed: boolean; error?: string }> {
+  try {
+    const companies = await base44.asServiceRole.entities.Company.filter({ id: companyId });
+    if (!companies[0] || companies[0].company_name === 'CompanySync') return { allowed: true };
+    
+    const usageRecords = await base44.asServiceRole.entities.SubscriptionUsage.filter({ company_id: companyId });
+    if (usageRecords.length === 0) return { allowed: true };
+    
+    const usage = usageRecords[0];
+    const limit = (usage.ai_limit || 0) + (usage.ai_credits_purchased || 0);
+    const used = usage.ai_used || 0;
+    
+    if (limit > 0 && used >= limit) {
+      return { allowed: false, error: 'AI interaction limit reached. Please upgrade your plan or purchase additional credits.' };
+    }
+    return { allowed: true };
+  } catch { return { allowed: true }; }
+}
+
+async function incrementAIUsage(base44: any, companyId: string): Promise<void> {
+  try {
+    const companies = await base44.asServiceRole.entities.Company.filter({ id: companyId });
+    if (companies[0]?.company_name === 'CompanySync') return;
+    const usageRecords = await base44.asServiceRole.entities.SubscriptionUsage.filter({ company_id: companyId });
+    if (usageRecords.length === 0) return;
+    const usage = usageRecords[0];
+    await base44.asServiceRole.entities.SubscriptionUsage.update(usage.id, { ai_used: (usage.ai_used || 0) + 1 });
+  } catch (err: any) { console.warn('AI usage increment failed:', err.message); }
+}
+
+Deno.serve(async (req) => {
+  try {
+    const base44 = createClientFromRequest(req);
+    const user = await base44.auth.me();
+    
+    if (!user) {
+      return Response.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const companyId = await getCompanyId(base44, user);
+    if (companyId) {
+      const aiCheck = await checkAIUsage(base44, companyId);
+      if (!aiCheck.allowed) {
+        return Response.json({ error: aiCheck.error || 'AI limit reached', success: false }, { status: 429 });
+      }
+    }
+
+    const { fileUrl, description, pricingSource, jobType } = await req.json();
+
+    console.log('📄 Extracting from:', fileUrl);
+    console.log('🎯 Job Type:', jobType || 'roofing');
+    console.log('💰 Pricing Source:', pricingSource || 'xactimate');
+
+    const openaiApiKey = Deno.env.get('Open_AI_Api_Key');
+    if (!openaiApiKey) {
+      return Response.json({ success: false, error: 'OpenAI API key not configured' }, { status: 500 });
+    }
+
+    // Determine which pricing source to use
+    let priceListSource = 'Xactimate';
+    if (pricingSource === 'xactimate_new') {
+      priceListSource = 'Xactimate_New';
+    } else if (pricingSource === 'custom') {
+      priceListSource = 'Custom';
+    } else if (pricingSource === 'symbility') {
+      priceListSource = 'Symbility';
+    }
+
+    // Fetch price list items for context
+    const priceList = await base44.entities.PriceListItem.filter({ source: priceListSource }, '-created_date', 200);
+    console.log(`📋 Loaded ${priceList.length} items from ${priceListSource} price list`);
+
+    // Build price list context grouped by category
+    let priceListContext = '';
+    if (priceList.length > 0) {
+      const categories = {};
+      priceList.forEach(item => {
+        const cat = item.category || 'Other';
+        if (!categories[cat]) categories[cat] = [];
+        categories[cat].push(`${item.code}: ${item.description} - $${item.price}/${item.unit}`);
+      });
+
+      priceListContext = Object.entries(categories)
+        .map(([cat, items]) => `**${cat}:**\n${items.slice(0, 30).join('\n')}`)
+        .join('\n\n');
+    }
+
+    const measurementPrompt = `You are an expert construction estimator analyzing measurement reports (EagleView, Hover, GAF QuickMeasure, etc.).
+
+**CRITICAL INSTRUCTIONS:**
+1. Extract ALL measurements from this report - roofing, siding, gutters, windows, etc.
+2. Extract customer info from the report header
+3. ONLY extract items that are EXPLICITLY listed with measurements
+4. Match each measurement to actual codes from the price list below
+
+**REPORT TYPES YOU MIGHT SEE:**
+- GAF QuickMeasure: Roof measurements with Summary page (page 7 typically)
+- Hover: Full exterior (roof + siding + gutters + windows)
+- EagleView: Detailed roof measurements
+- Generic measurement reports
+
+**AVAILABLE PRICE LIST (${priceListSource}):**
+${priceListContext || 'No price list loaded - use generic descriptions'}
+
+**WHAT TO EXTRACT:**
+
+**1. CUSTOMER INFORMATION:**
+- Customer name (full name from header)
+- Property address (complete with city, state, zip)
+- Claim number (if shown)
+- Insurance company (if shown)
+
+**2. ROOF MEASUREMENTS (if present):**
+- roof_area_sq: Total roof area in SQUARES (divide ft² by 100)
+- ridge_lf: Ridge linear feet
+- hip_lf: Hip linear feet
+- valley_lf: Valley linear feet
+- rake_lf: Rake/Gable linear feet
+- eave_lf: Eave linear feet
+- step_flashing_lf: Step flashing linear feet
+- roof_pitch: Dominant pitch (e.g., "11/12")
+
+**3. SIDING MEASUREMENTS (if present):**
+- siding_area_sq: Total siding area in squares
+- corners_lf: Corner trim linear feet
+- j_channel_lf: J-channel linear feet
+- starter_strip_lf: Starter strip linear feet
+- soffit_area_sq: Soffit area
+- fascia_lf: Fascia linear feet
+
+**4. GUTTER MEASUREMENTS (if present):**
+- gutter_lf: Gutter linear feet
+- downspout_ea: Number of downspouts
+- gutter_corners_ea: Corner pieces
+
+**5. OTHER MEASUREMENTS (if present):**
+- windows_ea: Number of windows
+- doors_ea: Number of doors
+- Any other specific measurements listed
+
+**IMPORTANT RULES:**
+- DO NOT add items unless they're explicitly listed with quantities in the report
+- DO NOT estimate or guess measurements
+- For GAF reports, check the "Summary" page (usually page 7) for accurate totals
+- Match measurements to price list codes when possible
+- If no price list code matches, use descriptive names
+
+Return EXACTLY this JSON structure:
+{
+  "success": true,
+  "customer_name": "John Smith",
+  "property_address": "123 Main St, Cleveland, OH 44120",
+  "claim_number": "",
+  "insurance_company": "",
+  "roof_pitch": "11/12",
+  "report_type": "gaf_quickmeasure or hover or eagleview",
+  "measurements": {
+    "roof_area_sq": 12.79,
+    "ridge_lf": 59,
+    "hip_lf": 6,
+    "valley_lf": 0,
+    "rake_lf": 160,
+    "eave_lf": 139,
+    "step_flashing_lf": 78,
+    "siding_area_sq": 0,
+    "gutter_lf": 0,
+    "downspout_ea": 0
+  },
+  "line_items": [
+    {
+      "code": "RFG SSSQ",
+      "description": "Shingles - architectural",
+      "quantity": 12.79,
+      "unit": "SQ",
+      "category": "Roofing"
+    }
+  ]
+}`;
+
+    console.log('🤖 Calling OpenAI GPT-4o Vision...');
+
+    const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'image_url',
+              image_url: { 
+                url: fileUrl,
+                detail: 'high'
+              }
+            },
+            {
+              type: 'text',
+              text: measurementPrompt
+            }
+          ]
+        }],
+        response_format: { type: "json_object" },
+        temperature: 0,
+        max_tokens: 4096
+      })
+    });
+
+    if (!aiResponse.ok) {
+      const errorText = await aiResponse.text();
+      console.error('❌ OpenAI error:', errorText);
+      return Response.json({ 
+        success: false, 
+        error: `OpenAI API error: ${aiResponse.status}` 
+      }, { status: 500 });
+    }
+
+    const aiResult = await aiResponse.json();
+    const resultText = aiResult.choices[0].message.content;
+
+    console.log('✅ GPT-4o response:', resultText.substring(0, 500));
+
+    let extracted;
+    try {
+      extracted = JSON.parse(resultText);
+      console.log('👤 Customer Name:', extracted.customer_name);
+      console.log('📍 Property Address:', extracted.property_address);
+      console.log('📊 Line Items:', extracted.line_items?.length || 0);
+    } catch (parseError) {
+      console.error('❌ JSON parse error:', parseError);
+      return Response.json({ 
+        success: false, 
+        error: 'Failed to parse AI response: ' + parseError.message 
+      }, { status: 500 });
+    }
+
+    if (companyId) {
+      await incrementAIUsage(base44, companyId);
+    }
+
+    return Response.json({
+      success: true,
+      customer_name: extracted.customer_name || "",
+      property_address: extracted.property_address || "",
+      claim_number: extracted.claim_number || "",
+      insurance_company: extracted.insurance_company || "",
+      roof_pitch: extracted.roof_pitch || null,
+      report_type: extracted.report_type || "unknown",
+      measurements: extracted.measurements || {},
+      line_items: extracted.line_items || []
+    });
+
+  } catch (error) {
+    console.error('💥 Error:', error);
+    return Response.json({ 
+      success: false, 
+      error: error.message
+    }, { status: 500 });
+  }
+});

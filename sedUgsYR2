@@ -1,0 +1,58 @@
+modules = ["nodejs-20", "web", "postgresql-16"]
+run = "npm run dev"
+hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
+
+[nix]
+channel = "stable-24_05"
+packages = ["unzip"]
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 5173
+externalPort = 5173
+
+[env]
+PORT = "5000"
+
+[deployment]
+deploymentTarget = "vm"
+run = ["node", "./dist/index.cjs"]
+build = ["npm", "run", "build"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev"
+waitForPort = 5000
+
+[userenv]
+
+[userenv.shared]
+BASE44_SARAH_API_URL = "https://company-sync-copy-003a6384.base44.app/api/apps/6959400ce977cc44003a6384/functions/sarahBridgeAPI"
+SARAH_BRIDGE_SECRET = "sarah_bridge_secure_2026"
+LEXI_NATIVE_BRIDGE_SECRET = "lexi-native-bridge-2026"
+BASE44_LEXI_BRIDGE_API_URL = "https://company-sync-copy-003a6384.base44.app/api/functions/lexiVoiceBridge"
+VITE_REPLIT_APP_URL = "https://b1978406-c443-40c2-a7a3-76001d9ab2cc-00-1sh8xwbbia89t.picard.replit.dev"
+VITE_BASE44_FUNCTIONS_URL = "https://company-sync-copy-003a6384.base44.app/api/apps/6959400ce977cc44003a6384/functions"
+EMAIL_FROM = "CompanySync <noreply@getcompanysync.com>"
+
+[agent]
+integrations = ["javascript_log_in_with_replit:2.0.0", "stripe:2.0.0"]

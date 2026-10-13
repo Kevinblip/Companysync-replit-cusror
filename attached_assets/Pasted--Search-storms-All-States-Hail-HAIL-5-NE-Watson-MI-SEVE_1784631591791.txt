@@ -1,0 +1,327 @@
+
+Search storms...
+
+All States
+
+Hail
+HAIL - 5 NE Watson, MI
+SEVERE
+extreme
+5 NE Watson, MI
+🧊 3" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 7:36 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - Hermansville, MI
+SEVERE
+extreme
+Hermansville, MI
+🧊 2.75" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 7:25 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - Wilson, MI
+SEVERE
+extreme
+Wilson, MI
+🧊 2" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 7:23 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 4 S Trenary, MI
+SEVERE
+extreme
+4 S Trenary, MI
+🧊 2.75" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 6:54 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 2 S Perkins, MI
+SEVERE
+extreme
+2 S Perkins, MI
+🧊 2.75" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 6:54 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 1 NE Story City, IA
+SEVERE
+extreme
+1 NE Story City, IA
+🧊 2.75" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 6:26 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - Arnold, MI
+SEVERE
+extreme
+Arnold, MI
+🧊 2.75" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 6:24 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 2 NNE Roland, IA
+SEVERE
+extreme
+2 NNE Roland, IA
+🧊 2.5" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 6:19 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 1 ENE Ellsworth, IA
+SEVERE
+extreme
+1 ENE Ellsworth, IA
+🧊 2" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 6:07 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 2 N Arnold, MI
+SEVERE
+severe
+2 N Arnold, MI
+🧊 1.75" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 6:23 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 4 N Roland, IA
+SEVERE
+severe
+4 N Roland, IA
+🧊 1.75" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 6:15 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 4 W Trowbridge Park, MI
+SEVERE
+severe
+4 W Trowbridge Park, MI
+🧊 1.25" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 5:45 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 4 NE Negaunee, MI
+SEVERE
+severe
+4 NE Negaunee, MI
+🧊 1.25" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 5:45 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 4 N Kamrar, IA
+SEVERE
+severe
+4 N Kamrar, IA
+🧊 1.75" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 5:39 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 2 SE Waukee, IA
+severe
+2 SE Waukee, IA
+🧊 1" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 10:13 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - West Des Moines, IA
+severe
+West Des Moines, IA
+🧊 1" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 10:07 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 3 SSE Alleman, IA
+severe
+3 SSE Alleman, IA
+🧊 1" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 8:33 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - Luther, IA
+severe
+Luther, IA
+🧊 1" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 8:01 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - Spread Eagle, WI
+severe
+Spread Eagle, WI
+🧊 1" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 6:35 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 1 WNW Spread Eagle, WI
+severe
+1 WNW Spread Eagle, WI
+🧊 1" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 6:13 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - Marquette, MI
+severe
+Marquette, MI
+🧊 1" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 6:06 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 1 S Trowbridge Park, MI
+severe
+1 S Trowbridge Park, MI
+🧊 1" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 6:04 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - Fairfax, IA
+severe
+Fairfax, IA
+🧊 1" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 12:04 PM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - Ewen, MI
+severe
+Ewen, MI
+🧊 1" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 9:31 AM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - Herman, MI
+minor
+Herman, MI
+🧊 0.25" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 9:40 AM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 5 E White Pine, MI
+minor
+5 E White Pine, MI
+🧊 0.7" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 9:18 AM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 1 N Ontonagon, MI
+minor
+1 N Ontonagon, MI
+🧊 0.25" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 9:15 AM
+
+🔵 +Swath
+🏠 Addresses
+Report
+HAIL - 1 ENE Tofte, MN
+minor
+1 ENE Tofte, MN
+🧊 0.25" hail
+✅ Ended
+📡 Spotter Verified
+📅 Jul 20, 2026 7:05 AM
+
+🔵 +Swath
+🏠 Addresses

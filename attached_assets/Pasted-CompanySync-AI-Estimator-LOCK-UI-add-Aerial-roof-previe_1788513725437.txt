@@ -1,0 +1,47 @@
+CompanySync AI Estimator — LOCK UI + add Aerial roof (preview only)
+
+GOAL
+Keep the EXACT live report look/feel every time. Add Aerial roof + real roof/wall numbers. Do NOT redesign.
+
+SOURCE OF TRUTH (visual lock)
+- The attached screenshot of the current AI Estimator report is the chrome lock.
+- Reuse the existing report shell: navy left sidebar, colorful pill tabs, large light rounded 3D/viewer panel, orange “assumption — confirm before using” banner, blue technical footer line.
+- Views only swap CONTENT inside that same panel. Same fonts, spacing, pill style, banner style, footer style.
+
+HARD RULES
+1) Do NOT invent a new report UI, white PDF pages, new sidebar, new nav, or new color system.
+2) Do NOT create a second photo-capture wizard. Keep the existing “Upload All Photos — AI Auto-Classifies” grid. DELETE any duplicate 8-position tap-to-add house capture wizard if present.
+3) Do NOT call Hover or EagleView APIs. Do NOT invent roof/wall squares with an LLM.
+4) Do NOT Publish. Do NOT touch YICN CRM, Twilio, staff, or live customer records. Test on Wizard Test Co / a dummy job only.
+5) Preview only. List every file you change when done.
+
+PILL TABS (keep exact set + add one)
+Keep existing pills as-is: Customer view | Stone | Photos | Presentation render | N facade (and any existing facade pills).
+ADD one pill only: “Aerial roof” (same pill shape/style as the others; teal/cyan ok).
+Optional slim “Measurements” strip under the panel — NOT a new page chrome.
+
+AERIAL ROOF TAB
+- Content = top-down / aerial roof takeoff from Google Solar (label UI as “Satellite takeoff”).
+- Show facet edges if Solar data supports it; soft shadow; “Drag / scroll to zoom” hint like existing 3D panel.
+- Footer line for this tab example style: Roof | {area ft²} ({squares} sq) | ridges/hips … | valleys … | eaves … | pitch … | footprint=solar | SANITY-REVIEW
+- If Solar missing for address: empty state inside the SAME panel + orange assumption banner — do not fake geometry.
+
+MEASUREMENTS / WALLS (same shell)
+- Roof numbers from Solar takeoff.
+- Wall areas / materials / openings from the uploaded photo set + existing photo calibration (wallHt, stories, openings deducted).
+- LLM may label materials/openings ONLY — never invent total squares.
+- Keep orange assumption banner wording style (“assumption — confirm before using…”).
+- Waste: show +10% / +18% as quote helpers, not claim-perfect.
+
+CAPTURE / ONE SYSTEM
+- Address → Google Solar for roof + footprint.
+- Photos (prefer 8+: sides + corners) → walls/materials/openings.
+- House scale on the house (door/tape). Detached garage door scales garage only, never the house.
+- One system only.
+
+DONE WHEN
+- Aerial roof pill works inside existing shell.
+- No second capture wizard.
+- No chrome redesign.
+- Preview shows same look as the screenshot + aerial content.
+- Reply with files changed + how to click-test.

@@ -1,0 +1,383 @@
+{
+  "name": "Company",
+  "type": "object",
+  "properties": {
+    "company_name": {
+      "type": "string",
+      "description": "Company or business name"
+    },
+    "parent_company_id": {
+      "type": "string",
+      "description": "ID of the parent company if this is a child location/franchise",
+      "nullable": true
+    },
+    "company_tagline": {
+      "type": "string",
+      "description": "Tagline or slogan"
+    },
+    "logo_url": {
+      "type": "string",
+      "description": "Company logo URL"
+    },
+    "logo_base64": {
+      "type": "string",
+      "description": "Company logo as base64 data URI for PDF generation"
+    },
+    "lexi_avatar_url": {
+      "type": "string",
+      "description": "URL for custom Lexi AI avatar"
+    },
+    "lexi_voice_id": {
+      "type": "string",
+      "description": "ElevenLabs voice ID for Lexi",
+      "default": "EXAVITQu4vr4xnSDxMaL"
+    },
+    "lexi_system_prompt": {
+      "type": "string",
+      "description": "Custom system prompt for Lexi AI behavior"
+    },
+    "smart_glasses_alias": {
+      "type": "string",
+      "description": "Short alias for smart glasses email (e.g. companyname)"
+    },
+    "preferred_language": {
+      "type": "string",
+      "default": "en",
+      "description": "Preferred language for communication (e.g., 'en' for English, 'es' for Spanish)"
+    },
+    "website": {
+      "type": "string",
+      "description": "Company website"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Main company phone"
+    },
+    "email": {
+      "type": "string",
+      "format": "email",
+      "description": "Main company email"
+    },
+    "address": {
+      "type": "string",
+      "description": "Company address"
+    },
+    "city": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "zip": {
+      "type": "string"
+    },
+    "industry": {
+      "type": "string",
+      "enum": [
+        "roofing",
+        "construction",
+        "hvac",
+        "plumbing",
+        "electrical",
+        "general_contractor",
+        "other"
+      ],
+      "default": "roofing"
+    },
+    "service_areas": {
+      "type": "array",
+      "description": "List of service areas defined by the company",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          },
+          "radius": {
+            "type": "number",
+            "description": "Radius in meters"
+          },
+          "zoom": {
+            "type": "number",
+            "default": 10
+          }
+        }
+      },
+      "default": []
+    },
+    "booking_form_config": {
+      "type": "object",
+      "description": "Configuration for the public booking form",
+      "properties": {
+        "show_property_address": {
+          "type": "boolean",
+          "default": false
+        },
+        "show_email": {
+          "type": "boolean",
+          "default": true
+        },
+        "show_message": {
+          "type": "boolean",
+          "default": true
+        },
+        "property_address_required": {
+          "type": "boolean",
+          "default": false
+        },
+        "service_types": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "heading": {
+          "type": "string"
+        },
+        "confirmation_message": {
+          "type": "string"
+        }
+      }
+    },
+    "subscription_plan": {
+      "type": "string",
+      "enum": [
+        "trial",
+        "legacy",
+        "starter",
+        "professional",
+        "enterprise"
+      ],
+      "default": "trial"
+    },
+    "subscription_status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "trial",
+        "legacy",
+        "past_due",
+        "cancelled",
+        "expired",
+        "suspended"
+      ],
+      "default": "trial"
+    },
+    "trial_ends_at": {
+      "type": "string",
+      "format": "date"
+    },
+    "billing_email": {
+      "type": "string",
+      "format": "email"
+    },
+    "stripe_customer_id": {
+      "type": "string"
+    },
+    "stripe_subscription_id": {
+      "type": "string"
+    },
+    "extra_ai_credits": {
+      "type": "number",
+      "default": 0
+    },
+    "extra_lexi_credits": {
+      "type": "number",
+      "default": 0
+    },
+    "extra_marcus_credits": {
+      "type": "number",
+      "default": 0
+    },
+    "twilio_phone_number": {
+      "type": "string"
+    },
+    "twilio_account_sid": {
+      "type": "string"
+    },
+    "twilio_auth_token": {
+      "type": "string"
+    },
+    "brand_primary_color": {
+      "type": "string",
+      "default": "#3b82f6"
+    },
+    "brand_secondary_color": {
+      "type": "string",
+      "default": "#8b5cf6"
+    },
+    "pdf_header_text": {
+      "type": "string"
+    },
+    "pdf_footer_text": {
+      "type": "string"
+    },
+    "pdf_terms_conditions": {
+      "type": "string",
+      "description": "Default terms & conditions for estimates/invoices"
+    },
+    "pdf_font_family": {
+      "type": "string",
+      "enum": [
+        "helvetica",
+        "times",
+        "courier"
+      ],
+      "default": "helvetica"
+    },
+    "pdf_show_logo": {
+      "type": "boolean",
+      "default": true
+    },
+    "pdf_logo_position": {
+      "type": "string",
+      "enum": [
+        "left",
+        "center",
+        "right"
+      ],
+      "default": "left"
+    },
+    "default_estimate_notes": {
+      "type": "string",
+      "description": "Default notes to include on all estimates"
+    },
+    "default_estimate_disclaimer": {
+      "type": "string",
+      "description": "Default disclaimer text for estimates"
+    },
+    "default_invoice_notes": {
+      "type": "string",
+      "description": "Default notes to include on all invoices"
+    },
+    "default_invoice_disclaimer": {
+      "type": "string",
+      "description": "Default disclaimer text for invoices"
+    },
+    "default_proposal_notes": {
+      "type": "string",
+      "description": "Default notes to include on all proposals"
+    },
+    "default_proposal_disclaimer": {
+      "type": "string",
+      "description": "Default disclaimer text for proposals"
+    },
+    "max_users": {
+      "type": "number",
+      "default": 5
+    },
+    "max_customers": {
+      "type": "number"
+    },
+    "setup_completed": {
+      "type": "boolean",
+      "default": false
+    },
+    "setup_completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "settings": {
+      "type": "object",
+      "description": "Additional company settings",
+      "properties": {
+        "enable_sms": {
+          "type": "boolean",
+          "default": true
+        },
+        "enable_calling": {
+          "type": "boolean",
+          "default": true
+        },
+        "enable_email": {
+          "type": "boolean",
+          "default": true
+        },
+        "enable_ai_estimator": {
+          "type": "boolean",
+          "default": true
+        },
+        "enable_drone_inspections": {
+          "type": "boolean",
+          "default": false
+        },
+        "enable_smart_glasses_integration": {
+          "type": "boolean",
+          "default": false
+        },
+        "time_zone": {
+          "type": "string",
+          "default": "America/New_York"
+        },
+        "date_format": {
+          "type": "string",
+          "default": "MM/DD/YYYY"
+        },
+        "currency": {
+          "type": "string",
+          "default": "USD"
+        },
+        "default_tax_rate": {
+          "type": "number",
+          "default": 0
+        },
+        "invoice_prefix": {
+          "type": "string",
+          "default": "INV-"
+        },
+        "invoice_next_number": {
+          "type": "number",
+          "default": 1
+        },
+        "estimate_prefix": {
+          "type": "string",
+          "default": "EST-"
+        },
+        "estimate_next_number": {
+          "type": "number",
+          "default": 1
+        },
+        "customer_prefix": {
+          "type": "string",
+          "default": ""
+        },
+        "customer_next_number": {
+          "type": "number",
+          "default": 1
+        }
+      }
+    },
+    "is_deleted": {
+      "type": "boolean",
+      "default": false
+    },
+    "deleted_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "deleted_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "company_name",
+    "email"
+  ]
+}

@@ -1,0 +1,23 @@
+Execute Plan #1142: Feed Street View photos into satellite siding measurement.
+
+Goal:
+Improve siding measurement accuracy by using satellite footprint data as a physical scale anchor for the AI when it analyzes ground-level photos.
+
+Steps to Build:
+
+Fetch Satellite Width: When evaluating a property, pull the exact width of the target wall from the existing satellite data (the X/Y footprint).
+
+Pass the Anchor to AI: When analyzing a ground-level image (from Street View or CrewCam) of that same wall, pass the exact satellite-derived width into the AI vision prompt as a fixed, mandatory scale reference.
+
+Calibrate and Measure: Instruct the AI to use that exact width to calibrate its pixel-to-inch ratio for the photo. The AI should then calculate the Z-axis (wall height up to the eaves) and area deductions (windows/doors) based strictly on that calibrated scale, rather than guessing the depth.
+
+Output to UI: Return the highly-accurate wall_area_sq to the AIEstimator.jsx panel. Ensure this new data feed still works perfectly with the existing logic where the panel shows the AI result when unedited, and seamlessly switches to the manual formula recompute when the user edits fields.
+
+MVP First: Start by building the data hand-off between the satellite width and the AI vision prompt, and output a log so we can verify the AI is successfully receiving the scale parameter before it measures.
+
+Why this prompt works:
+It gives the Agent boundaries: AI coders get confused if you ask for too much at once. This tells it to focus only on connecting the satellite width to the photo analyzer.
+
+It references your specific files: Mentioning the AIEstimator.jsx panel and your exact formula recompute logic tells the agent exactly where this new feature needs to be plugged in so it doesn't break what is already working.
+
+It asks for an MVP (Minimum Viable Product): It tells the agent to prove the data is passing through correctly (the log) before it tries to rewrite the entire user interface.

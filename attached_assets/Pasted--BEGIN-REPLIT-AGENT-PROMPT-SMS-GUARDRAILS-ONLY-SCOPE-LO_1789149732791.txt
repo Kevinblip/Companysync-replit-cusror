@@ -1,0 +1,67 @@
+===== BEGIN REPLIT AGENT PROMPT — SMS GUARDRAILS ONLY =====
+SCOPE LOCK: Touch ONLY outbound SMS / Twilio send paths for automations & campaigns.
+Do NOT edit Stripe, GHL, estimator, calendar, billing, auth, or unrelated CRM pages.
+Do NOT disable automations globally. Do NOT delete campaigns.
+List intended files FIRST. STOP if anything is outside SMS send / recipient validation.
+
+GOAL
+Automations must keep working for REAL leads.
+Stop burning Twilio on junk/test leads and invalid phones (e.g. "jhon 2",
+yopmail, tesr, phones like 000000…, too-short, non-E.164 garbage).
+Failed sends still cost — skip BEFORE calling Twilio.
+
+CONTEXT
+- Live Twilio logs (Sep 11): Outbound API SMS Failed from +1 216 777…
+  body like: "Hi jhon 2! Still interested… Roofing Doctor offering 5% off…"
+- Known junk patterns Kevin uses: dummy/test leads named like tesr, jhon 2,
+  emails @yopmail (and similar disposable), placeholder phones.
+
+IMPLEMENTATION
+
+1) Add ONE shared helper (new file only), e.g. src/lib/smsRecipientGuard.js
+   or base44/functions/_smsRecipientGuard.ts
+   Export something like: assertSmsRecipientAllowed({ name, email, phone, leadStatus })
+   Returns { ok: true } or { ok: false, reason }.
+
+   BLOCK (skip send, do not call Twilio) when ANY of:
+   a) phone missing/blank
+   b) digits-only length < 10 (after stripping non-digits)
+   c) phone is all zeros / repeating single digit / starts with 000
+   d) phone fails basic US E.164 normalize (+1 + 10 digits) — if non-US needed,
+      allow only clearly valid international (≥10 digits, not placeholder)
+   e) email domain in disposable/test list: yopmail.com, mailinator.com,
+      guerrillamail.com, tempmail, example.com, test.com (case-insensitive)
+   f) name (trimmed, case-insensitive) matches junk: /^test/, /^tesr/, /^jhon\s*2$/,
+      /^john\s*2$/, /^dummy/, /^asdf/, /^n\/?a$/
+   g) lead/customer flag or status clearly Test/Junk/Demo if such field exists
+      (use existing fields only — do not invent schema migrations unless required)
+
+   On block: log reason + lead id (no full message body spam). Return success-ish
+   "skipped" to the automation so the rest of the workflow does not crash —
+   but do NOT bill Twilio.
+
+2) Wire the guard into EVERY outbound SMS entry point that automations use:
+   - campaign / drip / follow-up senders
+   - AI/SMS assistant outbound if it mass-texts
+   - any "sendSms" / twilio messages.create wrapper
+   Prefer ONE central Twilio send wrapper so all paths are covered.
+   Do not duplicate business logic in 10 places.
+
+3) Keep automations ENABLED.
+   - Do not turn off cron/workflows
+   - Do not remove Roofing Doctor / promo templates
+   - Only skip bad recipients
+
+4) Optional soft allowlist for staff testing:
+   If env SMS_TEST_ALLOWLIST contains a phone, allow that number even if name looks test.
+   Default empty.
+
+ACCEPTANCE (preview)
+- Sending to lead "jhon 2" / yopmail / 000000 phone → skipped, no Twilio API create
+- Sending to a normal lead with valid +1XXXXXXXXXX → still sends
+- Automations/schedules still run
+- Diff stays inside SMS guard + send wrappers only
+- List files changed + how to retest
+
+Do NOT publish. Do NOT commit secrets.
+===== END REPLIT AGENT PROMPT =====

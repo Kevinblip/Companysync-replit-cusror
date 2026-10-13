@@ -1,0 +1,510 @@
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { FileText, Download, DollarSign } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "@/components/ui/tabs";
+import { format, startOfMonth, endOfMonth, startOfYear, endOfYear } from 'date-fns';
+
+export default function AccountingReports() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+  const [periodType, setPeriodType] = useState('this_month');
+
+  React.useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { company: myCompany } = useCurrentCompany(user);
+
+  const { data: chartOfAccounts = [] } = useQuery({
+    queryKey: ['chart-of-accounts', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.ChartOfAccounts.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: transactions = [] } = useQuery({
+    queryKey: ['transactions', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Transaction.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: invoices = [] } = useQuery({
+    queryKey: ['invoices', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Invoice.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: payments = [] } = useQuery({
+    queryKey: ['payments', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Payment.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const { data: expenses = [] } = useQuery({
+    queryKey: ['expenses', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.Expense.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  const getDateRange = () => {
+    const now = new Date();
+    if (periodType === 'this_month') return { start: startOfMonth(now), end: endOfMonth(now) };
+    if (periodType === 'this_year') return { start: startOfYear(now), end: endOfYear(now) };
+    return { start: new Date('2000-01-01'), end: new Date('2099-12-31') };
+  };
+
+  const { start, end } = getDateRange();
+
+  // Filter payments by date (based on actual payment_date)
+  const periodPayments = payments.filter(p => {
+    if (!p.payment_date) return false;
+    const date = new Date(p.payment_date);
+    return date >= start && date <= end && p.status === 'received';
+  });
+
+  // Balance Sheet Data
+  const assets = chartOfAccounts.filter(a => a.account_type === 'asset');
+  const liabilities = chartOfAccounts.filter(a => a.account_type === 'liability');
+  const equity = chartOfAccounts.filter(a => a.account_type === 'equity');
+  
+  const totalAssets = assets.reduce((sum, a) => sum + (a.balance || 0), 0);
+  const totalLiabilities = liabilities.reduce((sum, a) => sum + (a.balance || 0), 0);
+  const totalEquity = equity.reduce((sum, a) => sum + (a.balance || 0), 0);
+
+  // P&L Data - Use actual payments received, not invoice status
+  const periodExpenses = expenses.filter(e => {
+    if (!e.expense_date) return false;
+    const date = new Date(e.expense_date);
+    return date >= start && date <= end;
+  });
+
+  const totalRevenue = periodPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+  const totalExpenses = periodExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const cogs = periodExpenses.filter(e => e.category === 'cogs').reduce((sum, e) => sum + e.amount, 0);
+  const grossProfit = totalRevenue - cogs;
+  const operatingExpenses = totalExpenses - cogs;
+  const netIncome = totalRevenue - totalExpenses;
+
+  // Trial Balance - Proper accounting rules with abnormal balance handling
+  const trialBalance = chartOfAccounts.map(acc => {
+    const balance = acc.balance || 0;
+    const isDebitNormal = ['asset', 'expense', 'cogs'].includes(acc.account_type);
+    
+    let debit = 0;
+    let credit = 0;
+    
+    if (isDebitNormal) {
+      // Asset/Expense accounts: positive = debit, negative = credit
+      if (balance >= 0) {
+        debit = balance;
+      } else {
+        credit = Math.abs(balance);
+      }
+    } else {
+      // Liability/Equity/Revenue: positive = credit, negative = debit
+      if (balance >= 0) {
+        credit = balance;
+      } else {
+        debit = Math.abs(balance);
+      }
+    }
+    
+    return {
+      account_number: acc.account_number,
+      account_name: acc.account_name,
+      account_type: acc.account_type,
+      debit,
+      credit
+    };
+  });
+
+  const totalDebits = trialBalance.reduce((sum, a) => sum + a.debit, 0);
+  const totalCredits = trialBalance.reduce((sum, a) => sum + a.credit, 0);
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold">Accounting Reports</h1>
+          <p className="text-gray-500 mt-1">Financial statements and reports</p>
+        </div>
+        <div className="flex gap-3 items-center">
+          <Button 
+            onClick={() => navigate(createPageUrl('AccountsReceivableReport'))}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <DollarSign className="w-4 h-4" />
+            Accounts Receivable
+          </Button>
+          <Select value={periodType} onValueChange={setPeriodType}>
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="this_month">This Month</SelectItem>
+              <SelectItem value="this_year">This Year</SelectItem>
+              <SelectItem value="all_time">All Time</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <Tabs defaultValue="balance-sheet" className="w-full">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="balance-sheet">Balance Sheet</TabsTrigger>
+          <TabsTrigger value="profit-loss">Profit & Loss</TabsTrigger>
+          <TabsTrigger value="trial-balance">Trial Balance</TabsTrigger>
+          <TabsTrigger value="cash-flow">Cash Flow</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="balance-sheet">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <CardTitle>Balance Sheet</CardTitle>
+                <p className="text-sm text-gray-600">
+                  As of {format(new Date(), 'MMMM d, yyyy')}
+                </p>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                <div>
+                  <h3 className="font-bold text-lg mb-3 text-blue-700">ASSETS</h3>
+                  {assets.map(asset => (
+                    <div key={asset.id} className="flex justify-between py-2 border-b">
+                      <span className="text-sm">{asset.account_number} - {asset.account_name}</span>
+                      <span className="font-semibold">${(asset.balance || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between py-2 font-bold bg-blue-50 mt-2 px-2">
+                    <span>Total Assets</span>
+                    <span>${totalAssets.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="font-bold text-lg mb-3 text-red-700">LIABILITIES</h3>
+                  {liabilities.map(liability => (
+                    <div key={liability.id} className="flex justify-between py-2 border-b">
+                      <span className="text-sm">{liability.account_number} - {liability.account_name}</span>
+                      <span className="font-semibold">${(liability.balance || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between py-2 font-bold bg-red-50 mt-2 px-2">
+                    <span>Total Liabilities</span>
+                    <span>${totalLiabilities.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="font-bold text-lg mb-3 text-purple-700">EQUITY</h3>
+                  {equity.map(eq => (
+                    <div key={eq.id} className="flex justify-between py-2 border-b">
+                      <span className="text-sm">{eq.account_number} - {eq.account_name}</span>
+                      <span className="font-semibold">${(eq.balance || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between py-2 font-bold bg-purple-50 mt-2 px-2">
+                    <span>Total Equity</span>
+                    <span>${totalEquity.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between py-3 font-bold text-lg bg-gray-100 px-2 rounded">
+                  <span>TOTAL LIABILITIES + EQUITY</span>
+                  <span>${(totalLiabilities + totalEquity).toFixed(2)}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="profit-loss">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <CardTitle>Profit & Loss Statement</CardTitle>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm">
+                    <Download className="w-4 h-4 mr-2" />
+                    Excel
+                  </Button>
+                  <Button variant="outline" size="sm">
+                    <Download className="w-4 h-4 mr-2" />
+                    Google Sheets
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="border-b-2">
+                      <th className="text-left p-2 font-semibold">Category</th>
+                      <th className="text-right p-2 font-semibold w-32">October</th>
+                      <th className="text-right p-2 font-semibold w-32">November</th>
+                      <th className="text-right p-2 font-semibold w-32">December</th>
+                      <th className="text-right p-2 font-semibold w-32 bg-gray-50">Year (2025)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="bg-green-50 font-bold">
+                      <td className="p-2">REVENUE</td>
+                      <td className="text-right p-2">
+                        ${periodPayments.filter(p => new Date(p.payment_date).getMonth() === 9).reduce((s, p) => s + p.amount, 0).toFixed(2)}
+                      </td>
+                      <td className="text-right p-2">
+                        ${periodPayments.filter(p => new Date(p.payment_date).getMonth() === 10).reduce((s, p) => s + p.amount, 0).toFixed(2)}
+                      </td>
+                      <td className="text-right p-2">
+                        ${periodPayments.filter(p => new Date(p.payment_date).getMonth() === 11).reduce((s, p) => s + p.amount, 0).toFixed(2)}
+                      </td>
+                      <td className="text-right p-2 bg-gray-50">${totalRevenue.toFixed(2)}</td>
+                    </tr>
+                    
+                    <tr className="bg-orange-50 font-semibold">
+                      <td className="p-2">COST OF GOODS SOLD</td>
+                      <td className="text-right p-2">
+                        ${periodExpenses.filter(e => e.category === 'cogs' && new Date(e.expense_date).getMonth() === 9).reduce((s, e) => s + e.amount, 0).toFixed(2)}
+                      </td>
+                      <td className="text-right p-2">
+                        ${periodExpenses.filter(e => e.category === 'cogs' && new Date(e.expense_date).getMonth() === 10).reduce((s, e) => s + e.amount, 0).toFixed(2)}
+                      </td>
+                      <td className="text-right p-2">
+                        ${periodExpenses.filter(e => e.category === 'cogs' && new Date(e.expense_date).getMonth() === 11).reduce((s, e) => s + e.amount, 0).toFixed(2)}
+                      </td>
+                      <td className="text-right p-2 bg-gray-50">${cogs.toFixed(2)}</td>
+                    </tr>
+
+                    <tr className="bg-blue-50 font-bold">
+                      <td className="p-2">GROSS PROFIT</td>
+                      <td className="text-right p-2">
+                        ${(
+                          periodPayments.filter(p => new Date(p.payment_date).getMonth() === 9).reduce((s, p) => s + p.amount, 0) -
+                          periodExpenses.filter(e => e.category === 'cogs' && new Date(e.expense_date).getMonth() === 9).reduce((s, e) => s + e.amount, 0)
+                        ).toFixed(2)}
+                      </td>
+                      <td className="text-right p-2">
+                        ${(
+                          periodPayments.filter(p => new Date(p.payment_date).getMonth() === 10).reduce((s, p) => s + p.amount, 0) -
+                          periodExpenses.filter(e => e.category === 'cogs' && new Date(e.expense_date).getMonth() === 10).reduce((s, e) => s + e.amount, 0)
+                        ).toFixed(2)}
+                      </td>
+                      <td className="text-right p-2">
+                        ${(
+                          periodPayments.filter(p => new Date(p.payment_date).getMonth() === 11).reduce((s, p) => s + p.amount, 0) -
+                          periodExpenses.filter(e => e.category === 'cogs' && new Date(e.expense_date).getMonth() === 11).reduce((s, e) => s + e.amount, 0)
+                        ).toFixed(2)}
+                      </td>
+                      <td className="text-right p-2 bg-gray-50">${grossProfit.toFixed(2)}</td>
+                    </tr>
+
+                    <tr className="h-4"><td colSpan="5"></td></tr>
+                    
+                    <tr className="font-semibold bg-red-50">
+                      <td className="p-2">OPERATING EXPENSES</td>
+                      <td className="text-right p-2"></td>
+                      <td className="text-right p-2"></td>
+                      <td className="text-right p-2"></td>
+                      <td className="text-right p-2 bg-gray-50"></td>
+                    </tr>
+
+                    {['labor', 'materials', 'subcontractor', 'rent', 'utilities', 'insurance', 'marketing', 'office_supplies', 'fuel', 'equipment', 'software', 'professional_fees', 'taxes', 'meals', 'travel', 'other'].map(category => {
+                      const oct = periodExpenses.filter(e => e.category === category && new Date(e.expense_date).getMonth() === 9).reduce((s, e) => s + e.amount, 0);
+                      const nov = periodExpenses.filter(e => e.category === category && new Date(e.expense_date).getMonth() === 10).reduce((s, e) => s + e.amount, 0);
+                      const dec = periodExpenses.filter(e => e.category === category && new Date(e.expense_date).getMonth() === 11).reduce((s, e) => s + e.amount, 0);
+                      const total = oct + nov + dec;
+                      
+                      if (total === 0) return null;
+                      
+                      return (
+                        <tr key={category} className="border-b hover:bg-gray-50">
+                          <td className="p-2 pl-6 text-sm">{category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</td>
+                          <td className="text-right p-2">${oct.toFixed(2)}</td>
+                          <td className="text-right p-2">${nov.toFixed(2)}</td>
+                          <td className="text-right p-2">${dec.toFixed(2)}</td>
+                          <td className="text-right p-2 bg-gray-50">${total.toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
+
+                    <tr className="border-t-2 font-bold bg-red-100">
+                      <td className="p-2">Total Operating Expenses</td>
+                      <td className="text-right p-2">
+                        ${periodExpenses.filter(e => e.category !== 'cogs' && new Date(e.expense_date).getMonth() === 9).reduce((s, e) => s + e.amount, 0).toFixed(2)}
+                      </td>
+                      <td className="text-right p-2">
+                        ${periodExpenses.filter(e => e.category !== 'cogs' && new Date(e.expense_date).getMonth() === 10).reduce((s, e) => s + e.amount, 0).toFixed(2)}
+                      </td>
+                      <td className="text-right p-2">
+                        ${periodExpenses.filter(e => e.category !== 'cogs' && new Date(e.expense_date).getMonth() === 11).reduce((s, e) => s + e.amount, 0).toFixed(2)}
+                      </td>
+                      <td className="text-right p-2 bg-gray-50">${operatingExpenses.toFixed(2)}</td>
+                    </tr>
+
+                    <tr className="h-4"><td colSpan="5"></td></tr>
+
+                    <tr className={`font-bold text-lg ${netIncome >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      <td className="p-3">NET INCOME</td>
+                      <td className="text-right p-3">
+                        ${(
+                          periodPayments.filter(p => new Date(p.payment_date).getMonth() === 9).reduce((s, p) => s + p.amount, 0) -
+                          periodExpenses.filter(e => new Date(e.expense_date).getMonth() === 9).reduce((s, e) => s + e.amount, 0)
+                        ).toFixed(2)}
+                      </td>
+                      <td className="text-right p-3">
+                        ${(
+                          periodPayments.filter(p => new Date(p.payment_date).getMonth() === 10).reduce((s, p) => s + p.amount, 0) -
+                          periodExpenses.filter(e => new Date(e.expense_date).getMonth() === 10).reduce((s, e) => s + e.amount, 0)
+                        ).toFixed(2)}
+                      </td>
+                      <td className="text-right p-3">
+                        ${(
+                          periodPayments.filter(p => new Date(p.payment_date).getMonth() === 11).reduce((s, p) => s + p.amount, 0) -
+                          periodExpenses.filter(e => new Date(e.expense_date).getMonth() === 11).reduce((s, e) => s + e.amount, 0)
+                        ).toFixed(2)}
+                      </td>
+                      <td className="text-right p-3 bg-gray-50">${netIncome.toFixed(2)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {periodExpenses.filter(e => e.category !== 'cogs').length === 0 && (
+                  <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded text-center">
+                    <p className="text-blue-800">
+                      📊 No expense data yet. Start adding expenses to see your P&L breakdown.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="trial-balance">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <CardTitle>Trial Balance</CardTitle>
+                <p className="text-sm text-gray-600">
+                  As of {format(new Date(), 'MMMM d, yyyy')}
+                </p>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b-2">
+                      <th className="text-left p-2 font-semibold">Account #</th>
+                      <th className="text-left p-2 font-semibold">Account Name</th>
+                      <th className="text-right p-2 font-semibold">Debit</th>
+                      <th className="text-right p-2 font-semibold">Credit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trialBalance.map((acc, idx) => (
+                      <tr key={idx} className="border-b hover:bg-gray-50">
+                        <td className="p-2 font-mono">{acc.account_number}</td>
+                        <td className="p-2">{acc.account_name}</td>
+                        <td className="p-2 text-right">{acc.debit > 0 ? `$${acc.debit.toFixed(2)}` : '-'}</td>
+                        <td className="p-2 text-right">{acc.credit > 0 ? `$${acc.credit.toFixed(2)}` : '-'}</td>
+                      </tr>
+                    ))}
+                    <tr className="border-t-2 font-bold bg-gray-100">
+                      <td colSpan="2" className="p-2">TOTALS</td>
+                      <td className="p-2 text-right">${totalDebits.toFixed(2)}</td>
+                      <td className="p-2 text-right">${totalCredits.toFixed(2)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                {Math.abs(totalDebits - totalCredits) > 0.01 && (
+                  <div className="mt-4 p-4 bg-red-50 border border-red-300 rounded">
+                    <p className="text-red-800 font-semibold">
+                      ⚠️ Trial Balance is out of balance by ${Math.abs(totalDebits - totalCredits).toFixed(2)}
+                    </p>
+                  </div>
+                )}
+                {Math.abs(totalDebits - totalCredits) < 0.01 && totalDebits > 0 && (
+                  <div className="mt-4 p-4 bg-green-50 border border-green-300 rounded">
+                    <p className="text-green-800 font-semibold">
+                      ✓ Trial Balance is balanced
+                    </p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="cash-flow">
+          <Card>
+            <CardHeader>
+              <CardTitle>Cash Flow Statement</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                <div>
+                  <h3 className="font-bold text-lg mb-3">OPERATING ACTIVITIES</h3>
+                  <div className="flex justify-between py-2 border-b">
+                    <span>Net Income</span>
+                    <span className="font-semibold">${netIncome.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="font-bold text-lg mb-3">INVESTING ACTIVITIES</h3>
+                  <div className="flex justify-between py-2 border-b">
+                    <span>Equipment purchases</span>
+                    <span className="font-semibold">
+                      ${periodExpenses.filter(e => e.category === 'equipment').reduce((sum, e) => sum + e.amount, 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="font-bold text-lg mb-3">FINANCING ACTIVITIES</h3>
+                  <div className="flex justify-between py-2 border-b">
+                    <span>-</span>
+                    <span className="font-semibold">$0.00</span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between py-3 font-bold text-lg bg-blue-100 px-2 rounded">
+                  <span>NET CHANGE IN CASH</span>
+                  <span>${netIncome.toFixed(2)}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

@@ -1,0 +1,156 @@
+- [Roof geometry & measurement](roof-geometry-index.md) — index of rendering, footprint, pitch, imagery, tracing repeatability, HOVER comparisons, and opening-unit lessons.
+- [Email delivery-status reconciliation](email-delivery-status-reconciliation.md) — acceptance ≠ delivery; match webhooks on provider message id, rank-guard against out-of-order retries
+- [Invoice financial status vs delivery](invoice-financial-status-vs-delivery.md) — a converted or paid invoice can have no customer send evidence; never treat payment/status as delivery
+- [Email provider health & platform mail](email-provider-health.md) — new Postmark/SES accounts are sandboxed (auth OK != deliverable); platform mail ignores tenant SMTP (platform-subscriber-mail.md)
+- [Public email relay incident](public-email-relay.md) — unauthenticated mail endpoints get a server-held key abused; abuse arrives as disposable-domain signups (throwaway-signup-abuse.md)
+- [Usage dashboard row-cap truncation](usage-dashboard-truncation.md) — client-side totals summed from a capped row fetch understate worst during the spike they should expose
+- [Test side-effect safety](test-side-effect-safety.md) — some smoke tests send live mail; browser fixtures need provider stubs and SQL tenant cleanup.
+- [Uploaded docs vs generated estimates](estimator-staged-document-guard.md) — staging a file ≠ reading it
+- [Inspection report delivery](inspection-report-private-links.md) — full PDF/private links; [retry uncertainty](inspection-report-retry-uncertainty.md): accepted mail without receipt must never auto-resend
+- [Estimate document identity safety](estimate-document-identity-confirmation.md) — normalize address variants, but hard-block differing homes or customers with compared values
+- [Workflow startup checks](workflow-startup-db-locks.md) — no port may mean abandoned DB locks; avoid mutating merge smoke tests (post-merge-deterministic-checks.md).
+- [Schema indexes need compatibility columns](schema-index-compatibility.md) — add missing legacy-table columns before indexing them or startup leaves every API at 503.
+- [Mobile photo reliability](mobile-photo-reliability.md) — camera trips can kill Android tabs; crew base64 uploads must stay sequential.
+- [Mobile sidebar controlled state](mobile-sidebar-controlled-state.md) — expose the controlled Sheet value and dismissal handler through context
+- [Z Fold mobile breakpoint](z-fold-breakpoint.md) — old 600px guidance was superseded; verify the current 1024px layout rule before changing responsive behavior
+- [Mobile settings panels](mobile-settings-panels.md) — menu-opened settings need reliable modal handoffs; a dialog that fits can still clip intrinsic-width form rows.
+- [Crew photo archive downloads](crew-photo-archive-download.md) — include all gallery photos, fail on missing originals, and use byte arrays with JSZip
+- [Lexi calendar tz storage](lexi-calendar-tz-storage.md) — calendar uses new Date(); store UTC Z (noon ET = T16:00:00Z)
+- [Gemini image MIME from bytes](gemini-image-mime.md) — Gemini rejects application/octet-stream (→HTTP400→500); photo analyzers must sniff magic bytes, never trust served Content-Type
+- [CORS helper call-site drift](cors-helper-call-site-drift.md) — narrowing a shared CORS helper's wildcard fallback silently breaks call sites that don't pass req/origin
+- [Workflow action success masking](workflow-action-success-masking.md) — executeWorkflowAction must return {success:false,reason} on skip/catch, not swallow silently, or cron/test-run
+- [AI damage count & inspector review](ai-damage-count-reconciliation.md) — material-specific evidence, confidence thresholds, section facts, correction history, and count reconciliation
+- [Material purchase-unit conversions](material-purchase-conversions.md) — AI calc.quantity is RAW measurement, not purchase units; convert per-material; 3 files must stay in lockstep
+- [Hidden features registry](hidden-features-registry.md) — hide-not-delete UI via flags in src/config/hiddenFeatures.js (true=shown); JSX gate or if-guard; document in replit.md.
+- [Twilio sender & webhook faults](twilio-a2p-sender-registration.md) — 30034 = no campaign, 30024 = bare From on a Messaging Service; no reply = check sms_url (twilio-number-webhook-host-drift.md)
+- [Storm alert recipients](storm-alert-recipients.md) — in-app banner ≠ email/SMS; cron drops companies with empty alert_recipients; now falls back to active admins; lists send gates.
+- [Storm location resolution](storm-county-name-collisions.md) — county coords key on (state,name) from the UGC zone; distrust a coord only when it lands EXACTLY on a lookup centroid (google-reverse-geocode-rural.md)
+- [Storm tracker pipeline](storm-tracker-pipeline.md) — retention must cover the UI's 365d window; alert cron ingests IEM LSRs itself; MRMS MESH is pure-JS GRIB2/PNG (mrms-mesh-integration.md)
+- [Storm canvass address coverage](storm-address-coverage.md) — OSM mapped addresses aren't a full property roster; never pad sparse results with reverse-geocode samples.
+- [Dev/prod endpoint parity](dev-prod-endpoint-parity.md) — public routes in vite-functions-plugin.js (dev) must be mirrored in prod-server.cjs (prod) or they 404 in production.
+- [Entity API company_id $in filter](entity-api-company-id-filter.md) — entity API must handle company_id as scalar OR {$in:[...]} in BOTH dev (vite-db-plugin) & prod (prod-db)
+- [Lexi tool handlers](lexi-tool-handlers.md) — manage_entity lives in SIX handlers (4 CJS/plugin + lexiChat.ts + lexiBridgeAPI.ts) in lockstep
+- [AI call transcript capture](ai-call-transcript-capture.md) — Gemini Live transcript = serverContent.{in,out}putTranscription.text (NOT *Transcript); voice reply is inlineData audio
+- [AI call recording pipeline](ai-call-recording-pipeline.md) — <Connect><Stream> never records; REST recording-start on 'start'; webhook scopes writes to trusted company
+- [Invoice money truth](invoice-money-source-of-truth.md) — paid state comes from real payments, amount is frozen legacy JSONB, apply is fail-closed (invoice-reconcile-safety.md)
+- [Carrier ACV settlement semantics](carrier-acv-settlement.md) — line-item ACV and paid-when-incurred settlement adjustments are separate financial concepts
+- [Stripe invoice webhook idempotency](stripe-invoice-webhook-idempotency.md) — gate payment transitions by Stripe reference and dedupe company channels by payment/admin
+- [Stripe secrets & ACH](stripe-webhook-secret-persistence.md) — runtime can't write Secrets, persist signing secrets in sync storage; card-ready is not ACH-ready (stripe-ach-connect-capability.md)
+- [Invoice owed/overdue](invoice-owed-and-overdue.md) — owed = balance(total_amount−amount_paid)>0, exclude cancelled only; numbers collide, key on invoice_id (invoice-number-not-unique.md)
+- [Active-company resolution](active-company-resolution.md) — brand/data can disagree; profile and shell resolve independently (multi-location-profile-resolution.md).
+- [Entity filter SQL traps](entity-filter-null-string-widening.md) — a stored "null" string widens the query to every row; $ne drops NULL rows in Postgres (entity-filter-ne-null.md)
+- [AI receptionist appointment approval](ai-receptionist-appointment-approval.md) — AI call → pending ActionItem (no event); human approval creates CalendarEvent status 'scheduled'
+- [Gemini Live call handling](gemini-live-call-resilience.md) — 1007 is transient→reconnect not reformat; media_chunks is deprecated, use realtime_input.audio (gemini-live-audio-format.md)
+- [AssistantSettings duplicate rows](assistant-settings-duplicate-rows.md) — 2 rows per company is NORMAL (lexi + sarah from QuickSetup); phone loaders must never pick lexi row
+- [After-hours work-window](after-hours-work-window.md) — Alex off-hours via shared isOutsideWorkHours() at 3 call sites (call-start cached/DB + transfer gate)
+- [Twilio inbound routing](twilio-call-routing.md) — voice: subscriberCache→call_routing_cache→TwilioSettings; SMS must hit TwilioSettings FIRST, cache goes stale (sms-vs-voice-routing.md)
+- [Twilio setup tenant isolation](twilio-setup-tenant-isolation.md) — setup writes require active staff membership, reject protected platform tenants and cross-company SID/phone reuse
+- [AIEstimator manual-estimate gating](aiestimator-manual-estimate-gating.md) — line-item editor + Exports menu stay hidden until a current estimate exists
+- [Workflow recipient resolution](workflow-recipient-resolution.md) — resolve recipient intent and a real contact name; customer automation must fail closed on either
+- [ESX / Symbility export schema](esx-export-schema.md) — shared generator in src/utils/esxExport.js; <XactimateExport version="1.0"> confirmed schema; Symbility ACV per-item=RCV
+- [AI handler audit lessons](ai-handler-audit-lessons.md) — recurring gaps: unmetered AI calls, dev/prod handler drift, blind AI JSON trust, `_xxxImpl` auth bypass, testing auth needs
+- [React Query key collisions](react-query-key-collisions.md) — shared generic keys + 3min staleTime let one page's partial/degraded cache poison others; namespace keys
+- [PWA controllerchange reload loop](pwa-controllerchange-reload-loop.md) — SW clients.claim() fires controllerchange on first-visit takeover
+- [Sequential AI batch timeout swallowed](sequential-ai-batch-timeout-swallowed.md) — sequential per-photo Gemini calls can exceed a timeout at higher item counts
+- [AI endpoint retry boundary](ai-endpoint-retry-boundary.md) — provider retries do not cover integration-endpoint 5xx responses; retry transient failures once at the browser boundary
+- [Proactive outreach / build reminders](proactive-outreach-reminders.md) — all reminders go through ONE shared sender (guardrails un-skippable); text default, AI-call opt-in
+- [Trial-nurture idempotency](trial-nurture-idempotency.md) — only mark a trial touch "sent" when a send actually succeeded (else a transient Resend/Twilio outage permanently skips it)
+- [Subscription/trial self-grant guard](subscription-trial-self-grant-guard.md) — strip companies sub/trial/limit fields on entity writes INCL nested `data` JSONB
+- [Tenant & company write guards](tenant-guard-company-scoping.md) — companies row id IS the tenant id; field guards use CHANGE-detection + created_by bypass (admin-only-company-fields-guard.md)
+- [Session email trust for auto-provision](session-email-trust-auto-provision.md) — provisioning/lookup-by-email handlers must resolve email from the session, never trust client body
+- [Enforcement flip risk decision](enforcement-flip-risk-decision.md) — TENANT_GUARD_MODE/TWILIO_REQUIRE_SIGNATURE flipped to enforce without a prod log-verification window, based on
+- [Merge duplicate declarations](merge-duplicate-declarations.md) — parallel task merges can land two copies of the same helper in a shared plugin file
+- [Backup/restore engine](backup-restore-engine.md) — restore upsert needs company-ownership WHERE guard + strip base44_id
+- [EstimateEditor customer-field lock/unlock](estimate-editor-customer-lock.md) — allowCustomerEdit gates 4 customer inputs
+- [Insurance O&P rules](insurance-mode-op-suppression.md) — O&P needs insurance-job gate; split combined rate for print (insurance-op-format-export.md).
+- [Estimate O&P corrections](estimate-op-corrections.md) — removing O&P is a direct estimate edit, not a required supplement or a change to shared company formats.
+- [Retail estimate presentation](retail-estimate-presentation.md) — ordinary estimates are Amount/Total; RCV/ACV/depreciation require an explicit insurance format
+- [Dev-domain link generation](dev-domain-link-generation.md) — customer/staff links must resolve via one env-aware getAppUrl() helper, not inline hardcoded-prod-domain fallbacks, or
+- [Public legal pages](public-legal-pages.md) — privacy/terms stay logged-out, canonical lowercase routes with uppercase redirects and provider-neutral copy
+- [Color Visualizer](color-visualizer-save.md) — customers/leads use updated_at NOT updated_date; log-only catch fakes success (check rowCount)
+- [Color Visualizer photo fidelity](color-visualizer-photo-fidelity.md) — roof-first prompts and naturally shaded existing trim avoid unchanged shingles and fake white corner strips.
+- [Trial expiry dual fields & voice gate](trial-expiry-dual-fields.md) — trial end lives in BOTH trial_end_date col & data JSONB; expiry keys on status not plan
+- [Dedicated table created_date filter remap](dedicated-table-created-date-filter.md) — buildDedicatedFilterWhere must remap created_date→created_at or date-range filters on
+- [Google OAuth client health probe](google-oauth-client-probe.md) — bogus-code token probe: invalid_grant=alive, invalid_client=deleted; AIza paste=API key not client ID.
+- [Alert-once claim pattern](alert-once-claim-pattern.md) — claim+transition in ONE txn under FOR UPDATE, reset the gate on every recovery path, release the claim if no channel
+- [Google Calendar sync](google-calendar-sync-semantics.md) — events PUT is full-replace, echo pushes strip attendees; mirror the OAuth callback in prod (google-calendar-prod-callback-missing.md)
+- [Signup drip bypass & backup email](signup-drip-and-backup-email.md) — handleSignup must create company as 'pending' then trigger startCompanyTrial internally
+- [Impersonation security enforcement](impersonation-security-enforcement.md) — write blocks (isImpersonating && method!==GET → 403) in BOTH entity route branches of vite-db-plugin.js
+- [Startup YICN tenant breach](startup-yicn-tenant-breach.md) — never put one-time tenant data fixes in server startup
+- [Vite server-plugin gotchas](vite-plugin-restart-required.md) — plugins load once at boot so re-testing shows pre-fix behavior; bare require() throws only at call time (vite-plugin-no-require.md)
+- [Team Chat bot & spaces](team-chat-bot-and-spaces.md) — alerts space created eagerly on chat open; DM dedupe is server-side
+- [Onboarding gate completion contract](onboarding-gate-completion-contract.md) — completing setup must write the flag + pin last_used_company_id + flip/invalidate the
+- [Estimator calibration blending](estimator-calibration-blending.md) — report + job learning must blend into ONE clamped multiplier (never stack); area ratio applies before waste calc
+- [QuickBooks sandbox vs production](qb-sandbox-vs-production.md) — dev-key OAuth binds to Intuit sandbox (prod base 403s); API base must follow qb_environment
+- [npm audit accepted residuals](npm-audit-residuals.md) — never `npm audit fix --force` (bogus react-quill/GCS downgrades)
+- [Exact dependency restoration](exact-dependency-restoration.md) — when a declared package is missing, restore the lockfile version exactly; `@latest` can rewrite an older project to a new major.
+- [Date-only local timezone](date-only-local-timezone.md) — use src/utils/localDate.js (localToday/parseDateOnly/formatDateOnly)
+- [Commission split settlement](commission-split-settlement.md) — payout vs withheld paths; is_withheld_offset payments mean no cash received (withheld-offset-payments.md)
+- [Voice call latency pipeline](voice-call-latency-pipeline.md) — parallel call-start + 250ms history race, VAD_BY_SPEED, conditional filler/nudge watchdog
+- [Prod bare pool ReferenceError](prod-bare-pool-referenceerror.md) — prod Twilio WS scope has NO shared pool; bare refs throw + get swallowed by broad catches (features silently dead)
+- [Staff voice PIN access](staff-voice-pin-access.md) — phone-CRM gate is server-side (LOCKED errors), not prompt-side
+- [Settings form dirty-flag revert](settings-form-dirty-flag.md) — every edit handler (incl. inline toggles) must set isDirty, or a refetch reverts unsaved edits and the revert gets
+- [AI assistant name hardcoded to Alex](ai-assistant-name-hardcoded.md) — name no longer subscriber-configurable; always 'alex'; flush call_routing_cache after bulk changes.
+- [AI spend circuit breaker](ai-spend-circuit-breaker.md) — $ gate must sum only AI_USAGE_FEATURES (not SMS/voice); generic_entities ON CONFLICT needs (id, entity_type)
+- [Gemini native-audio voice config](gemini-native-audio-config.md) — NEVER set max_output_tokens on native-audio (tokens=sound, hard-cuts speech)
+- [Xactimate native ESX format](xactimate-esx-native-import.md) — real .esx = ZIP + Verisk-encrypted XACTDOC.ZIPXML (unreproducible); we ship a beta plain-XML zip via shared builder
+- [Symbility import & print](symbility-import-reality.md) — imports only Roofplan XML, no estimate XML; CoreLogic-style cover is the approved print target (symbility-print-visual-target.md)
+- [Street View frames](street-view-frame-veto.md) — vetoes key on the wall face, never the panorama id; a rejected frame is a bad aim, not an unmeasurable wall (street-view-frame-recapture.md)
+- [Siding photo anchors](siding-photo-satellite-scale.md) — footprint before Gemini, front/back anchor to width and sides to length; MAD-reject per-photo outliers (siding-robust-aggregation.md)
+- [Replit VM deploy packaging](replit-vm-image-size-packaging.md) — images cap at 8 GiB; VM startup must use the captured build-time Node executable (vm-deploy-node-path.md)
+- [Siding photo orientation rules](siding-photo-orientation-rules.md) — 4 EXIF/Solar rules: compass binding, satellite anchor, oblique corner split, street-view face normals.
+- [Siding derived quantities](siding-derived-quantities.md) — fascia/soffit/trim/roof-perimeter via one shared util; soffit is eave-only; pass RAW edges + total wall height
+- [Siding opening/material allocation](siding-opening-material-allocation.md) — deduct each opening from ITS OWN wall's material column; caps must use the column's denominator
+- [Siding elevation face binding](siding-elevation-face-binding.md) — left vs left_side fails silently; corner labels resolve to unknown and double-count (siding-corner-photo-double-count.md)
+- [Siding UI gated on roof analysis](siding-ui-gated-on-roof-analysis.md) — siding panels nested in the `satelliteAnalysis` gate are dead UI (siding-only jobs never measure a roof)
+- [Batch AI classification drops inputs](batch-ai-assignment-drops.md) — assignment must iterate the UPLOADS not the LLM's response (big multi-image calls truncate it)
+- [Percentage-of-money rounding](percentage-money-rounding.md) — compute fees/commissions/tax in integer cents
+- [Line-item scoping rules](line-item-scoping-rules.md) — starter bills eaves only, drip edge bills eaves+rakes, house wrap is NOT deducted for masonry; shared qty vars conflate scopes.
+- [A name is not an identity](name-is-not-an-identity.md) — duplicate customer/lead names are normal; documents must link by id or ask
+- [Customer linking stays explicit](customer-linking-no-bulk-production.md) — never bulk-link or auto-backfill production records; require per-record selection and confirmation
+- [Estimate chain links](estimate-chain-link-fields.md) — a copy-forward strips BOTH link directions, and non-column fields must be stripped from the nested `data` JSONB too
+- [Change orders bill the delta](change-order-delta-billing.md) — a change order is a full copy-forward of its parent; only the net delta may reach an invoice, scoped to its own revision chain
+- [Saved line item RCV is the authority](saved-line-item-rcv-authority.md) — never recompute qty×rate on load/render/export (`rcv || amount || qty*rate` re-prices real $0 lines)
+- [Customer PDF delivery parity](customer-pdf-delivery-parity.md) — public links need the same money-display renderer as preview/download/email after token validation; formats require saved selection lookup.
+- [Prod-only page crashes](prod-build-crash-detection.md) — ESLint lints nothing here; build+sourcemap+puppeteer crawl is the only TDZ sweep (feature-removal-dangling-identifiers.md)
+- [functions.invoke() returns an envelope](invoke-envelope-unwrapping.md) — payload is under `.data` and failures RESOLVE, not throw
+- [Render gate must use the send handler's resolver](render-gate-resolver-mismatch.md) — gating a Text/Email button on the document's own snapshot field makes the handler's
+- [Cash-received reporting date](cash-received-reporting-date.md) — "money in this month" filters payment_date not created_at, excludes withheld offsets
+- [Lexi chat & access](lexi-chat-index.md) — greeting cadence, reply recovery, rep data scoping, production schema portability, and same-turn answer grounding.
+- [Mobile/Bluetooth voice capture](mobile-voice-capture-reliability.md) — get the mic BEFORE the socket (else mic errors launder into the reconnect loop); deadline AudioContext.resume()
+- [Voice CRM tool calls](voice-tool-call-duplication.md) — Gemini re-issues the same tool call re-worded many times per turn; broad catches hide throwing tools (voice-bridge-silent-tool-failure.md)
+- [Email send authorization](email-send-authorization.md) — resolve the owning company from the row and OVERWRITE caller-supplied ids; pause needs an expiry
+- [Punch-list boundaries](punch-list-nag-cadence.md) — re-arm day cadence; exclude punch items from build regeneration/progress (build-checklist-punch-separation.md).
+- [Material-list trade scope](material-list-trade-scope.md) — purchase-list classification must recognize siding products and exclude stray roofing accessories from siding orders.
+- [Siding estimate review gating](siding-estimate-review-gating.md) — incomplete photo coverage warns but must not disable estimate creation; only invalid graph math blocks it.
+- [Legacy subscription aliases](legacy-subscription-aliases.md) — lifetime/legacy/unlimited retain full access; professional retains Business access in every shared feature gate.
+- [Shared workflow catalog](shared-workflow-catalog.md) — templates are code-owned, inert until activation; emitter/catalog trigger names need dev+prod aliases (workflow-trigger-compatibility.md)
+- [Contract preview template selection](contract-preview-template-selection.md) — render the session's selected form/PDF; contingency editor content is only a legacy fallback
+- [Duplicate photo evidence order](duplicate-photo-evidence-order.md) — exclude duplicate observations before every aggregate, while retaining all inputs for audit/UI
+- [Development cron delivery](development-cron-delivery.md) — preview schedules must never send real email/SMS; dev and prod notification state diverges.
+- [Photo-derived wall areas](photo-wall-prism-gating.md) — 4 planes are a BOX/lower bound, height is grade-to-eave once (photo-height-semantics.md), only classified regions bill (material-map-authority.md)
+- [Company notification quiet hours](company-notification-quiet-hours.md) — gate automated staff alerts by timezone, not authenticated manual sends; never suppress customer mail
+- [Task notification fan-out](task-notification-fanout.md) — task events can have UI, workflow, and cron senders; external alerts must be centralized and digest-limited
+- [Lexi crew recommendations](lexi-crew-recommendations.md) — rank subs by fit/rating/radius, then check Build Schedule; no conflict is not a confirmed commitment
+- [Lexi build scheduling precedence](lexi-build-scheduling-precedence.md) — build/install must outrank generic calendar routing and need a real build_id; enforce in handlers, not prompts
+- [Lexi build-change confirmation](lexi-build-change-confirmation.md) — exact customer/date/job details require a bound confirmation token before scheduling writes
+- [Lexi single voice ownership](lexi-single-voice-ownership.md) — native and legacy browser voice share one takeover lock; Sarah/Twilio phone calls remain independent
+- [UUID root-file cache cleanup](uuid-root-cache-cleanup.md) — UUID naming alone does not make public/ files disposable; only sweep known photo-cache extensions.
+- [Dashboard first paint](dashboard-first-paint.md) — never block the whole dashboard on large customer/invoice collections; load the shell and fill widgets progressively.
+- [Provider OAuth ownership](provider-oauth-ownership.md) — CompanySync owns one provider integration app; each subscriber authorizes its own tenant account without sharing client secrets.
+- [Automated SMS recipient guard](sms-recipient-guard.md) — validate before Twilio; skip junk/test/disposable recipients without disabling valid-lead automation.
+- [Ephemeral entity row retention](ephemeral-entity-row-retention.md) — TTL rows in generic_entities need a purge cron in BOTH schedulers; age-gate on created_date, never a JSONB timestamptz cast
+- [Signed link delivery concurrency](signed-link-delivery-concurrency.md) — resend tokens, recipients, and rate reservations must be serialized under one session lock
+- [Invoice data JSONB is shared storage](invoice-data-jsonb-shared.md) — merge never replace; dev/prod disagree on explicit-vs-folded jsonb precedence; supplement_amount is not billed money
+- [Production company deletion access](production-company-deletion-access.md) — production reads use a read-only replica; destructive tenant cleanup must go through an authenticated platform-admin app path
+- [Homeowner photo sharing](homeowner-photo-sharing-boundary.md) — approvals stay customer-bound across project relinks; hiding on the portal does not revoke public image URLs.
+- [Subcontractor trade scope](subcontractor-trade-scope.md) — users need custom job categories such as Decks; specialties must not become a preset-only enum.
+- [Manager assignment surface](manager-assignment-scope.md) — expand existing assignment/reminder screens without new pages, tabs, menus, or navigation.
+- [Insurance claim welcome scope](insurance-claim-welcome-scope.md) — new claims only; no bulk backfill, duplicate introductions, guessed staff identities, or personal-cell fallbacks.
+- [Lexi homeowner positioning](lexi-homeowner-positioning.md) — AI project-update assistant, not COO; same name does not mean the same staff permissions.
+- [SQL callback termination](sql-callback-termination.md) — transaction-only production output may mean an unterminated statement, not missing data.
+- [Financial forecast evidence](financial-forecast-evidence.md) — use auditable cash baselines; due balances and AI narratives are not guaranteed revenue or measured confidence.
+- [Bulk deletion access](bulk-deletion-access.md) — mass deletion is reserved for platform Super Admins and company owners, never ordinary admins or staff.
+- [Customer inspection status](customer-inspection-status.md) — manual inspected marks are bookkeeping, not fabricated reports or scheduled-job completion.
+- [Siding catalog pricing boundaries](siding-catalog-pricing-boundaries.md) — catalog-only prices; validate trade/activity/units even on exact code matches; never auto-reprice saved estimates.
+- [Estimate chat edit boundary](estimate-chat-edit-boundary.md) — failed edits must not regenerate estimates; compound replacements apply together and preserve untouched financial values.

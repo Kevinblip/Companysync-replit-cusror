@@ -1,0 +1,558 @@
+#!/bin/bash
+# .githooks/pre-push
+#
+# BASH REQUIRED: This hook uses bash-specific features (set -euo pipefail,
+# process substitution, [[ ]], etc.) and MUST be executed by bash >= 3.
+# It will NOT work correctly under sh, dash, zsh, or other POSIX-only shells.
+# Git uses the shebang line above to select the interpreter, so as long as
+# bash is installed at /bin/bash the correct shell is always chosen.
+# The $BASH_VERSION guard below provides a belt-and-suspenders safety net.
+#
+# Runs static-analysis lint scripts when relevant files are among the commits
+# being pushed.  Each check is scoped to its own file-path pattern so that
+# unrelated pushes remain fast.
+#
+# Checks included
+# ───────────────
+#   1. Email verify-step enforcement  — triggers on .github/workflows/**
+#   2. Portal privacy SQL guard       — triggers on vite-functions-plugin.js
+#                                       or prod-server.cjs
+#   3. Alerting-heartbeat workflow    — triggers on
+#                                       .github/workflows/alerting-heartbeat.yml
+#   4. Email verify-step lint unit tests — triggers on
+#                                       scripts/check-email-verify-steps.cjs
+#                                       or scripts/test-email-verify-steps.cjs
+#   5. Slack webhook delivery-check tests — triggers on
+#                                       scripts/test-slack-webhook-check.sh,
+#                                       scripts/post-deploy-privacy-check.sh,
+#                                       or scripts/post-deploy-body-limit-check.sh
+#   6. Resend verify-action jq tests  — triggers on
+#                                       .github/actions/verify-resend-delivery/**
+#                                       or scripts/test-resend-verify-action.sh
+#   7. Estimate-token HMAC unit tests — triggers on lib/estimateToken.cjs,
+#                                       functions/_estimateToken.ts,
+#                                       or scripts/test-estimate-token.cjs
+#   8. Pre-push shell-guard self-test  — triggers on .githooks/pre-push
+#                                       or scripts/test-pre-push-shell-guard.sh
+#   9. Insurance estimate template tests — triggers on
+#                                       src/utils/insuranceEstimateTemplates.js
+#  10. Duplicate-payment guard tests   — triggers on
+#                                       src/pages/Estimates.jsx,
+#                                       src/pages/Invoices.jsx,
+#                                       src/pages/Payments.jsx,
+#                                       src/pages/invoice-details.jsx,
+#                                       src/utils/duplicateCheck.js,
+#                                       src/__tests__/duplicatePaymentGuards.test.js
+#  11. Xactimate export tests          — triggers on
+#                                       src/utils/xactimatePdfAdapter.js,
+#                                       src/utils/insuranceEstimateTemplates.js,
+#                                       src/pages/AIEstimator.jsx,
+#                                       src/components/estimates/XactimateExportDialog.jsx,
+#                                       src/__tests__/xactimateDialogSeeding.test.js
+#                                       or src/__tests__/xactimateExportDialog.test.jsx
+#  12. Tenant-guard billing strip tests — triggers on lib/tenantGuard.cjs
+#                                       or scripts/test-tenant-guard-billing.cjs
+#  13. Tenant-guard ownership-check tests — triggers on lib/tenantGuard.cjs
+#                                       or scripts/test-tenant-guard-ownership.cjs
+#  14. Tenant-guard subscription strip tests — triggers on lib/tenantGuard.cjs
+#                                       or scripts/test-tenant-guard-subscription.cjs
+#  15. Tenant-guard no-company create tests — triggers on lib/tenantGuard.cjs
+#                                       or scripts/test-tenant-guard-nocompany.cjs
+#  16. Company email sender regression tests — triggers on vite-functions-plugin.js,
+#                                       prod-server.cjs, or
+#                                       scripts/test-company-email-sender.cjs
+#  17. Price-list cross-tenant authz tests — triggers on vite-functions-plugin.js
+#                                       or scripts/test-price-list-authz.cjs
+#  18. Plan feature-gate regression tests — triggers on
+#                                       src/components/SubscriptionGate.jsx,
+#                                       scripts/seed-plan-test-companies.cjs,
+#                                       or scripts/test-plan-feature-gates.cjs;
+#                                       skips if DATABASE_URL unset or server down
+#  19. Daily-report timezone unit tests — triggers on
+#                                       vite-functions-plugin.js or
+#                                       scripts/test-daily-reports-tz.cjs
+#  20. Daily-report live timezone smoke test — triggers on
+#                                       vite-functions-plugin.js or
+#                                       scripts/test-daily-reports-cron.cjs;
+#                                       skips if DATABASE_URL unset or server down
+#
+# Activated automatically via `npm install` (prepare script → scripts/setup-dev.sh).
+
+# ── Bash-shell guard ──────────────────────────────────────────────────────────
+# $BASH_VERSION is only set when the interpreter is bash.  If this script is
+# somehow sourced or executed by a non-bash shell (sh, dash, zsh, …) we skip
+# all checks rather than producing cryptic syntax errors.
+if [ -z "${BASH_VERSION:-}" ]; then
+  echo ""
+  echo "[pre-push] WARNING: This hook requires bash but is running under a different shell."
+  echo "[pre-push] Skipping all pre-push checks. Ensure Git uses bash to enable linting."
+  echo ""
+  exit 0
+fi
+
+set -euo pipefail
+
+# ── Node.js availability guard ────────────────────────────────────────────────
+# All checks in this hook require Node.js.  If it isn't on PATH we emit a
+# clear warning and allow the push to proceed so that machines without Node
+# (e.g. CI runners that use a different image, or fresh dev boxes) are never
+# silently blocked by a "node: command not found" error.
+if ! command -v node >/dev/null 2>&1; then
+  echo ""
+  echo "[pre-push] WARNING: Node.js not found on PATH — skipping all hook checks."
+  echo "[pre-push] Install Node.js (https://nodejs.org) to enable pre-push linting."
+  echo ""
+  exit 0
+fi
+
+# Optional minimum version check (requires Node >= 18).
+_NODE_MAJOR="$(node -e 'process.stdout.write(String(process.versions.node.split(".")[0]))')"
+if [ "$_NODE_MAJOR" -lt 18 ] 2>/dev/null; then
+  echo ""
+  echo "[pre-push] WARNING: Node.js v${_NODE_MAJOR} detected — hook checks require Node >= 18."
+  echo "[pre-push] Skipping checks. Upgrade Node.js to enable pre-push linting."
+  echo ""
+  exit 0
+fi
+
+REMOTE="$1"
+URL="$2"
+
+NULL_SHA="0000000000000000000000000000000000000000"
+
+# Accumulate every changed file path across all pushed refs into one list.
+# We process stdin (the ref pairs Git feeds us) in a single pass and store
+# the combined diff in a temp file so each check can query it independently.
+CHANGED_FILES_TMP="$(mktemp)"
+trap 'rm -f "$CHANGED_FILES_TMP"' EXIT
+
+while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_sha" = "$NULL_SHA" ]; then
+    BASE=$(git hash-object -t tree /dev/null)
+  else
+    BASE="$remote_sha"
+  fi
+
+  git diff --name-only "$BASE" "$local_sha" 2>/dev/null >> "$CHANGED_FILES_TMP" || true
+done
+
+HOOK_FAILED=0
+
+# ── Helper ────────────────────────────────────────────────────────────────────
+# changed_match [grep-flags] <pattern>
+#   Returns 0 (true) if any changed file path matches the pattern.
+#   All arguments are forwarded to grep so flags like -E work correctly.
+changed_match() {
+  grep -q "$@" "$CHANGED_FILES_TMP" 2>/dev/null
+}
+
+# ── 1. Email verify-step enforcement ─────────────────────────────────────────
+if changed_match '^\.github/workflows/'; then
+  echo ""
+  echo "[pre-push] Workflow file(s) changed — running email verify-step lint…"
+  echo ""
+  if ! node scripts/check-email-verify-steps.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: fix the email verify-step violation(s) above before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Email verify-step lint passed. ✓"
+  fi
+fi
+
+# ── 2. Portal privacy SQL guard ───────────────────────────────────────────────
+if changed_match -E '^(vite-functions-plugin\.js|prod-server\.cjs)$'; then
+  echo ""
+  echo "[pre-push] Portal source file(s) changed — running portal privacy SQL guard…"
+  echo ""
+  if ! node scripts/check-portal-privacy-sql.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: portal privacy SQL guard failed — fix is_public regression(s) before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Portal privacy SQL guard passed. ✓"
+  fi
+fi
+
+# ── 3. Alerting-heartbeat workflow static analysis ────────────────────────────
+if changed_match '^\.github/workflows/alerting-heartbeat\.yml$'; then
+  echo ""
+  echo "[pre-push] alerting-heartbeat.yml changed — running heartbeat workflow static analysis…"
+  echo ""
+  if ! node scripts/test-heartbeat-workflow.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: heartbeat workflow validation failed — fix the issue(s) above before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Heartbeat workflow static analysis passed. ✓"
+  fi
+fi
+
+# ── 4. Email verify-step lint unit tests ──────────────────────────────────────
+if changed_match -E '^scripts/(check|test)-email-verify-steps\.cjs$'; then
+  echo ""
+  echo "[pre-push] Email verify-step lint script(s) changed — running unit tests…"
+  echo ""
+  if ! node scripts/test-email-verify-steps.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: email verify-step lint unit tests failed — fix before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Email verify-step lint unit tests passed. ✓"
+  fi
+fi
+
+# ── 5. Slack webhook delivery-check tests ─────────────────────────────────────
+if changed_match -E '^scripts/(test-slack-webhook-check|post-deploy-privacy-check|post-deploy-body-limit-check)\.sh$'; then
+  if ! command -v bash >/dev/null 2>&1; then
+    echo ""
+    echo "[pre-push] WARNING: bash not found on PATH — skipping Slack webhook delivery-check tests (check 5)."
+    echo ""
+  elif ! command -v jq >/dev/null 2>&1; then
+    echo ""
+    echo "[pre-push] WARNING: jq not found on PATH — skipping Slack webhook delivery-check tests (check 5)."
+    echo "[pre-push] Install jq (https://jqlang.github.io/jq/) to enable this check."
+    echo ""
+  else
+    echo ""
+    echo "[pre-push] Slack webhook delivery-check script changed — running tests…"
+    echo ""
+    if ! bash scripts/test-slack-webhook-check.sh; then
+      echo ""
+      echo "[pre-push] BLOCKED: Slack webhook delivery-check tests failed — fix before pushing."
+      HOOK_FAILED=1
+    else
+      echo ""
+      echo "[pre-push] Slack webhook delivery-check tests passed. ✓"
+    fi
+  fi
+fi
+
+# ── 6. Resend verify-action jq filter tests ───────────────────────────────────
+if changed_match -E '^(\.github/actions/verify-resend-delivery/|scripts/test-resend-verify-action\.sh$)'; then
+  if ! command -v bash >/dev/null 2>&1; then
+    echo ""
+    echo "[pre-push] WARNING: bash not found on PATH — skipping Resend verify-action jq filter tests (check 6)."
+    echo ""
+  elif ! command -v jq >/dev/null 2>&1; then
+    echo ""
+    echo "[pre-push] WARNING: jq not found on PATH — skipping Resend verify-action jq filter tests (check 6)."
+    echo "[pre-push] Install jq (https://jqlang.github.io/jq/) to enable this check."
+    echo ""
+  else
+    echo ""
+    echo "[pre-push] Resend verify-action file(s) changed — running jq filter tests…"
+    echo ""
+    if ! bash scripts/test-resend-verify-action.sh; then
+      echo ""
+      echo "[pre-push] BLOCKED: Resend verify-action jq filter tests failed — fix before pushing."
+      HOOK_FAILED=1
+    else
+      echo ""
+      echo "[pre-push] Resend verify-action jq filter tests passed. ✓"
+    fi
+  fi
+fi
+
+# ── 7. Estimate-token HMAC unit tests ─────────────────────────────────────────
+if changed_match -E '^(lib/estimateToken\.cjs|functions/_estimateToken\.ts|scripts/test-estimate-token\.cjs)$'; then
+  echo ""
+  echo "[pre-push] Estimate-token helper(s) changed — running HMAC unit tests…"
+  echo ""
+  if ! node scripts/test-estimate-token.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: estimate-token HMAC unit tests failed — fix before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Estimate-token HMAC unit tests passed. ✓"
+  fi
+fi
+
+# ── 8. Pre-push shell-guard self-test ─────────────────────────────────────────
+if changed_match -E '^(\.githooks/pre-push|scripts/test-pre-push-shell-guard\.sh)$'; then
+  if ! command -v sh >/dev/null 2>&1; then
+    echo ""
+    echo "[pre-push] WARNING: sh not found on PATH — skipping pre-push shell-guard self-test (check 8)."
+    echo ""
+  else
+    echo ""
+    echo "[pre-push] pre-push hook or shell-guard test changed — running shell-guard self-test…"
+    echo ""
+    if ! bash scripts/test-pre-push-shell-guard.sh; then
+      echo ""
+      echo "[pre-push] BLOCKED: pre-push shell-guard self-test failed — fix before pushing."
+      HOOK_FAILED=1
+    else
+      echo ""
+      echo "[pre-push] Pre-push shell-guard self-test passed. ✓"
+    fi
+  fi
+fi
+
+# ── 9. Insurance estimate template tests ──────────────────────────────────────
+if changed_match '^src/utils/insuranceEstimateTemplates\.js$'; then
+  echo ""
+  echo "[pre-push] insuranceEstimateTemplates.js changed — running insurance estimate template tests…"
+  echo ""
+  if ! npx vitest run src/__tests__/insuranceEstimateTemplates.test.js --reporter=verbose 2>&1; then
+    echo ""
+    echo "[pre-push] BLOCKED: insurance estimate template tests failed — fix before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Insurance estimate template tests passed. ✓"
+  fi
+fi
+
+# ── 10. Duplicate-payment guard tests ─────────────────────────────────────────
+if changed_match -E '^(src/pages/(Estimates|Invoices|Payments|invoice-details)\.jsx|src/utils/duplicateCheck\.js|src/__tests__/duplicatePaymentGuards\.test\.js)$'; then
+  echo ""
+  echo "[pre-push] Duplicate-payment guard file(s) changed — running duplicate-payment guard tests…"
+  echo ""
+  if ! npx vitest run src/__tests__/duplicatePaymentGuards.test.js --reporter=verbose 2>&1; then
+    echo ""
+    echo "[pre-push] BLOCKED: duplicate-payment guard tests failed — fix before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Duplicate-payment guard tests passed. ✓"
+  fi
+fi
+
+# ── 11. Xactimate export tests ────────────────────────────────────────────────
+if changed_match -E '^(src/utils/xactimatePdfAdapter\.js|src/utils/insuranceEstimateTemplates\.js|src/pages/AIEstimator\.jsx|src/components/estimates/XactimateExportDialog\.jsx|src/__tests__/xactimateDialogSeeding\.test\.js|src/__tests__/xactimateExportDialog\.test\.jsx)$'; then
+  echo ""
+  echo "[pre-push] Xactimate export file(s) changed — running Xactimate export tests…"
+  echo ""
+  if ! npx vitest run src/__tests__/xactimateDialogSeeding.test.js src/__tests__/xactimateExportDialog.test.jsx --reporter=verbose 2>&1; then
+    echo ""
+    echo "[pre-push] BLOCKED: Xactimate export tests failed — fix before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Xactimate export tests passed. ✓"
+  fi
+fi
+
+# ── 12. Tenant-guard billing-field strip tests ────────────────────────────────
+if changed_match -E '^(lib/tenantGuard\.cjs|scripts/test-tenant-guard-billing\.cjs)$'; then
+  echo ""
+  echo "[pre-push] tenantGuard changed — running billing-field strip regression tests…"
+  echo ""
+  if ! node scripts/test-tenant-guard-billing.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: tenant-guard billing-field strip tests failed — fix the self-grant regression before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Tenant-guard billing-field strip tests passed. ✓"
+  fi
+fi
+
+# ── 13. Tenant-guard ownership-check tests ────────────────────────────────────
+if changed_match -E '^(lib/tenantGuard\.cjs|scripts/test-tenant-guard-ownership\.cjs)$'; then
+  echo ""
+  echo "[pre-push] tenantGuard changed — running ownership-check regression tests…"
+  echo ""
+  if ! node scripts/test-tenant-guard-ownership.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: tenant-guard ownership-check tests failed — fix the cross-tenant company-record regression before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Tenant-guard ownership-check tests passed. ✓"
+  fi
+fi
+
+# ── 14. Tenant-guard subscription-field strip tests ───────────────────────────
+if changed_match -E '^(lib/tenantGuard\.cjs|scripts/test-tenant-guard-subscription\.cjs)$'; then
+  echo ""
+  echo "[pre-push] tenantGuard changed — running subscription-field strip regression tests…"
+  echo ""
+  if ! node scripts/test-tenant-guard-subscription.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: tenant-guard subscription-field strip tests failed — fix the trial/subscription self-grant regression before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Tenant-guard subscription-field strip tests passed. ✓"
+  fi
+fi
+
+# ── 15. Tenant-guard no-company create-claim tests ────────────────────────────
+if changed_match -E '^(lib/tenantGuard\.cjs|scripts/test-tenant-guard-nocompany\.cjs)$'; then
+  echo ""
+  echo "[pre-push] tenantGuard changed — running no-company create-claim regression tests…"
+  echo ""
+  if ! node scripts/test-tenant-guard-nocompany.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: tenant-guard no-company create tests failed — fix the self-linking membership regression before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Tenant-guard no-company create tests passed. ✓"
+  fi
+fi
+
+# ── 15b. Tenant-guard admin-only company-fields tests ─────────────────────────
+if changed_match -E '^(lib/tenantGuard\.cjs|scripts/test-tenant-guard-company-fields\.cjs)$'; then
+  echo ""
+  echo "[pre-push] tenantGuard changed — running admin-only company-fields regression tests…"
+  echo ""
+  if ! node scripts/test-tenant-guard-company-fields.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: tenant-guard admin-only company-fields tests failed — fix the non-admin company-profile write regression before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Tenant-guard admin-only company-fields tests passed. ✓"
+  fi
+fi
+
+# ── 15c. Staff voice PIN auth tests ───────────────────────────────────────────
+if changed_match -E '^(lib/staffVoiceAuth\.cjs|scripts/test-staff-voice-auth\.cjs)$'; then
+  echo ""
+  echo "[pre-push] staffVoiceAuth changed — running staff phone PIN auth tests…"
+  echo ""
+  if ! node scripts/test-staff-voice-auth.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: staff voice PIN auth tests failed — fix the staff phone verification regression before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Staff voice PIN auth tests passed. ✓"
+  fi
+fi
+
+# ── 16. Company email sender regression tests ─────────────────────────────────
+if changed_match -E '^(vite-functions-plugin\.js|prod-server\.cjs|scripts/test-company-email-sender\.cjs)$'; then
+  echo ""
+  echo "[pre-push] Email sender source changed — running company email sender regression tests…"
+  echo ""
+  if ! node scripts/test-company-email-sender.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: company email sender regression tests failed — fix the sender regression before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Company email sender regression tests passed. ✓"
+  fi
+fi
+
+# ── 17. Price-list cross-tenant authz tests ───────────────────────────────
+if changed_match -E '^(vite-functions-plugin\.js|scripts/test-price-list-authz\.cjs)$'; then
+  echo ""
+  echo "[pre-push] Price-list handler changed — running cross-tenant authz regression tests…"
+  echo ""
+  if ! node scripts/test-price-list-authz.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: price-list authz tests failed — fix the cross-tenant data-overwrite regression before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Price-list cross-tenant authz tests passed. ✓"
+  fi
+fi
+
+# ── 19. Report-scheduler timezone regression tests ───────────────────────
+# Triggers on vite-functions-plugin.js (where the daily report, Friday portal
+# recap, and weekly commission digest schedulers live) or the test script
+# itself. Pure in-process unit test — no server required.
+if changed_match -E '^(vite-functions-plugin\.js|scripts/test-daily-reports-tz\.cjs)$'; then
+  echo ""
+  echo "[pre-push] Report-scheduler source changed — running daily/Friday/weekly timezone regression tests…"
+  echo ""
+  if ! node scripts/test-daily-reports-tz.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: report-scheduler timezone tests failed — fix the timezone regression before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Report-scheduler timezone tests passed. ✓"
+  fi
+fi
+
+# ── 18. Plan feature-gate regression tests ────────────────────────────────
+# Triggers on SubscriptionGate.jsx (live PLAN_FEATURES / SUBSCRIPTION_LIMITS
+# source), the seed script, or the test script itself.
+# Skips gracefully when DATABASE_URL is absent or the dev server is not up —
+# same exit-0 skip pattern used by all live-server hooks in this file.
+if changed_match -E '^(src/components/SubscriptionGate\.jsx|scripts/(seed-plan-test-companies|test-plan-feature-gates)\.cjs)$'; then
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo ""
+    echo "[pre-push] WARNING: DATABASE_URL not set — skipping plan feature-gate tests (check 18)."
+    echo "[pre-push] Set DATABASE_URL and start the dev server to enable this check."
+    echo ""
+  elif ! node -e "
+var http = require('http');
+var port = process.env.PORT || 5000;
+var req = http.get('http://localhost:' + port + '/api/health', function(r){ process.exit(0); });
+req.on('error', function(){ process.exit(1); });
+req.setTimeout(2000, function(){ req.destroy(); process.exit(1); });
+" 2>/dev/null; then
+    echo ""
+    echo "[pre-push] WARNING: Dev server not reachable — skipping plan feature-gate tests (check 18)."
+    echo "[pre-push] Start the server with 'npm run dev' to enable this check."
+    echo ""
+  else
+    echo ""
+    echo "[pre-push] Plan gate file(s) changed — running plan feature-gate regression tests…"
+    echo ""
+    if ! node scripts/test-plan-feature-gates.cjs; then
+      echo ""
+      echo "[pre-push] BLOCKED: plan feature-gate tests failed — fix the subscription limit or feature-access regression before pushing."
+      echo "[pre-push] If test companies are missing, run: npm run seed:plan-companies"
+      HOOK_FAILED=1
+    else
+      echo ""
+      echo "[pre-push] Plan feature-gate regression tests passed. ✓"
+    fi
+  fi
+fi
+
+# ── 20. Daily-report live timezone smoke test ─────────────────────────────────
+# This complements check 19's source/unit assertions by invoking the real
+# handler against a disposable database fixture.  It is intentionally skipped
+# when the database or dev server is unavailable, matching check 18.
+if changed_match -E '^(vite-functions-plugin\.js|scripts/test-daily-reports-cron\.cjs)$'; then
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo ""
+    echo "[pre-push] WARNING: DATABASE_URL not set — skipping daily-report live smoke test (check 20)."
+    echo "[pre-push] Set DATABASE_URL and start the dev server to enable this check."
+    echo ""
+  elif ! node -e "
+var http = require('http');
+var port = process.env.PORT || 5000;
+var req = http.get('http://localhost:' + port + '/health', function(r){ process.exit(0); });
+req.on('error', function(){ process.exit(1); });
+req.setTimeout(2000, function(){ req.destroy(); process.exit(1); });
+" 2>/dev/null; then
+    echo ""
+    echo "[pre-push] WARNING: Dev server not reachable — skipping daily-report live smoke test (check 20)."
+    echo "[pre-push] Start the server with 'npm run dev' to enable this check."
+    echo ""
+  else
+    echo ""
+    echo "[pre-push] Daily-report scheduler source changed — running live timezone smoke test…"
+    echo ""
+    if ! node scripts/test-daily-reports-cron.cjs; then
+      echo ""
+      echo "[pre-push] BLOCKED: daily-report live smoke test failed — fix the scheduler regression before pushing."
+      HOOK_FAILED=1
+    else
+      echo ""
+      echo "[pre-push] Daily-report live timezone smoke test passed. ✓"
+    fi
+  fi
+fi
+
+if [ "$HOOK_FAILED" -ne 0 ]; then
+  exit 1
+fi
+
+exit 0

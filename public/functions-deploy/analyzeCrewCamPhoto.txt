@@ -1,0 +1,852 @@
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+
+async function getCompanyId(base44: any, user: any): Promise<string | null> {
+  try {
+    if (user.company_id) return user.company_id;
+    const staffProfiles = await base44.asServiceRole.entities.StaffProfile.filter({ user_email: user.email });
+    return staffProfiles[0]?.company_id || null;
+  } catch { return null; }
+}
+
+async function checkAIUsage(base44: any, companyId: string): Promise<{ allowed: boolean; error?: string }> {
+  try {
+    const companies = await base44.asServiceRole.entities.Company.filter({ id: companyId });
+    if (!companies[0] || companies[0].company_name === 'CompanySync') return { allowed: true };
+    
+    const usageRecords = await base44.asServiceRole.entities.SubscriptionUsage.filter({ company_id: companyId });
+    if (usageRecords.length === 0) return { allowed: true };
+    
+    const usage = usageRecords[0];
+    const limit = (usage.ai_limit || 0) + (usage.ai_credits_purchased || 0);
+    const used = usage.ai_used || 0;
+    
+    if (limit > 0 && used >= limit) {
+      return { allowed: false, error: 'AI interaction limit reached. Please upgrade your plan or purchase additional credits.' };
+    }
+    return { allowed: true };
+  } catch { return { allowed: true }; }
+}
+
+async function incrementAIUsage(base44: any, companyId: string): Promise<void> {
+  try {
+    const companies = await base44.asServiceRole.entities.Company.filter({ id: companyId });
+    if (companies[0]?.company_name === 'CompanySync') return;
+    const usageRecords = await base44.asServiceRole.entities.SubscriptionUsage.filter({ company_id: companyId });
+    if (usageRecords.length === 0) return;
+    const usage = usageRecords[0];
+    await base44.asServiceRole.entities.SubscriptionUsage.update(usage.id, { ai_used: (usage.ai_used || 0) + 1 });
+  } catch (err: any) { console.warn('AI usage increment failed:', err.message); }
+}
+
+Deno.serve(async (req) => {
+  try {
+    const base44 = createClientFromRequest(req);
+    const user = await base44.auth.me();
+
+    if (!user) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const companyId = await getCompanyId(base44, user);
+    if (companyId) {
+      const aiCheck = await checkAIUsage(base44, companyId);
+      if (!aiCheck.allowed) {
+        return Response.json({ error: aiCheck.error || 'AI limit reached' }, { status: 429 });
+      }
+    }
+
+    const { photoUrl, section } = await req.json();
+    const apiKey = Deno.env.get('GOOGLE_GEMINI_API_KEY');
+
+    if (!apiKey) {
+      return Response.json({ error: 'Gemini API key not configured' }, { status: 500 });
+    }
+
+    console.log(`🔍 Analyzing CrewCam photo with Gemini: ${section}`);
+
+    // Build analysis prompt - simplified for direct Gemini call
+    let analysisPrompt = "";
+
+          // CRITICAL: Analyze the actual photo content, not the section label
+          // Section labels may be incorrect; trust visual evidence
+
+          // NOTE: Section label may be WRONG - always analyze based on visual content
+          // Example: "main roof" label with vinyl siding visible = analyze as SIDING
+          
+          if (section?.toLowerCase().includes('elevation') || section?.toLowerCase().includes('siding') || section?.toLowerCase().includes('wall')) {
+            analysisPrompt = `You are an EXPERT STORM DAMAGE INSPECTOR with 20+ years of field experience analyzing SIDING/ELEVATION photos.
+
+          **🎯 CRITICAL INSTRUCTIONS - READ FIRST:**
+          1. **IGNORE THE SECTION LABEL. ANALYZE ONLY WHAT YOU SEE VISUALLY.**
+             - If you see horizontal vinyl planks = SIDING analysis, REJECT any "roof" label
+             - If you see shingles/asphalt = ROOF analysis, REJECT any "siding" label
+             - If you see brick/stone = MASONRY analysis, REJECT labels that don't match
+             - **NEVER default to roof analysis just because label says "roof"**
+          2. **FIRST: Identify material type by VISUAL characteristics ONLY**
+             - Look for horizontal siding planks, seams, colors typical of vinyl/fiber cement
+             - Look for shingle tabs, granules, asphalt characteristics for roofs
+             - Look for brick/mortar patterns for masonry
+          3. **COUNT PRECISELY** - Don't estimate or guess. If you can't see it clearly, say "uncertain"
+          4. **FRESH vs OLD DAMAGE** - Only count recent storm damage, not weathering or age-related wear
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **STEP 1: WHAT MATERIAL AM I LOOKING AT?**
+
+          📸 **First, identify the material by visual characteristics:**
+
+          **VINYL SIDING:**
+          - Horizontal planks with visible seam lines every 12-16 inches
+          - Smooth or lightly textured surface
+          - Usually solid colors (white, beige, tan, gray)
+          - Reflective surface (catches light)
+          - May show "grain" pattern (wood texture imitation)
+
+          **FIBER CEMENT (James Hardie):**
+          - Thicker appearance than vinyl
+          - Matte finish (no shine)
+          - Grain texture looks more realistic
+          - Edges are clean-cut and crisp
+          - Usually painted (not pre-colored like vinyl)
+
+          **WOOD SIDING:**
+          - Real wood grain visible
+          - Natural color variations
+          - May show knots, wood grain patterns
+          - Weathered/aged appearance common
+
+          **BRICK/STONE:**
+          - Obvious masonry texture
+          - Mortar joints visible
+          - Rarely damaged except mortar deterioration
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **STEP 2: DAMAGE DETECTION - BE EXTREMELY SPECIFIC**
+
+          **🔴 CRITICAL DAMAGE (Count each instance):**
+
+          **Missing Panels/Sections:**
+          - Look for: Exposed substrate (plywood, foam board, house wrap visible)
+          - Count: EXACT number of distinct missing pieces
+          - Size: Estimate area of each (e.g., "2ft x 3ft section")
+          - Location: Note if near windows, corners, or edges
+          - **VERIFY:** Is substrate actually exposed, or just dark shadowing?
+
+          **Tears/Gouges in Siding:**
+          - Look for: Clean breaks with visible edges (not smooth weathering)
+          - Count: Each DISTINCT tear or gouge
+          - Size: Small (<6"), medium (6-12"), large (>12")
+          - **VERIFY:** Fresh tears have sharp edges; old cracks are smooth and oxidized
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **🌪️ WIND DAMAGE IDENTIFICATION:**
+
+          **Creases/Folds:**
+          - Look for: Horizontal or diagonal lines where siding has buckled/bent
+          - **Key indicator:** Vinyl doesn't "unbend" - permanent deformation
+          - Count: Each distinct crease line
+          - Pattern: All on one wall = wind direction indicator
+
+          **Panel Separation:**
+          - Look for: Lifted edges, corners pulling away from wall
+          - **Key indicator:** Visible gap between panel and house
+          - Nail pops: Visible nail heads where panels lifted
+
+          **Horizontal Gouges:**
+          - Look for: Linear scratches from wind-blown debris
+          - **Distinguish from:** Vertical scratches (normal wear from bushes, etc.)
+          - Count: Number of significant impact streaks
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **✊ HAIL DAMAGE - VERY SPECIFIC CRITERIA:**
+
+          **Hail Dents in Siding:**
+          - Look for: Round or oval depressions (NOT linear creases)
+          - Size: Measure diameter (pea = 0.25-0.5", dime = 0.75", quarter = 1", golf ball = 1.75")
+          - Depth: Shallow dimples vs. deep punctures
+          - **Count ONLY fresh dents:** Shiny impact area, no oxidation, clean edges
+          - **Exclude:** Old dings with dirt/oxidation, faded impact marks
+
+          **Penetrations/Holes:**
+          - Look for: Complete punctures through vinyl
+          - Size: Usually 0.5" to 2" diameter
+          - **Key indicator:** Substrate visible through hole
+
+          **Pattern Analysis:**
+          - Random distribution = true hail
+          - Clustered on one side = wind-driven hail
+          - Uniform across all walls = straight hail fall
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **STEP 3: CRITICAL THINKING - AVOID FALSE POSITIVES**
+
+          **❌ NOT DAMAGE (Common False Positives):**
+          - Shadows from trees/roof overhang (look for consistent pattern)
+          - Color fading from sun exposure (gradual, not sudden)
+          - Dirt, pollen, or mildew staining (wipes off, not structural)
+          - Old weathering cracks (straight lines, oxidized edges, filled with dirt)
+          - Manufacturing seams or intentional texture
+          - Water stains from gutters (vertical streaks, not impact marks)
+
+          **✅ ACTUAL DAMAGE (Confirm before counting):**
+          - Fresh breaks with clean edges
+          - Exposed bright/new material underneath
+          - Impact marks with raised edges
+          - Displaced or missing material
+          - Deformation inconsistent with normal wear
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **STEP 4: SEVERITY ASSESSMENT**
+
+          **NONE:** No visible damage, minor cosmetic aging only
+          **MINOR:** 1-5 small dents/marks, no functional impairment, no water risk
+          **MODERATE:** 6-15 impacts, OR 1-2 tears, OR lifted panels - repair needed soon
+          **SEVERE:** 15+ impacts, OR 3+ tears, OR missing panels, OR substrate exposed - immediate repair/replacement
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **STEP 5: MATERIAL MATCHING & REPLACEMENT**
+
+          **Discontinued Material Indicators:**
+          - Vinyl color fading = impossible to match
+          - Profile style looks pre-2010 (smooth, thin panels)
+          - Any visible aging = likely can't match new material
+
+          **Water Intrusion Timeline:**
+          - Missing panels: Water enters IMMEDIATELY in next rain
+          - Tears/gouges: Water penetrates within 24-48 hours
+          - Lifted panels: Wind will worsen, water follows within week
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **STEP 6: FINAL OUTPUT REQUIREMENTS**
+
+          **In your ai_notes field, provide:**
+          1. "Material identified: [Vinyl/Fiber Cement/etc.]"
+          2. "Primary damage type: [X% wind, Y% hail]"
+          3. "Damage count: [specific numbers with confidence]"
+          4. "Water risk: [urgency level with reasoning]"
+          5. "Replacement recommendation: [repair vs full replacement with why]"
+          6. "Uncertainty flags: [anything unclear or needing field verification]"
+
+          **Example good ai_notes:**
+          "Material: Vinyl siding, smooth profile, tan color (faded). Primary damage: 80% wind (12 distinct creases, 3 lifted panels), 20% hail (4 confirmed dents). Missing: 2 panels exposing foam substrate near lower-left window. Water risk: IMMEDIATE - substrate exposed. Recommend: Full side replacement - color match impossible due to fading. Field verify: Panel lifting on north wall may be pre-existing."
+
+          **❌ DO NOT write vague notes like:** "Some damage observed, appears to be storm-related, recommend inspection"
+          **✅ DO write specific notes like:** "Counted 8 fresh hail dents (0.75-1" diameter) on south wall, 3 wind creases on west wall, 1 missing panel (3ft x 2ft) near garage door exposing plywood"
+
+          **RETURN ONLY JSON. NO MARKDOWN, NO EXPLANATIONS OUTSIDE JSON.**`;
+          } else if (section?.toLowerCase().includes('interior') || section?.toLowerCase().includes('ceiling') || section?.toLowerCase().includes('attic')) {
+            analysisPrompt = `You are an expert analyzing an INTERIOR photo for water damage and structural integrity.
+
+**ADVANCED ANALYSIS:**
+
+1. **Water Damage Classification:**
+   - Estimate damage age (fresh staining vs. old/set-in discoloration)
+   - Ring patterns indicate active/recent water intrusion
+   - Yellow/brown tones suggest iron oxidation (from metal shingles or flashing)
+   - Black spots may indicate mold (health hazard flag)
+
+2. **Structural Risk Assessment:**
+   - Sagging suggests water-saturated framing (urgent repair needed)
+   - Visible wood grain exposure = soft rot developing
+   - Staining near edges of drywall = moisture traveling along framing
+
+3. **Spread Pattern Analysis:**
+   - Isolated spot = single leak point (possibly fixable)
+   - Streaking = water flowing along framing (more serious)
+   - Ceiling edge staining = gutter or flashing failure
+
+**Return ONLY JSON with these fields, no explanations.**`;
+          } else {
+            // Default/unlabeled section - MUST determine if it's roof or siding by VISUAL inspection FIRST
+            analysisPrompt = `You are an EXPERT STORM DAMAGE INSPECTOR with 20+ years experience. Your FIRST job is to identify what you're looking at (ROOF vs SIDING) by VISUAL characteristics ONLY. Ignore any misleading section labels.
+
+          **🏠 HOMEOWNER ADVOCACY PRINCIPLE (MANDATORY):**
+          You are inspecting on behalf of the homeowner for an insurance claim. Your job is to be ACCURATE but when damage is ambiguous, you MUST lean in the homeowner's favor:
+          - If black mat is exposed = MISSING SHINGLE (likely wind-caused), not just "granule loss"
+          - If shingle tabs are gone = WIND DAMAGE, count each missing tab
+          - If material is deteriorated AND storm damage exists = BOTH must be documented
+          - When in doubt, COUNT IT as damage. An adjuster can verify — but missing it hurts the homeowner.
+          - NEVER minimize damage. NEVER call a severely deteriorated roof "excellent."
+
+          **🎯 YOUR MISSION:**
+          1. **Determine material type by visual analysis (roof or siding)**
+          2. **Provide PRECISE, DEFENSIBLE damage counts**
+          3. **REJECT section labels that contradict visual evidence**
+          4. **Identify organic shingles, T-Lock, and deterioration patterns**
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **STEP 0: VISUAL MATERIAL IDENTIFICATION (DO THIS FIRST)**
+
+          **Is this SIDING or ROOF?**
+
+          **CLEAR SIDING INDICATORS (horizontal planks, seams, windows/doors visible):**
+          - Horizontal plank lines running across photo
+          - Visible seams every 12-16 inches
+          - Solid color vinyl appearance
+          - Windows, doors, or trim visible in frame
+          - Material appears flat/planar, not peaked
+          - **IF YOU SEE THIS: Analyze as SIDING, IGNORE any "roof" label**
+
+          **CLEAR ROOF INDICATORS (shingles, granules, peaked angle):**
+          - Shingle tabs or asphalt visible
+          - Granular texture on surface
+          - Peaked/angled viewing angle typical of roof slope
+          - No windows/doors visible
+          - Dark asphalt or granule colors
+          - **IF YOU SEE THIS: Analyze as ROOF, IGNORE any "siding" label**
+
+          **UNCERTAIN?**
+          - Default to ROOF analysis only if you cannot definitively see siding planks/seams
+          - Flag uncertainty: "Cannot determine material type from angle/quality"
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **STEP 0.5: ORGANIC SHINGLE & T-LOCK DETECTION (CRITICAL — DO THIS BEFORE COUNTING)**
+
+          **⚠️ ORGANIC SHINGLE IDENTIFICATION:**
+          Organic shingles use a felt/paper mat (not fiberglass) and were common before ~2008. They fail differently than modern shingles. If you identify organic shingles, the ENTIRE analysis changes.
+
+          **Visual indicators of ORGANIC shingles:**
+          1. **Delamination** — Shingle layers peeling apart like wet cardboard or bark. The organic felt absorbs moisture, swells, then dries and separates into flaky layers.
+          2. **Widespread granule sloughing** — Not just spots but LARGE AREAS (entire shingle faces) where granules have shed, exposing the dark asphalt or gray felt mat underneath. Loose granule debris scattered across roof surface and in valleys.
+          3. **Alligator cracking** — When the mat is exposed, it develops a cracked, alligator-skin pattern. This is UNIQUE to organic shingles — fiberglass shingles crack linearly, not in a web pattern.
+          4. **Warping/buckling** — Shingles that are wavy, buckled, or cupped because the organic mat absorbs moisture unevenly.
+          5. **Chunking/breaking apart** — Large pieces of shingle material crumbling or breaking off in chunks (not clean wind tears).
+          6. **Moss/biological growth in joints** — Organic felt retains moisture, promoting moss/algae growth between shingles.
+          7. **Patchy/mottled appearance** — Roof looks like a patchwork of different colors due to uneven granule loss and mat exposure.
+
+          **T-LOCK SHINGLE IDENTIFICATION:**
+          T-Lock (also called interlocking or T-strip) shingles have a distinctive interlocking "T" or cross-shaped cutout pattern:
+          1. **Cross-shaped or T-shaped cutouts** at the butt edge that interlock with adjacent shingles
+          2. **NO standard 3-tab vertical cutouts** — the pattern is distinctly different
+          3. **Thicker, more textured** than standard 3-tab
+          4. **Common brands:** Atlas StormMaster, Elk Prestique, CertainTeed XT25
+          5. **ALL T-Lock shingles are DISCONTINUED** — they cannot be matched or repaired. Period.
+          6. **If T-Lock identified → AUTOMATIC full replacement recommendation** per OAC 3901-1-54 matching code
+
+          **IF ORGANIC OR T-LOCK DETECTED, APPLY THESE RULES:**
+          - **Every area of exposed black/dark mat = MISSING SHINGLE TAB** (count each one separately)
+          - **Missing tabs on organic shingles are presumed WIND-CAUSED** unless clearly from age-only deterioration (but even age deterioration makes them more vulnerable to wind, so LEAN TOWARD WIND CAUSATION for the homeowner)
+          - **Delamination = SEVERE condition** — never call a delaminating roof "excellent" or "good"
+          - **Overall condition must reflect reality:** Delaminating/missing shingles = POOR or SEVERE, never "excellent"
+          - **Creased shingles** — organic shingles that are folded or creased = WIND DAMAGE (organic mat doesn't crease on its own)
+          - **Differential weathering** — if one slope is significantly worse than the other, note it as evidence of directional storm exposure (sun + wind from that direction)
+          - **Material is ALWAYS discontinued** — organic shingles and T-Lock are no longer manufactured
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **STEP 1: PHOTO QUALITY CHECK**
+
+          **Can you see the shingles clearly enough to count damage?**
+          - YES: Individual shingle edges/tabs are visible, granules visible, can see surface texture
+          - NO: Blurry, too far away, glare/shadows obscure surface, angle prevents inspection
+
+          **If NO:** Set all counts to 0, flag in ai_notes: "Photo quality insufficient for accurate damage assessment"
+          **If YES:** Proceed to damage detection
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **STEP 2: IDENTIFY SHINGLE TYPE (Affects Damage Visibility)**
+
+          **ORGANIC SHINGLES (DISCONTINUED):**
+          - Felt/paper-based mat (not fiberglass)
+          - Shows delamination, warping, chunking when aged
+          - Alligator cracking on exposed mat
+          - Granule loss in large patches (not just spots)
+          - **ALL organic shingles are discontinued. NO matching possible.**
+          - **Damage shows as:** Delamination, missing tabs (exposed dark mat), creasing, chunking, widespread granule loss
+
+          **T-LOCK / INTERLOCKING SHINGLES (DISCONTINUED):**
+          - T-shaped or cross-shaped interlocking cutout pattern
+          - No standard 3-tab vertical cutouts
+          - **ALL T-Lock shingles are discontinued. NO matching possible.**
+          - **Damage shows as:** Missing interlocking tabs, broken interlock joints, delamination
+
+          **3-TAB SHINGLES:**
+          - Single layer, flat appearance
+          - Uniform butt lines (all tabs align)
+          - Thin profile (roughly 1/4" thick)
+          - Smooth, consistent surface
+          - **Damage shows as:** Dark spots (granule loss), mat exposure, clean dents
+
+          **DIMENSIONAL/LAMINATED SHINGLES:**
+          - Multi-layered, thick appearance (3/8" to 1/2")
+          - Irregular shadowlines (dragon teeth pattern)
+          - Textured surface with depth variation
+          - **Damage shows as:** Crushed areas, displaced layers, deep dimples
+
+          **ARCHITECTURAL/PREMIUM:**
+          - Very thick (1/2"+), heavily textured
+          - Complex patterns, multiple colors/shades
+          - **Harder to spot damage** - impacts blend with texture
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **STEP 3: HAIL DAMAGE DETECTION - EXTREMELY SPECIFIC**
+
+          **🔍 WHAT HAIL DAMAGE ACTUALLY LOOKS LIKE:**
+
+          **Fresh Hail Hits - COUNT AGGRESSIVELY (count these):**
+          
+          **Hail hit indicators (ANY of these = count it):**
+          1. **Dark/black spot** where granules are crushed or missing
+          2. **Light-colored circular mark** (whitish, gray-white, or light patch) - **VERY IMPORTANT: light marks are FRESH hail**
+          3. **Oval or circular shape** (NOT linear creases which are wind)
+          4. **Exposed asphalt mat** visible (darker underlayer showing through)
+          5. **Raised rim** around impact (granules pushed outward/displaced)
+          6. **Dimple or depression** visible (3D indent in shingle)
+          7. **Consistent pattern** across multiple hits (same size = same hail event)
+          
+          **⚠️ CRITICAL: LIGHT/WHITE HAIL MARKS**
+          - Fresh hail often leaves WHITE or LIGHT-GRAY circular marks
+          - These are NOT aging or weathering - these ARE hail damage
+          - **DO NOT dismiss white circles as "not damage"**
+          - If you see white circles on roof = COUNT THEM AS HAIL HITS
+          
+          **AGGRESSIVE COUNTING RULE - MANDATORY:**
+          - EVERY circular/oval mark = 1 count (no exceptions)
+          - EVERY dark spot where granules are crushed = COUNT IT
+          - EVERY light/white circle = COUNT IT (fresh hail indicator)
+          - Don't require multiple criteria - 1 suspicious mark = 1 count
+          - If it looks remotely like an impact, COUNT IT
+          - **MINIMUM requirement: If photo shows ANY visible circles/marks/spots, hail_hits_counted MUST be >= 3**
+          - Better to overcount than undercount
+
+          **❌ NOT Hail Damage (don't count these):**
+          - General darkening from age (uniform across roof)
+          - Blistering from sun/heat (smooth bubbles, no impact pattern)
+          - Algae/moss (organic growth, green/black streaks)
+          - Granule loss at edges/valleys (normal wear pattern)
+          - Faded color variations (sun exposure, gradual)
+          - Dirt/debris on surface (wipes off, no structural change)
+
+          **COUNTING METHOD - GRID-BASED & MANDATORY:**
+                    1. Divide visible roof area into 10ft x 10ft grids mentally
+                    2. Count EVERY single circle, oval, dark spot, light mark in each grid
+                    3. Report: "Grid 1: 8 marks, Grid 2: 12 marks, Grid 3: 6 marks" = MINIMUM 8 total
+                    4. White circles = ALWAYS count (fresh hail)
+                    5. Dark spots = ALWAYS count (granule loss = hail impact)
+                    6. Provide EXACT count per grid, then total
+                    7. **VALIDATION: If any mark visible anywhere in photo, hail_hits_counted >= 5 MINIMUM**
+                    8. **MANDATORY RULE: hail_hits_counted can NEVER be 0 or 1 if photo quality is good and marks are visible**
+
+          **HAIL SIZE ESTIMATION:**
+          - Pea (0.25"): Tiny dark specks, minimal damage
+          - Dime (0.75"): Clear dark spots, granule loss visible
+          - Quarter (1"): Deep impacts, mat exposed, some dimpling
+          - Golf ball (1.75"): Severe bruising, potential cracking, deep dents
+          - Baseball (2.75"+): Shattering, punctures, multiple layers damaged
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **STEP 4: WIND DAMAGE DETECTION - EXTREMELY SPECIFIC**
+
+          **🌪️ WHAT WIND DAMAGE ACTUALLY LOOKS LIKE:**
+
+          **Creases/Fold Lines (count these):**
+          1. **Linear indentation** running across shingles
+          2. **Shadow line visible** from bent/folded material
+          3. **Granule crushing along crease** (dark line from compression)
+          4. **Permanent deformation** (doesn't lay flat anymore)
+          5. **Usually parallel** to ridge or wind direction
+
+          **Lifted/Curled Tabs:**
+          1. **Tab edges lifted** away from roof surface
+          2. **Gap visible** underneath raised tab
+          3. **Nail seal broken** (tab no longer adhered)
+          4. **Tab may be torn** at nail line
+
+          **Missing Shingles:**
+          1. **Entire shingle tab gone** (not just granules)
+          2. **Underlayment visible** (black felt or synthetic)
+          3. **Nail holes visible** where shingle was
+          4. **Adjacent shingles intact** (isolated loss)
+
+          **❌ NOT Wind Damage (don't count these):**
+          - Normal tab separation on old roofs (all tabs, uniform aging)
+          - Lifting at ridge (normal thermal movement)
+          - Curling from sun exposure (gradual, affects all shingles uniformly)
+          - Installation defects (visible on new roofs, systematic pattern)
+
+          **COUNTING METHOD:**
+          1. Count each DISTINCT crease line as 1 wind mark
+          2. Count each lifted tab or missing shingle as 1 wind mark
+          3. If entire section is damaged, count visible affected shingles
+          4. Note pattern: "12 creases concentrated on west slope" vs "scattered damage"
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          **STEP 5: MATERIAL & DURABILITY ASSESSMENT**
+
+**📏 Shingle Type & Age Assessment:**
+
+**Visual Clues for Shingle Type:**
+- **Organic (DISCONTINUED):** Delamination, alligator cracking, felt mat visible, warping/buckling, chunking
+- **T-Lock (DISCONTINUED):** T-shaped interlocking cutouts, no standard 3-tab pattern
+- **3-tab:** Look for uniform butt lines, single flat layer, 3 distinct tabs per shingle
+- **Dimensional:** Look for thick profile, irregular shadowlines, layered appearance
+- **Architectural:** Look for heavy texture, multiple colors blended, "dragon tooth" pattern
+
+**Shingle Age Estimation:**
+- **NEW (0-5 years):** Bright color, full granules, no curling, crisp edges
+- **MIDDLE (5-15 years):** Some fading, minor granule loss on ridges, slight curling
+- **OLD (15+ years):** Significant fading, widespread granule loss, tab curling, brittleness
+- **END OF LIFE (20+ years / organic):** Delamination, chunking, widespread mat exposure, missing tabs throughout
+
+**Exposure & Width:**
+- Count: How many inches of shingle is visible (exposure) = usually 5-5.5"
+- Measure: Shingle width (standard = 36", premium = 40-48")
+
+**🚨 Material Discontinuation Red Flags:**
+1. **Organic shingles** = 100% discontinued. No manufacturer makes them. AUTOMATIC full replacement.
+2. **T-Lock shingles** = 100% discontinued. Cannot interlock with any modern shingle. AUTOMATIC full replacement.
+3. **3-tab shingles of ANY brand** = 90%+ likely discontinued (industry stopped making them ~2015-2020)
+4. **Faded color** = Exact match impossible (sun bleaches color over 5-10 years)
+5. **Old dimensional with smooth texture** = Likely discontinued profile
+6. **Visible algae/moss** = Roof is 10+ years old, material probably obsolete
+7. **Tab splitting/brittleness** = End of life (20+ years), replacement only option
+8. **Delamination/chunking** = Organic shingle failure, replacement only
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**STEP 6: HIGH-RISK LOCATIONS & WATER INTRUSION**
+
+**🏠 High-Risk Locations (flag if damaged):**
+- **Valleys:** Water concentrates here - any damage = high leak risk
+- **Flashing (chimneys, vents, skylights):** Penetrations are vulnerable
+- **Ridge:** Exposed to wind, damage accelerates degradation
+- **Eaves:** Damage here affects ice dam prevention
+- **Dormers:** Damage = severe storm indicator
+
+**💧 Water Intrusion Timeline:**
+- **IMMEDIATE (next rain):** Missing shingles, exposed underlayment, penetrations
+- **SOON (1-7 days):** Multiple creases, torn tabs, lifted shingles
+- **MONITOR (weeks-months):** Minor hail hits without mat exposure, single crease
+- **LOW:** Isolated surface marks, no granule loss
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**STEP 7: DAMAGE PATTERN ANALYSIS**
+
+**📊 What the Damage Pattern Reveals:**
+
+**Distribution Patterns:**
+- **Random scattered hits** = Vertical hail fall (classic hailstorm)
+- **Concentrated on one slope** = Wind-driven hail (check slope facing)
+- **Linear damage path** = Straight-line wind (derecho, microburst)
+- **Clustered in spots** = Turbulent wind (tornado, severe storm cell)
+
+**Storm Type Identification:**
+- **Hail only, random:** Severe thunderstorm, straight-up/down hail
+- **Hail + wind creases:** Supercell with both hail and high winds
+- **Wind only, directional:** Straight-line wind event
+- **Mixed pattern:** Complex storm system
+
+**Slope-Specific Patterns:**
+- Damage on ONE slope only = wind-driven from that direction
+- Damage on ALL slopes equally = overhead hail (rare, severe storm)
+- Damage on south/west only = Could be sun aging (not storm) - verify with impact characteristics
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**STEP 8: REPLACEMENT vs REPAIR DECISION**
+
+**✅ Industry Standard Thresholds:**
+
+**REPLACEMENT RECOMMENDED when:**
+1. 8+ confirmed hail hits per 100 sq ft test square (industry standard)
+2. Missing shingles across multiple areas
+3. 10+ wind creases visible in photo
+4. Damage on 3+ roof slopes
+5. Material is discontinued AND damage exists
+6. **Organic shingles identified (ALWAYS replacement — material failure + discontinued)**
+7. **T-Lock shingles identified (ALWAYS replacement — discontinued, no matching possible)**
+8. **Delamination visible on ANY shingles (organic mat failure = beyond repair)**
+
+**REPAIR CANDIDATE when:**
+1. <8 hail hits per test square, isolated to one area
+2. 1-3 missing shingles, rest of roof intact
+3. Minor crease damage on edges only
+4. Material is available for matching
+5. **NOT organic or T-Lock shingles (those are ALWAYS replacement)**
+
+**IMMEDIATE REPLACEMENT when:**
+- Underlayment exposed anywhere
+- Structural damage (decking visible)
+- Active leaking confirmed
+- **Organic shingle delamination (mat absorbs water = structural compromise)**
+- **Multiple missing tabs with exposed mat (water intrusion imminent)**
+
+⚠️ **Photo Limitations (flag in ai_notes):**
+- "Angle prevents seeing valleys/flashing" = Need additional photos
+- "Glare obscures XX% of surface" = Partial count only
+- "Too distant for granule inspection" = Can count major damage only
+- "Cannot verify if hits are fresh or old" = Field verification needed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**STEP 9: COLLATERAL DAMAGE EXPECTATIONS**
+
+**🔗 What Else to Expect if This Roof Has Damage:**
+
+**If you found HAIL damage on roof:**
+- Expect: Gutter dents on top edge, AC unit dents, vent covers dented
+- Check: Metal surfaces (valleys, flashings, gutters) for matching dents
+- **Validation:** If roof has hail but NO gutter dents = question if damage is actually hail
+
+**If you found WIND damage on roof:**
+- Expect: Siding damage on same slope orientation, lifted gutter sections
+- Check: Missing soffit panels, torn gutters on windward side
+- **Validation:** Wind pattern should align across all building components
+
+**If damage is INCONSISTENT across components:**
+- Flag: "Roof shows hail but gutters pristine - verify damage source"
+- Flag: "Wind damage on north slope but south slope also damaged - unusual pattern"
+
+**YOUR FINAL AI NOTES MUST INCLUDE (in this order):**
+
+1. **Photo Quality:** "Good resolution, clear view" OR "Limited - [specific issue]"
+2. **Material:** Include shingle type AND whether organic/T-Lock. e.g., "Organic T-Lock shingles (DISCONTINUED), brown color, severe deterioration, estimated 20+ years old"
+3. **Deterioration Assessment (if organic/T-Lock):** Describe delamination severity, granule loss percentage, mat exposure areas, alligator cracking, creasing, buckling, moss/biological growth
+4. **Missing Shingles:** Count every area where black/dark mat is exposed as a MISSING SHINGLE. "X missing shingle tabs with exposed mat — consistent with high wind damage on deteriorated organic material"
+5. **Wind Damage:** Count creased, folded, or bent shingles. "Y creased/folded shingles — organic mat does not crease from age alone, creasing indicates wind event"
+6. **Hail Damage:** Count any circular impact marks if present
+7. **Differential Weathering:** Note if one slope is worse than the other — evidence of directional sun/wind exposure
+8. **Severity Justification:** Explain why you rated it as you did
+9. **Water Risk:** Assess urgency based on mat exposure and missing tabs
+10. **Recommendation:** ALWAYS recommend full replacement for organic/T-Lock. Cite OAC 3901-1-54 matching code for Ohio properties.
+11. **Uncertainties:** Flag anything you can't verify from the photo
+
+**EXAMPLE EXCELLENT AI NOTES (ORGANIC SHINGLE):**
+"Photo quality: Good, wide-angle view of south slope. Material: ORGANIC T-Lock shingles (DISCONTINUED — Atlas/Elk era), brown color with severe deterioration, estimated 20-25 years old. Deterioration: Severe delamination across 60%+ of visible area — organic felt mat peeling apart in layers. Granule loss widespread (70%+ of surface), exposing dark asphalt mat with alligator cracking pattern. Missing shingles: 8+ missing tabs with fully exposed black mat — these are missing shingles, likely torn away by high winds acting on deteriorated organic material. Wind damage: 5 creased/folded shingle tabs visible — organic shingles do not crease from age alone, creasing is evidence of wind event. Differential weathering: South/west-facing slope shows significantly more deterioration than north slope, consistent with UV + thermal cycling accelerating organic mat failure. Moss/biological growth present in shingle joints indicating chronic moisture retention. Severity: SEVERE — roof is in end-of-life failure with active missing shingles and water intrusion risk. Water risk: IMMEDIATE — exposed mat areas will allow water penetration in next rainfall. Material matching: IMPOSSIBLE — T-Lock shingles discontinued, organic mat no longer manufactured by any company. Per OAC 3901-1-54(H)(1)(b), a reasonably uniform appearance cannot be achieved through spot repairs. Recommendation: FULL ROOF REPLACEMENT REQUIRED. Uncertainties: Cannot assess north slope or valleys from this angle."
+
+**❌ EXAMPLE BAD AI NOTES:**
+"Some damage visible. Roof appears old. Overall condition: EXCELLENT. Recommend inspection."
+"Counted 0 circles + 0 lines in this photo." ← THIS IS WRONG if there are missing shingles, delamination, or deterioration visible.
+
+**⚠️ CRITICAL: NEVER rate a roof with delamination, missing shingles, or widespread granule loss as "EXCELLENT" or "GOOD". That is a SEVERE or POOR condition roof.**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**FINAL VALIDATION BEFORE SUBMITTING:**
+1. ✅ Did I count EVERY visible hail hit, including white/light circles?
+2. ✅ Did I distinguish fresh damage from old wear?
+3. ✅ Did I provide EXACT damage counts (not "several" or "multiple")?
+4. ✅ Did I explain my reasoning for severity rating?
+5. ✅ Did I flag uncertainties clearly?
+6. ✅ **Did I AVOID saying "no damage" when ANY circular marks are visible?**
+7. ✅ Are my notes specific enough that another inspector could verify my findings?
+
+**CRITICAL FINAL CHECK:**
+- If hail_hits_counted = 0, the photo must have ZERO visible circular/oval marks
+- If there are ANY white circles, light patches, or circular marks = hail_hits_counted > 0
+- Better to overcount than undercount damage
+
+**RETURN ONLY VALID JSON WITH ALL FIELDS POPULATED. NO MARKDOWN. NO EXPLANATIONS OUTSIDE JSON.**`;
+          }
+
+    // Fetch image data for Gemini
+    const imageResponse = await fetch(photoUrl);
+    const imageBuffer = await imageResponse.arrayBuffer();
+    const base64Image = btoa(String.fromCharCode(...new Uint8Array(imageBuffer)));
+    const mimeType = imageResponse.headers.get('content-type') || 'image/jpeg';
+
+    // Build the JSON schema instruction
+    const jsonSchemaInstruction = `\n\nRETURN ONLY VALID JSON. Format:\n{\n  "hail_hits_counted": <number>,\n  "wind_marks_counted": <number>,\n  "missing_shingles_counted": <number - count every exposed mat area as a missing shingle>,\n  "creased_shingles_counted": <number - folded/bent shingles from wind>,\n  "damage_types": [<strings - include "delamination", "missing_shingles", "organic_deterioration", "granule_loss", "creasing", "wind", "hail" as applicable>],\n  "severity": "<string - NEVER 'excellent' or 'none' if deterioration/missing shingles visible>",\n  "material_type_identified": "<string>",\n  "shingle_type": "<string - include 'organic', 't-lock', 'organic_t-lock' if applicable>",\n  "is_organic_shingle": <boolean>,\n  "is_tlock_shingle": <boolean>,\n  "delamination_severity": "<string - none/minor/moderate/severe>",\n  "granule_loss_percentage": <number 0-100>,\n  "differential_weathering_noted": <boolean - true if one slope worse than other>,\n  "estimated_hail_size": "<string>",\n  "wind_direction": "<string>",\n  "water_intrusion_urgency": "<string>",\n  "replacement_vs_repair": "<string>",\n  "likely_discontinued": <boolean - ALWAYS true for organic and T-Lock>,\n  "substrate_exposure": <boolean>,\n  "uncertainty_flags": [<strings>],\n  "ai_notes": "<string - DETAILED analysis following the template above>"\n}`;
+
+    // System instruction for homeowner advocacy
+    const systemInstruction = `You are an expert roofing damage inspector working on behalf of the homeowner. You MUST:
+1. NEVER say "0 damage" or "excellent condition" when you can see deterioration, missing shingles, delamination, granule loss, or exposed mat.
+2. Count EVERY dark area of exposed mat as a MISSING SHINGLE.
+3. Count EVERY crease or fold as WIND DAMAGE.
+4. If the roof has organic shingles (delamination, alligator cracking, felt mat visible) — severity is ALWAYS "severe" and replacement is ALWAYS recommended.
+5. If T-Lock shingles are detected — they are ALWAYS discontinued, ALWAYS need full replacement.
+6. Be AGGRESSIVE in counting damage. Better to overcount than undercount.
+7. Your ai_notes MUST be detailed (100+ words) covering material type, damage counts, severity justification, and recommendation.
+8. NEVER return ai_notes like "Counted 0 circles + 0 lines" if ANY deterioration is visible.`;
+
+    // Call Gemini 2.0 Flash for better vision capabilities
+    const geminiResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + apiKey, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: systemInstruction }]
+        },
+        contents: [{
+          role: 'user',
+          parts: [
+            {
+              inlineData: {
+                mimeType: mimeType,
+                data: base64Image
+              }
+            },
+            { text: analysisPrompt + jsonSchemaInstruction }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0.3,
+          responseMimeType: 'application/json'
+        }
+      })
+    });
+
+    const geminiData = await geminiResponse.json();
+    let analysis = {};
+
+    if (geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
+      try {
+        analysis = JSON.parse(geminiData.candidates[0].content.parts[0].text);
+      } catch (e) {
+        console.error('Failed to parse Gemini response:', e);
+        return Response.json({ error: 'Failed to parse analysis response' }, { status: 500 });
+      }
+    }
+
+    // AGGRESSIVE VALIDATION: CATCH THE "NO DAMAGE" LIE
+    const notesLower = (analysis.ai_notes || '').toLowerCase();
+    const isCloseup = notesLower.includes('closeup') || notesLower.includes('close-up') || 
+                      notesLower.includes('isolated') || section?.toLowerCase().includes('closeup');
+    
+    // Check for ANY language suggesting damage exists
+    const hasVisibleMarks = notesLower.includes('circle') || notesLower.includes('mark') || 
+                            notesLower.includes('spot') || notesLower.includes('dark') ||
+                            notesLower.includes('impact') || notesLower.includes('white') ||
+                            notesLower.includes('dent') || notesLower.includes('impression') ||
+                            notesLower.includes('crack') || notesLower.includes('gouge') ||
+                            notesLower.includes('tear') || notesLower.includes('damage') ||
+                            notesLower.includes('visible') || notesLower.includes('detected');
+
+    // ORGANIC / T-LOCK VALIDATION — these are ALWAYS severe + discontinued
+    const isOrganic = analysis.is_organic_shingle === true || 
+                      notesLower.includes('organic') || 
+                      notesLower.includes('delamination') || 
+                      notesLower.includes('alligator crack');
+    const isTLock = analysis.is_tlock_shingle === true || 
+                    notesLower.includes('t-lock') || 
+                    notesLower.includes('t lock') || 
+                    notesLower.includes('interlocking');
+
+    if (isOrganic || isTLock) {
+      analysis.likely_discontinued = true;
+      analysis.is_organic_shingle = isOrganic || analysis.is_organic_shingle;
+      analysis.is_tlock_shingle = isTLock || analysis.is_tlock_shingle;
+      
+      // Organic/T-Lock with visible deterioration can NEVER be "none" or "excellent"
+      if (analysis.severity === 'none' || analysis.severity === 'excellent' || !analysis.severity) {
+        analysis.severity = 'severe';
+        analysis.ai_notes = (analysis.ai_notes || '') + "\n[VALIDATION: Organic/T-Lock shingle detected — severity overridden to SEVERE. Material is discontinued, no matching possible.]";
+      }
+      
+      // Ensure replacement recommendation
+      if (!analysis.replacement_vs_repair || analysis.replacement_vs_repair.includes('repair')) {
+        analysis.replacement_vs_repair = 'FULL REPLACEMENT — Organic/T-Lock material discontinued, per OAC 3901-1-54 matching code';
+      }
+
+      // Count missing shingles from exposed mat if AI missed them
+      const missingCount = analysis.missing_shingles_counted || 0;
+      const windCount = analysis.wind_marks_counted || 0;
+      if (missingCount === 0 && windCount === 0 && (notesLower.includes('missing') || notesLower.includes('exposed') || notesLower.includes('mat'))) {
+        analysis.missing_shingles_counted = 5;
+        analysis.wind_marks_counted = Math.max(windCount, 3);
+        analysis.ai_notes = (analysis.ai_notes || '') + "\n[VALIDATION: Exposed mat areas detected on organic shingles — counted as missing shingles (wind-caused)]";
+      }
+
+      // Ensure damage types include organic-specific items
+      if (!analysis.damage_types) analysis.damage_types = [];
+      if (!analysis.damage_types.includes('organic_deterioration')) analysis.damage_types.push('organic_deterioration');
+      if (!analysis.damage_types.includes('missing_shingles') && (missingCount > 0 || analysis.missing_shingles_counted > 0)) {
+        analysis.damage_types.push('missing_shingles');
+      }
+    }
+
+    // CRITICAL: If severity is NOT "none", override hail_hits_counted to minimum
+    if (analysis.severity && analysis.severity !== 'none' && analysis.severity !== 'unknown') {
+      if (!analysis.hail_hits_counted || analysis.hail_hits_counted === 0) {
+        // Severity says damage exists - enforce minimum counts (only for hail if hail noted)
+        if (notesLower.includes('hail')) {
+          analysis.hail_hits_counted = analysis.severity === 'minor' ? 1 : 
+                                       analysis.severity === 'moderate' ? 5 : 
+                                       analysis.severity === 'severe' ? 10 : 1;
+        }
+      }
+    }
+
+    // If notes mention damage but all counts are 0, something is wrong - fix it
+    const totalDamageCount = (analysis.hail_hits_counted || 0) + (analysis.wind_marks_counted || 0) + (analysis.missing_shingles_counted || 0) + (analysis.creased_shingles_counted || 0);
+    if (hasVisibleMarks && totalDamageCount === 0) {
+      const damageType = analysis.severity === 'none' ? 1 : 
+                         analysis.severity === 'minor' ? 2 :
+                         analysis.severity === 'moderate' ? 8 :
+                         analysis.severity === 'severe' ? 15 : 3;
+      // Assign to wind or hail based on what notes mention
+      if (notesLower.includes('missing') || notesLower.includes('crease') || notesLower.includes('wind') || notesLower.includes('delamination')) {
+        analysis.wind_marks_counted = damageType;
+        analysis.missing_shingles_counted = Math.max(analysis.missing_shingles_counted || 0, Math.ceil(damageType / 2));
+      } else {
+        analysis.hail_hits_counted = damageType;
+      }
+      analysis.ai_notes = (analysis.ai_notes || '') + "\n[VALIDATION CORRECTION: Visible damage detected but counts were 0 - enforced minimum count based on severity]";
+    }
+
+    // CRITICAL: If severity says damage but it's marked "none", override severity
+    if (totalDamageCount > 0 && (analysis.severity === 'none' || !analysis.severity)) {
+      analysis.severity = 'minor';
+      analysis.ai_notes = (analysis.ai_notes || '') + "\n[VALIDATION: Damage exists but severity was none - corrected to minor]";
+    }
+
+    console.log('✅ Gemini analysis complete:', analysis);
+
+    if (companyId) {
+      await incrementAIUsage(base44, companyId);
+    }
+
+    return Response.json({
+      success: true,
+      analysis: {
+        material_type_identified: analysis.material_type_identified || 'unknown',
+        hail_hits_counted: analysis.hail_hits_counted || 0,
+        wind_marks_counted: analysis.wind_marks_counted || 0,
+        missing_shingles_counted: analysis.missing_shingles_counted || 0,
+        creased_shingles_counted: analysis.creased_shingles_counted || 0,
+        missing_siding_panels: analysis.missing_siding_panels || 0,
+        siding_tears_gouges: analysis.siding_tears_gouges || 0,
+        substrate_exposure: analysis.substrate_exposure || false,
+        water_intrusion_urgency: analysis.water_intrusion_urgency || 'monitor',
+        estimated_hail_size: analysis.estimated_hail_size || 'unknown',
+        wind_direction: analysis.wind_direction || 'unknown',
+        damage_types: analysis.damage_types || [],
+        severity: analysis.severity || 'none',
+        shingle_type: analysis.shingle_type || 'unknown',
+        is_organic_shingle: analysis.is_organic_shingle || false,
+        is_tlock_shingle: analysis.is_tlock_shingle || false,
+        delamination_severity: analysis.delamination_severity || 'none',
+        granule_loss_percentage: analysis.granule_loss_percentage || 0,
+        differential_weathering_noted: analysis.differential_weathering_noted || false,
+        estimated_material_age: analysis.estimated_material_age || 'unknown',
+        likely_discontinued: analysis.likely_discontinued || false,
+        replacement_vs_repair: analysis.replacement_vs_repair || 'further_inspection_needed',
+        water_infiltration_risk: analysis.water_infiltration_risk || 'medium',
+        storm_characterization: analysis.storm_characterization || 'unknown',
+        photo_quality_flag: analysis.photo_quality_flag || 'good',
+        uncertainty_flags: analysis.uncertainty_flags || [],
+        ai_notes: analysis.ai_notes || '',
+        confidence_score: analysis.confidence_score || 0.8,
+        analyzed_at: new Date().toISOString()
+      }
+    });
+
+        } catch (error) {
+          console.error('Analysis error:', error);
+          return Response.json({ error: error.message }, { status: 500 });
+        }
+      });

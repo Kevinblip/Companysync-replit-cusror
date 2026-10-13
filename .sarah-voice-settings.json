@@ -1,0 +1,8 @@
+{
+  "voice": "Aoede",
+  "response_speed": "normal",
+  "background_audio": "none",
+  "interim_audio": "typing",
+  "personality_assertiveness": 36,
+  "personality_humor": 25
+}

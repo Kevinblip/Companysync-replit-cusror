@@ -1,0 +1,254 @@
+/**
+ * v2-estimator-math.js
+ * High-precision deterministic estimating engine for CompanySync V2.
+ * Decoupled from production workflows to ensure zero disruption to live operations.
+ */
+
+// ==========================================
+// 1. ROOF PITCH & SURFACE GEOMETRY
+// ==========================================
+
+export const PITCH_FACTORS = {
+  '3/12': 1.031,
+  '4/12': 1.054,
+  '5/12': 1.083,
+  '6/12': 1.118,
+  '7/12': 1.158,
+  '8/12': 1.202,
+  '9/12': 1.250,
+  '10/12': 1.302,
+  '11/12': 1.357,
+  '12/12': 1.414,
+  '14/12': 1.537,
+  '16/12': 1.667,
+};
+
+export const HIP_VALLEY_FACTORS = {
+  '3/12': 1.015,
+  '4/12': 1.027,
+  '5/12': 1.042,
+  '6/12': 1.061,
+  '7/12': 1.082,
+  '8/12': 1.106,
+  '9/12': 1.132,
+  '10/12': 1.160,
+  '11/12': 1.191,
+  '12/12': 1.225,
+};
+
+export function calculateTrueRoofSurface(flatFootprintAreaSqFt, pitch) {
+  let pitchKey = typeof pitch === 'number' ? `${pitch}/12` : pitch;
+  let multiplier = PITCH_FACTORS[pitchKey];
+
+  if (!multiplier) {
+    const rise = typeof pitch === 'number' ? pitch : parseFloat(pitchKey.split('/')[0]);
+    multiplier = Math.sqrt(1 + Math.pow(rise / 12, 2));
+  }
+
+  const trueSurfaceSqFt = flatFootprintAreaSqFt * multiplier;
+  const trueSquares = trueSurfaceSqFt / 100;
+
+  return {
+    flatFootprintAreaSqFt: Number(flatFootprintAreaSqFt.toFixed(2)),
+    trueSurfaceSqFt: Number(trueSurfaceSqFt.toFixed(2)),
+    trueSquares: Number(trueSquares.toFixed(2)),
+    pitchMultiplier: Number(multiplier.toFixed(4)),
+  };
+}
+
+// ==========================================
+// 2. DYNAMIC WASTE MATRIX ENGINE
+// ==========================================
+
+export function calculateDynamicWaste({
+  netSquares,
+  valleysLinearFt = 0,
+  hipsLinearFt = 0,
+  ridgesLinearFt = 0,
+  penetrationsCount = 0,
+  roofStyle = 'GABLE',
+}) {
+  let baseWaste = 0.08;
+  let complexityPoints = 0;
+
+  switch (roofStyle.toUpperCase()) {
+    case 'HIP':
+      baseWaste += 0.03;
+      complexityPoints += 2;
+      break;
+    case 'DUTCH_HIP':
+    case 'CUT_UP':
+      baseWaste += 0.05;
+      complexityPoints += 4;
+      break;
+    case 'MANSARD':
+      baseWaste += 0.06;
+      complexityPoints += 5;
+      break;
+    default:
+      break;
+  }
+
+  const valleyDensity = netSquares > 0 ? valleysLinearFt / netSquares : 0;
+  if (valleyDensity > 3.0) {
+    baseWaste += 0.04;
+    complexityPoints += 3;
+  } else if (valleyDensity > 1.5) {
+    baseWaste += 0.02;
+    complexityPoints += 2;
+  }
+
+  const hipDensity = netSquares > 0 ? hipsLinearFt / netSquares : 0;
+  if (hipDensity > 3.0) {
+    baseWaste += 0.03;
+    complexityPoints += 2;
+  }
+
+  if (penetrationsCount > 6) {
+    baseWaste += 0.02;
+    complexityPoints += 1;
+  }
+
+  const finalWastePercent = Math.min(Math.max(baseWaste, 0.08), 0.20);
+  const orderSquares = netSquares * (1 + finalWastePercent);
+
+  let rating = 'LOW';
+  if (complexityPoints >= 6) rating = 'HIGH';
+  else if (complexityPoints >= 3) rating = 'MODERATE';
+
+  return {
+    netSquares: Number(netSquares.toFixed(2)),
+    wastePercent: Number((finalWastePercent * 100).toFixed(1)),
+    wasteSquares: Number((orderSquares - netSquares).toFixed(2)),
+    totalOrderSquares: Number(orderSquares.toFixed(2)),
+    complexityRating: rating,
+  };
+}
+
+// ==========================================
+// 3. EXTERIOR WALL & SIDING DEDUCTIONS
+// ==========================================
+
+export function calculateNetSidingArea(walls = [], openings = []) {
+  let grossWallAreaSqFt = 0;
+  let totalPerimeterLinearFt = 0;
+
+  walls.forEach(wall => {
+    let area = wall.lengthFt * wall.heightFt;
+    totalPerimeterLinearFt += wall.lengthFt;
+
+    if (wall.shape === 'GABLE' && wall.gablePeakHeightFt) {
+      const triangleHeight = wall.gablePeakHeightFt - wall.heightFt;
+      if (triangleHeight > 0) {
+        area += 0.5 * wall.lengthFt * triangleHeight;
+      }
+    }
+    grossWallAreaSqFt += area;
+  });
+
+  let totalDeductionsSqFt = 0;
+  let jChannelLinearFt = 0;
+  let openingDetails = [];
+
+  openings.forEach(op => {
+    const count = op.count || 1;
+    const singleArea = op.widthFt * op.heightFt;
+    const totalArea = singleArea * count;
+    totalDeductionsSqFt += totalArea;
+
+    let perimeterPerUnit = 0;
+    if (op.type === 'DOOR' || op.type === 'GARAGE') {
+      perimeterPerUnit = (2 * op.heightFt) + op.widthFt;
+    } else {
+      perimeterPerUnit = 2 * (op.widthFt + op.heightFt);
+    }
+
+    jChannelLinearFt += (perimeterPerUnit * count);
+
+    openingDetails.push({
+      type: op.type,
+      dimensions: `${op.widthFt}' x ${op.heightFt}'`,
+      count,
+      totalAreaSqFt: Number(totalArea.toFixed(2)),
+    });
+  });
+
+  const netSidingSqFt = Math.max(0, grossWallAreaSqFt - totalDeductionsSqFt);
+  const netSidingSquares = netSidingSqFt / 100;
+  const sidingWastePercent = 0.10;
+  const totalSidingSquaresWithWaste = netSidingSquares * (1 + sidingWastePercent);
+
+  return {
+    grossWallAreaSqFt: Number(grossWallAreaSqFt.toFixed(2)),
+    totalDeductionsSqFt: Number(totalDeductionsSqFt.toFixed(2)),
+    netSidingAreaSqFt: Number(netSidingSqFt.toFixed(2)),
+    netSidingSquares: Number(netSidingSquares.toFixed(2)),
+    orderSidingSquares: Number(totalSidingSquaresWithWaste.toFixed(2)),
+    starterStripLinearFt: Number(totalPerimeterLinearFt.toFixed(2)),
+    jChannelLinearFt: Number(jChannelLinearFt.toFixed(2)),
+    openingsSummary: openingDetails,
+  };
+}
+
+// ==========================================
+// 4. EXTERNAL GPU BRIDGE (SAM-2 / SfM PIPELINE)
+// ==========================================
+
+export async function requestExternalComputerVisionReconstruction({
+  imageUrls = [],
+  address = '',
+  mode = 'FUSION',
+}) {
+  const GPU_ENDPOINT = process.env.V2_GPU_VISION_SERVICE_URL;
+  const API_KEY = process.env.V2_GPU_VISION_API_KEY;
+
+  if (!GPU_ENDPOINT) {
+    return {
+      status: 'MOCK_STANDBY',
+      message: 'External GPU microservice endpoint not configured. Returning deterministic fallback.',
+      treeOcclusionDetected: false,
+      confidenceScore: 0.94,
+      reconstructedGeometry: {
+        facets: [],
+        openings: [],
+      },
+    };
+  }
+
+  try {
+    const response = await fetch(`${GPU_ENDPOINT}/v1/reconstruct`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${API_KEY}`,
+      },
+      body: JSON.stringify({
+        images: imageUrls,
+        address,
+        mode,
+        enableTreeSegmentation: true,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`GPU vision service returned HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    return {
+      status: 'SUCCESS',
+      treeOcclusionDetected: data.tree_coverage_ratio > 0.25,
+      treeCoverageRatio: data.tree_coverage_ratio,
+      confidenceScore: data.confidence_score,
+      reconstructedGeometry: data.wireframe_mesh,
+    };
+  } catch (error) {
+    console.error('[V2-Vision-Bridge] Error contacting external GPU:', error.message);
+    return {
+      status: 'FAILED',
+      error: error.message,
+      confidenceScore: 0,
+      requiresManualInspection: true,
+    };
+  }
+}

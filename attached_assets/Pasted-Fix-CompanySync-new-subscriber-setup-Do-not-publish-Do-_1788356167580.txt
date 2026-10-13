@@ -1,0 +1,21 @@
+Fix CompanySync new-subscriber setup. Do not publish. Do not change YICN / Insurance Claims Network / companysync_master_001 records, leads, invoices, Twilio, or staff. Do not run Auto Setup or Launch Checklist tests against live data.
+
+What is broken:
+1. A logged-out contractor cannot start a trial. /OnboardingWizard and /PublicPricing are behind login, so pricing “Subscribe” dumps them on the login page.
+2. publicSignupInvite sends an invite email but ignores onboarding_data, full_name, and selected_plan, and does not create a Company.
+3. autoSignupFromMarketing redirects to /quick-setup. The real route is /QuickSetup (case-sensitive).
+4. There are three overlapping wizards. Quick Setup is the real one. Setup Wizard’s “Auto Setup Everything” can overwrite an existing company’s name, brand colors, Twilio webhooks, and AI prompts. Hide or disable Auto Setup when a company already exists.
+5. Quick Setup AI step creates Lexi/Sarah then stays on the same step instead of going to “You’re ready.” Creating assistants twice duplicates AssistantSettings. Skip Setup can crash if user is still null.
+6. OnboardingWizard calls setInviteError but has no inviteError state. Logged-in success still says “Check Your Email!”
+7. Timezone: autoSetup writes `timezone`, CompanySetup uses `settings.time_zone`. Use one field.
+8. Trial copy vs pricing: keep the live pricing page numbers. Default new signups to basic unless they picked a plan. Do not charge Stripe for SaaS. Stripe Connect in Quick Setup is optional payouts only.
+
+Do this:
+- Make OnboardingWizard and PublicPricing work logged out, same as /signup and /login. After “Start Free Trial,” invite the email, create the Company + owner StaffProfile from the form (14-day trial, no card), then send them to /QuickSetup?plan=…&new_signup=true.
+- Keep Quick Setup as the only post-login wizard: company → Twilio (skippable) → Calendar (skippable) → Stripe Connect (skippable) → AI (skippable, upsert not duplicate) → Done (mark setup_completed, go to Dashboard).
+- Leave Company Setup as the settings page, not a second onboarding.
+- If Setup Wizard stays, it must not update an already-setup company. Never reset brand colors. Never rewrite Twilio webhooks or Sarah/Lexi prompts for an existing live company. Never provision Thoughtly as “CompanySync receptionist” for a subscriber. Name the agent after that company.
+- Fix the /quick-setup vs /QuickSetup redirects everywhere.
+- Do not email, SMS, call, or charge anyone while testing. Use a throwaway company name like “Wizard Test Co” if you need a dry run, then delete only that test company.
+
+Done when: a logged-out user can open pricing, start a trial, get the invite, and land in Quick Setup with a new company, without touching YICN. Show me the preview. Do not publish.

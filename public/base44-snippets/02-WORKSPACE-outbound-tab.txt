@@ -1,0 +1,299 @@
+============================================================
+SNIPPET 2: WORKSPACE PAGE - Outbound Tab
+============================================================
+
+WHERE TO ADD: In your SarahWorkspace (Susan Workspace) page on Base44,
+add "Outbound" as a new tab in your Tabs component.
+
+STEP 1: Add this tab trigger (next to your existing tabs like "Live Dashboard"):
+============================================================
+
+<TabsTrigger value="outbound">Outbound</TabsTrigger>
+
+
+STEP 2: Add these state variables (with your other useState declarations):
+============================================================
+
+const [outboundPhone, setOutboundPhone] = useState("");
+const [outboundName, setOutboundName] = useState("");
+const [outboundService, setOutboundService] = useState("");
+const [outboundCalling, setOutboundCalling] = useState(false);
+const [outboundResult, setOutboundResult] = useState(null);
+
+
+STEP 3: Add this function (with your other functions):
+============================================================
+
+const initiateOutboundCall = async (phone, name, service) => {
+  if (!phone || !company) return;
+  setOutboundCalling(true);
+  setOutboundResult(null);
+  try {
+    const resp = await fetch('/api/sarah-outbound-call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        companyId: company.id,
+        leadPhone: phone,
+        leadName: name || '',
+        leadService: service || '',
+      }),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      setOutboundResult({ success: true, message: `Call initiated to ${phone}`, callSid: data.callSid });
+    } else {
+      setOutboundResult({ success: false, message: data.error || 'Failed to initiate call' });
+    }
+  } catch (err) {
+    setOutboundResult({ success: false, message: err.message });
+  } finally {
+    setOutboundCalling(false);
+  }
+};
+
+
+STEP 4: Add this TabsContent block (after your Live Dashboard TabsContent):
+============================================================
+
+<TabsContent value="outbound" className="space-y-6">
+  <div className="flex items-center justify-between flex-wrap gap-2">
+    <div>
+      <h2 className="text-xl font-semibold flex items-center gap-2">
+        <PhoneOutgoing className="w-5 h-5 text-green-600" />
+        Outbound Calls
+      </h2>
+      <p className="text-sm text-muted-foreground mt-1">
+        Have {agentName} call leads to qualify them and book inspections.
+      </p>
+    </div>
+  </div>
+
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Phone className="w-4 h-4" />
+          Manual Outbound Call
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Enter a phone number to have {agentName} call a lead right now.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div>
+          <Label className="text-xs">Phone Number</Label>
+          <Input
+            placeholder="+1 (555) 123-4567"
+            value={outboundPhone}
+            onChange={(e) => setOutboundPhone(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label className="text-xs">Lead Name (optional)</Label>
+          <Input
+            placeholder="John Smith"
+            value={outboundName}
+            onChange={(e) => setOutboundName(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label className="text-xs">Service Interest (optional)</Label>
+          <Input
+            placeholder="Roof inspection, hail damage, etc."
+            value={outboundService}
+            onChange={(e) => setOutboundService(e.target.value)}
+          />
+        </div>
+        <Button
+          className="w-full"
+          disabled={!outboundPhone || outboundCalling}
+          onClick={() => initiateOutboundCall(outboundPhone, outboundName, outboundService)}
+        >
+          {outboundCalling ? (
+            <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <PhoneOutgoing className="w-4 h-4 mr-2" />
+          )}
+          {outboundCalling ? 'Initiating...' : `Call with ${agentName}`}
+        </Button>
+
+        {outboundResult && (
+          <Alert variant={outboundResult.success ? "default" : "destructive"} className="mt-2">
+            <AlertDescription className="text-sm">
+              {outboundResult.message}
+              {outboundResult.callSid && (
+                <span className="block text-xs text-muted-foreground mt-1">Call SID: {outboundResult.callSid}</span>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <UserPlus className="w-4 h-4" />
+          Quick Call from Leads
+        </CardTitle>
+        <CardDescription className="text-xs">
+          New leads that haven't been called yet. Click to have {agentName} reach out.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {company ? (
+          <QuickLeadCallList
+            company={company}
+            agentName={agentName}
+            onCall={(lead) => {
+              setOutboundPhone(lead.phone);
+              setOutboundName(lead.name || '');
+              setOutboundService(lead.notes?.match(/Service: (.+)/)?.[1] || '');
+              initiateOutboundCall(lead.phone, lead.name, lead.notes?.match(/Service: (.+)/)?.[1] || '');
+            }}
+            calling={outboundCalling}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">Loading company data...</p>
+        )}
+      </CardContent>
+    </Card>
+  </div>
+
+  <Card>
+    <CardHeader className="pb-3">
+      <CardTitle className="text-base flex items-center gap-2">
+        <Activity className="w-4 h-4" />
+        Recent Outbound Calls
+      </CardTitle>
+    </CardHeader>
+    <CardContent>
+      {company ? (
+        <RecentOutboundCalls company={company} />
+      ) : (
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      )}
+    </CardContent>
+  </Card>
+</TabsContent>
+
+
+STEP 5: Add these two helper components (outside your main component,
+or as separate components on Base44):
+============================================================
+
+function QuickLeadCallList({ company, agentName, onCall, calling }) {
+  const { data: leads = [], isLoading } = useQuery({
+    queryKey: ['leads', 'new', company?.id],
+    queryFn: () => company ? base44.entities.Lead.filter({ company_id: company.id, status: 'new' }, '-created_date', 10) : [],
+    enabled: !!company?.id,
+    refetchInterval: 30000,
+  });
+
+  const { data: outboundComms = [] } = useQuery({
+    queryKey: ['communications', 'outbound', company?.id],
+    queryFn: () => company ? base44.entities.Communication.filter({ company_id: company.id, direction: 'outbound', communication_type: 'call' }, '-created_date', 50) : [],
+    enabled: !!company?.id,
+  });
+
+  const calledPhones = new Set(outboundComms.map(c => c.contact_phone?.replace(/\D/g, '')));
+  const uncalledLeads = leads.filter(l => l.phone && !calledPhones.has(l.phone.replace(/\D/g, '')));
+
+  if (isLoading) return <p className="text-sm text-muted-foreground">Loading leads...</p>;
+  if (uncalledLeads.length === 0) {
+    return (
+      <div className="text-center py-6 text-muted-foreground">
+        <UserPlus className="w-8 h-8 mx-auto mb-2 opacity-50" />
+        <p className="text-sm">No new uncalled leads</p>
+        <p className="text-xs mt-1">New leads will appear here when they come in.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 max-h-[300px] overflow-y-auto">
+      {uncalledLeads.map(lead => (
+        <div key={lead.id} className="flex items-center justify-between p-2 border rounded-md">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium truncate">{lead.name || 'Unknown'}</p>
+            <p className="text-xs text-muted-foreground">{lead.phone}</p>
+            {lead.notes && <p className="text-xs text-muted-foreground truncate">{lead.notes.substring(0, 60)}</p>}
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={calling}
+            onClick={() => onCall(lead)}
+          >
+            <PhoneOutgoing className="w-3 h-3 mr-1" />
+            Call
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+function RecentOutboundCalls({ company }) {
+  const { data: outboundCalls = [], isLoading } = useQuery({
+    queryKey: ['communications', 'outbound-recent', company?.id],
+    queryFn: () => company ? base44.entities.Communication.filter({
+      company_id: company.id,
+      direction: 'outbound',
+      communication_type: 'call',
+    }, '-created_date', 20) : [],
+    enabled: !!company?.id,
+    refetchInterval: 15000,
+  });
+
+  if (isLoading) return <p className="text-sm text-muted-foreground">Loading...</p>;
+  if (outboundCalls.length === 0) {
+    return (
+      <div className="text-center py-6 text-muted-foreground">
+        <PhoneOutgoing className="w-8 h-8 mx-auto mb-2 opacity-50" />
+        <p className="text-sm">No outbound calls yet</p>
+        <p className="text-xs mt-1">Outbound calls will appear here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {outboundCalls.map(call => (
+        <div key={call.id} className="flex items-center justify-between p-3 border rounded-md">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <PhoneOutgoing className="w-4 h-4 text-green-600 flex-shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">{call.contact_name || 'Unknown'}</p>
+              <p className="text-xs text-muted-foreground">{call.contact_phone}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <div className="text-right">
+              <Badge variant={call.status === 'completed' ? 'default' : 'secondary'} className="text-xs">
+                {call.status || 'initiated'}
+              </Badge>
+              {call.duration > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">{Math.floor(call.duration / 60)}:{String(call.duration % 60).padStart(2, '0')}</p>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground whitespace-nowrap">
+              {new Date(call.created_date).toLocaleString('en-US', {
+                month: 'short', day: 'numeric',
+                hour: 'numeric', minute: '2-digit',
+                hour12: true,
+              })}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+REQUIRED IMPORTS for the Workspace page (add if not already there):
+  PhoneOutgoing, UserPlus, Activity, Phone, RefreshCw from lucide-react
+  Alert, AlertDescription from your UI components

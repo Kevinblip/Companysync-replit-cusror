@@ -1,0 +1,171 @@
+name: Verify Resend Email Delivery
+description: >
+  Waits 30 s for Resend to record delivery status for the most recently sent
+  email matching the given recipient and subject keyword, then emits ::warning::
+  or ::error:: annotations depending on the delivery outcome.
+  Effective only when SMTP routes through smtp.resend.com; other providers
+  cause a ::warning:: so the limitation is visible in the run summary.
+  Skipped automatically when secrets are absent (caller controls the if: guard).
+
+  Search window override: the default window_minutes is 10. When CI queues are
+  backed up and the verify step runs significantly later than the email was sent,
+  pass a larger value in the caller workflow to avoid false "not found" warnings:
+
+    uses: ./.github/actions/verify-resend-delivery
+    with:
+      subject_keyword: "..."
+      email_label: "..."
+      resend_api_key: ${{ secrets.RESEND_API_KEY }}
+      oncall_email: ${{ secrets.ONCALL_EMAIL }}
+      limit: '50'
+      window_minutes: '20'   # Increase when CI queue backlog delays the verify step
+
+  Trade-off: wider windows raise the chance of matching an email from a previous
+  run. Keep window_minutes at the default (10) for normal conditions and only
+  widen it temporarily during known high-latency incidents.
+
+inputs:
+  subject_keyword:
+    description: >
+      Case-insensitive keyword matched against the email subject.
+      Used to locate the correct message among the most-recent Resend emails
+      (combined with recipient address + time window).
+    required: true
+  email_label:
+    description: >
+      Human-readable label used in log and annotation messages
+      (e.g. "Production failure", "Email heartbeat").
+    required: true
+  resend_api_key:
+    description: Resend API key (https://resend.com/api-keys).
+    required: true
+  oncall_email:
+    description: >
+      Comma-separated recipient list. The first address is extracted and used
+      for the Resend email search.
+    required: true
+  limit:
+    description: >
+      Number of most-recent emails to fetch from Resend (default 20).
+      High-volume accounts should raise this value to ensure the target
+      message is included in the search window.
+      Recommended: pass limit: 50 in any caller workflow — the platform
+      routes customer emails (estimates, invoices, notifications) through
+      the same Resend account, so the 20-email default window can easily
+      be exhausted within the match window on busy days.
+    required: false
+    default: '20'
+  window_minutes:
+    description: >
+      How many minutes back from now to search for a matching email (default 10).
+      Increase this value when CI queue backlogs or deployment incidents cause
+      the verification step to run significantly after the email was sent.
+      Trade-off: wider windows increase the chance of matching an older email
+      from a previous run rather than the one just sent.
+    required: false
+    default: '10'
+  min_emails:
+    description: >
+      Minimum number of emails expected in the Resend list response (default 0 = disabled).
+      On high-volume accounts, a very small but non-zero count (e.g. 1–2 emails
+      when the limit is 20 or 50) can indicate a partial API key scoping issue
+      that the empty-list check alone would miss. When set to a positive integer,
+      a ::warning:: is emitted if the returned array length is below this threshold.
+      Recommended: set to 3–5 for busy production accounts where dozens of emails
+      are expected within the fetch window.
+    required: false
+    default: '0'
+
+runs:
+  using: composite
+  steps:
+    - name: Verify delivery via Resend API
+      shell: bash
+      env:
+        RESEND_API_KEY:   ${{ inputs.resend_api_key }}
+        ONCALL_EMAIL:     ${{ inputs.oncall_email }}
+        SUBJECT_KEYWORD:  ${{ inputs.subject_keyword }}
+        EMAIL_LABEL:      ${{ inputs.email_label }}
+        RESEND_LIMIT:     ${{ inputs.limit }}
+        WINDOW_MINUTES:   ${{ inputs.window_minutes }}
+        MIN_EMAILS:       ${{ inputs.min_emails }}
+      run: |
+        set -euo pipefail
+        FETCH_LIMIT="${RESEND_LIMIT:-20}"
+        if ! [[ "$FETCH_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
+          echo "::warning::inputs.limit '${FETCH_LIMIT}' is not a positive integer — falling back to 20."
+          FETCH_LIMIT=20
+        fi
+        echo "Waiting 30 s for Resend to record delivery status…"
+        sleep 30
+        RESPONSE=$(curl -s -w "\n%{http_code}" \
+          -H "Authorization: Bearer ${RESEND_API_KEY}" \
+          "https://api.resend.com/emails?limit=${FETCH_LIMIT}")
+        HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+        BODY=$(echo "$RESPONSE" | head -n -1)
+        if [ "$HTTP_STATUS" != "200" ]; then
+          echo "::warning::Resend API returned HTTP ${HTTP_STATUS} — ${EMAIL_LABEL} email delivery cannot be confirmed beyond SMTP acceptance. Check RESEND_API_KEY secret."
+          exit 0
+        fi
+        ARRAY_TYPE=$(echo "$BODY" | jq -r '(.data // .emails) | type')
+        if [ "$ARRAY_TYPE" != "array" ]; then
+          echo "::warning::Resend API response shape unexpected — check for API version change"
+          exit 0
+        fi
+        ARRAY_LEN=$(echo "$BODY" | jq '(.data // .emails) | length')
+        if [ "$ARRAY_LEN" -eq 0 ]; then
+          echo "::warning::Resend API returned an empty email list — verify API key scope and account activity"
+          exit 0
+        fi
+        MIN_THRESHOLD="${MIN_EMAILS:-0}"
+        if ! [[ "$MIN_THRESHOLD" =~ ^[0-9]+$ ]]; then
+          echo "::warning::inputs.min_emails '${MIN_THRESHOLD}' is not a non-negative integer — threshold check skipped."
+          MIN_THRESHOLD=0
+        fi
+        if [ "$MIN_THRESHOLD" -gt 0 ] && [ "$ARRAY_LEN" -lt "$MIN_THRESHOLD" ]; then
+          echo "::warning::Resend API returned only ${ARRAY_LEN} email(s) but min_emails threshold is ${MIN_THRESHOLD} — this may indicate a partial API key scope or permission issue. Verify API key permissions in the Resend dashboard."
+        fi
+        PRIMARY_RECIPIENT=$(echo "$ONCALL_EMAIL" | cut -d',' -f1 | xargs)
+        WIN="${WINDOW_MINUTES:-10}"
+        if ! [[ "$WIN" =~ ^[1-9][0-9]*$ ]]; then
+          echo "::warning::inputs.window_minutes '${WIN}' is not a positive integer — falling back to 10."
+          WIN=10
+        fi
+        CUTOFF=$(date -u -d "${WIN} minutes ago" +%Y-%m-%dT%H:%M:%SZ)
+        MATCHED=$(echo "$BODY" | jq \
+          --arg to      "$PRIMARY_RECIPIENT" \
+          --arg cutoff  "$CUTOFF" \
+          --arg subject "$SUBJECT_KEYWORD" \
+          '(.data // .emails // [])
+           | map(select(
+               ((.to // []) | any(ascii_downcase | test($to | ascii_downcase)))
+               and .created_at >= $cutoff
+               and ((.subject // "") | ascii_downcase | test($subject | ascii_downcase))
+             ))
+           | .[0]')
+        if [ -z "$MATCHED" ] || [ "$MATCHED" = "null" ]; then
+          echo "::warning::No recent Resend email matching recipient '${PRIMARY_RECIPIENT}' and subject keyword '${SUBJECT_KEYWORD}' found — delivery cannot be confirmed. Verify that SMTP routes through smtp.resend.com."
+          exit 0
+        fi
+        STATUS=$(echo "$MATCHED" | jq -r '.last_event // .status // "unknown"')
+        EMAIL_ID=$(echo "$MATCHED" | jq -r '.id // "unknown"')
+        echo "Resend email ID : ${EMAIL_ID}"
+        echo "Delivery status : ${STATUS}"
+        case "$STATUS" in
+          delivered)
+            echo "${EMAIL_LABEL} email delivery confirmed — accepted by recipient mail server (status: delivered)."
+            ;;
+          sent)
+            echo "::warning::${EMAIL_LABEL} email accepted by Resend/sending MTA (status: sent) but recipient-server delivery not yet confirmed. Check the Resend dashboard for final status (Resend ID: ${EMAIL_ID})."
+            ;;
+          bounced|bounce|failed|rejected)
+            echo "::error::${EMAIL_LABEL} email delivery FAILED (status: ${STATUS}, Resend ID: ${EMAIL_ID}). Check recipient address and domain configuration in Resend dashboard."
+            exit 1
+            ;;
+          delivery_delayed)
+            echo "::warning::${EMAIL_LABEL} email is delivery-delayed (Resend ID: ${EMAIL_ID}). Monitor the Resend dashboard for the final delivery status."
+            ;;
+          *)
+            echo "::warning::${EMAIL_LABEL} email status is '${STATUS}' (Resend ID: ${EMAIL_ID}) — delivery not yet confirmed. Check the Resend dashboard."
+            ;;
+        esac

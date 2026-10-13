@@ -1,0 +1,35 @@
+HARD RULES
+- Do not Publish.
+- Do not change YICN / Insurance Claims Network customer, lead, invoice, Twilio, or staff records.
+- Do not run Auto Setup, Launch Checklist, or cleanupYICNAndCreateSaaS.
+- Do not delete Wizard Test Co or Wizard Test Two.
+- Do not remove DATABASE_URL.
+- Do not bulk-dismiss or delete existing stuck_job action items. Changing the detector is enough.
+- Do not mention Resend. Email is Postmark and Amazon SES.
+
+WHY
+Stuck Job alerts fire because a job stays In Progress longer than stuck_job_threshold_days (default 10). Roofing jobs wait on insurance, and one property often has roof + siding + gutters as separate jobs. That is normal, not stuck. Tonight YICN got CRITICAL emails for Joyce Gerhard (11 days In Progress), LeTrice Duckworth (reminder #2), and PALMETTO WOODS. Suggested reason is always “Stalled.”
+
+FIX
+1) A job is stuck ONLY if:
+   - status is In Progress (or equivalent open/active), AND
+   - there has been NO activity for stuck_job_threshold_days, AND
+   - it is not marked Waiting.
+   Activity means any of: note, photo/file, status change, estimate sent, inspection, call/SMS log, calendar event on that job. Clock starts from last activity, not from the day it entered In Progress.
+
+2) Waiting reasons staff can set (and the detector can suggest): Insurance / adjuster, Materials, Permit or HOA, Customer, Other trade on same property. Waiting jobs never get type stuck_job CRITICAL mail and never get reminder #2.
+
+3) Same property (same address, or same company + same house file): if another open job there had activity inside the threshold, do not flag this job stuck. Suggest Waiting — other trade.
+
+4) Keep Sarah/assistant settings: stuck_job_alerts_enabled, stuck_job_threshold_days, stuck_job_re_alert_days. Re-alert only if it still meets the new stuck definition.
+
+5) Suggested category: Forgotten or Stalled only when there is truly no activity. Never default a quiet-but-waiting insurance job to Stalled.
+
+VERIFY IN PREVIEW
+- A test In Progress job with a note from yesterday must NOT create a stuck alert even if it has been In Progress 20 days.
+- A test job with no activity for longer than the threshold still can.
+- A test job marked Waiting (Insurance) must not email CRITICAL.
+- Two jobs at the same address: updating one must keep the other from going stuck.
+- Do not log into YICN. Do not publish.
+
+When done, list files changed.

@@ -1,0 +1,358 @@
+**Analyzed Main Property**
+
+**Roof Area:** 16.31 SQ | **Pitch:** 4/12 (📷 photo-verified — area recalculated from 2D footprint)
+**Order Qty:** 18.3 SQ (+12% waste)
+**Estimate Quality:** B (+/- 10%)
+
+Review the measurements, add gutters, or add more structures. When ready, click "Generate Estimate".
+
+103 Wandle Ave, Bedford, OH 44146, USA
+
+Top-down · N
+AI Roof Estimate
+103 Wandle Ave, Bedford, OH 44146, USA
+
+Source: Google Solar API · Verify on-site
+
+B
+10% tolerance
+Estimate quality
+
+Roof Area:
+15.87SQ
+Pitch: 4/12 • Cross Gable
+
+📷 Photo-Verified Pitch • area recalculated
+Order Qty:
+17.77SQ
++12% waste included
+
+Pitch Multiplier:
+1.054x
+Area already slope-adjusted
+
+Show linears, validation & notes
+Measure Siding from Satellite
+📷 Measure Siding from House Photos
+▲ Hide
+What are you measuring?
+
+🏠 House
+🏗️ Garage / Shed
+📸 Photos Only
+🛰️ Satellite
+📏 Manual Entry
+🛰️ Satellite mode: Google Maps footprint is combined with your photos for the best house measurements.
+
+Upload All Photos — AI Auto-Classifies Angles
+Live Photo
+Upload
+BL Corner
+↖️ BL°
+
+✓
+×
+Back
+🔄 Back
+
+✓
+×
+BR Corner
+↗️ BR°
+
+✓
+×
+Left Side
+◀️ Left
+
+✓
+×
+Right Side
+▶️ Right
+
+✓
+×
+FL Corner
+↙️ FL°
+
+✓
+×
+Front
+🏠 Front
+
+✓
+×
+FR Corner
+↘️ FR°
+
+✓
+×
+Garage
+
+🔍
+Detail 1
+
+🔍
+Detail 2
+
+📍 Tap any wall to add that photo — corners give the AI depth perspective
+
+🏠 Stories:
+
+2 Stories
+Analyze Photos (8)
+Clear All
+📸 Photo Siding Measurements
+
+7 photos | House | 2 stories | wallHt=19.5ft (photo_calibration (4 anchor(s))) | 23w + 5d + 1gd deducted | footprint=solar | SANITY-REVIEW
+
+Grade D
+67% · ±22%
+
+Total Exterior Wall Area
+
+38.40 SQ
+
+3,840 sqft of facade
+
+Siding
+
+3,017 ft²
+
+Brick
+
+442 ft²
+
+Openings
+
+427 ft²
+
+✏️ Correct any number below, then tap Rebuild Estimate
+
+Perimeter (LF)
+
+🔒 Solar API
+
+180
+Stories
+
+2
+Wall Ht (ft)
+
+📷 measured
+
+19.5
+Window Assemblies
+
+rough openings
+
+23
+Doors
+
+5
+Garage Doors
+
+1
+Gable Rise (ft)
+
+0 = none
+
+6
+Overhang (ft)
+
+soffit depth
+
+1.5
+Measurement Summary
+📄 View Report
+🏠 3D View
+Siding
+3,017 ft²
+Brick excluded
+−442 ft² (12%)
+Window assemblies
+23
+Window units
+34
+Doors
+5
+Rough openings (all walls)
+426.6 ft²
+Openings in siding walls
+381.38 ft² deducted
+Garage Doors
+1
+Fascia
+255 ft
+Soffit (1.5′ overhang)
+275 ft²
+Trim
+323 ft²
+Roof Perimeter
+255 ft
+Wall Perimeter
+180 ft
+Material
+vinyl
+Condition
+good
+Elevation drawings (to scale)
+
+Front — estimated
+
+W 3×4
+W 6×4
+W 5.5×4.2
+W 5.5×4
+W 3×4
+D 3×6.8
+W 6×4
+W 8.3×2.5
+W 3×4
+W 4×3
+W 3×4
+W 6×4
+D 3×6.8
+D 3×6.8
+W 2.5×4
+32 ft
+19.5 ft
+10.5 ft
+NOT PHOTOGRAPHED — ESTIMATED
+Right Side — estimated
+
+55 ft
+19.5 ft
+NOT PHOTOGRAPHED — ESTIMATED
+Back — estimated
+
+W 5.8×4.1
+W 2.9×4.1
+W 2.9×4.1
+D 5.2×6.7
+32 ft
+19.5 ft
+10.5 ft
+NOT PHOTOGRAPHED — ESTIMATED
+Left Side — estimated
+
+55 ft
+19.5 ft
+NOT PHOTOGRAPHED — ESTIMATED
+Deductions
+
+🪟 23 windows
+
+🚪 5 doors
+
+🏠 1 garage door
+
+−381 sqft openings
+
+🧱 12% brick −442 sqft
+
+Material / Condition
+
+🎨 vinyl
+
+📊 good cond.
+
+📐 moderate complexity
+
+🛰️ Satellite dims
+
+Per-Photo Breakdown
+
+FR Corner
+
+story
+
+5w 1d
+
+90% conf
+
+Right Side
+
+story
+
+2w 0d
+
+90% conf
+
+BR Corner
+
+story
+
+2w 1d
+
+90% conf
+
+Back
+
+story
+
+3w 1d
+
+95% conf
+
+BL Corner
+
+story
+
+2w 0d
+
+90% conf
+
+Left Side
+
+story
+
+4w 0d
+
+95% conf
+
+FL Corner
+
+story
+
+5w 1d
+
+85% conf
+
+Build Siding Estimate
+
+AI Damage Observations
+LOW RISK
+🔩 Soft Metals & Flashing
+
+• 28.6 LF valley metal — include in scope. W-metal or ice-and-water underlap required.
+
+• 21 LF step flashing — walls/dormers present. Verify each run matches adjuster scope.
+
+• 13 LF apron/kickout flashing — critical for water intrusion claims.
+
+• 72 LF rake — include drip edge on all rake edges per code.
+
+• 183 LF eave drip edge — required along all eaves per IRC R905.
+
+🏠 Roofing
+
+• Standard cross gable roof — 12% waste. Normal scope expected.
+
+• 59.1 LF hip + 28.6 LF valley — cap/valley metal both in scope; measure cut-and-cobble waste separately.
+
+🌧️ Gutters & Fascia
+
+• 183 LF eave — full perimeter gutter replacement in scope. Include all downspout drops and miters.
+
+• Inspect fascia board for rot/hail damage before gutter install — often supplemented.
+
+🪟 Windows & Flashing
+
+• Step flashing present — check adjacent window head flashing and J-channel integration.
+
+🚗 Garage Doors
+
+• Larger building footprint — likely has attached garage. Inspect door panel faces for hail dents and check weatherstripping.
+
+15.9 SQ roof · AI-derived scope — verify field measurements before claim submission

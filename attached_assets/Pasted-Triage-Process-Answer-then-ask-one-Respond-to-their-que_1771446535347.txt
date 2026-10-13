@@ -1,0 +1,79 @@
+Triage Process
+Answer then ask one
+Respond to their question FIRST, then ask for one piece of info
+
+
+Triage Categories (comma separated)
+leak, missing shingles, hail, wind, other
+First Triage Question
+What happened? (leak, missing shingles, hail, wind, other)
+Use placeholders: {brand}, {agent}, {calendly_link}, {triage_first}
+
+Leak Follow-up Question
+Is water getting in right now? Y/N
+Used when customer mentions a leak
+
+Conversation Limits
+Max SMS turns
+10
+Max thread duration (min)
+60
+Cooldown (hours)
+12
+Action at cap
+Wrap-up + notify admins
+Wrap-up message
+I'll hand this to our team to finish up. Expect a follow-up shortly.
+Use placeholders: {brand}, {agent}, {calendly_link}, {triage_first}
+
+Emergency Detection
+Escalation Keywords (comma-separated)
+emergency, urgent, asap, 911, flood, fire
+🚨 When detected, Susan alerts admins and attempts transfer
+
+Knowledge Base
+Teach Susan about your specific company. Import content from your website and documents (PDFs, etc).
+
+https://your-website.com
+Import Site
+Import PDF/Doc
+Custom Knowledge Text
+Paste your pricing, service list, company history, or import it using the buttons above...
+Response Templates
+Customize how Susan responds to common customer scenarios
+Who are you / your name?
+I'm {agent} of {brand}. How can I help?
+Use {brand}, {agent}, {calendly_link}; fallback supports {triage_first}.
+
+Greeting
+Hi, this is {agent} of {brand}. How can I help today?
+Use {brand}, {agent}, {calendly_link}; fallback supports {triage_first}.
+
+Pricing/Estimate
+We can help with pricing after a quick look. Want to schedule a free inspection?
+Use {brand}, {agent}, {calendly_link}; fallback supports {triage_first}.
+
+Appointment
+I can book you now. Pick a time that works: {calendly_link}
+Use {brand}, {agent}, {calendly_link}; fallback supports {triage_first}.
+
+Address Request
+Please share the service address (street, city, zip) and I'll pull availability.
+Use {brand}, {agent}, {calendly_link}; fallback supports {triage_first}.
+
+Stop/Unsubscribe
+You're unsubscribed. Reply START to opt back in.
+Use {brand}, {agent}, {calendly_link}; fallback supports {triage_first}.
+
+Wrong Number
+Thanks for letting us know-We'll update our records.
+Use {brand}, {agent}, {calendly_link}; fallback supports {triage_first}.
+
+Small Talk
+You're welcome! Anything else I can help with?
+Use {brand}, {agent}, {calendly_link}; fallback supports {triage_first}.
+
+Fallback
+Got it. {triage_first}
+Use {brand}, {agent}, {calendly_link}; fallback supports {triage_first}.
+

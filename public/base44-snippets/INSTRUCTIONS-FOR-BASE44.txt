@@ -1,0 +1,773 @@
+============================================================
+OUTBOUND CALLING FEATURE — Base44 Implementation Instructions
+============================================================
+
+OVERVIEW:
+We're adding outbound calling to the AI assistant (Susan/Sarah).
+This lets the assistant proactively call new leads to qualify them
+and book inspections. Subscribers can toggle it on/off, set auto-call
+delays, and manually trigger calls from the workspace.
+
+There are 4 steps:
+  1. Add fields to two entities
+  2. Add code to the Settings page
+  3. Add code to the Workspace page
+  4. Add actions to the sarahBridgeAPI function
+
+============================================================
+STEP 1: ENTITY CHANGES
+============================================================
+
+A) AssistantSettings entity — Add these 6 new fields:
+
+  Field Name                  | Type      | Default
+  ----------------------------|-----------|--------
+  inbound_calls_enabled       | boolean   | true
+  outbound_calls_enabled      | boolean   | false
+  auto_call_new_leads         | boolean   | false
+  auto_call_delay_minutes     | number    | 5
+  outbound_greeting           | text      | (empty)
+  send_sms_after_booking      | boolean   | true
+
+B) Communication entity — Add this field (if not already present):
+
+  Field Name   | Type   | Default
+  -------------|--------|--------
+  direction    | text   | (empty)
+
+  Possible values: "inbound" or "outbound"
+  This tracks whether a call/SMS was incoming or outgoing.
+
+
+============================================================
+STEP 2: SETTINGS PAGE (SarahSettings / SusanSettings)
+============================================================
+
+LOCATION: Find the Settings page for the AI assistant.
+Add a new card section called "Call Direction Settings"
+AFTER the voice/engine settings and BEFORE the System Prompt section.
+
+IMPORTS NEEDED (add to existing imports):
+  PhoneOutgoing, PhoneIncoming, Zap, Clock, MessageSquare
+  (from lucide-react)
+
+FORM DEFAULTS — Add these to the default form state:
+  inbound_calls_enabled: true,
+  outbound_calls_enabled: false,
+  auto_call_new_leads: false,
+  auto_call_delay_minutes: 5,
+  outbound_greeting: "",
+  send_sms_after_booking: true,
+
+LOADING EXISTING DATA — Where settings are loaded from the database
+into the form, add:
+  outbound_calls_enabled: rec.outbound_calls_enabled ?? false,
+  auto_call_new_leads: rec.auto_call_new_leads ?? false,
+  auto_call_delay_minutes: rec.auto_call_delay_minutes ?? 5,
+  outbound_greeting: rec.outbound_greeting || "",
+  send_sms_after_booking: rec.send_sms_after_booking !== false,
+  inbound_calls_enabled: rec.inbound_calls_enabled !== false,
+
+JSX TO ADD — Insert this card block:
+
+    <Card className="mt-6 border-green-200 bg-green-50/30">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <PhoneOutgoing className="w-5 h-5 text-green-600" />
+          <CardTitle className="text-base">Call Direction Settings</CardTitle>
+        </div>
+        <CardDescription className="text-xs">
+          Control whether the assistant handles incoming calls, makes outgoing calls to new leads, or both.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Incoming calls toggle */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <PhoneIncoming className="w-4 h-4 text-blue-600" />
+                <Label>Accept Incoming Calls</Label>
+              </div>
+              <Switch
+                checked={form.inbound_calls_enabled}
+                onCheckedChange={(v) => onChange("inbound_calls_enabled", v)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">Answers calls from customers calling your business number.</p>
+          </div>
+
+          {/* Outgoing calls toggle */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <PhoneOutgoing className="w-4 h-4 text-green-600" />
+                <Label>Make Outgoing Calls</Label>
+              </div>
+              <Switch
+                checked={form.outbound_calls_enabled}
+                onCheckedChange={(v) => onChange("outbound_calls_enabled", v)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">Proactively calls new leads to qualify them and book inspections.</p>
+          </div>
+        </div>
+
+        {/* Expanded outbound options (only shown when outbound is ON) */}
+        {form.outbound_calls_enabled && (
+          <div className="border-t pt-4 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Auto-call toggle */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-amber-600" />
+                    <Label>Auto-Call New Leads</Label>
+                  </div>
+                  <Switch
+                    checked={form.auto_call_new_leads}
+                    onCheckedChange={(v) => onChange("auto_call_new_leads", v)}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">Automatically call new leads within a set delay. Only during business hours.</p>
+              </div>
+
+              {/* Delay dropdown */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-muted-foreground" />
+                  <Label>Auto-Call Delay (minutes)</Label>
+                </div>
+                <Select
+                  value={String(form.auto_call_delay_minutes)}
+                  onValueChange={(v) => onChange("auto_call_delay_minutes", parseInt(v))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 minute (instant)</SelectItem>
+                    <SelectItem value="3">3 minutes</SelectItem>
+                    <SelectItem value="5">5 minutes</SelectItem>
+                    <SelectItem value="10">10 minutes</SelectItem>
+                    <SelectItem value="15">15 minutes</SelectItem>
+                    <SelectItem value="30">30 minutes</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">How long to wait after a lead is created before calling.</p>
+              </div>
+            </div>
+
+            {/* SMS after booking toggle */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-blue-600" />
+                <Label>Send SMS Confirmation After Booking</Label>
+              </div>
+              <Switch
+                checked={form.send_sms_after_booking}
+                onCheckedChange={(v) => onChange("send_sms_after_booking", v)}
+              />
+            </div>
+
+            {/* Custom outbound greeting */}
+            <div className="space-y-2">
+              <Label>Custom Outbound Greeting (optional)</Label>
+              <Textarea
+                rows={3}
+                value={form.outbound_greeting}
+                onChange={(e) => onChange("outbound_greeting", e.target.value)}
+                placeholder="Leave blank for default. Example: Hi, this is {agent} from {brand}. I'm reaching out because you recently inquired about roofing services..."
+              />
+              <p className="text-xs text-muted-foreground">Supports {"{agent}"}, {"{brand}"} placeholders. If blank, uses built-in outbound script.</p>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+
+SAVE LOGIC: Make sure the save function includes these fields
+when saving to AssistantSettings:
+  inbound_calls_enabled: form.inbound_calls_enabled,
+  outbound_calls_enabled: form.outbound_calls_enabled,
+  auto_call_new_leads: form.auto_call_new_leads,
+  auto_call_delay_minutes: form.auto_call_delay_minutes,
+  outbound_greeting: form.outbound_greeting,
+  send_sms_after_booking: form.send_sms_after_booking,
+
+
+============================================================
+STEP 3: WORKSPACE PAGE (SarahWorkspace / SusanWorkspace)
+============================================================
+
+LOCATION: The main workspace page where conversations are shown.
+Add a new "Outbound" tab alongside existing tabs (Live Dashboard,
+Performance, Test & Debug, Settings).
+
+IMPORTS NEEDED (add to existing imports):
+  PhoneOutgoing, UserPlus, Activity, Phone, RefreshCw
+  (from lucide-react)
+  Alert, AlertDescription (from UI components)
+
+STATE VARIABLES — Add with your other useState declarations:
+  const [outboundPhone, setOutboundPhone] = useState("");
+  const [outboundName, setOutboundName] = useState("");
+  const [outboundService, setOutboundService] = useState("");
+  const [outboundCalling, setOutboundCalling] = useState(false);
+  const [outboundResult, setOutboundResult] = useState(null);
+
+FUNCTION — Add this with your other handler functions:
+
+  const initiateOutboundCall = async (phone, name, service) => {
+    if (!phone || !company) return;
+    setOutboundCalling(true);
+    setOutboundResult(null);
+    try {
+      const resp = await fetch('/api/sarah-outbound-call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: company.id,
+          leadPhone: phone,
+          leadName: name || '',
+          leadService: service || '',
+        }),
+      });
+      const data = await resp.json();
+      if (data.success) {
+        setOutboundResult({ success: true, message: `Call initiated to ${phone}`, callSid: data.callSid });
+      } else {
+        setOutboundResult({ success: false, message: data.error || 'Failed to initiate call' });
+      }
+    } catch (err) {
+      setOutboundResult({ success: false, message: err.message });
+    } finally {
+      setOutboundCalling(false);
+    }
+  };
+
+TAB TRIGGER — Add this TabsTrigger in your TabsList:
+  <TabsTrigger value="outbound">Outbound</TabsTrigger>
+
+TAB CONTENT — Add this TabsContent block after the Live Dashboard tab:
+
+    <TabsContent value="outbound" className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-xl font-semibold flex items-center gap-2">
+            <PhoneOutgoing className="w-5 h-5 text-green-600" />
+            Outbound Calls
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Have {agentName} call leads to qualify them and book inspections.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Manual call card */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Phone className="w-4 h-4" />
+              Manual Outbound Call
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Enter a phone number to have {agentName} call a lead right now.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <Label className="text-xs">Phone Number</Label>
+              <Input
+                placeholder="+1 (555) 123-4567"
+                value={outboundPhone}
+                onChange={(e) => setOutboundPhone(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Lead Name (optional)</Label>
+              <Input
+                placeholder="John Smith"
+                value={outboundName}
+                onChange={(e) => setOutboundName(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Service Interest (optional)</Label>
+              <Input
+                placeholder="Roof inspection, hail damage, etc."
+                value={outboundService}
+                onChange={(e) => setOutboundService(e.target.value)}
+              />
+            </div>
+            <Button
+              className="w-full"
+              disabled={!outboundPhone || outboundCalling}
+              onClick={() => initiateOutboundCall(outboundPhone, outboundName, outboundService)}
+            >
+              {outboundCalling ? (
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <PhoneOutgoing className="w-4 h-4 mr-2" />
+              )}
+              {outboundCalling ? 'Initiating...' : `Call with ${agentName}`}
+            </Button>
+
+            {outboundResult && (
+              <Alert variant={outboundResult.success ? "default" : "destructive"} className="mt-2">
+                <AlertDescription className="text-sm">
+                  {outboundResult.message}
+                  {outboundResult.callSid && (
+                    <span className="block text-xs text-muted-foreground mt-1">Call SID: {outboundResult.callSid}</span>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Quick call from leads card */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <UserPlus className="w-4 h-4" />
+              Quick Call from Leads
+            </CardTitle>
+            <CardDescription className="text-xs">
+              New leads that haven't been called yet. Click to have {agentName} reach out.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {company ? (
+              <QuickLeadCallList
+                company={company}
+                agentName={agentName}
+                onCall={(lead) => {
+                  setOutboundPhone(lead.phone);
+                  setOutboundName(lead.name || '');
+                  setOutboundService(lead.notes?.match(/Service: (.+)/)?.[1] || '');
+                  initiateOutboundCall(lead.phone, lead.name, lead.notes?.match(/Service: (.+)/)?.[1] || '');
+                }}
+                calling={outboundCalling}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">Loading company data...</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Recent outbound calls */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Activity className="w-4 h-4" />
+            Recent Outbound Calls
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {company ? (
+            <RecentOutboundCalls company={company} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          )}
+        </CardContent>
+      </Card>
+    </TabsContent>
+
+HELPER COMPONENTS — Add these as separate components (outside the
+main component function, or as separate component files on Base44):
+
+--- Component: QuickLeadCallList ---
+
+function QuickLeadCallList({ company, agentName, onCall, calling }) {
+  const { data: leads = [], isLoading } = useQuery({
+    queryKey: ['leads', 'new', company?.id],
+    queryFn: () => company
+      ? base44.entities.Lead.filter(
+          { company_id: company.id, status: 'new' },
+          '-created_date', 10
+        )
+      : [],
+    enabled: !!company?.id,
+    refetchInterval: 30000,
+  });
+
+  const { data: outboundComms = [] } = useQuery({
+    queryKey: ['communications', 'outbound', company?.id],
+    queryFn: () => company
+      ? base44.entities.Communication.filter(
+          { company_id: company.id, direction: 'outbound', communication_type: 'call' },
+          '-created_date', 50
+        )
+      : [],
+    enabled: !!company?.id,
+  });
+
+  const calledPhones = new Set(
+    outboundComms.map(c => c.contact_phone?.replace(/\D/g, ''))
+  );
+  const uncalledLeads = leads.filter(
+    l => l.phone && !calledPhones.has(l.phone.replace(/\D/g, ''))
+  );
+
+  if (isLoading)
+    return <p className="text-sm text-muted-foreground">Loading leads...</p>;
+
+  if (uncalledLeads.length === 0) {
+    return (
+      <div className="text-center py-6 text-muted-foreground">
+        <UserPlus className="w-8 h-8 mx-auto mb-2 opacity-50" />
+        <p className="text-sm">No new uncalled leads</p>
+        <p className="text-xs mt-1">New leads will appear here when they come in.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 max-h-[300px] overflow-y-auto">
+      {uncalledLeads.map(lead => (
+        <div key={lead.id}
+          className="flex items-center justify-between p-2 border rounded-md">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium truncate">
+              {lead.name || 'Unknown'}
+            </p>
+            <p className="text-xs text-muted-foreground">{lead.phone}</p>
+            {lead.notes && (
+              <p className="text-xs text-muted-foreground truncate">
+                {lead.notes.substring(0, 60)}
+              </p>
+            )}
+          </div>
+          <Button size="sm" variant="outline" disabled={calling}
+            onClick={() => onCall(lead)}>
+            <PhoneOutgoing className="w-3 h-3 mr-1" />
+            Call
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+--- Component: RecentOutboundCalls ---
+
+function RecentOutboundCalls({ company }) {
+  const { data: outboundCalls = [], isLoading } = useQuery({
+    queryKey: ['communications', 'outbound-recent', company?.id],
+    queryFn: () => company
+      ? base44.entities.Communication.filter(
+          {
+            company_id: company.id,
+            direction: 'outbound',
+            communication_type: 'call',
+          },
+          '-created_date', 20
+        )
+      : [],
+    enabled: !!company?.id,
+    refetchInterval: 15000,
+  });
+
+  if (isLoading)
+    return <p className="text-sm text-muted-foreground">Loading...</p>;
+
+  if (outboundCalls.length === 0) {
+    return (
+      <div className="text-center py-6 text-muted-foreground">
+        <PhoneOutgoing className="w-8 h-8 mx-auto mb-2 opacity-50" />
+        <p className="text-sm">No outbound calls yet</p>
+        <p className="text-xs mt-1">Outbound calls will appear here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {outboundCalls.map(call => (
+        <div key={call.id}
+          className="flex items-center justify-between p-3 border rounded-md">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <PhoneOutgoing className="w-4 h-4 text-green-600 flex-shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">
+                {call.contact_name || 'Unknown'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {call.contact_phone}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <div className="text-right">
+              <Badge
+                variant={call.status === 'completed' ? 'default' : 'secondary'}
+                className="text-xs"
+              >
+                {call.status || 'initiated'}
+              </Badge>
+              {call.duration > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {Math.floor(call.duration / 60)}:
+                  {String(call.duration % 60).padStart(2, '0')}
+                </p>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground whitespace-nowrap">
+              {new Date(call.created_date).toLocaleString('en-US', {
+                month: 'short', day: 'numeric',
+                hour: 'numeric', minute: '2-digit', hour12: true,
+              })}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+============================================================
+STEP 4: BACKEND — sarahBridgeAPI Function
+============================================================
+
+CRITICAL UPDATE: The sarahBridgeAPI function now needs TWO changes:
+
+A) AUTH: Support BOTH bridge secret AND user session auth.
+   The frontend now calls initiateOutboundCall via base44.functions.invoke()
+   which sends the user's session token, not the bridge secret.
+
+   Replace the auth block:
+   OLD:
+     if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
+         return jsonResponse({ error: 'Unauthorized' }, 401);
+     }
+
+   NEW (after parsing body and getting action):
+     const isBridgeAuth = expectedSecret && authHeader === `Bearer ${expectedSecret}`;
+     const frontendActions = ['initiateOutboundCall', 'getOutboundSettings'];
+     if (!isBridgeAuth) {
+         if (frontendActions.includes(action)) {
+             try {
+                 const me = await base44.auth.me();
+                 if (!me) return jsonResponse({ error: 'Unauthorized' }, 401);
+             } catch (_e) {
+                 return jsonResponse({ error: 'Unauthorized' }, 401);
+             }
+         } else {
+             return jsonResponse({ error: 'Unauthorized' }, 401);
+         }
+     }
+
+B) initiateOutboundCall: Now calls Twilio DIRECTLY instead of
+   proxying through Replit. This fixes browser 502/401 errors.
+
+
+LOCATION: In the sarahBridgeAPI serverless function on Base44,
+inside the switch(action) block, add these 4 new cases:
+
+
+--- Case: getTwilioConfig ---
+
+case 'getTwilioConfig': {
+    if (!companyId) {
+        return jsonResponse({ error: 'Missing companyId' }, 400);
+    }
+    const twilioRows = await base44.asServiceRole.entities
+      .TwilioSettings.filter({ company_id: companyId });
+    const twilioConfig = twilioRows[0];
+    if (!twilioConfig) {
+        return jsonResponse({ error: 'Twilio not configured' }, 400);
+    }
+    return jsonResponse({
+        account_sid: twilioConfig.account_sid,
+        auth_token: twilioConfig.auth_token,
+        main_phone_number: twilioConfig.main_phone_number,
+    });
+}
+
+
+--- Case: initiateOutboundCall (calls Twilio directly) ---
+
+case 'initiateOutboundCall': {
+    if (!companyId || !data?.leadPhone) {
+        return jsonResponse({ error: 'Missing companyId or leadPhone' }, 400);
+    }
+    const twilioRows2 = await base44.asServiceRole.entities
+      .TwilioSettings.filter({ company_id: companyId });
+    const twilio2 = twilioRows2[0];
+    if (!twilio2 || !twilio2.account_sid || !twilio2.auth_token) {
+        return jsonResponse({ error: 'Twilio not configured' }, 400);
+    }
+    const settingsRows = await base44.asServiceRole.entities
+      .AssistantSettings.filter({ company_id: companyId }, '-updated_date', 1);
+    const settings = settingsRows[0] || {};
+    if (settings.outbound_calls_enabled === false) {
+        return jsonResponse({ error: 'Outbound calls not enabled' }, 403);
+    }
+    const appUrl = Deno.env.get('APP_URL') || '';
+    if (!appUrl) {
+        return jsonResponse({ error: 'APP_URL not configured' }, 500);
+    }
+
+    const leadPhone = data.leadPhone;
+    const leadName = data.leadName || '';
+    const leadService = data.leadService || '';
+    const leadAddress = data.leadAddress || '';
+
+    const cleanTo = leadPhone.replace(/[^\d+]/g, '');
+    const cleanFrom = twilio2.main_phone_number.replace(/[^\d+]/g, '');
+    const toNumber = cleanTo.startsWith('+') ? cleanTo : `+1${cleanTo}`;
+    const fromNumber = cleanFrom.startsWith('+') ? cleanFrom : `+1${cleanFrom}`;
+
+    const twimlUrl = `${appUrl}/twiml/outbound?companyId=${encodeURIComponent(companyId)}&leadPhone=${encodeURIComponent(leadPhone)}&leadName=${encodeURIComponent(leadName)}&leadService=${encodeURIComponent(leadService)}&leadAddress=${encodeURIComponent(leadAddress)}&maxDuration=600`;
+    const statusCallback = `${appUrl}/api/sarah-call-status`;
+
+    const authStr = btoa(`${twilio2.account_sid}:${twilio2.auth_token}`);
+    const callParams = new URLSearchParams({
+        To: toNumber,
+        From: fromNumber,
+        Url: twimlUrl,
+        StatusCallback: statusCallback,
+        StatusCallbackEvent: 'initiated ringing answered completed',
+        StatusCallbackMethod: 'POST',
+        Timeout: '30',
+        MachineDetection: 'Enable',
+        MachineDetectionTimeout: '5',
+    });
+
+    const twilioResp = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${twilio2.account_sid}/Calls.json`,
+        {
+            method: 'POST',
+            headers: {
+                'Authorization': `Basic ${authStr}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: callParams.toString(),
+        }
+    );
+    const twilioResult = await twilioResp.json();
+    if (!twilioResp.ok) {
+        return jsonResponse({ error: twilioResult.message || 'Twilio call failed' }, 400);
+    }
+
+    try {
+        await base44.asServiceRole.entities.Communication.create({
+            company_id: companyId,
+            contact_phone: leadPhone,
+            contact_name: leadName,
+            communication_type: 'call',
+            direction: 'outbound',
+            message: `Outbound call initiated to ${leadName || leadPhone}. Service: ${leadService || 'N/A'}`,
+            status: 'initiated',
+            call_sid: twilioResult.sid,
+        });
+    } catch (e) {
+        console.warn('Failed to log call:', e);
+    }
+
+    return jsonResponse({
+        success: true,
+        callSid: twilioResult.sid,
+        status: twilioResult.status,
+    });
+}
+
+
+--- Case: getOutboundSettings ---
+
+case 'getOutboundSettings': {
+    if (!companyId) {
+        return jsonResponse({ error: 'Missing companyId' }, 400);
+    }
+    const settingsRows2 = await base44.asServiceRole.entities
+      .AssistantSettings.filter({ company_id: companyId });
+    const s = settingsRows2[0];
+    return jsonResponse({
+        outbound_calls_enabled: s?.outbound_calls_enabled ?? false,
+        auto_call_new_leads: s?.auto_call_new_leads ?? false,
+        auto_call_delay_minutes: s?.auto_call_delay_minutes ?? 5,
+        outbound_greeting: s?.outbound_greeting || '',
+        send_sms_after_booking: s?.send_sms_after_booking !== false,
+        inbound_calls_enabled: s?.inbound_calls_enabled !== false,
+    });
+}
+
+
+--- Case: sendFollowUpSMS ---
+
+case 'sendFollowUpSMS': {
+    if (!companyId || !data?.phone || !data?.message) {
+        return jsonResponse({ error: 'Missing required fields' }, 400);
+    }
+    const twilioRows3 = await base44.asServiceRole.entities
+      .TwilioSettings.filter({ company_id: companyId });
+    const twilio3 = twilioRows3[0];
+    if (!twilio3) {
+        return jsonResponse({ error: 'Twilio not configured' }, 400);
+    }
+    const authStr = btoa(
+      `${twilio3.account_sid}:${twilio3.auth_token}`
+    );
+    const cleanTo = data.phone.replace(/[^\d+]/g, '');
+    const cleanFrom = twilio3.main_phone_number.replace(/[^\d+]/g, '');
+    const smsParams = new URLSearchParams({
+        To: cleanTo.startsWith('+') ? cleanTo : `+1${cleanTo}`,
+        From: cleanFrom.startsWith('+') ? cleanFrom : `+1${cleanFrom}`,
+        Body: data.message,
+    });
+    const smsResp = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${twilio3.account_sid}/Messages.json`,
+      {
+          method: 'POST',
+          headers: {
+              'Authorization': `Basic ${authStr}`,
+              'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: smsParams.toString(),
+      }
+    );
+    const smsResult = await smsResp.json();
+    if (!smsResp.ok) {
+        return jsonResponse({ error: smsResult.message || 'SMS failed' }, 400);
+    }
+    await base44.asServiceRole.entities.Communication.create({
+        company_id: companyId,
+        contact_phone: data.phone,
+        contact_name: data.leadName || '',
+        communication_type: 'sms',
+        direction: 'outbound',
+        message: data.message,
+        status: 'sent',
+    });
+    return jsonResponse({ success: true, sid: smsResult.sid });
+}
+
+
+============================================================
+ENVIRONMENT VARIABLE NEEDED
+============================================================
+
+In the Base44 function environment, make sure APP_URL is set
+to the Replit app URL (e.g., https://your-app.replit.app or
+https://getcompanysync.io) — this is where the /api/sarah-outbound-call
+endpoint lives.
+
+
+============================================================
+SUMMARY OF CHANGES
+============================================================
+
+1. AssistantSettings entity: 6 new boolean/number/text fields
+2. Communication entity: 1 new "direction" text field
+3. Settings page: 1 new "Call Direction Settings" card with toggles
+4. Workspace page: 1 new "Outbound" tab with manual call, lead list,
+   and call history
+5. sarahBridgeAPI function: 4 new action cases
+6. APP_URL environment variable must be set
+
+============================================================

@@ -1,0 +1,44 @@
+HARD RULES
+- Do not Publish.
+- Do not change YICN / Insurance Claims Network customer, lead, invoice, Twilio, or staff records.
+- Do not run Auto Setup, Launch Checklist, or cleanupYICNAndCreateSaaS.
+- Do not delete Wizard Test Co or Wizard Test Two.
+- Do not remove DATABASE_URL.
+- Do not mention Resend. Email is Postmark and Amazon SES.
+- Do not log into the YICN tenant. Test only on Wizard Test Co or a dummy job there.
+- Do not add Hover or EagleView as an API, SDK, or required upload. We measure ourselves.
+- Do not send house photos to Gemini Vision (or any LLM) to invent roof squares.
+- Stop when the capture flow works in preview. List files changed. Do not Publish.
+
+WHY
+Live /AIEstimator lets people dump random JPGs or a Hover PDF. Four insurance elevations (Front/Left/Rear/Right) are not a model. Hover’s capture is 8 slots: each SIDE and each CORNER (Front, Front-Right, Right, Back-Right, Back, Back-Left, Left, Front-Left). Corner shots must show two full walls, stepped back. Then they build the house. We copy that capture, then measure with the Google Solar API we already have plus one scale tap. No Hover account.
+
+FIX (preview only)
+Find /AIEstimator (Upload + Storm Tracking / Google Solar). Add a Capture tab or replace the photo-dump path. Keep the existing “upload a Hover/Xactimate PDF” path as a separate “I already have a report” action. Do not remove Google Solar.
+
+1) 8-slot capture grid, in order:
+   Front, Front-Right, Right, Back-Right, Back, Back-Left, Left, Front-Left.
+   One photo per slot. Show a simple silhouette of side vs corner.
+   Corner helper text: “Stand back. Show two full walls, plus sky and ground.”
+   Reject close-ups. If the user tries to Generate with missing corners, block and name the empty slots. Do not estimate from 4 sides.
+
+2) Required address (reuse Storm Tracking address / Google Solar).
+   After a complete 8-set, run the EXISTING Google Solar measurement for roof planes/area.
+   Label the result “Satellite takeoff” and show a range or the API’s numbers with source = Google Solar, not “AI photo measure.”
+
+3) Scale tap: user taps the garage door (or types width). Default double door 16 ft, single 8 ft. Use this only as a sanity check against Solar, not as a fake 32.4 square invention from pixels.
+
+4) Use the 8 photos for what they can see: siding vs stone, chimney count, skylights, garage SIDE (left vs right), stories, access/trees. Put those as notes on the estimate. Never as certified squares.
+
+5) If the old exploded 3D / fake 48×9 “NOT PHOTOGRAPHED — ESTIMATED” boxes still exist in this codebase, do not show them on this flow. One assembled footprint from Solar is enough for this pass. Full photogrammetry mesh is NOT this job.
+
+6) Generate stays disabled until: 8 slots filled, 4 corners present, address present.
+
+VERIFY IN PREVIEW (Wizard Test Co only)
+- 4 side photos only: Generate is blocked, message lists missing corners.
+- All 8 slots + address: Solar takeoff runs; squares are labeled satellite, not photo-AI.
+- Photos still visible on the estimate as Front / Front-Right / etc.
+- Garage-on-left in the photos must not be flipped in any note/UI.
+- Do not email anyone. Do not publish.
+
+When done, list files changed. Stop. Do not Publish.

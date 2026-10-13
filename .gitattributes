@@ -1,0 +1,10 @@
+node_modules/ export-ignore
+dist/ export-ignore
+.next/ export-ignore
+__pycache__/ export-ignore
+.cache/ export-ignore
+.turbo/ export-ignore
+coverage/ export-ignore
+.nyc_output/ export-ignore
+attached_assets/Code-Analyzer-Replit-Small_1773136596457.zip filter=lfs diff=lfs merge=lfs -text
+live.bundle filter=lfs diff=lfs merge=lfs -text

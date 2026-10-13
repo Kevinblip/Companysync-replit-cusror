@@ -1,0 +1,84 @@
+interface SolarApiPayload {
+  flatRoofAreaSqFt: number;
+  solarDefaultPitchMult: number;
+  perimeterLf: number;
+}
+
+interface VisionGroundData {
+  facadePitchSlopes: number[]; // e.g. [7, 7, 8, 7]
+  sidingCourseCount: number;   // 4" reveal count
+  masonryDeductionSqFt: number;
+  rawOpenings: Array<{ widthInches: number; heightInches: number; mullionCount: number }>;
+}
+
+export class HybridSolarVisionEstimator {
+  private readonly SIDING_REVEAL_FT = 4 / 12; // 0.333 ft
+
+  /**
+   * Recalculates roof area by applying ground pitch factors to aerial polygons
+   */
+  public calculateFusedRoof(solar: SolarApiPayload, ground: VisionGroundData) {
+    // Average ground pitch from Crew Cam
+    const avgPitch = ground.facadePitchSlopes.reduce((a, b) => a + b, 0) / ground.facadePitchSlopes.length;
+    const trueGroundMultiplier = Math.sqrt(1 + Math.pow(avgPitch / 12, 2));
+
+    // Convert Solar API flat base using true ground pitch
+    const baseFlatSqFt = solar.flatRoofAreaSqFt / solar.solarDefaultPitchMult;
+    const calibratedRoofSqFt = baseFlatSqFt * trueGroundMultiplier;
+
+    return {
+      netRoofSqFt: Math.round(calibratedRoofSqFt),
+      netRoofSquares: Number((calibratedRoofSqFt / 100).toFixed(2)),
+      orderQty15PercentSqFt: Math.round(calibratedRoofSqFt * 1.15),
+      orderQty15PercentSquares: Number(((calibratedRoofSqFt * 1.15) / 100).toFixed(2)),
+      detectedPitch: `${avgPitch.toFixed(1)}/12`
+    };
+  }
+
+  /**
+   * De-groups mulled window banks into individual units while keeping accurate siding deductions
+   */
+  public processWindowUnits(openings: VisionGroundData['rawOpenings']) {
+    let totalDeductionSqFt = 0;
+    let totalIndividualUnits = 0;
+
+    openings.forEach(o => {
+      const widthFt = o.widthInches / 12;
+      const heightFt = o.heightInches / 12;
+      
+      totalDeductionSqFt += (widthFt * heightFt);
+      // Multiplies unit count by internal mullion splits
+      totalIndividualUnits += Math.max(1, o.mullionCount);
+    });
+
+    return { totalDeductionSqFt, totalIndividualUnits };
+  }
+
+  /**
+   * Generates Final Hybrid Report
+   */
+  public generateReport(solar: SolarApiPayload, ground: VisionGroundData) {
+    const roof = this.calculateFusedRoof(solar, ground);
+    const windows = this.processWindowUnits(ground.rawOpenings);
+
+    const wallHeightFt = ground.sidingCourseCount * this.SIDING_REVEAL_FT;
+    const grossWallSqFt = solar.perimeterLf * wallHeightFt;
+    const netSidingSqFt = grossWallSqFt - ground.masonryDeductionSqFt - windows.totalDeductionSqFt;
+
+    return {
+      perimeter_lf: Math.round(solar.perimeterLf),
+      roof_summary: roof,
+      siding_summary: {
+        gross_wall_sqft: Math.round(grossWallSqFt),
+        masonry_isolated_sqft: Math.round(ground.masonryDeductionSqFt),
+        opening_deductions_sqft: Math.round(windows.totalDeductionSqFt),
+        siding_net_sqft: Math.round(netSidingSqFt),
+        siding_net_squares: Number((netSidingSqFt / 100).toFixed(2)),
+        siding_10_percent_waste: Number(((netSidingSqFt * 1.10) / 100).toFixed(2))
+      },
+      inventory: {
+        window_unit_count: windows.totalIndividualUnits
+      }
+    };
+  }
+}

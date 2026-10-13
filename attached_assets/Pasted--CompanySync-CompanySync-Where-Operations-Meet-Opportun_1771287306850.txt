@@ -1,0 +1,154 @@
+
+CompanySync
+CompanySync
+Where Operations Meet Opportunity
+
+Dashboard
+
+AI Tools
+
+Lead Manager
+
+Sales
+
+Field Operations
+
+Accounting
+
+Operations
+Smart Glasses
+Calendar
+
+Communication
+
+Documents
+Map
+Knowledge Base
+
+Reports
+Subscription
+Feature Comparison
+Coming Soon
+
+Settings
+Toggle Sidebar
+
+Back
+
+Google Meet
+
+
+
+
+33
+
+k
+kevin stone
+
+February 2026
+Today
+
+Filter
+Sync Now
+Diagnose
+Add Event
+✅ Google Calendar Connected - Auto-Sync Every 15 Min
+Calendar syncs automatically every 15 minutes. Last sync: Feb 16, 7:12 PM
+
+Fix Missing Events
+Sun
+Mon
+Tue
+Wed
+Thu
+Fri
+Sat
+1
+2
++1 more
+3
+4
+5
+6
+7
++1 more
+8
+9
++2 more
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+0
+Google Calendar Setup Diagnostic
+📊 Current Status
+Connection: ✅ Connected
+Access Token: Yes
+Refresh Token: Yes
+Token Status: Expired
+API Test: ❌ FAILED (401)
+📋 Required Setup Steps
+═══════════════════════════════════════════════
+🔧 GOOGLE CLOUD CONSOLE SETUP CHECKLIST
+═══════════════════════════════════════════════
+
+1️⃣ ENABLE GOOGLE CALENDAR API
+   → https://console.cloud.google.com/apis/library/calendar-json.googleapis.com
+   → Click "ENABLE"
+
+2️⃣ CONFIGURE OAUTH CONSENT SCREEN
+   → https://console.cloud.google.com/apis/credentials/consent
+   → Click "EDIT APP"
+   → On "Scopes" step, click "ADD OR REMOVE SCOPES"
+   → Search for "calendar"
+   → Check these 2 scopes:
+     ✅ https://www.googleapis.com/auth/calendar
+     ✅ https://www.googleapis.com/auth/calendar.events
+   → Click "UPDATE"
+   → Click "SAVE AND CONTINUE"
+
+3️⃣ ADD TEST USER
+   → On "Test users" step
+   → Click "+ ADD USERS"
+   → Add your email: stonekevin866@gmail.com
+   → Click "ADD"
+   → Click "SAVE AND CONTINUE"
+
+4️⃣ FIX REDIRECT URI
+   → https://console.cloud.google.com/apis/credentials
+   → Find OAuth Client ID: 20936487329-1kej22o0fjj135llph...
+   → Click "EDIT" (pencil icon)
+   → Under "Authorized redirect URIs":
+   → REMOVE all existing URIs
+   → ADD this exact URI:
+     https://ai-crm-pro-10afd77e.base44.app/api/functions/userGoogleCalendarCallback
+   → Click "SAVE"
+
+5️⃣ WAIT & TEST
+   → Wait 2-3 minutes for changes to propagate
+   → Go back to your CRM Calendar page
+   → Click "Disconnect" (if connected)
+   → Click "Connect Google Calendar"
+   → Grant ALL permissions when Google asks
+
+═══════════════════════════════════════════════
+🔗 Quick Links
+→ Enable Google Calendar API
+→ Configure OAuth Consent Screen
+→ Fix Redirect URI
+Close

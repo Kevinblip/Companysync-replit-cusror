@@ -1,0 +1,80 @@
+Feature categories to cover (executor reference)
+CRM
+Lead capture & import (bulk, property data, storm area prospecting)
+Lead Finder / canvass map (geocoded storm-area discovery)
+Customer directory & groups
+Customer portal (homeowner-facing)
+Projects & tasks
+Action items & follow-up queue
+Electronic contracts & e-signatures
+Document repository
+Round-robin lead assignment
+Estimating & Sales
+AI Estimator (roof + siding: satellite, solar, photo, OSM polygon)
+Manual estimate editor (line items, pricing, tax, discounts)
+Estimate import & Xactimate/Symbility export (ESX, XML)
+Proposals (package assembly + send)
+Price catalog & custom formats
+Financing options on estimates
+Commission tracking, rules & splits
+Sales dashboard, rep leaderboard & performance analytics
+AI marketing creative & video generator (Marcus)
+AI Roof & Damage
+Satellite roof measurement (Solar API + OSM polygon extrusion)
+Siding measurement from photos (per-face AI analysis, openings detection)
+Interactive roof map (zone drawing, pitch overlay, 3D viewer)
+AI damage photo analysis (hail, wind, gutter, shingle scoring)
+Xactimate / Symbility / ESX export
+Field Operations
+Inspection capture & CrewCam (mobile photo + annotation)
+Drone inspection management
+Inspection reports & adjuster review
+Build schedule & scope-of-work checklist
+Subcontractor management
+Color Visualizer (AI photo recolor for siding/roofing)
+Aerial property view
+Communication & Automation
+AI receptionist — Lexi (inbound SMS/calls, appointment booking)
+AI outbound assistant — Alex (voice calls, follow-up)
+Live AI voice bridge (Gemini Live, Twilio)
+Two-way SMS & email (templates, campaigns)
+Automated workflows (event-triggered, delayed, conditional)
+Proactive reminders (appointments, invoices, build progress)
+Team chat & internal spaces
+Zoom / Google Meet / Slack / Google Chat integrations
+Reporting & Analytics
+Sales & revenue analytics dashboard
+Configurable report builder & templates
+Accounts receivable aging report
+Commission reports
+Daily crew/field reports
+Storm event reports
+Claims audit review
+Morning digest (AI-summarised daily briefing)
+Payments & Accounting
+Invoice creation & customer payment collection
+Stripe Connect payouts
+Full accounting suite (GL, chart of accounts, bank reconciliation, bills, expenses, journal entries)
+QuickBooks integration
+Subscription & plan management (platform billing)
+Settings & Admin
+AI Smart Setup / onboarding wizard (configures AI from a 5-minute interview)
+PDF & report branding
+Custom fields & page builder
+Role-based permissions
+Backup & restore
+API keys & integrations hub (GHL, JobNimbus, Stripe, QB, Google, Slack, Zoom)
+Multi-location company support
+Launch checklist & health diagnostics
+Platform admin (tenant management, subscription limits, audit)
+Competitor comparison anchors
+ServiceTitan — enterprise-priced, HVAC-first; no AI roof measurement, no built-in Xactimate export
+JobNimbus — good pipeline board; no AI estimating, no satellite/solar integration, no live AI voice
+AccuLynx — roofing-focused; no siding photo AI, no AI receptionist, no full accounting suite
+HailTrace / EagleView — measurement-only tools; no CRM, no invoicing, no AI assistant
+Spreadsheets / generic CRMs — no industry context, no automated estimating, massive manual effort
+Out of scope
+Actual ad copy or social posts (this is a feature brief / landing page, not ad creative)
+Pricing page (covered by existing PublicPricing page)
+Video production
+

@@ -1,0 +1,245 @@
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+
+async function getCompanyId(base44: any, user: any): Promise<string | null> {
+  try {
+    if (user.company_id) return user.company_id;
+    const staffProfiles = await base44.asServiceRole.entities.StaffProfile.filter({ user_email: user.email });
+    return staffProfiles[0]?.company_id || null;
+  } catch { return null; }
+}
+
+async function checkAIUsage(base44: any, companyId: string): Promise<{ allowed: boolean; error?: string }> {
+  try {
+    const companies = await base44.asServiceRole.entities.Company.filter({ id: companyId });
+    if (!companies[0] || companies[0].company_name === 'CompanySync') return { allowed: true };
+    
+    const usageRecords = await base44.asServiceRole.entities.SubscriptionUsage.filter({ company_id: companyId });
+    if (usageRecords.length === 0) return { allowed: true };
+    
+    const usage = usageRecords[0];
+    const limit = (usage.ai_limit || 0) + (usage.ai_credits_purchased || 0);
+    const used = usage.ai_used || 0;
+    
+    if (limit > 0 && used >= limit) {
+      return { allowed: false, error: 'AI interaction limit reached. Please upgrade your plan or purchase additional credits.' };
+    }
+    return { allowed: true };
+  } catch { return { allowed: true }; }
+}
+
+async function incrementAIUsage(base44: any, companyId: string): Promise<void> {
+  try {
+    const companies = await base44.asServiceRole.entities.Company.filter({ id: companyId });
+    if (companies[0]?.company_name === 'CompanySync') return;
+    const usageRecords = await base44.asServiceRole.entities.SubscriptionUsage.filter({ company_id: companyId });
+    if (usageRecords.length === 0) return;
+    const usage = usageRecords[0];
+    await base44.asServiceRole.entities.SubscriptionUsage.update(usage.id, { ai_used: (usage.ai_used || 0) + 1 });
+  } catch (err: any) { console.warn('AI usage increment failed:', err.message); }
+}
+
+Deno.serve(async (req) => {
+  try {
+    const base44 = createClientFromRequest(req);
+
+    const user = await base44.auth.me();
+    if (!user) {
+      return Response.json({
+        success: false,
+        error: 'Unauthorized'
+      }, { status: 401 });
+    }
+
+    const companyId = await getCompanyId(base44, user);
+    if (companyId) {
+      const aiCheck = await checkAIUsage(base44, companyId);
+      if (!aiCheck.allowed) {
+        return Response.json({ error: aiCheck.error || 'AI limit reached', success: false }, { status: 429 });
+      }
+    }
+
+    const body = await req.json();
+    const fileUrl = body.fileUrl || body.file_url;
+    const pricingSource = body.pricingSource || body.pricing_source || 'xactimate';
+
+    if (!fileUrl) {
+      return Response.json({
+        success: false,
+        error: 'fileUrl or file_url is required'
+      }, { status: 400 });
+    }
+
+    console.log('📄 Processing file:', fileUrl);
+    console.log('🎯 Pricing source:', pricingSource);
+
+    // Fetch price list for context
+    let priceList = [];
+    try {
+      if (pricingSource === 'xactimate') {
+        priceList = await base44.entities.PriceListItem.filter({ source: 'Xactimate' }, '-created_date', 50);
+      } else if (pricingSource === 'symbility') {
+        priceList = await base44.entities.PriceListItem.filter({ source: 'Symbility' }, '-created_date', 50);
+      } else {
+        priceList = await base44.entities.PriceListItem.filter({ source: 'Custom' }, '-created_date', 50);
+      }
+      console.log(`📋 Loaded ${priceList.length} items from ${pricingSource} price list`);
+    } catch (err) {
+      console.warn('⚠️ Could not load price list:', err.message);
+    }
+
+    // Build context
+    let priceListContext = '';
+    if (priceList.length > 0) {
+      const contextItems = priceList.slice(0, 30).map(item => 
+        `${item.code}: ${item.description?.substring(0, 50) || ''} - $${item.price}/${item.unit}`
+      );
+      priceListContext = contextItems.join('\n');
+    }
+
+    const systemPrompt = `You are an expert insurance estimator specializing in ${pricingSource === 'xactimate' ? 'Xactimate' : pricingSource === 'symbility' ? 'Symbility' : 'roofing'} estimates.
+
+Extract ALL line items from the document with actual codes and precise quantities.
+
+${priceListContext ? `Sample codes for reference:\n${priceListContext}\n\n` : ''}
+
+Common roofing codes:
+- Shingles: RFG SSSQ, RFG ARLM
+- Ridge cap: RFG RDG
+- Hip cap: RFG HP
+- Valley: RFG VLY
+- Step flashing: RFG FLS, RFG STPFL
+- Headwall flashing: RFG HWFL
+- Drip edge: RFG DE
+- Ice & water shield: RFG IWS
+- Underlayment (synthetic felt): RFG UL, RFG SYNUL
+- Tear-off: RFG R&R
+- Starter strip: RFG STRT
+- Pipe boot/penetration flashing: RFG PB, RFG PNFL
+- Ridge vent: RFG RV
+
+**REPORT TYPE PARSING TIPS:**
+- EagleView: Check "Roof Summary" and "Structure Summary" pages for totals. Look for colored line diagrams.
+- GAF QuickMeasure: Check "Measurement Summary" page (usually page 6-8) for authoritative totals. Look for "Suggested Materials".
+- Hover: Check section summaries for roof, walls, gutters, openings separately.
+
+**EXTRACTION RULES:**
+- Extract ONLY measurements explicitly listed in the report
+- Do NOT estimate or fabricate measurements
+- Prefer summary/total values over individual facet values
+- Pay attention to units: LF (linear feet), SQ (squares), SF (square feet), EA (each)
+- Include drip edge, starter strip, ice & water shield, and pipe boots if they appear in the report
+- If the report lists penetrations/pipe flashings, extract them
+
+Extract all measurements and line items from this roofing measurement report.`;
+
+    console.log('🤖 Calling InvokeLLM with document...');
+    
+    const llmResponse = await base44.integrations.Core.InvokeLLM({
+      prompt: systemPrompt,
+      file_urls: [fileUrl],
+      response_json_schema: {
+        type: "object",
+        properties: {
+          line_items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                code: { type: "string" },
+                description: { type: "string" },
+                quantity: { type: "number" },
+                unit: { type: "string" },
+                category: { type: "string" }
+              }
+            }
+          },
+          customer_info: {
+            type: "object",
+            properties: {
+              customer_name: { type: "string" },
+              property_address: { type: "string" },
+              claim_number: { type: "string" },
+              insurance_company: { type: "string" }
+            }
+          },
+          report_type: { type: "string" },
+          roof_pitch: { type: "string" },
+          measurements: {
+            type: "object",
+            properties: {
+              roof_area_sq: { type: "number" },
+              ridge_lf: { type: "number" },
+              hip_lf: { type: "number" },
+              valley_lf: { type: "number" },
+              rake_lf: { type: "number" },
+              eave_lf: { type: "number" },
+              drip_edge_lf: { type: "number" },
+              step_flashing_lf: { type: "number" },
+              headwall_flashing_lf: { type: "number" },
+              starter_strip_lf: { type: "number" },
+              ice_water_shield_lf: { type: "number" },
+              pipe_boots_ea: { type: "number" },
+              ridge_vent_lf: { type: "number" }
+            }
+          },
+          total_from_report: { type: "number" }
+        }
+      }
+    });
+
+    console.log('🤖 LLM Response received');
+
+    const parsed = llmResponse;
+    
+    // Match extracted items with price list to get actual prices
+    const processedLineItems = (parsed.line_items || []).map((item, index) => {
+      const code = item.code?.toUpperCase() || '';
+      const matchedPrice = priceList.find(p => p.code?.toUpperCase() === code);
+      
+      const quantity = Number(item.quantity) || 0;
+      const rate = matchedPrice ? Number(matchedPrice.price) : 0;
+      const rcv = quantity * rate;
+      
+      return {
+        line: index + 1,
+        code: item.code || '',
+        description: item.description || '',
+        quantity: quantity,
+        unit: item.unit || 'EA',
+        rate: rate,
+        rcv: rcv,
+        acv: rcv,
+        amount: rcv,
+        depreciation: 0
+      };
+    });
+    
+    const totalRcv = processedLineItems.reduce((sum, item) => sum + (item.rcv || 0), 0);
+    
+    if (companyId) {
+      await incrementAIUsage(base44, companyId);
+    }
+
+    return Response.json({
+      success: true,
+      estimate: {
+        title: 'Extracted Estimate',
+        line_items: processedLineItems,
+        total_rcv: totalRcv,
+        customer_info: parsed.customer_info || {},
+        report_type: parsed.report_type || 'unknown',
+        roof_pitch: parsed.roof_pitch || null,
+        measurements: parsed.measurements || {}
+      }
+    });
+
+  } catch (error) {
+    console.error('💥 Error:', error);
+    return Response.json({
+      success: false,
+      error: error.message,
+      errorType: error.constructor.name,
+      details: error.stack
+    }, { status: 500 });
+  }
+});

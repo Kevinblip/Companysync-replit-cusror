@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>AI Siding Estimate — 3D Preview</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#1c2333;font-family:'Inter',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;}
+#header{background:linear-gradient(135deg,#1e2d45 0%,#131c2e 100%);border-bottom:1px solid #2a3a54;
+  padding:12px 22px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+#header h1{color:#e2ecff;font-size:14px;font-weight:700;letter-spacing:.02em;}
+.badges{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+.badge{color:#fff;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;letter-spacing:.04em;}
+.badge.blue{background:#2563eb;} .badge.amber{background:#d97706;} .badge.green{background:#059669;}
+#main{flex:1;display:flex;}
+#canvas-wrap{flex:1;display:flex;align-items:center;justify-content:center;padding:12px 8px;}
+#sidebar{width:216px;background:#141b2d;border-left:1px solid #1e2d45;padding:14px 12px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;font-size:11px;}
+.card{background:#1a2540;border:1px solid #1e2d45;border-radius:9px;padding:10px 12px;}
+.ct{color:#4b6fa0;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+.r{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;}
+.r:last-child{margin-bottom:0;}
+.k{color:#6b82a0;} .v{color:#e2ecff;font-weight:700;}
+.v.g{color:#34d399;} .v.r{color:#f87171;} .v.b{color:#60a5fa;} .v.d{color:#4b6fa0;}
+hr.d{border:none;border-top:1px solid #1e2d45;margin:4px 0;}
+.net{text-align:center;padding:7px 0 5px;}
+.net .n{color:#34d399;font-size:24px;font-weight:800;}
+.net .s{color:#4b6fa0;font-size:9px;margin-top:2px;font-weight:600;letter-spacing:.06em;}
+.ai-tag{font-size:9px;background:#1e2d45;border:1px solid #2a3a54;border-radius:4px;padding:2px 6px;color:#fbbf24;font-weight:600;display:inline-block;}
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>🏠 &nbsp;AI Siding Estimate — 3D Preview · <em style="font-style:normal;color:#60a5fa;">From uploaded photo</em></h1>
+  <div class="badges">
+    <span class="badge amber">⚡ AI-analyzed from photo</span>
+    <span class="badge blue">2-Story Center · 1-Story Wings</span>
+    <span class="badge blue">Cross-Gable · 10/12</span>
+    <span class="badge green">Stone + Siding</span>
+  </div>
+</div>
+<div id="main">
+  <div id="canvas-wrap">
+<!--
+  What Gemini + visual analysis found in the photo:
+  ─────────────────────────────────────────────────
+  STORIES: center=2 (18ft), left wing=1 (9ft), right wing=1 (9ft)
+  ROOF: cross-gable. Pitch ~10/12. All 3 sections have front-facing gables.
+  WIDTH SPLIT: left wing ≈28%, center ≈44%, right wing ≈28%
+  MATERIALS: lower/center = natural stone (beige cut stone), upper center + wings = vinyl siding
+  ENTRY: center, arched transom, 2-column portico, teal door
+  WINDOWS F1: left=large mulled 3-pane bay; center-left=2-pane double; center-right=2-pane double; right=2-pane
+  WINDOWS F2: center=large arched Palladian above entry; left-of-center=double; right-of-center=double
+  FOOTPRINT: T-shape (center projects forward ~5ft)
+  SPECIAL: 2 white pillar columns, decorative arched/eyebrow gable detail center
+
+  Isometric projection (SE view):
+    x = east (→), z = depth/north (↗), y = up
+    sx = ox + x*sx_scale - z*sz_scale
+    sy = oy - x*0.5*sx_scale - z*0.5*sz_scale - y*sy_scale
+
+  Scale: sx=5px/ft, sz=5px/ft, sy=4.8px/ft
+  Origin ox=72, oy=455
+
+  Sections:
+    LEFT WING:  x=0..19,  z=5..25,  y=0..9
+    CENTER:     x=19..44, z=0..28,  y=0..18  (projects 5ft forward)
+    RIGHT WING: x=44..63, z=5..25,  y=0..9
+    PORTICO:    x=27..36, z=-6..0,  y=0..14  (projects 6ft further forward)
+
+  Key screen points (computed below):
+
+  iso(x,y,z) = (72 + x*5 - z*5,  455 - x*2.5 - z*2.5 - y*4.8)
+
+  LEFT WING:
+    FL-B = iso(0,0,5)  = (47, 442.5)
+    FR-B = iso(19,0,5) = (142, 395)
+    FL-T = iso(0,9,5)  = (47, 399.3)
+    FR-T = iso(19,9,5) = (142, 351.8)
+    Gable peak = iso(9.5,17.2,5) = (94.5,353.4)  [9.5ft center, 9ft wall + 8.2ft rise@10/12×~10ft]
+
+  CENTER (front face z=0):
+    BL = iso(19,0,0)  = (167, 407.5)
+    BR = iso(44,0,0)  = (292, 345)
+    TL = iso(19,18,0) = (167, 320.9)
+    TR = iso(44,18,0) = (292, 258.4)
+    Front gable peak = iso(31.5,29.6,0) = (229.5,236.7)
+
+  RIGHT WING:
+    FL-B = iso(44,0,5) = (267, 352.5)
+    FR-B = iso(63,0,5) = (362, 305)
+    FL-T = iso(44,9,5) = (267, 309.3)
+    FR-T = iso(63,9,5) = (362, 261.8)
+    Gable peak = iso(53.5,17.2,5) = (314.5, 264.7)
+
+  RIGHT SIDE FACE: x=63, z=5..25
+    iso(63,0,5)  = (362,305)
+    iso(63,0,25) = (262,205)
+    iso(63,9,5)  = (362,261.8)
+    iso(63,9,25) = (262,162.8)
+
+  CENTER RIDGE at z=14, x=19..44, y=29.6:
+    L = iso(19,29.6,14) = (102, 194.3)
+    R = iso(44,29.6,14) = (227, 131.8)
+-->
+<svg viewBox="0 185 665 295" width="100%" height="100%" style="max-width:860px;max-height:520px;" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#3a5f8a"/><stop offset="100%" stop-color="#7aadcc"/>
+  </linearGradient>
+  <linearGradient id="grass" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#5a8640"/><stop offset="100%" stop-color="#3f6030"/>
+  </linearGradient>
+  <!-- Stone texture: beige -->
+  <pattern id="stone" patternUnits="userSpaceOnUse" width="20" height="12">
+    <rect width="20" height="12" fill="#c8b898"/>
+    <rect x="0" y="0" width="20" height="1" fill="rgba(0,0,0,0.12)"/>
+    <rect x="0" y="6" width="20" height="1" fill="rgba(0,0,0,0.12)"/>
+    <rect x="10" y="3" width="1" height="3" fill="rgba(0,0,0,0.10)"/>
+    <rect x="0"  y="9" width="1" height="3" fill="rgba(0,0,0,0.10)"/>
+    <rect x="15" y="9" width="1" height="3" fill="rgba(0,0,0,0.10)"/>
+  </pattern>
+  <pattern id="stoneDark" patternUnits="userSpaceOnUse" width="20" height="12">
+    <rect width="20" height="12" fill="#a89878"/>
+    <rect x="0" y="0" width="20" height="1" fill="rgba(0,0,0,0.14)"/>
+    <rect x="0" y="6" width="20" height="1" fill="rgba(0,0,0,0.14)"/>
+    <rect x="10" y="3" width="1" height="3" fill="rgba(0,0,0,0.12)"/>
+    <rect x="0"  y="9" width="1" height="3" fill="rgba(0,0,0,0.12)"/>
+  </pattern>
+  <!-- Vinyl siding: light grey/cream -->
+  <pattern id="siding" patternUnits="userSpaceOnUse" width="60" height="8">
+    <rect width="60" height="8" fill="#d8d0c4"/>
+    <rect y="6.5" width="60" height="1.5" fill="rgba(0,0,0,0.10)"/>
+  </pattern>
+  <pattern id="sidingDark" patternUnits="userSpaceOnUse" width="60" height="8">
+    <rect width="60" height="8" fill="#b8b0a8"/>
+    <rect y="6.5" width="60" height="1.5" fill="rgba(0,0,0,0.12)"/>
+  </pattern>
+  <!-- Roof shingle: dark charcoal -->
+  <pattern id="shingle" patternUnits="userSpaceOnUse" width="20" height="12">
+    <rect width="20" height="12" fill="#4a4844"/>
+    <rect y="10" width="20" height="2" fill="rgba(0,0,0,0.25)"/>
+    <rect x="10" y="5" width="10" height="5" fill="rgba(0,0,0,0.10)"/>
+  </pattern>
+  <pattern id="shingleDark" patternUnits="userSpaceOnUse" width="20" height="12">
+    <rect width="20" height="12" fill="#3a3836"/>
+    <rect y="10" width="20" height="2" fill="rgba(0,0,0,0.3)"/>
+    <rect x="10" y="5" width="10" height="5" fill="rgba(0,0,0,0.15)"/>
+  </pattern>
+  <linearGradient id="gableGrad" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0%" stop-color="#c0b898"/><stop offset="100%" stop-color="#b0a888"/>
+  </linearGradient>
+</defs>
+
+<!-- Sky -->
+<rect x="0" y="150" width="680" height="370" fill="url(#sky)"/>
+<!-- Ground -->
+<polygon points="0,440 680,440 680,520 0,520" fill="url(#grass)"/>
+<polygon points="0,440 340,395 680,440 680,520 0,520" fill="rgba(0,0,0,0.06)"/>
+<!-- Driveway -->
+<polygon points="240,435 310,415 370,428 340,445 220,445" fill="#706c68" opacity="0.8"/>
+
+<!-- Foundation -->
+<polygon points="47,445 292,388 362,356 362,366 292,398 47,455" fill="#6a6460"/>
+
+<!-- ══════════════ LEFT WING ══════════════ -->
+
+<!-- Left wing FRONT face: FL-B(47,443) FR-B(142,395) FR-T(142,352) FL-T(47,400) -->
+<!-- Lower half = stone, upper (gable area) = siding -->
+<!-- Stone: y=0..4.5 (lower half of 9ft = 4.5ft → 21.6px) -->
+<!-- FL-B=443, FR-B=395, FL-stone=421, FR-stone=373 -->
+<polygon points="47,443 142,395 142,373 47,421" fill="url(#stone)"/>
+<!-- Upper siding: y=4.5..9 -->
+<polygon points="47,421 142,373 142,352 47,400" fill="url(#siding)"/>
+<!-- Wing front edges -->
+<line x1="47" y1="443" x2="142" y2="395" stroke="#5c5856" stroke-width="1.2"/>
+<line x1="142" y1="395" x2="142" y2="352" stroke="#5c5856" stroke-width="1.2"/>
+<line x1="142" y1="352" x2="47" y2="400" stroke="#5c5856" stroke-width="1.0"/>
+<line x1="47" y1="400" x2="47" y2="443" stroke="#5c5856" stroke-width="1.0"/>
+
+<!-- Left wing RIGHT face (x=19, partial, visible above step) -->
+<!-- This face is at z=5..25 (20ft deep). But it's mostly at the junction with center -->
+<!-- Just show the step face: iso(19,y,0) to iso(19,y,5) for y=0..9 -->
+<!-- Step face: (167,408) → (142,395) → (142,352) → (167,365) - the 5ft return from center to wing -->
+<polygon points="167,408 142,395 142,352 167,365" fill="#b0aa9c"/>
+<line x1="167" y1="408" x2="142" y2="395" stroke="#5c5856" stroke-width="0.9"/>
+<line x1="167" y1="365" x2="142" y2="352" stroke="#5c5856" stroke-width="0.9"/>
+
+<!-- Left wing WINDOWS floor 1: large mulled bay window (3 panes), x=3..14, y=1..6 -->
+<!-- iso(3,1,5)=(49.5,437.3) iso(14,1,5)=(104.5,409.8) iso(14,6,5)=(104.5,385.8) iso(3,6,5)=(49.5,413.3) -->
+<polygon points="50,436 105,409 105,386 50,413" fill="#4a6880" opacity="0.9"/>
+<polygon points="48,437 107,410 107,384 48,411" fill="none" stroke="#d8d4cc" stroke-width="1.5"/>
+<!-- 3 pane mullions -->
+<line x1="62.5" y1="436.7" x2="62.5" y2="411.7" stroke="#c8c4bc" stroke-width="0.9"/>
+<line x1="77.5" y1="432" x2="77.5" y2="407" stroke="#c8c4bc" stroke-width="0.9"/>
+<line x1="91.5" y1="427.3" x2="91.5" y2="402.3" stroke="#c8c4bc" stroke-width="0.9"/>
+<line x1="48" y1="423.5" x2="107" y2="396.5" stroke="#c8c4bc" stroke-width="0.8"/>
+
+<!-- LEFT WING GABLE ROOF -->
+<!-- Eave at TL(47,400) TR(142,352). Gable facing south. -->
+<!-- Ridge runs N-S at center of wing (x=9.5), depth from z=5 to z=25, center at z=15 -->
+<!-- Ridge peak height: 9ft wall + 10/12 pitch × 10ft half-depth = 9+8.33=17.33ft -->
+<!-- Left-ridge = iso(9.5,17.33,5) = (72+47.5-25, 455-23.75-12.5-83.2) = (94.5, 335.6)→(95,336) -->
+<!-- Right-ridge = iso(9.5,17.33,15) = (94.5-50, 336-25) = (44.5,311) -- at center depth, going back -->
+
+<!-- South slope of left wing: TL(47,400) TR(142,352) → peak(95,336) -->
+<polygon points="47,400 142,352 95,336" fill="url(#shingle)"/>
+<!-- Gable triangle (south end, facing viewer): TL → TR → peak -->
+<polygon points="47,400 142,352 95,325" fill="url(#shingle)" opacity="0.9"/>
+<!-- Gable edge lines -->
+<line x1="47" y1="400" x2="95" y2="325" stroke="#2e2c2a" stroke-width="1.8"/>
+<line x1="142" y1="352" x2="95" y2="325" stroke="#2e2c2a" stroke-width="1.8"/>
+<!-- Front eave -->
+<line x1="45" y1="402" x2="144" y2="354" stroke="#2c2a28" stroke-width="2.5" stroke-linecap="round"/>
+<!-- Ridge cap point -->
+<circle cx="95" cy="325" r="2.5" fill="#2a2826"/>
+
+<!-- ══════════════ CENTER MAIN BODY ══════════════ -->
+
+<!-- CENTER front face: BL(167,408) BR(292,345) TR(292,259) TL(167,321) -->
+<!-- Lower floor (0..9ft=stone): BL(167,408) BR(292,345) stone-R(292,302) stone-L(167,365) -->
+<!-- iso(19,9,0)=(167,364.7), iso(44,9,0)=(292,302.2) -->
+<polygon points="167,408 292,345 292,302 167,365" fill="url(#stone)"/>
+<!-- Upper floor (9..18ft=siding): stone-L→stone-R→TR→TL -->
+<polygon points="167,365 292,302 292,259 167,321" fill="url(#siding)"/>
+<!-- Center front edges -->
+<line x1="167" y1="408" x2="292" y2="345" stroke="#555250" stroke-width="1.3"/>
+<line x1="292" y1="345" x2="292" y2="259" stroke="#555250" stroke-width="1.3"/>
+<line x1="292" y1="259" x2="167" y2="321" stroke="#555250" stroke-width="1.0"/>
+<line x1="167" y1="321" x2="167" y2="408" stroke="#555250" stroke-width="1.0"/>
+<!-- Horizontal floor line -->
+<line x1="167" y1="365" x2="292" y2="302" stroke="#888480" stroke-width="1.2" stroke-dasharray="none"/>
+
+<!-- CENTER WINDOWS - Floor 1 -->
+<!-- Left of entry: x=21..26, y=1..8, z=0 → iso(21,1,0)=(177,402.5) iso(26,1,0)=(202,389.5) -->
+<polygon points="178,402 203,389 203,355 178,368" fill="#4a6880" opacity="0.85"/>
+<polygon points="176,403 205,390 205,353 176,366" fill="none" stroke="#d8d4cc" stroke-width="1.2"/>
+<line x1="190.5" y1="403" x2="190.5" y2="366" stroke="#c8c4bc" stroke-width="0.8"/>
+<line x1="176" y1="384.5" x2="205" y2="371.5" stroke="#c8c4bc" stroke-width="0.8"/>
+
+<!-- Right of entry: x=38..43, y=1..8, z=0 -->
+<polygon points="262,358 287,345 287,311 262,324" fill="#4a6880" opacity="0.85"/>
+<polygon points="260,359 289,346 289,309 260,322" fill="none" stroke="#d8d4cc" stroke-width="1.2"/>
+<line x1="274.5" y1="359" x2="274.5" y2="322" stroke="#c8c4bc" stroke-width="0.8"/>
+<line x1="260" y1="340.5" x2="289" y2="327.5" stroke="#c8c4bc" stroke-width="0.8"/>
+
+<!-- ENTRY PORTICO: columns at x=28.5 and x=35.5, y=0..14, z=0 -->
+<!-- White pillar columns -->
+<!-- Left column: iso(28.5,0,0)=(214.5,383) to iso(28.5,14,0)=(214.5,316) -->
+<rect x="211" y="316" width="7" height="67" fill="#e8e4dc" stroke="#c8c4bc" stroke-width="0.8"/>
+<!-- Right column: iso(35.5,0,0)=(249.5,365.5) to iso(35.5,14,0)=(249.5,298.5) -->
+<rect x="246" y="299" width="7" height="67" fill="#e8e4dc" stroke="#c8c4bc" stroke-width="0.8"/>
+<!-- Entablature (beam across top of columns): y=14 -->
+<!-- iso(28,14,0)=(212,317.4) iso(37,14,0)=(257,295.9) -->
+<polygon points="211,317 256,296 256,304 211,325" fill="#d8d4cc" stroke="#b8b4ac" stroke-width="0.8"/>
+<!-- Column bases -->
+<polygon points="209,384 258,367 258,371 209,388" fill="#d8d4cc"/>
+
+<!-- ENTRY DOOR: x=30..34, y=0..7 -->
+<!-- iso(30,0,0)=(222,380) iso(34,0,0)=(242,370) iso(34,7,0)=(242,336.4) iso(30,7,0)=(222,346.4) -->
+<polygon points="222,380 242,370 242,337 222,347" fill="#2a5a50"/>
+<polygon points="220,381 244,371 244,335 220,345" fill="none" stroke="#d8d4cc" stroke-width="1.3"/>
+<!-- Arched transom above door -->
+<ellipse cx="232" cy="345" rx="11" ry="7" fill="#4a7890" opacity="0.8" stroke="#d0ccc4" stroke-width="1"/>
+<!-- Door knob -->
+<circle cx="241" cy="360" r="1.5" fill="#d4a840"/>
+
+<!-- CENTER WINDOWS - Floor 2 -->
+<!-- Palladian arched window center (above entry): x=28..36, y=11..17 -->
+<!-- iso(28,11,0)=(212,330.2) iso(36,11,0)=(252,310.2) iso(36,17,0)=(252,281.4) iso(28,17,0)=(212,301.4) -->
+<polygon points="213,330 252,310 252,282 213,302" fill="#3a5878" opacity="0.88"/>
+<!-- Arch shape approximation -->
+<polygon points="211,331 254,311 254,280 211,300" fill="none" stroke="#d8d4cc" stroke-width="1.5"/>
+<!-- Arch crown -->
+<ellipse cx="232.5" cy="291" rx="21" ry="9" fill="#3a5878" opacity="0.6" stroke="#d0ccc4" stroke-width="1"/>
+<line x1="232.5" y1="291" x2="232.5" y2="282" stroke="#d0ccc4" stroke-width="0.8"/>
+<line x1="211" y1="311" x2="254" y2="291" stroke="#c8c4bc" stroke-width="0.8"/>
+
+<!-- Upper floor windows left: x=21..26, y=11..16 -->
+<polygon points="178,325 203,312 203,282 178,295" fill="#4a6880" opacity="0.85"/>
+<polygon points="176,326 205,313 205,280 176,293" fill="none" stroke="#d0ccc4" stroke-width="1.1"/>
+<line x1="190.5" y1="326" x2="190.5" y2="293" stroke="#c8c4bc" stroke-width="0.8"/>
+<line x1="176" y1="309.5" x2="205" y2="296.5" stroke="#c8c4bc" stroke-width="0.8"/>
+
+<!-- Upper floor windows right: x=38..43, y=11..16 -->
+<polygon points="262,280 287,267 287,237 262,250" fill="#4a6880" opacity="0.85"/>
+<polygon points="260,281 289,268 289,235 260,248" fill="none" stroke="#d0ccc4" stroke-width="1.1"/>
+<line x1="274.5" y1="281" x2="274.5" y2="248" stroke="#c8c4bc" stroke-width="0.8"/>
+<line x1="260" y1="264.5" x2="289" y2="251.5" stroke="#c8c4bc" stroke-width="0.8"/>
+
+<!-- CENTER CROSS-GABLE ROOF -->
+<!-- South slope: TL(167,321) TR(292,259) R-ridge(227,196) L-ridge(102,258) -->
+<!-- Ridge at z=14: iso(19,29.6,14)=(102,258) iso(44,29.6,14)=(227,196) -->
+<!-- Peak of front-facing gable at z=0: iso(31.5,29.6,0)=(229.5,237) -- center of ridge at z=0 -->
+<!-- Front gable peak: (229,237) -->
+
+<!-- South slope of main center gable -->
+<polygon points="167,321 292,259 229,220 167,258" fill="url(#shingle)"/>
+<!-- The visible roof surface angling back to ridge -->
+<!-- East slope of center: TR(292,259) → right-side-top → R-ridge(227,196) -->
+<!-- iso(44,18,14)=(227,246.4), iso(44,29.6,14)=(227,196) -->
+<polygon points="292,259 227,246 227,196" fill="url(#shingleDark)"/>
+
+<!-- Front gable decoration band -->
+<polygon points="167,321 292,259 292,268 167,330" fill="#7a7470" opacity="0.4"/>
+
+<!-- West gable triangle (facing viewer): TL(167,321) → left-ridge-point(167,258) → peak(229,220) -->
+<!-- Actually the gable END on west side is at x=19 -->
+<!-- Left gable end (partially visible): -->
+<polygon points="167,321 102,258 229,220" fill="#5a5856" opacity="0.5"/>
+
+<!-- Roof eave fascia boards -->
+<line x1="165" y1="323" x2="294" y2="261" stroke="#1e1c1a" stroke-width="3" stroke-linecap="round"/>
+<line x1="165" y1="323" x2="100" y2="260" stroke="#1e1c1a" stroke-width="2" stroke-linecap="round"/>
+<line x1="294" y1="261" x2="229" y2="248" stroke="#1e1c1a" stroke-width="2" stroke-linecap="round"/>
+
+<!-- Gable rake boards -->
+<line x1="167" y1="321" x2="229" y2="218" stroke="#1e1c1a" stroke-width="1.8" stroke-linecap="round"/>
+<line x1="292" y1="259" x2="229" y2="218" stroke="#1e1c1a" stroke-width="1.8" stroke-linecap="round"/>
+<!-- Ridge line -->
+<line x1="102" y1="258" x2="227" y2="196" stroke="#1e1c1a" stroke-width="2" stroke-linecap="round"/>
+
+<!-- ══════════════ RIGHT WING ══════════════ -->
+
+<!-- Right step face (between center and right wing): iso(44,y,0)→iso(44,y,5) for y=0..9 -->
+<!-- iso(44,0,0)=(292,345) iso(44,0,5)=(267,332.5) iso(44,9,5)=(267,290) iso(44,9,0)=(292,302) -->
+<polygon points="292,345 267,333 267,290 292,302" fill="#b4ae a8"/>
+<line x1="292" y1="345" x2="267" y2="333" stroke="#5c5856" stroke-width="0.9"/>
+<line x1="292" y1="302" x2="267" y2="290" stroke="#5c5856" stroke-width="0.9"/>
+
+<!-- Right wing FRONT face: BL(267,333) BR(362,285) TR(362,243) TL(267,290) -->
+<!-- Stone lower: y=0..4.5 → iso(44,4.5,5)=(267,311.4) iso(63,4.5,5)=(362,263.9) -->
+<polygon points="267,333 362,285 362,264 267,311" fill="url(#stone)"/>
+<polygon points="267,311 362,264 362,243 267,290" fill="url(#siding)"/>
+<line x1="267" y1="333" x2="362" y2="285" stroke="#5c5856" stroke-width="1.2"/>
+<line x1="362" y1="285" x2="362" y2="243" stroke="#5c5856" stroke-width="1.2"/>
+<line x1="362" y1="243" x2="267" y2="290" stroke="#5c5856" stroke-width="1.0"/>
+<line x1="267" y1="290" x2="267" y2="333" stroke="#5c5856" stroke-width="1.0"/>
+
+<!-- Right wing window floor 1: x=47..57, y=1..7 -->
+<polygon points="288,323 343,295 343,265 288,293" fill="#4a6880" opacity="0.85"/>
+<polygon points="286,324 345,296 345,263 286,291" fill="none" stroke="#d8d4cc" stroke-width="1.2"/>
+<line x1="315.5" y1="324" x2="315.5" y2="291" stroke="#c8c4bc" stroke-width="0.8"/>
+<line x1="286" y1="307.5" x2="345" y2="279.5" stroke="#c8c4bc" stroke-width="0.8"/>
+
+<!-- RIGHT WING east side face: x=63, z=5..25 -->
+<!-- iso(63,0,5)=(362,285) iso(63,0,25)=(262,235) iso(63,9,25)=(262,192) iso(63,9,5)=(362,243) -->
+<polygon points="362,285 262,235 262,192 362,243" fill="url(#sidingDark)"/>
+<line x1="362" y1="285" x2="262" y2="235" stroke="#4a4846" stroke-width="1.2"/>
+<line x1="262" y1="235" x2="262" y2="192" stroke="#4a4846" stroke-width="1.2"/>
+<line x1="262" y1="192" x2="362" y2="243" stroke="#4a4846" stroke-width="1.2"/>
+
+<!-- RIGHT WING GABLE ROOF -->
+<!-- Gable facing south. Eave: TL(267,290) TR(362,243). Peak at iso(53.5,17.33,5)=(314.5,265) -->
+<polygon points="267,290 362,243 315,225" fill="url(#shingle)"/>
+<!-- Side/top of right wing roof: TR → east-back → east-ridge → peak -->
+<!-- iso(63,9,5)=(362,243) iso(63,9,15)=(312,218) iso(53.5,17.33,15)=(264.5,240) iso(53.5,17.33,5)=(315,225) -->
+<polygon points="362,243 312,218 265,240 315,225" fill="url(#shingleDark)"/>
+<!-- Eave lines -->
+<line x1="265" y1="292" x2="364" y2="245" stroke="#1e1c1a" stroke-width="2.5" stroke-linecap="round"/>
+<line x1="364" y1="245" x2="314" y2="230" stroke="#1e1c1a" stroke-width="2" stroke-linecap="round"/>
+<!-- Rake boards -->
+<line x1="267" y1="290" x2="315" y2="223" stroke="#1e1c1a" stroke-width="1.8"/>
+<line x1="362" y1="243" x2="315" y2="223" stroke="#1e1c1a" stroke-width="1.8"/>
+<circle cx="315" cy="223" r="2" fill="#2a2826"/>
+
+<!-- ══════════════ CENTER ROOF visible top ══════════════ -->
+<!-- Ridge area at center of roof -->
+<circle cx="229" cy="218" r="3" fill="#2a2826"/>
+
+<!-- ══════════════ DIMENSION ANNOTATIONS ══════════════ -->
+<!-- Total width annotation -->
+<line x1="47" y1="453" x2="362" y2="296" stroke="#60a5fa" stroke-width="0.8" stroke-dasharray="5,4"/>
+<text x="200" y="385" fill="#60a5fa" font-size="10" font-weight="700" text-anchor="middle"
+  transform="rotate(-27,200,385)" font-family="Inter,system-ui,sans-serif">~63 ft</text>
+
+<!-- Center height annotation -->
+<line x1="159" y1="321" x2="159" y2="408" stroke="#60a5fa" stroke-width="0.9" stroke-dasharray="4,3"/>
+<line x1="155" y1="321" x2="163" y2="321" stroke="#60a5fa" stroke-width="0.9"/>
+<line x1="155" y1="408" x2="163" y2="408" stroke="#60a5fa" stroke-width="0.9"/>
+<text x="147" y="368" fill="#60a5fa" font-size="9.5" font-weight="700" text-anchor="middle"
+  font-family="Inter,system-ui,sans-serif">18 ft</text>
+
+<!-- Wing height annotation -->
+<line x1="40" y1="400" x2="40" y2="443" stroke="#60a5fa" stroke-width="0.9" stroke-dasharray="4,3"/>
+<line x1="36" y1="400" x2="44" y2="400" stroke="#60a5fa" stroke-width="0.9"/>
+<line x1="36" y1="443" x2="44" y2="443" stroke="#60a5fa" stroke-width="0.9"/>
+<text x="26" y="424" fill="#60a5fa" font-size="9.5" font-weight="700" text-anchor="middle"
+  font-family="Inter,system-ui,sans-serif">9 ft</text>
+
+<!-- Pitch badges -->
+<rect x="150" y="265" width="46" height="18" rx="4" fill="#1e2d45" stroke="#2a3a54" stroke-width="1"/>
+<text x="173" y="278" fill="#a78bfa" font-size="10" font-weight="700" text-anchor="middle"
+  font-family="Inter,system-ui,sans-serif">S · 10/12</text>
+
+<!-- Material legend -->
+<rect x="400" y="385" width="110" height="50" rx="6" fill="#0f1829" fill-opacity="0.85" stroke="#1e2d45" stroke-width="1"/>
+<rect x="408" y="395" width="10" height="8" fill="#c8b898"/>
+<text x="422" y="403" fill="#d1d5db" font-size="9" font-family="Inter,system-ui,sans-serif">Stone facade (lower)</text>
+<rect x="408" y="410" width="10" height="8" fill="#d8d0c4"/>
+<text x="422" y="418" fill="#d1d5db" font-size="9" font-family="Inter,system-ui,sans-serif">Vinyl siding (upper)</text>
+<rect x="408" y="425" width="10" height="8" fill="#4a4844"/>
+<text x="422" y="433" fill="#d1d5db" font-size="9" font-family="Inter,system-ui,sans-serif">Shingle roof</text>
+
+<!-- AI source note -->
+<text x="340" y="470" fill="#4b6fa0" font-size="9" text-anchor="middle" font-family="Inter,system-ui,sans-serif">
+  Isometric 3D · derived from AI photo analysis · Front Elevation photo
+</text>
+</svg>
+  </div>
+
+  <!-- ── Sidebar ── -->
+  <div id="sidebar">
+    <div class="card">
+      <div class="ct">AI Photo Analysis</div>
+      <div class="r"><span class="k">Source</span><span class="ai-tag">📷 Photo</span></div>
+      <div class="r"><span class="k">View</span><span class="v">Front Elevation</span></div>
+      <div class="r"><span class="k">Confidence</span><span class="v b">High</span></div>
+    </div>
+
+    <div class="card">
+      <div class="ct">Building</div>
+      <div class="r"><span class="k">Center</span><span class="v">2 stories · 18 ft</span></div>
+      <div class="r"><span class="k">Left wing</span><span class="v">1 story · 9 ft</span></div>
+      <div class="r"><span class="k">Right wing</span><span class="v">1 story · 9 ft</span></div>
+      <div class="r"><span class="k">Est. width</span><span class="v">~63 ft</span></div>
+      <div class="r"><span class="k">Footprint</span><span class="v">T-shape</span></div>
+      <div class="r"><span class="k">Roof type</span><span class="v">Cross-gable</span></div>
+      <div class="r"><span class="k">Pitch</span><span class="v">~10/12</span></div>
+    </div>
+
+    <div class="card">
+      <div class="ct">Materials (Photo)</div>
+      <div class="r"><span class="k">Lower floor</span><span class="v">Cut stone</span></div>
+      <div class="r"><span class="k">Upper floor</span><span class="v">Vinyl siding</span></div>
+      <div class="r"><span class="k">Wings</span><span class="v">Stone + siding</span></div>
+      <div class="r"><span class="k">Roof</span><span class="v">Dark shingle</span></div>
+      <div class="r"><span class="k">Trim</span><span class="v">White</span></div>
+    </div>
+
+    <div class="card">
+      <div class="ct">Openings (Photo)</div>
+      <div class="r"><span class="k">Entry door</span><span class="v">Arched, teal</span></div>
+      <div class="r"><span class="k">Columns</span><span class="v">2 white pillar</span></div>
+      <div class="r"><span class="k">F1 left</span><span class="v">Bay 3-pane</span></div>
+      <div class="r"><span class="k">F1 center</span><span class="v">2× double</span></div>
+      <div class="r"><span class="k">F1 right</span><span class="v">Double</span></div>
+      <div class="r"><span class="k">F2 center</span><span class="v">Palladian arch</span></div>
+      <div class="r"><span class="k">F2 flanking</span><span class="v">2× double</span></div>
+    </div>
+
+    <div class="card">
+      <div class="ct">Area Estimate</div>
+      <div class="r"><span class="k">Center 2-story</span><span class="v">~900 sqft</span></div>
+      <div class="r"><span class="k">Wings ×2</span><span class="v">~680 sqft</span></div>
+      <div class="r"><span class="k">Gables ×3</span><span class="v">~320 sqft</span></div>
+      <div class="r"><span class="k">Openings</span><span class="v r">−~190 sqft</span></div>
+      <hr class="d"/>
+      <div class="net">
+        <div class="n">~17.1 SQ</div>
+        <div class="s">ESTIMATED NET</div>
+      </div>
+      <div class="r"><span class="k">+10% waste</span><span class="v g">~18.8 SQ</span></div>
+      <div style="margin-top:6px;color:#4b6fa0;font-size:9px;line-height:1.4;">
+        ⚠ Estimate based on photo analysis only. Add satellite + side/back photos for full accuracy.
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,39 @@
+CompanySync / YICN Lexi — STOP HALLUCINATIONS (preview only)
+
+PROBLEM
+Lexi invents people and money (e.g. “Mary Smith” for inspections; “$4500” month revenue) and claims actions done (e.g. reschedule) when CRM unchanged. Root cause: answering without grounded reads.
+
+SCOPE LOCK
+- ONLY Lexi / AI Assistant prompts, tools, and grounding for chat answers/actions.
+- Do NOT change AI Estimator, billing UI, Twilio, unrelated CRM features, or shared globals unless exclusively used by Lexi tools.
+- Preview only. No Publish. No mass CRM edits. List files changed.
+
+HARD RULES FOR LEXI
+1) FACTS FROM TOOLS ONLY
+   - People, jobs, inspections, schedules, dashboard presence, revenue/money → MUST come from a successful tool/DB query in that turn.
+   - If tool fails, empty, or ambiguous → say you can’t find it. NEVER invent a name, date, address, or dollar amount.
+
+2) REFUSE TO FABRICATE
+   - System/developer prompt add: “Never invent customers, staff, inspections, or financial figures. Prefer ‘I don’t see that in the CRM’ over a guess.”
+   - Ban example-looking names (Mary Smith, John Doe) unless an exact CRM row matches.
+
+3) MONEY QUESTIONS
+   - “How much did we make this month?” → sum paid invoices / payments in date range for this tenant only.
+   - Return: total + count of payments + date range. If no payments tool → refuse; do not estimate.
+
+4) INSPECTIONS / SCHEDULE
+   - Query jobs/appointments by date + type. Return real list with job id/name/address.
+   - Zero results → “None scheduled” — not a fake person.
+
+5) WRITE ACTIONS (move/reschedule/dashboard)
+   - Perform update → immediately re-read the record → reply with BEFORE and AFTER date/status.
+   - If after ≠ requested → report failure, do not say “done.”
+
+6) CITATIONS
+   - Every factual answer includes source refs (job id or name + field). No citation → don’t state it as fact.
+
+DONE WHEN
+- Asking inspections for a date returns only real rows or “none.”
+- Asking month revenue returns real sum or clear refusal — never a round made-up number.
+- Reschedule claims include before/after verification.
+- Reply: files changed + how to click-test with Lexi.

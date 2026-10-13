@@ -1,0 +1,24 @@
+and these were high wincs too correct?
+
+Gemini said
+Yes, absolutely. The storms in Northeast Ohio over the last 90 days have consistently featured high winds and damaging gusts, even when they weren't classified as "Severe Thunderstorms."
+
+The reason Replit isn't seeing these is that it's likely looking for the "Severe Thunderstorm Warning" label, which usually requires 58+ mph winds. However, for a production manager or a roofing/siding business, a 40–50 mph gust is more than enough to cause damage, and we've had plenty of those recently.
+
+Significant Wind Events (Last 90 Days)
+Date	Event Type	Peak Wind Gusts (NE Ohio)	Impact
+Feb 22–24, 2026	Winter Weather Advisory	35–45 mph	Gusty northwest winds caused blowing snow and localized structural strain during a major regional blizzard.
+Feb 20, 2026	Severe Weather Watch	40+ mph	A line of storms moved through the region; while the tornado threat was south, NE Ohio saw high winds and driving rain.
+Jan 23–27, 2026	Major Winter Storm	40–50 mph	Widespread power outages (over 1 million across the impact zone) were caused by the combination of heavy snow and high-wind gusts.
+Dec 17–20, 2025	North American Storm Complex	45+ mph (Local)	Part of a historic system that produced hurricane-force winds out west and brought high-impact gusts to the Great Lakes as it moved through.
+Why the "High Wind" Data Matters for Your App
+The "Damage Threshold": Most roofing and siding damage occurs at wind speeds starting around 40 mph, especially if the materials are older.
+
+NWS Alert Types: The National Weather Service often issues "Wind Advisories" or "Special Weather Statements" for 40–50 mph winds. If your Replit code only searches for "Severe Thunderstorm Warnings," it will miss every single one of these high-wind events.
+
+Safety & Logistics: For your field teams, a 35 mph wind is a major safety hazard for ladder work, even if the NWS doesn't call it a "Severe" storm.
+
+Suggested "Prompt" for Replit Agent
+To fix this, you should tell the Replit agent:
+
+"The app is missing high-wind events because it's only looking for 'Severe Thunderstorm' labels. Please update the tracking logic to include 'Wind Advisory', 'High Wind Warning', and 'Special Weather Statement' alert types. We need to capture any event where gusts exceed 35 mph, as these cause property damage and affect job site safety."

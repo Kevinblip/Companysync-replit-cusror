@@ -1,0 +1,73 @@
+interface WallFacade {
+  elevation: 'front' | 'right' | 'back' | 'left';
+  sidingCourseCount: number; // Count of 4" siding reveals
+  brickCourseCount?: number;  // Count of standard brick courses if present
+  hasRearExtension?: boolean;
+}
+
+export class CalibratedVisionEstimator {
+  // Standard trade constants
+  private readonly SIDING_REVEAL_FT = 4 / 12; // 0.333 ft (4" reveal)
+  private readonly BRICK_COURSE_FT = 2.75 / 12; // 0.229 ft
+  private readonly MAIN_PITCH_MULT = Math.sqrt(1 + Math.pow(6 / 12, 2)); // 1.118 for 6/12
+
+  /**
+   * Calculates true wall perimeter and peak heights using siding course counts as scale ruler
+   */
+  public calculatePerimeterAndHeights(facades: WallFacade[]) {
+    let mainWidth = 0;
+    let mainDepth = 0;
+    let peakHeight = 0;
+
+    facades.forEach(facade => {
+      if (facade.elevation === 'front' || facade.elevation === 'back') {
+        // Horizontal scaling via course calibration
+        mainWidth = Math.max(mainWidth, facade.sidingCourseCount * this.SIDING_REVEAL_FT * 1.66); 
+      }
+      if (facade.elevation === 'right' || facade.elevation === 'left') {
+        mainDepth = Math.max(mainDepth, facade.sidingCourseCount * this.SIDING_REVEAL_FT * 1.12);
+        peakHeight = facade.sidingCourseCount * this.SIDING_REVEAL_FT;
+      }
+    });
+
+    return { mainWidth, mainDepth, peakHeight };
+  }
+
+  /**
+   * Main Hybrid Estimation Pipeline
+   */
+  public generateReport(
+    facades: WallFacade[], 
+    openingsDeductionSqFt: number, 
+    extensionDimensions = { width: 13.5, depth: 15.5 }
+  ) {
+    const { mainWidth, mainDepth } = this.calculatePerimeterAndHeights(facades);
+    
+    // 1. Footprint & Perimeter
+    const mainFootprintSqFt = mainWidth * mainDepth;
+    const extensionFootprintSqFt = extensionDimensions.width * extensionDimensions.depth;
+    const totalFootprintSqFt = mainFootprintSqFt + extensionFootprintSqFt;
+    const totalPerimeterLf = (mainWidth * 2) + (mainDepth * 2) + (extensionDimensions.depth * 2);
+
+    // 2. Roof Area (Main Gable + Low-Slope Rule Overrides)
+    const mainRoofSqFt = (mainFootprintSqFt * this.MAIN_PITCH_MULT) + 120; // 120 sq ft overhang allowance
+    const extensionRoofSqFt = (extensionFootprintSqFt * 1.03) + 60; // 2/12 - 3/12 low-slope extension rule
+    const totalRoofSqFt = mainRoofSqFt + extensionRoofSqFt;
+
+    // 3. Siding & Wall Surfaces
+    const grossWallSqFt = totalPerimeterLf * 9; // 9 ft avg wall extrusion
+    const brickWainscotSqFt = (mainWidth * 0.8) * 2.58; // Brick wainscot rule
+    const netSidingSqFt = grossWallSqFt - brickWainscotSqFt - openingsDeductionSqFt;
+
+    return {
+      perimeter_lf: Math.round(totalPerimeterLf),
+      footprint_sqft: Math.round(totalFootprintSqFt),
+      roof_total_sqft: Math.round(totalRoofSqFt),
+      roof_total_squares: Number((totalRoofSqFt / 100).toFixed(2)),
+      siding_net_sqft: Math.round(netSidingSqFt),
+      siding_net_squares: Number((netSidingSqFt / 100).toFixed(2)),
+      siding_10_percent_waste: Number(((netSidingSqFt * 1.10) / 100).toFixed(2)),
+      brick_isolated_sqft: Math.round(brickWainscotSqFt)
+    };
+  }
+}

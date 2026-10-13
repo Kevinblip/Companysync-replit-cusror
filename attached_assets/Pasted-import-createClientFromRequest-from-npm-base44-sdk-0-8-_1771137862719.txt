@@ -1,0 +1,116 @@
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+
+function normalizePhone(phone) {
+  if (!phone) return '';
+  return phone.replace(/\D/g, '').slice(-10);
+}
+
+function escapeXml(unsafe) {
+  if (!unsafe) return '';
+  return String(unsafe).replace(/[<>&"']/g, (c) => {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '"': return '&quot;';
+      case "'": return '&apos;';
+    }
+  });
+}
+
+Deno.serve(async (req) => {
+  try {
+    const base44 = createClientFromRequest(req);
+    
+    // Parse form data
+    const formData = await req.formData();
+    const callSid = formData.get('CallSid');
+    const from = formData.get('From');
+    const to = formData.get('To');
+    
+    console.log(`[incomingCall] Received call: From=${from}, To=${to}, CallSid=${callSid}`);
+    
+    if (!to) {
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say>We could not process your call. Please try again.</Say>
+  <Hangup/>
+</Response>`;
+      return new Response(twiml, { headers: { 'Content-Type': 'text/xml' } });
+    }
+
+    // Normalize the incoming phone number
+    const normalizedTo = normalizePhone(to);
+    console.log(`[incomingCall] Normalized phone: ${normalizedTo}`);
+
+    // Find TwilioSettings for this phone number
+    const allSettings = await base44.asServiceRole.entities.TwilioSettings.list('-created_date', 100);
+    const settings = allSettings.find(s => 
+      normalizePhone(s.main_phone_number) === normalizedTo
+    );
+
+    if (!settings) {
+      console.log(`[incomingCall] No Twilio settings found for ${normalizedTo}`);
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say>Sorry, we could not find your account. Please contact support.</Say>
+  <Hangup/>
+</Response>`;
+      return new Response(twiml, { headers: { 'Content-Type': 'text/xml' } });
+    }
+
+    console.log(`[incomingCall] Found settings for company: ${settings.company_id}`);
+
+    // Get company info
+    const companies = await base44.asServiceRole.entities.Company.filter({ id: settings.company_id });
+    const company = companies?.[0];
+
+    if (!company) {
+      console.log(`[incomingCall] Company not found: ${settings.company_id}`);
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say>We are unable to process your call at this time.</Say>
+  <Hangup/>
+</Response>`;
+      return new Response(twiml, { headers: { 'Content-Type': 'text/xml' } });
+    }
+
+    console.log(`[incomingCall] Company: ${company.company_name}`);
+
+    // Check for Sarah settings (optional - will use defaults if not found)
+    const sarahSettings = await base44.asServiceRole.entities.AssistantSettings.filter({
+      company_id: settings.company_id,
+      assistant_name: 'sarah'
+    });
+
+    if (!sarahSettings || sarahSettings.length === 0) {
+      console.log(`[incomingCall] Sarah settings not found - using defaults`);
+    } else {
+      console.log(`[incomingCall] Sarah settings found, voice enabled: ${sarahSettings[0].voice_enabled}`);
+    }
+
+    // Build WebSocket URL (point to Railway server, not Base44)
+    const railwayWsUrl = Deno.env.get('RAILWAY_WS_URL') || 'wss://sarah-media-stream-bridge-production.up.railway.app';
+    const wsUrl = `${railwayWsUrl}/ws/twilio?companyId=${encodeURIComponent(settings.company_id)}&from=${encodeURIComponent(from || '')}&callSid=${encodeURIComponent(callSid || '')}`;
+    
+    console.log(`[incomingCall] WebSocket URL: ${wsUrl}`);
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="${escapeXml(wsUrl)}" />
+  </Connect>
+</Response>`;
+
+    console.log(`[incomingCall] Returning TwiML with WebSocket connection`);
+    return new Response(twiml, { headers: { 'Content-Type': 'text/xml' } });
+
+  } catch (error) {
+    console.error(`[incomingCall] Error:`, error);
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say>We encountered a technical error. Please try again later.</Say>
+  <Hangup/>
+</Response>`;
+    return new Response(twiml, { headers: { 'Content-Type': 'text/xml' } });
+  }
+});

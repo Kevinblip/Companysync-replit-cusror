@@ -1,0 +1,46 @@
+Fix CompanySync onboarding using what we just saw on a live dummy tenant. Do NOT publish. Do NOT update, merge, impersonate, Auto Setup, or delete YICN / Insurance Claims Network / companysync_master_001. Do NOT run cleanupYICNAndCreateSaaS or any function that deletes companies whose name contains "yicn" or "roofing". Do NOT email, SMS, or call anyone. Do NOT use YICN Twilio, YICN Stripe bank, or a real staff Google account.
+
+Guinea pig tenant (keep it):
+- Company: Wizard Test Co
+- Email: wizard.test.sep2.2026@gmail.com
+Use this company in the Replit preview to verify. Do not delete it.
+
+What we saw on LIVE getcompanysync.com (last successful publish, which may differ from the current Replit files):
+1. companysync.io “Start Free Trial” → /signup works. Account + company + admin staff are created, 14-day trial, no card, lands on /QuickSetup.
+2. Live Quick Setup steps: Company Info → Smart Fill (AI) → AI Assistants (Lexi and Alex, not Sarah) → Integrations → Ready.
+3. All five steps went GREEN even though Google Calendar, Twilio, and Stripe never actually connected.
+4. P0: Integrations Twilio was PREFILLED with io.companysync Account SID and a masked auth token on this brand-new company. Phone number was blank. A new subscriber can see the platform Twilio SID. Do not Save & Connect that. Isolate Twilio per company. New tenants must start with EMPTY Twilio fields. Never copy io.companysync / YICN / global TwilioSettings onto another company_id.
+5. Google Calendar OAuth opened as a real YICN Google identity. Connect must be that user’s own Google, not a leftover box/staff session, and must not attach YICN’s calendar to Wizard Test Co.
+6. Stripe Connect opened hosted onboarding for the throwaway email, then a human-verification puzzle, then “Challenge closed.” Return/refresh URLs must come back to this wizard, not /settings. Do not mark payments complete unless Stripe onboarding status is actually complete.
+7. /signup?plan= from marketing is ignored. Signup always saves subscription_plan as “trial”. Trial is a STATUS. Plan should be Basic / Business / Enterprise from the URL (default Basic). Prices: $99 / $199 / $399. No SaaS Stripe charge on signup.
+
+Fix in the current Replit project (whatever wizard is actually in the files — live may still be the older Smart Fill UI until we can publish):
+
+A. Twilio isolation (do this first)
+- TwilioSettings are per company_id only.
+- New signup must not inherit platform/io.companysync/YICN SID, token, or phone.
+- Wizard must not prefill another company’s credentials.
+- Hard-block autoConfigureTwilioWebhook / Save & Connect if the company is YICN or companysync_master_001, or if the SID already belongs to a different company.
+- Never write YICN’s phone webhooks from Wizard Test Co.
+
+B. Don’t lie about “Ready”
+- Company Info complete = that company has a name + email.
+- Twilio complete = this company’s own SID + number saved, not skipped-but-green, not borrowed creds.
+- Calendar complete = this user actually connected Google (google_calendar_connected).
+- Stripe complete = stripe_onboarding_status === 'complete' for this company.
+- AI complete = Lexi/Alex (or Lexi/Sarah, whichever the current code uses) AssistantSettings exist for THIS company_id, upsert not duplicate.
+- Ready / setup_completed = true only when Company Info is done. Integrations stay optional, but their checkmarks must match reality. Skip must not stamp setup_completed and must not create a stub plan named “trial”.
+
+C. One path, no smash
+- /signup stays the public trial door. Make /PublicPricing public too; Start Free Trial → /signup?plan=…
+- After login, only Quick Setup. /SetupWizard redirects to /QuickSetup. Disable autoSetupCompany for any company that already exists. Never update a company found only by created_by email (that is the YICN overwrite bug).
+- Company Setup is settings/branding only. It cannot start trials. Pricing must not stamp a 14-day trial onto YICN.
+- Timezone is one field (settings.time_zone). Do not reset brand colors on an existing company.
+- If the current files still say Sarah, keep Sarah for subscribers as “Sarah, AI {CompanyName}” (that contractor’s receptionist). Never CompanySync SDR, never Kevin’s calendar, never calendly.com/companysync/demo. Live UI showed Lexi + Alex — don’t rename randomly; match what the current code actually uses, but isolate it per company.
+
+D. Verify in preview on Wizard Test Co
+- Log in as wizard.test.sep2.2026@gmail.com
+- Confirm Twilio fields are EMPTY (no io.companysync SID).
+- Confirm checkmarks are not all green until those things are really connected.
+- Confirm YICN data, Twilio, and calendar are unchanged.
+- Show me the preview. Do not publish.

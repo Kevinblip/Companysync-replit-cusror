@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>html,body{margin:0;padding:0;background:#dde3ea}#root{width:1000px;height:620px}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import HouseModel3D from '/src/components/estimator/HouseModel3D.jsx';
+
+// ── Fixture: 92×35 ft rectangle, 2-story, 6/12 hip roof (ridge 74 LF) ────────
+// Local-feet facet coordinates: x=east, y=north, h=height above wall plate.
+const HX = 46, HZ = 17.5, RIDGE_X = 37, RIDGE_H = 8.75;
+
+const facets = [
+  { id: 'S', pitch: '6/12', pitch_degrees: 26.6, azimuth_degrees: 180, area_sqft: 1623,
+    polygon: [
+      { x: -HX, y: -HZ, h: 0 }, { x: HX, y: -HZ, h: 0 },
+      { x: RIDGE_X, y: 0, h: RIDGE_H }, { x: -RIDGE_X, y: 0, h: RIDGE_H },
+    ],
+    edges: [
+      { x1: -HX, y1: -HZ, h1: 0, x2: HX, y2: -HZ, h2: 0, type: 'eave', length_ft: 92 },
+      { x1: HX, y1: -HZ, h1: 0, x2: RIDGE_X, y2: 0, h2: RIDGE_H, type: 'hip', shared_with: 'E', length_ft: 19.6 },
+      { x1: RIDGE_X, y1: 0, h1: RIDGE_H, x2: -RIDGE_X, y2: 0, h2: RIDGE_H, type: 'ridge', shared_with: 'N', length_ft: 74 },
+      { x1: -RIDGE_X, y1: 0, h1: RIDGE_H, x2: -HX, y2: -HZ, h2: 0, type: 'hip', shared_with: 'W', length_ft: 19.6 },
+    ] },
+  { id: 'N', pitch: '6/12', pitch_degrees: 26.6, azimuth_degrees: 0, area_sqft: 1623,
+    polygon: [
+      { x: HX, y: HZ, h: 0 }, { x: -HX, y: HZ, h: 0 },
+      { x: -RIDGE_X, y: 0, h: RIDGE_H }, { x: RIDGE_X, y: 0, h: RIDGE_H },
+    ],
+    edges: [
+      { x1: HX, y1: HZ, h1: 0, x2: -HX, y2: HZ, h2: 0, type: 'eave', length_ft: 92 },
+      { x1: -HX, y1: HZ, h1: 0, x2: -RIDGE_X, y2: 0, h2: RIDGE_H, type: 'hip', shared_with: 'W', length_ft: 19.6 },
+      { x1: -RIDGE_X, y1: 0, h1: RIDGE_H, x2: RIDGE_X, y2: 0, h2: RIDGE_H, type: 'ridge', shared_with: 'S', length_ft: 74 },
+      { x1: RIDGE_X, y1: 0, h1: RIDGE_H, x2: HX, y2: HZ, h2: 0, type: 'hip', shared_with: 'E', length_ft: 19.6 },
+    ] },
+  { id: 'W', pitch: '6/12', pitch_degrees: 26.6, azimuth_degrees: 270, area_sqft: 343,
+    polygon: [
+      { x: -HX, y: HZ, h: 0 }, { x: -HX, y: -HZ, h: 0 }, { x: -RIDGE_X, y: 0, h: RIDGE_H },
+    ],
+    edges: [
+      { x1: -HX, y1: HZ, h1: 0, x2: -HX, y2: -HZ, h2: 0, type: 'eave', length_ft: 35 },
+      { x1: -HX, y1: -HZ, h1: 0, x2: -RIDGE_X, y2: 0, h2: RIDGE_H, type: 'hip', shared_with: 'S', length_ft: 19.6 },
+      { x1: -RIDGE_X, y1: 0, h1: RIDGE_H, x2: -HX, y2: HZ, h2: 0, type: 'hip', shared_with: 'N', length_ft: 19.6 },
+    ] },
+  { id: 'E', pitch: '6/12', pitch_degrees: 26.6, azimuth_degrees: 90, area_sqft: 343,
+    polygon: [
+      { x: HX, y: -HZ, h: 0 }, { x: HX, y: HZ, h: 0 }, { x: RIDGE_X, y: 0, h: RIDGE_H },
+    ],
+    edges: [
+      { x1: HX, y1: -HZ, h1: 0, x2: HX, y2: HZ, h2: 0, type: 'eave', length_ft: 35 },
+      { x1: HX, y1: HZ, h1: 0, x2: RIDGE_X, y2: 0, h2: RIDGE_H, type: 'hip', shared_with: 'N', length_ft: 19.6 },
+      { x1: RIDGE_X, y1: 0, h1: RIDGE_H, x2: HX, y2: -HZ, h2: 0, type: 'hip', shared_with: 'S', length_ft: 19.6 },
+    ] },
+];
+
+const props = {
+  perimeter: 254,
+  wallHeight: 18,
+  roofPitch: '6/12',
+  roofArea: 3932,
+  roofType: 'hip',
+  storyCount: 2,
+  buildingLength: 92,
+  buildingWidth: 35,
+  footprintPolygon: [[-HX, -HZ], [HX, -HZ], [HX, HZ], [-HX, HZ]],
+  roofFacets: facets,
+  windowsCount: 8,
+  doorsCount: 2,
+  garageDoorCount: 0,
+  hipLf: 78,
+  ridgeLf: 74,
+};
+
+createRoot(document.getElementById('root')).render(
+  React.createElement(HouseModel3D, props)
+);
+window.__harnessReady = true;
+</script>
+</body>
+</html>

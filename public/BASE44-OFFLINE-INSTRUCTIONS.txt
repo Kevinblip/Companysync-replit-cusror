@@ -1,0 +1,432 @@
+BASE44 IMPLEMENTATION INSTRUCTIONS
+====================================
+Feature: Offline Data Queue + Online/Offline Status Indicator
+
+WHAT THIS DOES:
+- Detects when the user's phone/tablet loses internet connection (common for roofers in the field)
+- Queues up photo uploads and data saves in the browser's IndexedDB when offline
+- Automatically syncs everything when connection comes back
+- Shows a visual indicator in the sidebar when offline or syncing
+
+====================================
+STEP 1: Create new file - components/lib/offlineQueue.js
+====================================
+
+This file manages an IndexedDB database for queuing offline actions and caching entity data.
+
+const DB_NAME = 'companysync-offline';
+const DB_VERSION = 1;
+const QUEUE_STORE = 'upload-queue';
+const CACHE_STORE = 'entity-cache';
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(QUEUE_STORE)) {
+        const store = db.createObjectStore(QUEUE_STORE, { keyPath: 'id', autoIncrement: true });
+        store.createIndex('status', 'status', { unique: false });
+        store.createIndex('created_at', 'created_at', { unique: false });
+        store.createIndex('type', 'type', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(CACHE_STORE)) {
+        const cache = db.createObjectStore(CACHE_STORE, { keyPath: 'key' });
+        cache.createIndex('entity_type', 'entity_type', { unique: false });
+        cache.createIndex('updated_at', 'updated_at', { unique: false });
+      }
+    };
+  });
+}
+
+export async function addToQueue(item) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUEUE_STORE, 'readwrite');
+    const store = tx.objectStore(QUEUE_STORE);
+    const record = {
+      ...item,
+      status: 'pending',
+      created_at: Date.now(),
+      retry_count: 0,
+    };
+    const request = store.add(record);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function queuePhoto(photoData) {
+  return addToQueue({
+    type: 'photo_upload',
+    data: photoData,
+    metadata: {
+      filename: photoData.filename || `photo_${Date.now()}.jpg`,
+      company_id: photoData.company_id,
+      inspection_id: photoData.inspection_id,
+    }
+  });
+}
+
+export async function queueEntityCreate(entityType, data) {
+  return addToQueue({
+    type: 'entity_create',
+    entity_type: entityType,
+    data,
+  });
+}
+
+export async function queueEntityUpdate(entityType, id, data) {
+  return addToQueue({
+    type: 'entity_update',
+    entity_type: entityType,
+    entity_id: id,
+    data,
+  });
+}
+
+export async function getPendingItems() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUEUE_STORE, 'readonly');
+    const store = tx.objectStore(QUEUE_STORE);
+    const index = store.index('status');
+    const request = index.getAll('pending');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function getQueueCount() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUEUE_STORE, 'readonly');
+    const store = tx.objectStore(QUEUE_STORE);
+    const index = store.index('status');
+    let pending = 0;
+    let failed = 0;
+
+    const pendingReq = index.getAll('pending');
+    pendingReq.onsuccess = () => {
+      pending = pendingReq.result.length;
+      const failedReq = index.getAll('failed');
+      failedReq.onsuccess = () => {
+        failed = failedReq.result.length;
+        resolve({ pending, failed });
+      };
+      failedReq.onerror = () => reject(failedReq.error);
+    };
+    pendingReq.onerror = () => reject(pendingReq.error);
+  });
+}
+
+export async function markItemComplete(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUEUE_STORE, 'readwrite');
+    const store = tx.objectStore(QUEUE_STORE);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const item = getReq.result;
+      if (item) {
+        item.status = 'completed';
+        item.completed_at = Date.now();
+        store.put(item);
+      }
+      resolve();
+    };
+    getReq.onerror = () => reject(getReq.error);
+  });
+}
+
+export async function markItemFailed(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUEUE_STORE, 'readwrite');
+    const store = tx.objectStore(QUEUE_STORE);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const item = getReq.result;
+      if (item) {
+        item.retry_count = (item.retry_count || 0) + 1;
+        if (item.retry_count >= 5) {
+          item.status = 'failed';
+        }
+        store.put(item);
+      }
+      resolve();
+    };
+    getReq.onerror = () => reject(getReq.error);
+  });
+}
+
+export async function cacheEntity(entityType, id, data) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CACHE_STORE, 'readwrite');
+    const store = tx.objectStore(CACHE_STORE);
+    const record = {
+      key: `${entityType}:${id}`,
+      entity_type: entityType,
+      data,
+      updated_at: Date.now(),
+    };
+    const request = store.put(record);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function cacheEntityList(entityType, items) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CACHE_STORE, 'readwrite');
+    const store = tx.objectStore(CACHE_STORE);
+    const listRecord = {
+      key: `${entityType}:__list__`,
+      entity_type: entityType,
+      data: items,
+      updated_at: Date.now(),
+    };
+    store.put(listRecord);
+    items.forEach(item => {
+      if (item.id) {
+        store.put({
+          key: `${entityType}:${item.id}`,
+          entity_type: entityType,
+          data: item,
+          updated_at: Date.now(),
+        });
+      }
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getCachedEntityList(entityType) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CACHE_STORE, 'readonly');
+    const store = tx.objectStore(CACHE_STORE);
+    const request = store.get(`${entityType}:__list__`);
+    request.onsuccess = () => resolve(request.result?.data || []);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function getCachedEntity(entityType, id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CACHE_STORE, 'readonly');
+    const store = tx.objectStore(CACHE_STORE);
+    const request = store.get(`${entityType}:${id}`);
+    request.onsuccess = () => resolve(request.result?.data || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function clearCompletedItems() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUEUE_STORE, 'readwrite');
+    const store = tx.objectStore(QUEUE_STORE);
+    const index = store.index('status');
+    const request = index.openCursor('completed');
+    request.onsuccess = (event) => {
+      const cursor = event.target.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function clearOldCache(maxAge = 7 * 24 * 60 * 60 * 1000) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CACHE_STORE, 'readwrite');
+    const store = tx.objectStore(CACHE_STORE);
+    const cutoff = Date.now() - maxAge;
+    const request = store.openCursor();
+    request.onsuccess = (event) => {
+      const cursor = event.target.result;
+      if (cursor) {
+        if (cursor.value.updated_at < cutoff) {
+          cursor.delete();
+        }
+        cursor.continue();
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+
+====================================
+STEP 2: Create new file - components/hooks/useOfflineStatus.jsx
+====================================
+
+This is a React hook that tracks online/offline status, counts pending items, and auto-syncs when connection returns.
+
+IMPORTANT: Update the import path for offlineQueue to match wherever you placed it in Step 1. On Base44 it would likely be something like:
+  import { getQueueCount, getPendingItems, markItemComplete, markItemFailed, clearCompletedItems } from '../lib/offlineQueue';
+
+Here is the full hook code:
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { getQueueCount, getPendingItems, markItemComplete, markItemFailed, clearCompletedItems } from '../lib/offlineQueue';
+
+export function useOfflineStatus() {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [failedCount, setFailedCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const syncingRef = useRef(false);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const updateCounts = useCallback(async () => {
+    try {
+      const count = await getQueueCount();
+      setPendingCount(count.pending || 0);
+      setFailedCount(count.failed || 0);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    updateCounts();
+    const interval = setInterval(updateCounts, 10000);
+    return () => clearInterval(interval);
+  }, [updateCounts]);
+
+  const syncQueue = useCallback(async (base44Client) => {
+    if (!navigator.onLine || syncingRef.current) return;
+    const client = base44Client || window.__base44Client;
+    if (!client) return;
+
+    syncingRef.current = true;
+    setIsSyncing(true);
+    try {
+      await clearCompletedItems();
+
+      const items = await getPendingItems();
+      for (const item of items) {
+        try {
+          if (item.type === 'photo_upload' && item.data?.blob) {
+            await client.files.upload(item.data.blob, item.metadata?.filename);
+            await markItemComplete(item.id);
+          } else if (item.type === 'entity_create' && item.entity_type) {
+            const entity = client.entities[item.entity_type];
+            if (entity) {
+              await entity.create(item.data);
+              await markItemComplete(item.id);
+            }
+          } else if (item.type === 'entity_update' && item.entity_type && item.entity_id) {
+            const entity = client.entities[item.entity_type];
+            if (entity) {
+              await entity.update(item.entity_id, item.data);
+              await markItemComplete(item.id);
+            }
+          }
+        } catch (err) {
+          console.warn('[Offline Sync] Failed to sync item:', item.id, err);
+          await markItemFailed(item.id);
+        }
+      }
+
+      await updateCounts();
+    } finally {
+      syncingRef.current = false;
+      setIsSyncing(false);
+    }
+  }, [updateCounts]);
+
+  useEffect(() => {
+    if (isOnline && pendingCount > 0) {
+      const timer = setTimeout(() => syncQueue(), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [isOnline, pendingCount, syncQueue]);
+
+  return {
+    isOnline,
+    pendingCount,
+    failedCount,
+    isSyncing,
+    syncQueue,
+  };
+}
+
+
+====================================
+STEP 3: Update Layout.js
+====================================
+
+Add these changes to the existing Layout.js file:
+
+A) Add this import near the top with other imports:
+   import { useOfflineStatus } from './components/hooks/useOfflineStatus';
+
+   (Adjust the import path based on where you placed the file in Step 2)
+
+B) Inside the Layout component function, add this line near the other hooks:
+   const { isOnline, pendingCount, failedCount, isSyncing } = useOfflineStatus();
+
+C) Add this block in the sidebar area (near the bottom of the sidebar, before the closing sidebar tags):
+
+   {!isOnline && (
+     <div style={{ padding: '8px 12px', margin: '8px', borderRadius: '8px', background: '#fef3c7', color: '#92400e', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+       <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b', flexShrink: 0 }}></span>
+       You're offline - changes will sync when reconnected
+     </div>
+   )}
+
+   {isSyncing && (
+     <div style={{ padding: '8px 12px', margin: '8px', borderRadius: '8px', background: '#dbeafe', color: '#1e40af', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+       <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
+       Syncing {pendingCount} items...
+     </div>
+   )}
+
+   {failedCount > 0 && isOnline && !isSyncing && (
+     <div style={{ padding: '8px 12px', margin: '8px', borderRadius: '8px', background: '#fee2e2', color: '#991b1b', fontSize: '13px' }}>
+       {failedCount} items failed to sync
+     </div>
+   )}
+
+
+====================================
+SUMMARY
+====================================
+
+What this gives your field crews:
+- When they lose cell service on a job site, the app detects it and shows "You're offline"
+- Any photos they take or records they save get stored locally on their phone
+- When they drive back into cell range, everything automatically uploads/syncs
+- They see a "Syncing X items..." indicator while it's happening
+- If something fails after 5 retries, it shows a warning
+
+Files to create:
+1. components/lib/offlineQueue.js (Step 1)
+2. components/hooks/useOfflineStatus.jsx (Step 2)
+
+File to update:
+3. Layout.js (Step 3 - add import, hook, and sidebar indicators)

@@ -1,0 +1,461 @@
+modules = ["nodejs-20", "web", "python-3.11", "postgresql-16"]
+run = "npm run dev"
+hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
+
+[nix]
+channel = "stable-24_05"
+packages = ["freetype", "gumbo", "harfbuzz", "jbig2dec", "libjpeg_turbo", "mupdf", "openjpeg", "swig", "unzip", "xcbuild"]
+
+[env]
+PORT = "5000"
+
+[deployment]
+deploymentTarget = "vm"
+run = ["bash", "scripts/start-production.sh"]
+build = ["bash", "-c", "printf '[Publish] Build Node: %s\\n' \"$(node --version)\" && npm run build && NODE_OPTIONS='--network-family-autoselection-attempt-timeout=' bash scripts/start-production.sh --version && node scripts/check-publish-footprint.cjs before-cleanup && printf '%s\\n' '[Publish] Starting exclusions in disposable publish builder; source workspace is unchanged.' && rm -rf .git .local .agents .canvas attached_assets public && for attempt in 1 2 3; do if rm -rf .cache; then break; elif [ \"$attempt\" -eq 3 ]; then printf '%s\\n' '[Publish] WARNING: temporary .cache is still busy after 3 cleanup attempts; keeping remaining cache files.'; else sleep 1; fi; done && node scripts/check-publish-footprint.cjs after-cleanup && printf '%s\\n' '[Publish] Build command completed successfully; ready for image layer creation.'"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "email-delivery-status"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "teammate-name-match"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "lexi-team-chat"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev"
+waitForPort = 5000
+
+[[workflows.workflow]]
+name = "test:body-limit"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-body-limit.cjs"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "test:email-provider-health"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-email-provider-health.cjs"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "test:onboarding-trial"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-onboarding-trial.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:trial-daily-limits"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-trial-daily-limits.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:quick-create-shortcuts"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-quick-create-shortcuts.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:lexi-ws-auth"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-lexi-ws-auth.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:company-fields-guard"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-company-fields-guard.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:twilio-onboarding"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-twilio-onboarding.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:ai-appt-reminders"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-ai-appt-reminders.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:aging-bucket-filter"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-aging-bucket-filter.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:nationwide-storm-alerts"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-nationwide-storm-alerts.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:storm-city-isolation"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-storm-city-isolation.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:storm-swath-suggest"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-storm-swath-suggest.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:lead-finder"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-lead-finder.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:plan-gates"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-plan-feature-gates.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+
+[[workflows.workflow]]
+name = "test:impersonation-write-block"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-impersonation-write-block.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:double-booking-guard"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-double-booking-guard.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:lexi-subcontractor"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-lexi-subcontractor.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:share-portal-photos"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-share-portal-photos.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:enterprise-ai-cap"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-enterprise-ai-cap.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:siding-opening-deductions"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-siding-opening-deductions.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[userenv]
+
+[userenv.shared]
+BASE44_SARAH_API_URL = "https://company-sync-copy-003a6384.base44.app/api/apps/6959400ce977cc44003a6384/functions/sarahBridgeAPI"
+SARAH_BRIDGE_SECRET = "sarah_bridge_secure_2026"
+LEXI_NATIVE_BRIDGE_SECRET = "lexi-native-bridge-2026"
+BASE44_LEXI_BRIDGE_API_URL = "https://company-sync-copy-003a6384.base44.app/api/functions/lexiVoiceBridge"
+VITE_REPLIT_APP_URL = "https://getcompanysync.com"
+VITE_BASE44_FUNCTIONS_URL = "https://company-sync-copy-003a6384.base44.app/api/apps/6959400ce977cc44003a6384/functions"
+ENCRYPTION_KEY = "bdfc09526259c1b2e69f1e5a6dfd8c18ecd011c13be950a64762ce1c193c8c3a"
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = "587"
+SMTP_USER = "yicnteam@gmail.com"
+EMAIL_FROM = "CompanySync <noreply@getcompanysync.com>"
+TENANT_GUARD_MODE = "enforce"
+TWILIO_REQUIRE_SIGNATURE = "1"
+
+[userenv.production]
+EMAIL_PROVIDER = "smtp"
+EMAIL_POSTMARK_DISABLED = "1"
+
+[agent]
+integrations = ["javascript_log_in_with_replit:2.0.0", "stripe:2.0.0", "javascript_stripe:1.0.0", "javascript_object_storage:2.0.0"]
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 240000
+
+[objectStorage]
+defaultBucketID = "replit-objstore-da68722f-8cb5-479d-96a6-8e62f48aa919"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 5098
+externalPort = 3000
+
+[[workflows.workflow]]
+name = "test:manual-calibration"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-manual-calibration-wins.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "siding-area-consistency"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run test:siding-area-consistency"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+
+[[workflows.workflow]]
+name = "test:aiestimator-photo-upload"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-aiestimator-photo-upload.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:siding-exif-orientation"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-siding-exif-orientation.cjs"
+
+[[workflows.workflow]]
+name = "test:street-view-frame-exclusion"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-street-view-frame-exclusion.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:lexi-grounding"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-lexi-grounding.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:lexi-grounding-e2e"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-lexi-grounding-e2e.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+
+[[workflows.workflow]]
+name = "test:lexi-double-booking-confirmation"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-lexi-double-booking-confirmation.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "test:lexi-financial-parity"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-lexi-financial-parity.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "email-delivery-status"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-email-delivery-status.cjs"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "test:script-db-teardown"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-script-db-teardown.cjs"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "teammate-name-match"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-teammate-name-match.cjs"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "lexi-team-chat"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-lexi-team-chat.cjs"
+
+[workflows.workflow.metadata]
+isValidation = true

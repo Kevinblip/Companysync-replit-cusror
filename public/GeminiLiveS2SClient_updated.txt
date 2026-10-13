@@ -1,0 +1,291 @@
+rror(`Disconnected (Code ${e.code})`);
+        setStatus("idle");
+      };
+
+      ws.onerror = (e) => {
+        console.error("[Lexi S2S] WS Error:", e);
+        setError("WebSocket connection error");
+      };
+
+    } catch (e) {
+      console.error(e);
+      setError(e.message);
+      setStatus("idle");
+    }
+  };
+
+  const startAudioRecording = async (ws) => {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      }
+    });
+    localStreamRef.current = stream;
+
+    const micContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    micContextRef.current = micContext;
+    await micContext.resume();
+
+    const actualRate = micContext.sampleRate;
+    console.log(`[Lexi S2S] Mic AudioContext sample rate: ${actualRate}Hz`);
+
+    const source = micContext.createMediaStreamSource(stream);
+
+    const SILENCE_THRESHOLD = 0.015;
+    const INTERRUPT_COOLDOWN = 100;
+    const SPEECH_CONFIRM_FRAMES = 2;
+    let speechFrameCount = 0;
+
+    const processAudioData = (inputData) => {
+      if (ws.readyState !== WebSocket.OPEN || !micEnabledRef.current || !isReadyRef.current) return;
+
+      let sum = 0;
+      for (let i = 0; i < inputData.length; i++) {
+        sum += inputData[i] * inputData[i];
+      }
+      const rms = Math.sqrt(sum / inputData.length);
+
+      if (rms > SILENCE_THRESHOLD) {
+        speechFrameCount++;
+        
+        if (speechFrameCount >= SPEECH_CONFIRM_FRAMES) {
+          const now = Date.now();
+          const timeSinceLastInterrupt = now - lastInterruptTimeRef.current;
+          
+          if ((isPlayingRef.current || audioQueueRef.current.length > 0) && timeSinceLastInterrupt > INTERRUPT_COOLDOWN) {
+            console.log('[Lexi S2S] User interrupting - stopping AI');
+            lastInterruptTimeRef.current = now;
+            stopAllAudio();
+
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                client_content: {
+                  turns: [{ role: "user", parts: [{ text: "" }] }],
+                  turn_complete: true
+                }
+              }));
+            }
+          }
+        }
+      } else {
+        speechFrameCount = 0;
+      }
+
+      if (isSpeakingRef.current) return;
+
+      const int16 = new Int16Array(inputData.length);
+      for (let i = 0; i < inputData.length; i++) {
+        int16[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
+      }
+
+      const base64Audio = btoa(String.fromCharCode(...new Uint8Array(int16.buffer)));
+
+      ws.send(JSON.stringify({
+        realtime_input: {
+          media_chunks: [{
+            mime_type: `audio/pcm;rate=${actualRate}`,
+            data: base64Audio
+          }]
+        }
+      }));
+    };
+
+    let useWorklet = false;
+    try {
+      const workletCode = `
+        class MicProcessor extends AudioWorkletProcessor {
+          process(inputs) {
+            const input = inputs[0];
+            if (input && input[0] && input[0].length > 0) {
+              const copy = new Float32Array(input[0]);
+              this.port.postMessage(copy.buffer, [copy.buffer]);
+            }
+            return true;
+          }
+        }
+        registerProcessor('mic-processor', MicProcessor);
+      `;
+      const blob = new Blob([workletCode], { type: 'application/javascript' });
+      const url = URL.createObjectURL(blob);
+      await micContext.audioWorklet.addModule(url);
+      URL.revokeObjectURL(url);
+
+      const workletNode = new AudioWorkletNode(micContext, 'mic-processor');
+      let pcmBuffer = new Float32Array(0);
+      const CHUNK_SIZE = 4096;
+
+      workletNode.port.onmessage = (e) => {
+        const newData = new Float32Array(e.data);
+        const merged = new Float32Array(pcmBuffer.length + newData.length);
+        merged.set(pcmBuffer);
+        merged.set(newData, pcmBuffer.length);
+        pcmBuffer = merged;
+
+        while (pcmBuffer.length >= CHUNK_SIZE) {
+          const chunk = pcmBuffer.slice(0, CHUNK_SIZE);
+          pcmBuffer = pcmBuffer.slice(CHUNK_SIZE);
+          processAudioData(chunk);
+        }
+      };
+
+      source.connect(workletNode);
+      const silentGain = micContext.createGain();
+      silentGain.gain.value = 0;
+      workletNode.connect(silentGain);
+      silentGain.connect(micContext.destination);
+      processorRef.current = { processor: workletNode, context: micContext };
+      useWorklet = true;
+      console.log("[Lexi S2S] Using AudioWorklet (mobile-optimized)");
+    } catch (workletErr) {
+      console.warn("[Lexi S2S] AudioWorklet not supported, using ScriptProcessor fallback:", workletErr);
+    }
+
+    if (!useWorklet) {
+      const processor = micContext.createScriptProcessor(4096, 1, 1);
+
+      processor.onaudioprocess = (e) => {
+        processAudioData(e.inputBuffer.getChannelData(0));
+      };
+
+      source.connect(processor);
+      const silentGain = micContext.createGain();
+      silentGain.gain.value = 0;
+      processor.connect(silentGain);
+      silentGain.connect(micContext.destination);
+      processorRef.current = { processor, context: micContext };
+      console.log("[Lexi S2S] Using ScriptProcessor (fallback)");
+    }
+  };
+
+  const stopSession = () => {
+    stopAllAudio();
+    
+    wsRef.current?.close();
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
+
+    if (micContextRef.current && micContextRef.current.state !== 'closed') {
+      micContextRef.current.close().catch(() => {});
+    }
+    if (playbackContextRef.current && playbackContextRef.current.state !== 'closed') {
+      playbackContextRef.current.close().catch(() => {});
+    }
+
+    wsRef.current = null;
+    localStreamRef.current = null;
+    playbackContextRef.current = null;
+    micContextRef.current = null;
+    processorRef.current = null;
+    isReadyRef.current = false;
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+    isSpeakingRef.current = false;
+    lastInterruptTimeRef.current = 0;
+    setStatus("idle");
+    setIsSpeaking(false);
+  };
+
+  const toggleMic = () => {
+    setMicEnabled(prev => !prev);
+  };
+
+  const isLive = status === "live";
+  const isConnecting = status === "connecting" || status === "connected" || status === "configuring";
+
+  return (
+    <Card className="max-w-xl mx-auto">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-purple-600" /> Native S2S Mode
+          {isLive && (
+            <span className="text-xs font-normal text-green-600 animate-pulse ml-2">LIVE</span>
+          )}
+          {isSpeaking && (
+            <span className="text-xs font-normal text-blue-600 ml-2 flex items-center gap-1">
+              <Volume2 className="w-3 h-3 animate-pulse" /> Speaking
+            </span>
+          )}
+          {isLive && !isSpeaking && micEnabled && (
+            <span className="text-xs font-normal text-green-600 ml-2 flex items-center gap-1">
+              <Mic className="w-3 h-3" /> Listening
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {error && (
+          <Alert className="bg-red-50 border-red-200">
+            <AlertDescription className="text-red-700">{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-4 bg-gray-50 p-3 rounded-lg border">
+            <div className="flex-1">
+              <label className="text-xs font-semibold text-gray-500 uppercase">Voice</label>
+              <select
+                value={selectedVoice}
+                onChange={(e) => setSelectedVoice(e.target.value)}
+                disabled={isLive || isConnecting}
+                className="w-full bg-white border rounded px-2 py-1 text-sm"
+              >
+                {GEMINI_VOICES.map(voice => (
+                  <option key={voice.id} value={voice.id}>{voice.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            {!isLive && !isConnecting ? (
+              <Button onClick={startSession} className="gap-2 flex-1">
+                <Play className="w-4 h-4" /> Start S2S Session
+              </Button>
+            ) : (
+              <Button variant="destructive" onClick={stopSession} className="gap-2 flex-1">
+                <Square className="w-4 h-4" /> Stop
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {isLive && (
+          <div className="flex flex-col items-center gap-3 py-4">
+            <button
+              onClick={toggleMic}
+              className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 ${
+                isSpeaking
+                  ? 'bg-blue-100 border-2 border-blue-300'
+                  : micEnabled
+                    ? 'bg-green-100 border-2 border-green-400 active:scale-95'
+                    : 'bg-gray-200 border-2 border-gray-400'
+              }`}
+            >
+              {isSpeaking ? (
+                <Volume2 className="w-8 h-8 text-blue-500 animate-pulse" />
+              ) : micEnabled ? (
+                <Mic className="w-8 h-8 text-green-600" />
+              ) : (
+                <MicOff className="w-8 h-8 text-gray-500" />
+              )}
+            </button>
+            <span className="text-sm text-gray-600">
+              {isSpeaking ? "Lexi is speaking..." : micEnabled ? "Listening - speak naturally" : "Mic muted - tap to unmute"}
+            </span>
+            {isSpeaking && (
+              <span className="text-xs text-gray-400">Mic auto-muted to prevent echo</span>
+            )}
+          </div>
+        )}
+
+        {isConnecting && (
+          <div className="text-center text-sm text-gray-500 py-4">
+            Connecting to Gemini... please wait
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

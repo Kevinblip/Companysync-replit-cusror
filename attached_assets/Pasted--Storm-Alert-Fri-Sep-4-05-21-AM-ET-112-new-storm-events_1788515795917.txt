@@ -1,0 +1,119 @@
+⚡ Storm Alert
+Fri, Sep 4, 05:21 AM ET
+
+112 new storm events detected in your service area.
+
+📍 Near Bedford Heights
+Event	Severity	Distance	Areas
+🔶 High Wind	moderate	98.2 mi away	Grosse Ile Airport, MI
+⚠️ High Wind	severe	95.7 mi away	3 NE Clearview, WV
+⚠️ Hail	severe	96.5 mi away	1 ESE Bethany, WV
+🔶 High Wind	moderate	95.6 mi away	Bethany, WV
+⚠️ High Wind	severe	94.1 mi away	1 W Mccandless Townshi, PA
+🔶 High Wind	moderate	97.7 mi away	3 N Saxonburg, PA
+🔶 High Wind	moderate	99.8 mi away	2 W Cecil-Bishop, PA
+🔶 High Wind	moderate	64.9 mi away	1 E Conneaut Lakeshore, PA
+🔶 High Wind	moderate	76.7 mi away	Venango, PA
+🔶 High Wind	moderate	93.1 mi away	1 S Centerville, PA
+🔶 High Wind	moderate	87.4 mi away	1 NNW West Sunbury, PA
+🔶 High Wind	moderate	80.3 mi away	Monaca, PA
+🔶 High Wind	moderate	77.8 mi away	1 WNW Beaver, PA
+🔶 High Wind	moderate	93.2 mi away	East Butler, PA
+🔶 High Wind	moderate	87.8 mi away	2 NNE Fox Run, PA
+🔶 High Wind	moderate	93.2 mi away	4 NW Chicora, PA
+🔶 High Wind	moderate	59.5 mi away	2 N Greenville East, PA
+🔶 High Wind	moderate	58.4 mi away	Greenville, PA
+🔶 High Wind	moderate	57.1 mi away	2 NNE Hermitage, PA
+🔶 High Wind	moderate	75.6 mi away	2 NNE New Lebanon, PA
+🔶 High Wind	moderate	71.9 mi away	3 W New Lebanon, PA
+🔶 High Wind	moderate	74.5 mi away	1 N New Lebanon, PA
+🔶 High Wind	moderate	56.5 mi away	Hermitage, PA
+🔶 High Wind	moderate	68.3 mi away	3 NNE Mercer, PA
+🔶 High Wind	moderate	93.7 mi away	Woodland Heights, PA
+🔶 High Wind	moderate	88.2 mi away	3 NE Kennerdell, PA
+🔶 High Wind	moderate	67.3 mi away	1 ESE New Castle, PA
+🔶 High Wind	moderate	66.0 mi away	1 SSW Oakland, PA
+🔶 High Wind	moderate	70.0 mi away	3 NNE Wampum, PA
+🔶 High Wind	moderate	96.5 mi away	Foxburg, PA
+🔶 High Wind	moderate	87.6 mi away	West Sunbury, PA
+🔶 High Wind	moderate	91.8 mi away	4 E West Sunbury, PA
+🔶 High Wind	moderate	91.3 mi away	5 W Bruin, PA
+🔶 High Wind	moderate	90.3 mi away	3 SE West Sunbury, PA
+🔶 High Wind	moderate	84.5 mi away	3 NW Connoquenessing, PA
+🔶 High Wind	moderate	83.6 mi away	2 S Zelienople, PA
+🔶 High Wind	moderate	65.1 mi away	1 N Oakland, PA
+🔶 High Wind	moderate	77.2 mi away	4 NW Utica, PA
+🔶 High Wind	moderate	58.6 mi away	3 SE Jamestown, PA
+🔶 High Wind	moderate	58.0 mi away	3 SE Jamestown, PA
+🔶 High Wind	moderate	54.3 mi away	Farrell, PA
+🔶 High Wind	moderate	56.0 mi away	1 WSW West Middlesex, PA
+🔶 High Wind	moderate	58.6 mi away	3 SSE West Middlesex, PA
+🔶 High Wind	moderate	63.4 mi away	1 W Oakwood, PA
+🔶 High Wind	moderate	64.8 mi away	1 ESE Oakwood, PA
+🔶 High Wind	moderate	64.4 mi away	2 NNE New Castle Northw, PA
+🔶 High Wind	moderate	63.7 mi away	2 NNW New Castle Northw, PA
+🔶 High Wind	moderate	66.0 mi away	New Castle, PA
+🔶 High Wind	moderate	66.8 mi away	1 SE New Castle, PA
+🔶 High Wind	moderate	68.3 mi away	1 E South New Castle, PA
+🔶 High Wind	moderate	70.1 mi away	2 S New Beaver, PA
+🔶 High Wind	moderate	68.5 mi away	2 WSW New Beaver, PA
+🔶 High Wind	moderate	69.2 mi away	1 NNW Wampum, PA
+🔶 High Wind	moderate	70.2 mi away	2 SSE New Beaver, PA
+🔶 High Wind	moderate	80.9 mi away	2 E Slippery Rock, PA
+🔶 High Wind	moderate	82.3 mi away	4 ESE Slippery Rock, PA
+🔶 High Wind	moderate	17.6 mi away	2 SW Silver Lake, OH
+🔶 High Wind	moderate	93.9 mi away	3 NNE Saint Clairsville, OH
+🔶 High Wind	moderate	99.7 mi away	Bridgeport, OH
+🔶 High Wind	moderate	89.2 mi away	1 ENE Flushing, OH
+🔶 High Wind	moderate	70.6 mi away	1 SW Wellsville, OH
+🔶 High Wind	moderate	56.9 mi away	2 NE Lisbon, OH
+🔶 High Wind	moderate	48.2 mi away	2 SW Salem, OH
+🔶 High Wind	moderate	89.2 mi away	2 N Dresden, OH
+⚠️ Hail	severe	25.5 mi away	1 N Lakemore, OH
+⚠️ Hail	severe	24.1 mi away	2 W Mogadore, OH
+⚠️ Hail	severe	26.3 mi away	1 E Lakemore, OH
+⚠️ Hail	severe	26.2 mi away	1 E Lakemore, OH
+🔹 Hail	minor	36.7 mi away	3 SE Limaville, OH
+🔹 Hail	minor	52.5 mi away	0 NW Poland, OH
+⚠️ High Wind	severe	35.0 mi away	3 E South Amherst, OH
+⚠️ High Wind	severe	23.4 mi away	0 W Bay Village, OH
+🔶 High Wind	moderate	12.5 mi away	1 NNE Cleveland, OH
+🔶 High Wind	moderate	70.9 mi away	1 SSW South Bass Island, OH
+🔶 High Wind	moderate	12.5 mi away	1 NNE Cleveland, OH
+🔶 High Wind	moderate	43.8 mi away	3 SW Smithville, OH
+🔶 High Wind	moderate	50.9 mi away	1 NE New London, OH
+🔶 High Wind	moderate	26.2 mi away	1 S Medina, OH
+🔶 High Wind	moderate	79.9 mi away	1 NE Galion, OH
+🔶 High Wind	moderate	60.0 mi away	2 N Millersburg, OH
+🔶 High Wind	moderate	35.7 mi away	2 W Warren, OH
+🔶 High Wind	moderate	42.7 mi away	3 SE Smithville, OH
+🔶 High Wind	moderate	27.8 mi away	2 SW Medina, OH
+🔶 High Wind	moderate	34.9 mi away	2 SE Greentown, OH
+🔶 High Wind	moderate	39.0 mi away	2 WSW Cortland, OH
+🔶 High Wind	moderate	30.7 mi away	1 E Green, OH
+🔶 High Wind	moderate	45.8 mi away	5 W Andover, OH
+🔶 High Wind	moderate	21.7 mi away	Akron, OH
+🔶 High Wind	moderate	90.9 mi away	3 N Sycamore, OH
+🔶 High Wind	moderate	21.4 mi away	4 NW Chardon, OH
+🔶 High Wind	moderate	17.0 mi away	Silver Lake, OH
+🔶 High Wind	moderate	14.6 mi away	Newbury, OH
+🔶 High Wind	moderate	23.1 mi away	Middlefield, OH
+🔶 High Wind	moderate	45.0 mi away	Jefferson, OH
+🔶 High Wind	moderate	18.1 mi away	2 SW Aquilla, OH
+🔶 High Wind	moderate	31.6 mi away	Perry, OH
+🔶 High Wind	moderate	24.2 mi away	4 SSE Painesville, OH
+🔶 High Wind	moderate	32.9 mi away	2 ESE Perry, OH
+🔶 High Wind	moderate	26.8 mi away	Painesville, OH
+🔶 High Wind	moderate	30.2 mi away	2 S Perry, OH
+🔶 High Wind	moderate	97.5 mi away	4 SE Fostoria, OH
+🔶 High Wind	moderate	34.3 mi away	2 S Lagrange, OH
+🔶 High Wind	moderate	86.8 mi away	5 ESE Bettsville, OH
+🔶 High Wind	moderate	33.3 mi away	2 WSW Sheffield Lake, OH
+🔶 High Wind	moderate	57.2 mi away	Milan, OH
+🔶 High Wind	moderate	98.1 mi away	2 E Risingsun, OH
+🔶 High Wind	moderate	70.1 mi away	1 S Catawba Island, OH
+🔶 High Wind	moderate	57.7 mi away	1 NE New Middletown, OH
+🔶 High Wind	moderate	95.9 mi away	1 NNE Genoa, OH
+🔶 High Wind	moderate	97.0 mi away	2 N Clay Center, OH
+🔶 High Wind	moderate	29.7 mi away	6 WNW Limaville, OH
+🔶 High Wind	moderate	49.4 mi away	5 S Andover, OH

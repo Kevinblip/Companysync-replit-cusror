@@ -1,0 +1,1567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CompanySync — Platform Feature Brief</title>
+  <style>
+    :root {
+      --brand: #1e40af; --brand-light: #3b82f6; --brand-dark: #1e3a8a;
+      --accent: #0ea5e9; --green: #16a34a; --orange: #ea580c;
+      --purple: #7c3aed; --teal: #0d9488; --rose: #e11d48;
+      --gray-50: #f9fafb; --gray-100: #f3f4f6; --gray-200: #e5e7eb;
+      --gray-600: #4b5563; --gray-700: #374151; --gray-800: #1f2937; --gray-900: #111827;
+      --radius: 12px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--gray-50); color: var(--gray-800); line-height: 1.6; }
+
+    .hero { background: linear-gradient(135deg, var(--brand-dark) 0%, var(--brand) 50%, var(--accent) 100%); color: white; padding: 80px 24px 64px; text-align: center; }
+    .hero-badge { display: inline-block; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); border-radius: 999px; padding: 6px 18px; font-size: 13px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 24px; }
+    .hero h1 { font-size: clamp(32px, 5vw, 56px); font-weight: 800; line-height: 1.15; margin-bottom: 20px; max-width: 800px; margin-left: auto; margin-right: auto; }
+    .hero h1 span { color: #93c5fd; }
+    .hero p { font-size: clamp(16px, 2.5vw, 20px); opacity: 0.9; max-width: 680px; margin: 0 auto 40px; }
+    .hero-stats { display: flex; justify-content: center; gap: 40px; flex-wrap: wrap; margin-top: 40px; }
+    .hero-stat { text-align: center; }
+    .hero-stat .num { font-size: 36px; font-weight: 800; }
+    .hero-stat .label { font-size: 13px; opacity: 0.75; }
+
+    .section-nav { position: sticky; top: 0; z-index: 100; background: white; border-bottom: 1px solid var(--gray-200); overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .section-nav::-webkit-scrollbar { display: none; }
+    .section-nav ul { display: inline-flex; list-style: none; padding: 0 16px; gap: 0; }
+    .section-nav a { display: block; padding: 14px 16px; font-size: 13px; font-weight: 600; color: var(--gray-600); text-decoration: none; border-bottom: 2px solid transparent; transition: all 0.15s; }
+    .section-nav a:hover { color: var(--brand); border-bottom-color: var(--brand); }
+
+    .section { padding: 64px 20px; max-width: 1100px; margin: 0 auto; }
+    .section + .section { border-top: 1px solid var(--gray-200); }
+    .section-header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+    .section-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+    .section-title { font-size: clamp(22px, 3vw, 28px); font-weight: 800; color: var(--gray-900); }
+    .section-sub { font-size: 15px; color: var(--gray-600); margin-bottom: 40px; margin-top: 6px; }
+
+    .features-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+    .feature-card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 24px; transition: box-shadow 0.2s, transform 0.2s; }
+    .feature-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.08); transform: translateY(-2px); }
+    .feature-name { font-size: 16px; font-weight: 700; color: var(--gray-900); margin-bottom: 4px; }
+    .feature-pill { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; border-radius: 999px; padding: 2px 8px; margin-bottom: 10px; }
+    .feature-desc { font-size: 14px; color: var(--gray-700); line-height: 1.65; margin-bottom: 14px; }
+    .problem-solution { background: var(--gray-50); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 13px; line-height: 1.55; }
+    .problem-solution .problem { color: var(--rose); font-weight: 600; margin-bottom: 4px; }
+    .problem-solution .solution { color: var(--green); font-weight: 600; }
+    .competitor-note { font-size: 12px; color: var(--gray-600); background: #fef9c3; border-left: 3px solid #fbbf24; border-radius: 0 6px 6px 0; padding: 8px 10px; }
+    .competitor-note strong { color: var(--gray-800); }
+    .how-it-works { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
+    .how-it-works h4 { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--brand); margin-bottom: 8px; }
+    .how-it-works ol { padding-left: 18px; line-height: 1.58; color: var(--gray-700); font-size: 12.5px; }
+    .how-it-works ol li { margin-bottom: 5px; }
+    .market-position { background: #f0fdf4; border-left: 3px solid var(--green); border-radius: 0 6px 6px 0; padding: 10px 12px; margin-bottom: 14px; font-size: 12.5px; color: var(--gray-700); line-height: 1.6; }
+    .market-position strong { display: block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--green); margin-bottom: 5px; }
+    .why-we-win { margin-top: 40px; }
+    .why-we-win h3 { font-size: 18px; font-weight: 700; color: var(--gray-900); margin-bottom: 20px; }
+    .why-win-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+    .why-win-card { background: white; border: 1px solid var(--gray-200); border-radius: 10px; padding: 20px; }
+    .why-win-card h4 { font-size: 13px; font-weight: 700; color: var(--brand); margin-bottom: 10px; border-bottom: 1px solid var(--gray-200); padding-bottom: 8px; }
+    .why-win-card p { font-size: 13px; color: var(--gray-700); line-height: 1.65; }
+
+
+    .competitor-table-wrap { margin-top: 56px; }
+    .competitor-table-wrap h3 { font-size: 20px; font-weight: 700; color: var(--gray-900); margin-bottom: 20px; }
+    .comp-table { width: 100%; border-collapse: collapse; font-size: 13px; overflow: hidden; border-radius: 10px; border: 1px solid var(--gray-200); }
+    .comp-table thead { background: var(--brand); color: white; }
+    .comp-table th { padding: 12px 14px; text-align: left; font-weight: 700; }
+    .comp-table td { padding: 11px 14px; border-top: 1px solid var(--gray-200); }
+    .comp-table tr:nth-child(even) td { background: var(--gray-50); }
+    .check { color: var(--green); font-weight: 700; }
+    .cross { color: var(--rose); font-weight: 700; }
+    .partial { color: #d97706; font-weight: 700; }
+
+    .footer { background: var(--gray-900); color: white; text-align: center; padding: 40px 20px; margin-top: 40px; font-size: 14px; }
+    .footer p { opacity: 0.6; margin-top: 8px; }
+
+    @media (max-width: 640px) {
+      .hero { padding: 56px 20px 48px; }
+      .hero-stats { gap: 24px; }
+      .features-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── Print / PDF styles ──────────────────────────────────────────── */
+    .pdf-download-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 28px;
+      background: rgba(255,255,255,0.95);
+      color: #1e3a8a;
+      padding: 11px 28px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      text-decoration: none;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+      transition: background 0.15s, transform 0.1s;
+    }
+    .pdf-download-btn:hover { background: #ffffff; transform: translateY(-1px); }
+
+    @media print {
+      /* Navigation */
+      .section-nav { display: none !important; }
+
+      /* PDF download button */
+      .pdf-download-btn { display: none !important; }
+
+      /* Hero: keep brand blue on paper */
+      .hero {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        padding: 28px 20px !important;
+      }
+      .hero h1 { font-size: 22px !important; }
+      .hero p  { font-size: 12px !important; }
+
+      /* Feature grid: 2-column on A4 */
+      .features-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+      }
+
+      /* Prevent page breaks mid-card */
+      .feature-card { break-inside: avoid; page-break-inside: avoid; }
+
+      /* Section padding */
+      .section { padding: 20px 12px !important; }
+
+      /* Comparison table: tighter font */
+      .comp-table th,
+      .comp-table td { font-size: 9px !important; padding: 4px 6px !important; }
+
+      /* Why-win cards */
+      .why-win-card { break-inside: avoid; page-break-inside: avoid; font-size: 11px !important; }
+
+      /* Footer */
+      .footer { padding: 20px !important; font-size: 11px !important; }
+
+      /* Avoid orphaned section headers */
+      .section-header { break-after: avoid; page-break-after: avoid; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge">🏗️ Platform Feature Brief — Storm Restoration &amp; Roofing</div>
+  <h1>The <span>AI-First, All-in-One</span> Platform Built Exclusively for Roofing Contractors</h1>
+  <p>From the moment storm damage is reported to the final payment collected, CompanySync replaces a stack of disconnected tools with a single platform — powered by AI that actually understands roofing.</p>
+  <div class="hero-stats">
+    <div class="hero-stat"><div class="num">61+</div><div class="label">Features</div></div>
+    <div class="hero-stat"><div class="num">8</div><div class="label">Modules</div></div>
+    <div class="hero-stat"><div class="num">1</div><div class="label">Platform</div></div>
+    <div class="hero-stat"><div class="num">∞</div><div class="label">Spreadsheets Replaced</div></div>
+  </div>
+  <div style="text-align:center;">
+    <a href="/marketing-features-pdf" class="pdf-download-btn">
+      📄 Download PDF
+    </a>
+  </div>
+</div>
+
+<nav class="section-nav">
+  <ul>
+    <li><a href="#crm">🏠 CRM</a></li>
+    <li><a href="#estimating">📋 Estimating</a></li>
+    <li><a href="#ai-roof">🛰️ AI Roof</a></li>
+    <li><a href="#field">📸 Field Ops</a></li>
+    <li><a href="#communication">📱 Communication</a></li>
+    <li><a href="#reporting">📊 Reporting</a></li>
+    <li><a href="#payments">💳 Payments</a></li>
+    <li><a href="#settings">⚙️ Admin</a></li>
+    <li><a href="#comparison">🆚 Comparison</a></li>
+  </ul>
+</nav>
+
+<!-- ═══ 1 — CRM ═══ -->
+<section id="crm" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#dbeafe;">🏠</div>
+    <div class="section-title">CRM — Customer Relationship Management</div>
+  </div>
+  <p class="section-sub">From first knock to signed contract — every lead and customer in one place.</p>
+  <div class="features-grid">
+
+    <div class="feature-card">
+      <div class="feature-name">Lead Capture &amp; Bulk Import</div>
+      <div class="feature-pill" style="background:#dbeafe;color:#1e40af;">CRM</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Entering leads from storm lists, spreadsheets, and door-knock sheets is slow and inconsistent across the team.</div>
+        <div class="solution">✅ Solution: Import thousands of leads in seconds via CSV, property data, or GoHighLevel sync with automatic geocoding and deduplication.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Upload a CSV, paste an address, or trigger a GoHighLevel sync — all three paths land in the same import queue</li><li>Platform geocodes every address, deduplicates against existing records, and routes each lead to the assigned rep pool</li><li>Assigned rep receives a push notification and SMS within seconds; the fully populated lead record is ready to work</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for office admins and owner-operators managing post-storm canvass campaigns where hundreds of addresses need to enter the CRM in one sitting. Replaces manual data entry from CSV exports, door-knock sheets, and third-party lead lists that introduce errors and duplicates. At 500 leads per storm event, manual entry takes 4+ hours; a bulk import takes 30 seconds.
+      </div>
+      <div class="feature-desc">Upload bulk CSV files, pull verified property data by address, or sync from GoHighLevel in real time. Every lead is geocoded, auto-assigned, and deduplicated on import — eliminating manual entry and ensuring every prospect enters the CRM immediately and completely.</div>
+      <div class="competitor-note"><strong>vs. Spreadsheets / JobNimbus / AccuLynx:</strong> None offer bulk import with automatic geocoding and deduplication in a single step. JobNimbus has manual lead entry only; AccuLynx allows CSV import but no geocoding, deduplication, or GoHighLevel sync. Spreadsheets require a separate geocoding tool and manual duplicate-checking, introducing 15–25% duplicate rates that corrupt outreach lists and commission attribution. No competitor surfaces property-verified data alongside the imported address automatically.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Lead Finder / Storm Canvass Map</div>
+      <div class="feature-pill" style="background:#dbeafe;color:#1e40af;">CRM</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: After a storm, reps burn days cold-knocking random streets instead of targeting confirmed impact zones.</div>
+        <div class="solution">✅ Solution: A geocoded canvass map overlays live storm footprints so reps discover, claim, and track prospects street-by-street from their phone.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Open the canvass map; confirmed NOAA/NWS storm-impact zones overlay your service area automatically with hail size and wind speed</li><li>Tap any property to create a lead, mark it visited, note the door outcome (no-answer, interested, not-home), and flag for follow-up</li><li>All map activity syncs to the CRM instantly; leads auto-route to the territory rep owning that zone — no admin step</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for storm chasers and canvass teams who need to identify high-probability doors before investing hours in the field. Replaces the manual process of cross-referencing a HailTrace storm map with a separate customer address list in Google Sheets — typically a 2–4 hour delay before canvassing begins. Reps who hit confirmed damage zones first close at 60–70%; reps arriving third close below 20%.
+      </div>
+      <div class="feature-desc">See confirmed storm-impact addresses on a live geocoded map before knocking a single door. Tap any property to create a lead, log a visit, or flag it for follow-up — all geo-pinned and synced to the CRM in real time.</div>
+      <div class="competitor-note"><strong>vs. HailTrace / AccuLynx / JobNimbus:</strong> HailTrace shows the storm footprint but has no CRM, no lead creation, and no canvass workflow — contractors must export the address list and re-enter it elsewhere. AccuLynx and JobNimbus have no storm-overlay or canvass map at all; reps choose streets manually with no data. The missing link — seeing which addresses are inside the storm AND already in your CRM — is exclusive to CompanySync, eliminating the 2–4 hour manual cross-reference step after every event.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Customer Directory &amp; Groups</div>
+      <div class="feature-pill" style="background:#dbeafe;color:#1e40af;">CRM</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Customer data lives across email threads, sticky notes, and apps — impossible to search or segment for follow-up campaigns.</div>
+        <div class="solution">✅ Solution: A searchable, filterable directory with group tagging, unified notes, and one-click access to every related job, estimate, and payment.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Open the directory and filter by status (lead, active, past customer), date range, territory, or any custom field combination</li><li>Tag customers into groups for bulk SMS or email campaigns; groups update dynamically as records match the filter criteria</li><li>Open any record to see a unified feed of all calls, texts, estimates, invoices, job photos, and contracts — one scroll, full history</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for office managers and admin staff who field homeowner inquiries and need instant context without hunting across systems. Replaces disconnected customer data spread across Google Contacts, spreadsheets, and a CRM with no job history attached. Eliminating the average 4-minute per-call lookup time — across 20 calls per day — recovers 80 minutes of staff time daily.
+      </div>
+      <div class="feature-desc">Organize every past and current customer in a centralized, filterable directory. Create groups for targeted campaigns, view the full relationship history in one feed, and access linked estimates, invoices, and contracts instantly — without switching screens or losing any context.</div>
+      <div class="competitor-note"><strong>vs. ServiceTitan / generic CRMs / AccuLynx:</strong> ServiceTitan's customer model is optimized for HVAC recurring service agreements — roofing-specific fields (adjuster name, claim number, storm date, scope status) require custom fields that don't surface in the native views. Generic CRMs like HubSpot have no job, estimate, or insurance claim linkage. AccuLynx ties customer records to jobs but lacks the group tagging, campaign segmentation, and unified communication feed needed to run proactive re-engagement campaigns on a past-customer base.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Homeowner Customer Portal</div>
+      <div class="feature-pill" style="background:#dbeafe;color:#1e40af;">CRM</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Homeowners constantly call about job status, estimates, and payments — consuming office staff time for routine questions.</div>
+        <div class="solution">✅ Solution: A branded, mobile-friendly portal where homeowners view estimates, sign contracts, track job progress, and pay without calling anyone.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Estimate is created; the platform automatically generates a branded portal link and sends it by SMS and email</li><li>Homeowner opens the link, views the estimate with financing options, e-signs the contract, and pays — all from their phone</li><li>Office sees every action logged in real time: opened, approved, signed, paid — and the job status advances automatically</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for service managers and customer experience leads who want to eliminate inbound 'where are we?' calls during peak install season. Replaces the back-and-forth of calling, texting, and emailing homeowners separately to collect signatures and payments on paper invoices. Each portal-active customer generates zero status-check calls, freeing 20–30 minutes of office time per job — significant at 100+ active jobs per month.
+      </div>
+      <div class="feature-desc">Give every homeowner a private, branded portal to view and approve estimates, sign contracts electronically, track job progress, and pay invoices from any device. It eliminates the 'where are we?' loop that drives unnecessary office calls and delays during busy season.</div>
+      <div class="competitor-note"><strong>vs. AccuLynx / JobNimbus / ServiceTitan:</strong> AccuLynx and JobNimbus have no homeowner-facing self-service portal — every status update, contract, and payment requires a staff-initiated action. ServiceTitan offers a customer portal at enterprise pricing with no insurance claim workflow integration. None combine estimate approval, e-signature, live job tracking, and payment collection in one branded, mobile-first experience without requiring homeowners to create an account or download an app.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Projects &amp; Task Management</div>
+      <div class="feature-pill" style="background:#dbeafe;color:#1e40af;">CRM</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Jobs slip through the cracks when milestones live in someone's head or a shared spreadsheet nobody updates consistently.</div>
+        <div class="solution">✅ Solution: Linked projects with templated tasks, customer attachments, status tracking, and automatic escalation when deadlines are missed.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Create a project linked to any lead or customer; select a pre-built template (storm job, retail job, supplement) to load task checklists automatically</li><li>Assign each task with a due date and responsible party; they receive push and SMS reminders as the deadline approaches</li><li>If a task goes overdue, the platform escalates with an additional SMS to the manager and surfaces the item in the daily digest</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for operations managers overseeing 20+ active jobs simultaneously who need one system to track every milestone without subscribing to a separate project tool. Replaces paper checklists, group texts, and Monday.com workflows that have no awareness of job data, insurance stages, or estimate status. Preventing the 'we forgot the permit' and 'materials weren't ordered' errors that delay jobs by 1–5 days each eliminates real penalty costs and crew standby charges.
+      </div>
+      <div class="feature-desc">Create projects linked to leads and customers, assign templated task checklists, and set due dates. Tasks trigger reminders and escalate via SMS or email when overdue — keeping every job visibly on track without a separate project management tool subscription.</div>
+      <div class="competitor-note"><strong>vs. Monday.com / Asana / spreadsheets:</strong> Generic project tools have no concept of roofing job stages, insurance claims, estimate approval, or material ordering — every workflow must be manually configured and updated. Monday.com can't automatically escalate based on a job event (estimate approved, adjuster visit scheduled) because it doesn't know what those events mean. The platform's project system is purpose-built: templates reflect actual roofing workflows, and tasks link directly to the customer record, estimate, and field activity — not a disconnected project board.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Action Items &amp; Follow-Up Queue</div>
+      <div class="feature-pill" style="background:#dbeafe;color:#1e40af;">CRM</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Reps forget to follow up with stale leads, and there's no system to ensure every un-answered estimate gets a callback.</div>
+        <div class="solution">✅ Solution: Auto-created action items trigger on key events with in-app, email, and SMS escalation if the rep doesn't respond.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Platform detects a trigger: estimate unanswered 48 hours, lead cold 7 days, callback overdue — and creates an action item automatically</li><li>The assigned rep sees the item in their queue with context; an in-app banner appears on every screen until the item is resolved</li><li>If not resolved within the configured escalation window, the platform sends an SMS to the rep and an email alert to the manager</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for sales managers who want to eliminate the revenue lost when reps fail to follow up on estimates after the first attempt. Replaces reliance on rep memory, CRM manual task creation, and sticky notes — none of which escalate if ignored. Research consistently shows 80%+ of sales require 5+ follow-ups; this system makes systematic follow-up happen automatically rather than depending on rep discipline during the busiest periods.
+      </div>
+      <div class="feature-desc">The follow-up engine automatically creates action items when an estimate goes unanswered, a lead goes cold, or a callback hasn't happened. Items escalate through in-app banners, email, and SMS until resolved — so no opportunity is ever accidentally dropped.</div>
+      <div class="competitor-note"><strong>vs. JobNimbus / AccuLynx / all competitors:</strong> All competitors rely on manual task creation — a rep must remember to create a follow-up task, which defeats the purpose of an automated system. JobNimbus has follow-up reminders but no automatic trigger on estimate inactivity, no escalation chain, and no manager-alert when a rep ignores the item. AccuLynx has basic CRM activity reminders with no multi-step escalation. The distinction matters: a system that only reminds the rep who already forgot is not a follow-up system — it's a polite suggestion.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Electronic Contracts &amp; E-Signatures</div>
+      <div class="feature-pill" style="background:#dbeafe;color:#1e40af;">CRM</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Printing, scanning, or emailing contracts for wet signatures delays the job start and creates paperwork the office must track manually.</div>
+        <div class="solution">✅ Solution: Send legally-binding contracts via a signed link that homeowners e-sign from any device in under 60 seconds.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Select a contract template; merge fields (customer name, address, scope, total) auto-populate from the estimate record</li><li>Send a secure signing link by SMS; homeowner receives, reviews, and e-signs in under 60 seconds from any smartphone</li><li>Signed contract stores to the customer record with a full audit trail: timestamp, IP address, and signature image</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for sales reps and office staff closing storm jobs where speed from approval to signed contract directly affects job start timing. Replaces paper contracts, DocuSign subscriptions with no CRM link, and emailed PDFs that break the mobile-first homeowner experience. Industry data shows time-to-signature drops from 24–72 hours (print/mail/scan) to under 10 minutes when contracts arrive by SMS with a one-tap signing interface.
+      </div>
+      <div class="feature-desc">Build reusable contract templates with custom fields and merge tags. Send a signed link via SMS or email; homeowners review and e-sign from their phone in seconds. Signed contracts store automatically on the customer record with a complete, timestamped audit trail.</div>
+      <div class="competitor-note"><strong>vs. DocuSign / PandaDoc / AccuLynx:</strong> DocuSign and PandaDoc are generic e-signature tools with no roofing-specific fields, no estimate linkage, and no CRM record — documents must be manually prepared and manually filed. AccuLynx offers basic contract sending but lacks the custom field editor, merge tag system, and homeowner portal integration. All require the contractor to maintain a separate subscription; CompanySync's e-signature is built in, with contracts living on the customer record alongside estimates, invoices, and job photos in one unified view.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Document Repository</div>
+      <div class="feature-pill" style="background:#dbeafe;color:#1e40af;">CRM</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Job documents — scope letters, permits, warranties — get lost in email inboxes and shared drives nobody organizes.</div>
+        <div class="solution">✅ Solution: A per-company document repository stores, tags, and surfaces every file directly on the relevant customer or project record.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Upload any file from any device — phone camera, desktop, or email forward; tag it by document type (permit, warranty, scope letter)</li><li>Link the document to the specific customer, job, or project; it appears automatically on all related records</li><li>Any team member searches by tag, date, or customer name and retrieves the file in under 30 seconds from office or field</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for operations teams managing 50+ active jobs where permit documents, scope letters, and adjuster correspondence accumulate rapidly across many ongoing files. Replaces Google Drive folders with no job linking and shared Dropbox accounts with no per-customer access control. Recovering any document in under 30 seconds versus the average 5–15 minute 'where's that permit?' search eliminates meaningful overhead at volume.
+      </div>
+      <div class="feature-desc">Upload, tag, and store every job document — scope letters, permits, warranties, adjuster notes — in a searchable repository linked to each customer or project. Every document is one tap away, accessible from the office or the field, always.</div>
+      <div class="competitor-note"><strong>vs. Google Drive / Dropbox / AccuLynx:</strong> Google Drive and Dropbox have no CRM context — documents live in folders, not on customer or job records, requiring a separate search step every time. AccuLynx allows photo and document uploads but lacks the tagging system, search by document type, and automatic surface-on-related-record feature. For insurance-focused contractors managing 5–10 documents per claim (scope letters, photos, supplements, signed forms), a filing system disconnected from the job creates daily friction that compounds significantly across 50+ active files.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Round-Robin Lead Assignment</div>
+      <div class="feature-pill" style="background:#dbeafe;color:#1e40af;">CRM</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Admins manually distribute new leads, causing delays, disputes, and some reps receiving far more than others.</div>
+        <div class="solution">✅ Solution: Configurable round-robin rules automatically assign every new lead to the next rep in rotation — instantly, fairly, without admin involvement.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Admin defines assignment pools by territory, lead source, or team; sets each rep's active hours and capacity cap</li><li>New lead arrives from any source (import, web form, Lexi call, GoHighLevel); platform assigns to the next rep in rotation instantly</li><li>Rep receives a push notification and SMS within 3–5 seconds; lead appears at the top of their CRM queue pre-populated</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for sales managers at 5–30 rep operations where manual lead distribution creates favoritism, delays, and rep disputes that consume management time. Replaces admin-managed spreadsheets and Slack-message assignments that take 5–10 minutes per lead during a storm surge when speed of response is the entire competitive advantage. Zero delay from lead arrival to rep notification eliminates the 1–4 hour admin queue lag common on a busy storm day.
+      </div>
+      <div class="feature-desc">Define rep assignment pools, set availability windows, and let the platform distribute new leads automatically in fair rotation. Rules are configurable per territory, lead source, or team. Reps receive push and SMS notifications instantly — no admin bottleneck or favoritism.</div>
+      <div class="competitor-note"><strong>vs. JobNimbus / AccuLynx / all competitors:</strong> No roofing CRM includes automated round-robin assignment with territory and availability rules — every lead is manually distributed by a manager in all competitor platforms. This isn't a minor inconvenience: during a storm event with 200 leads arriving in 48 hours, manual distribution requires a dedicated admin hour, introduces favoritism disputes, and means some leads wait hours while others are assigned immediately. First-contact speed is the primary driver of storm lead conversion rates; automated assignment closes that gap entirely.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Territory Manager</div>
+      <div class="feature-pill" style="background:#dbeafe;color:#1e40af;">CRM</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Overlapping rep territories create ownership disputes, duplicated canvassing, and no clear accountability per market area.</div>
+        <div class="solution">✅ Solution: Define territories by city, zip code, or hand-drawn boundary with individual rep ownership and performance tracking per zone.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Draw a territory boundary on the map using zip codes, cities, or a freehand polygon; assign it to one rep or a team</li><li>When a new lead's geocoded address falls inside the boundary, it routes automatically to the assigned owner without admin involvement</li><li>View territory-level metrics side-by-side: leads captured, conversion rate, revenue closed, and average job size per zone</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for companies operating across multiple cities or zip codes where rep overlap causes duplicate canvassing, ownership conflicts, and unclear accountability per market area. Replaces verbal territory agreements, color-coded spreadsheets, and physical map pins that are never current and carry no enforcement mechanism. Eliminating 'that's my lead' disputes — which damage rep morale and waste management time — is a meaningful retention and culture benefit at scale.
+      </div>
+      <div class="feature-desc">Define custom sales territories by city, ZIP code, or hand-drawn map boundary. Assign ownership to individual reps, prevent lead conflicts, and view territory-level performance metrics side-by-side — without a separate mapping tool or a constantly outdated shared spreadsheet.</div>
+      <div class="competitor-note"><strong>vs. all roofing CRMs:</strong> No roofing CRM includes built-in territory boundary drawing with per-rep ownership enforcement, lead auto-routing by geocoded boundary, and territory-level analytics in one feature. ServiceTitan and AccuLynx support region assignment but require manual lead routing by a manager — the boundary is a label, not an enforcement rule. The absence means companies with 5+ reps in multiple markets manage territory informally, leading to the consistent rep conflicts and duplicated canvassing that suppress team performance during storm season.</div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══ 2 — ESTIMATING ═══ -->
+<section id="estimating" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#dcfce7;">📋</div>
+    <div class="section-title">Estimating &amp; Sales</div>
+  </div>
+  <p class="section-sub">From satellite measurements to signed proposals — every estimating step accelerated.</p>
+  <div class="features-grid">
+
+    <div class="feature-card">
+      <div class="feature-name">AI Estimator — Roof &amp; Siding</div>
+      <div class="feature-pill" style="background:#dcfce7;color:#16a34a;">Estimating</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Accurate measurements require expensive third-party reports or a full ladder inspection — adding cost and days to every bid.</div>
+        <div class="solution">✅ Solution: Enter an address; AI fuses satellite, solar, and OSM polygon data to produce a full measurement report in under 60 seconds.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Enter any U.S. address; platform queries Google Solar API, OpenStreetMap building polygon, and satellite imagery simultaneously</li><li>AI detects structure footprint, applies pitch correction per segment, and calculates areas, ridge/hip/valley lengths, and eave height</li><li>Full measurement report auto-populates estimate line items within 60 seconds — adjust and send the estimate immediately</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for high-volume estimators quoting 10–30 roofs per week who can't absorb $30–75 per satellite report at that volume without it consuming margin on every job. Replaces third-party measurement services (EagleView, GAF QuickMeasure) that take 24 hours and deliver a PDF with no CRM connection and no automatic estimate build. At 15 roofs/week, companies eliminate $23,400–$58,500 in annual measurement fees — the equivalent of a junior estimator's salary.
+      </div>
+      <div class="feature-desc">Enter any U.S. address and receive pitch-corrected roof area, segment breakdown, ridge and hip lengths, and eave height in under 60 seconds. Satellite, Solar API, and OSM polygon data are fused together, and results auto-populate your estimate immediately.</div>
+      <div class="competitor-note"><strong>vs. EagleView / GAF QuickMeasure / Hover:</strong> EagleView charges $30–$120 per report, requires 4–24 hours, and delivers a static PDF that must be manually transcribed into an estimate — adding another 15–30 minutes per job. GAF QuickMeasure has similar pricing and PDF-only output. Hover requires a mobile capture session at the property, eliminating the remote-estimate use case entirely. None of these tools auto-populate an estimate, sync to the CRM, or include siding measurement from photos. CompanySync eliminates the per-report fee model entirely — unlimited measurements are included in the platform subscription.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Manual Estimate Editor</div>
+      <div class="feature-pill" style="background:#dcfce7;color:#16a34a;">Estimating</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Line-item estimates built in Excel are unshareable, error-prone, and impossible for the homeowner to approve digitally.</div>
+        <div class="solution">✅ Solution: A fully featured line-item editor with a live price catalog, auto-calculated totals, tax, discounts, and a customer approval link in one click.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Select materials and labor from the company price catalog; quantities auto-calculate from the AI measurement result or manual entry</li><li>Apply tax, discounts, and a financing option; toggle the homeowner preview to see the mobile-readable estimate as they will see it</li><li>Send a branded approval link by SMS or email; the platform notifies you the moment the homeowner opens it and again when they approve</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for estimators who need a professional, brand-consistent output for both retail and insurance jobs without maintaining two separate tools or manual PDF formatting. Replaces Excel spreadsheets and Word templates that can't be approved digitally, tracked after sending, or linked to payment collection. Digital approvals reduce estimate-to-signature lag from 3–5 days (print/sign/scan) to under 24 hours in the majority of residential cases.
+      </div>
+      <div class="feature-desc">Build professional, itemized estimates from a custom price catalog. Add line items, set tax rates and discounts, and attach financing options. Customers receive a branded, mobile-readable estimate with a one-click approval button — eliminating the print-and-sign cycle completely.</div>
+      <div class="competitor-note"><strong>vs. Excel / AccuLynx / JobNimbus:</strong> Excel estimates are impossible to approve digitally, have no open-tracking, no payment link, and require the homeowner to print and scan or sign in person — a fatal friction point for mobile-first homeowners. AccuLynx estimates generate a PDF link but don't offer homeowner self-approval, integrated financing display, or real-time open notifications. JobNimbus has basic estimate creation with limited template customization and no mobile-optimized homeowner approval experience. CompanySync's estimate editor is the only option that connects the estimating step to digital approval, financing, and payment in a single unbroken homeowner experience.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Estimate Import &amp; Symbility Claims Workspace Export</div>
+      <div class="feature-pill" style="background:#dcfce7;color:#16a34a;">Estimating</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Symbility Claims Workspace requires a specific XML format; re-keying your estimate data into the portal takes hours per claim and introduces costly errors.</div>
+        <div class="solution">✅ Solution: One-click export produces a correctly structured Symbility XML file with ACV, RCV, depreciation, and O&amp;P auto-calculated — ready to import directly into Claims Workspace.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Build or import an estimate with all line items, ACV, RCV, and depreciation values populated from the price catalog</li><li>Click 'Export to Symbility'; platform generates a correctly structured XML file with O&P and per-line ACV auto-calculated</li><li>Upload the XML to Symbility Claims Workspace directly — adjuster receives a clean, carrier-formatted scope document</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for public adjusters and insurance-focused contractors working with carriers using Symbility Claims Workspace, where manual portal re-entry is standard practice. Replaces 2–4 hours of per-claim data transcription into the Symbility portal — a process that introduces transcription errors carriers use to reduce payment amounts. One-click export cuts claim submission time by 85–90% and eliminates the revision cycle caused by re-entry errors.
+      </div>
+      <div class="feature-desc">Export any estimate directly to Symbility Claims Workspace XML in one click. ACV, RCV, depreciation, and O&amp;P are calculated per line item to match carrier requirements, eliminating hours of manual portal re-entry and reducing adjuster revision cycles significantly.</div>
+      <div class="competitor-note"><strong>vs. ServiceTitan / JobNimbus / AccuLynx:</strong> ServiceTitan and JobNimbus have no Symbility export capability whatsoever — contractors using these platforms re-enter every line item into the Symbility portal by hand. AccuLynx has a partial Symbility integration that covers basic line items but doesn't handle O&P, per-line ACV calculations, or the specific XML schema Symbility's importer requires. The distinction matters operationally: a 'partial' Symbility export that requires manual correction isn't materially better than no export. CompanySync's export produces a complete, importable XML file without manual portal work.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Proposals</div>
+      <div class="feature-pill" style="background:#dcfce7;color:#16a34a;">Estimating</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Sending a raw PDF quote gives homeowners no context, no trust signals, and no easy way to accept — leading to low close rates.</div>
+        <div class="solution">✅ Solution: Assemble a branded proposal package and send it as a single trackable link the homeowner can approve from their phone.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>After estimate creation, open the proposal builder; select photos from the job folder, warranty copy, and financing breakdown</li><li>Platform assembles everything into a branded proposal package and generates a single trackable link for SMS or email delivery</li><li>Platform records every open event with a timestamp; when the homeowner clicks 'Approve,' an instant notification fires to the rep</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for sales reps who lose deals to competitors offering more professional, trust-building presentations at the homeowner's kitchen table or via text. Replaces emailed PDF quotes with no context, no open tracking, and no digital approval path — the digital equivalent of handing over a printed invoice. Tracked proposals give reps the exact moment to call, converting 'maybe' homeowners before the competitive estimate arrives from another contractor.
+      </div>
+      <div class="feature-desc">Combine your estimate with branding, before/after photos, warranty details, and financing breakdowns into a single trackable proposal link. Track when the homeowner opens it and receive instant notification the moment they approve — no follow-up guessing needed from your team.</div>
+      <div class="competitor-note"><strong>vs. generic CRMs / email PDF / AccuLynx:</strong> Emailing a PDF estimate gives reps zero visibility — they never know if the homeowner opened it, forwarded it to a competitor, or deleted it without reading. AccuLynx generates an estimate PDF link but has no proposal assembly tool, no before/after photo inclusion, no warranty copy section, and no open-event notification. Generic CRM tools with proposal features (HubSpot, Salesforce) have no roofing-specific fields — no damage photos, no measurement breakdown, no insurance claim context. CompanySync's proposal combines all the trust-building elements a homeowner needs to decide, in one link.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Price Catalog &amp; Custom Formats</div>
+      <div class="feature-pill" style="background:#dcfce7;color:#16a34a;">Estimating</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Reps build estimates with inconsistent pricing because material costs live in each person's head or an outdated shared spreadsheet.</div>
+        <div class="solution">✅ Solution: A company-wide catalog with per-material rates, unit types, custom formats, and bulk import ensures every rep prices identically.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Build the catalog once: add materials with unit type, waste factor, category, and category grouping for estimate organization</li><li>Import current supplier pricing via CSV; changes apply to all future estimates immediately — no per-rep update required</li><li>Every rep who builds an estimate pulls from the same catalog — no negotiated pricing, no off-catalog rates, no margin leakage</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for companies with 5+ active estimators where pricing inconsistency between reps erodes margin on every job without the owner knowing it's happening. Replaces individual Excel price lists or each rep quoting from memory — practices that create 10–25% pricing variance across the team and make it impossible to understand true gross margin by job type. Consistent pricing from a shared catalog recovers an estimated 5–12% gross margin lost to underquoting and informal discounts.
+      </div>
+      <div class="feature-desc">Maintain one source of truth for every material rate, labor cost, and line-item format. Define custom units, set waste factors, and bulk-import prices from CSV. Every estimate built by any rep pulls from the same catalog — no more pricing inconsistency.</div>
+      <div class="competitor-note"><strong>vs. AccuLynx / JobNimbus / Excel:</strong> AccuLynx has a price list feature but lacks bulk CSV import, waste factor configuration per material, and custom unit formatting — materials must be entered one at a time. JobNimbus price lists are basic and offer no waste factor or per-line custom format control. Excel price lists become stale the moment they're distributed, have no version control, and require each rep to manually update their own copy — which never happens consistently. A shared, server-enforced catalog is the only way to guarantee pricing consistency across a growing team.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Financing Options on Estimates</div>
+      <div class="feature-pill" style="background:#dcfce7;color:#16a34a;">Estimating</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Homeowners who can't pay the full amount upfront say no — even when monthly financing would make the job completely affordable.</div>
+        <div class="solution">✅ Solution: Monthly payment breakdowns from Hearth, GreenSky, or Wisetack appear directly on estimates so homeowners see an affordable path to yes.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Link your Hearth, GreenSky, or Wisetack account once in the integrations settings — no ongoing configuration required</li><li>When building an estimate, toggle 'Show Financing'; approved monthly payment breakdowns appear alongside the total automatically</li><li>Homeowner sees 'Total: $14,800 — or as low as $247/month' on the same approval page, with no redirect to a separate lender site</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for retail sales reps working homeowners in the $10,000–$30,000 job range where full-pay objections kill 20–30% of closable deals that financing would convert. Replaces sending homeowners to a separate lender website mid-presentation — a flow interruption that drops conversion rates significantly by introducing doubt and decision fatigue. Financing displayed at the decision moment, without a redirect, converts an additional 15–25% of price-sensitive prospects who would otherwise decline.
+      </div>
+      <div class="feature-desc">Configure your preferred financing partner — Hearth, GreenSky, or Wisetack — and display estimated monthly payment options directly on every estimate. Homeowners see an affordable path to yes at the decision moment, converting price-sensitive prospects who would otherwise decline a full-pay quote.</div>
+      <div class="competitor-note"><strong>vs. most roofing CRMs / manual financing referral:</strong> The standard practice — 'here's a QR code for our lender' — removes the homeowner from the proposal experience entirely and introduces a separate application process that kills momentum. AccuLynx and JobNimbus require a separate lender portal login with no estimate linkage; homeowners never see payment alternatives at the same moment they're reviewing the scope. ServiceTitan has financing integration at enterprise tier only. CompanySync is the only platform where the financing calculation appears inline on the estimate itself, at the exact decision moment, with no account creation or app redirect required from the homeowner.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Commission Tracking, Rules &amp; Splits</div>
+      <div class="feature-pill" style="background:#dcfce7;color:#16a34a;">Estimating</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Commission calculations done manually in spreadsheets take hours, produce disputes, and are never visible to reps in real time.</div>
+        <div class="solution">✅ Solution: Define commission rules by job type or tier; the platform calculates every commission automatically with family splits and rep-facing transparency.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Define commission structure once — flat rate, percentage of revenue, tiered by job size, or split between multiple reps</li><li>When a job closes and the invoice is marked paid, the platform calculates each rep's commission automatically from the final total</li><li>Reps view their earned and pending amounts in real time from their dashboard; owners approve payouts with one click and log disbursements</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for sales managers at growth-stage companies managing 5–20 reps where commission calculation disputes consume hours of management time each pay period. Replaces the end-of-month spreadsheet reconciliation that is always retroactive, frequently disputed, and never visible to the rep in real time. Eliminating 4–8 hours of bookkeeper time per pay period and reducing rep turnover caused by perceived commission errors pays for the platform many times over.
+      </div>
+      <div class="feature-desc">Set up flat-rate, percentage, tiered, or split commission rules once. The platform calculates commissions on every closed job, tracks payouts, and gives reps a live view of earned and pending amounts — eliminating end-of-month calculation marathons and commission disputes entirely.</div>
+      <div class="competitor-note"><strong>vs. ServiceTitan / spreadsheets / manual calculation:</strong> ServiceTitan commission tools exist at enterprise tier with significant configuration overhead and no rep-facing real-time visibility. Spreadsheet commission tracking is always a full pay period behind, produces disputes because reps can't verify their own numbers, and creates a bookkeeper bottleneck on the last day of each month. The most damaging hidden cost: reps who don't trust their commission statements underperform and leave — commission transparency is a retention tool as much as an accounting tool.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Sales Dashboard &amp; Rep Leaderboard</div>
+      <div class="feature-pill" style="background:#dcfce7;color:#16a34a;">Estimating</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Sales managers don't know which reps are struggling or coasting until end of month — too late to coach or intervene effectively.</div>
+        <div class="solution">✅ Solution: A real-time sales dashboard and gamified leaderboard surface each rep's pipeline, conversion rate, and revenue every day.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Open the sales dashboard and apply filters: date range, rep, territory, or lead source to focus on any business slice</li><li>Real-time metrics load instantly: revenue closed, pipeline value, estimate-to-close rate, average job size — no export required</li><li>The leaderboard ranks every rep for the period; click any name to drill into individual conversion rate, pipeline, and open estimates</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for sales managers who need daily visibility into team performance without waiting for a weekly sales meeting or a manually produced monthly report. Replaces the 'how's your pipeline?' call that managers make every Monday to get data already sitting in the CRM. Daily visibility allows coaching interventions in hours, not weeks — preventing the compounding revenue loss from a rep who is 30% off-pace for an entire month before anyone notices.
+      </div>
+      <div class="feature-desc">Track every rep's estimates sent, jobs closed, revenue generated, and conversion rate on a live dashboard. The gamified leaderboard ranks performance in real time, letting managers spot underperformers early and giving top reps visibility into their standing every day.</div>
+      <div class="competitor-note"><strong>vs. AccuLynx / JobNimbus / generic CRMs:</strong> AccuLynx and JobNimbus both require exporting data to Excel to build the analytical views most sales managers need — by which time the data is already a day old. Neither has a rep leaderboard or gamified ranking display. Generic CRMs (Salesforce, HubSpot) have powerful analytics but require roofing-specific custom fields and dashboard configuration by a developer or consultant, costing $500–$5,000 to build. CompanySync ships the roofing-specific dashboard preconfigured — open it and see your business, day one.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">AI Marketing Creative — Marcus</div>
+      <div class="feature-pill" style="background:#dcfce7;color:#16a34a;">Estimating</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Roofing companies spend thousands on agencies to produce ad copy, social posts, and training videos they could generate in minutes.</div>
+        <div class="solution">✅ Solution: Marcus, the built-in AI marketing assistant, generates branded ad copy, social content, and training videos on demand — no agency required.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Brief Marcus with your campaign goal, target audience, tone, and any specific offers or differentiators in plain language</li><li>Marcus generates ad copy variants, email subject/body options, or a full social content calendar in seconds using your brand context</li><li>For training videos, Marcus narrates a screen-recorded walkthrough with branded intro and outro — ready to share with new reps</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for owner-operators who want professional marketing content but can't justify a $2,000–$5,000/month agency relationship at their current revenue level. Replaces outsourced copywriting, video production, and social media management that lack roofing context, take weeks to produce, and require repeated revision rounds. The integrated AI produces in hours what agencies deliver in weeks — with full brand context from the CRM and zero retainer cost.
+      </div>
+      <div class="feature-desc">Brief Marcus on your offer or campaign goal and receive professional ad copy, email campaigns, and social content in seconds. The integrated AI video generator produces narrated, branded training walkthroughs for new reps — cutting onboarding time with zero agency retainer cost.</div>
+      <div class="competitor-note"><strong>vs. all roofing CRMs / ChatGPT / agencies:</strong> No competitor roofing CRM includes an AI marketing content generator — this capability simply doesn't exist in the field. Using ChatGPT for content produces generic output with no company-specific brand context, no roofing domain expertise, and no integration with actual job data (real before/afters, customer names, storm dates). Agencies produce high-quality content at $2,000–$10,000/month retainers that most roofing companies at $1M–$5M revenue can't justify. Marcus bridges this gap with contextual, on-brand content generation available on demand.</div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══ 3 — AI ROOF ═══ -->
+<section id="ai-roof" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#ede9fe;">🛰️</div>
+    <div class="section-title">AI Roof &amp; Damage Intelligence</div>
+  </div>
+  <p class="section-sub">Satellite, solar, photo AI, and 3D rendering — measurement accuracy that rivals a $75 report, instantly.</p>
+  <div class="features-grid">
+
+    <div class="feature-card">
+      <div class="feature-name">Satellite Roof Measurement</div>
+      <div class="feature-pill" style="background:#ede9fe;color:#7c3aed;">AI</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Ordering a satellite measurement report costs $30–75 per address, takes 24 hours, and can't be edited or connected to your estimate.</div>
+        <div class="solution">✅ Solution: Enter any address and receive pitch-corrected roof area, segments, ridge/hip lengths, and eave height in under 60 seconds at no per-report cost.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Enter the property address; platform queries Google Solar API, OpenStreetMap polygon, and satellite imagery in parallel</li><li>AI detects the building footprint, applies pitch correction per segment, and calculates areas, ridge, hip, valley, and eave lengths</li><li>Measurement report auto-populates the estimate within 60 seconds — edit line items and send the estimate without leaving the platform</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for high-volume estimators quoting 10–30 roofs per week who can't absorb per-report measurement fees without consuming margin on every job. Replaces EagleView or GAF QuickMeasure for the majority of residential jobs where satellite accuracy is sufficient — typically 85–95% of standard residential pitches. At 15 roofs/week, companies save $23,400–$58,500 in annual measurement fees — the salary equivalent of a junior estimator.
+      </div>
+      <div class="feature-desc">Fuse Google Solar API satellite imagery with OpenStreetMap building polygon data and AI pitch detection to measure any U.S. address. Results auto-populate the estimate — turning a 30-minute measurement session into a 60-second address lookup at no per-report cost.</div>
+      <div class="competitor-note"><strong>vs. EagleView / GAF QuickMeasure / Hover / Nearmap:</strong> Every competitor in this category charges per-report fees ranging from $30 to $120, requires a 4–24 hour turnaround, and delivers a static PDF with no CRM link and no automatic estimate population. Hover requires an on-site mobile capture session, eliminating remote estimating. Nearmap provides aerial imagery but no AI measurement. CompanySync delivers measurement-to-estimate in under 60 seconds with no per-report cost, no separate login, and no manual transcription — making it the only measurement option that doesn't create a separate workflow step.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">AI Siding Measurement from Photos</div>
+      <div class="feature-pill" style="background:#ede9fe;color:#7c3aed;">AI</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Siding square footage requires a time-consuming on-site measurement of every wall face, window, and door — satellite data alone can't help.</div>
+        <div class="solution">✅ Solution: Upload photos; AI identifies story count, eave height, openings, and material per face — producing net siding area ready for the estimate.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Upload 2–8 photos from different angles of the house exterior — phone camera photos work, no specialized equipment required</li><li>AI identifies story count, eave height, wall face dimensions, opening counts per face, and material type on each elevation</li><li>Net siding area is calculated with opening deductions applied automatically and populated into the estimate in under 3 minutes</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for siding contractors and storm restoration specialists who need net siding area but have no satellite measurement option that handles wall geometry and opening deductions accurately. Replaces on-site manual measurement with tape measure or laser distance finder — a 45–90 minute site visit per estimate that adds fuel cost, travel time, and scheduling overhead to every bid. Reducing siding estimate time from an on-site visit to a 3-minute photo upload enables reps to quote same-day from the office.
+      </div>
+      <div class="feature-desc">Analyze up to 8 uploaded job-site photos simultaneously to extract per-face wall dimensions, story count, eave height, window and door counts, and siding material. AI deducts openings automatically and combines with satellite footprint data to produce net siding square footage.</div>
+      <div class="competitor-note"><strong>vs. Hover / all competitors:</strong> Hover is the closest competitor, but it requires a specialized mobile capture session at the property using their specific capture protocol — it cannot use freely-uploaded photos from any source. No other competitor produces siding measurements from standard photos with per-face AI detection, story count inference, and automatic opening deduction. For contractors who need siding estimates remotely — after a storm, for a homeowner who sent photos, or for a neighbor referral — CompanySync is the only option that doesn't require returning to the property to take specialized photos.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Interactive Roof Map &amp; 3D Viewer</div>
+      <div class="feature-pill" style="background:#ede9fe;color:#7c3aed;">AI</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Adjusters and homeowners struggle to understand which sections are damaged when described only in text or a flat satellite image.</div>
+        <div class="solution">✅ Solution: An interactive map with click-to-draw zone selection, pitch overlay, and a real-polygon 3D viewer for photorealistic structure visualization.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Open the roof map from the estimate or job record; every measured segment overlays the satellite image with pitch, area, and direction labels</li><li>Click any segment to define damage zones; annotate with damage type, severity, and scope notes directly on the map</li><li>Toggle to 3D view; an extruded model of the real building footprint renders with openings placed on each wall face for visual scope review</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for contractors presenting to homeowners and adjusters who struggle to understand roof complexity from text descriptions or flat satellite images without spatial context. Replaces static PDF measurement reports and hand-drawn sketches that confuse homeowners and undermine confidence in the estimate's accuracy. Visual scope explanations reduce the 'I need to think about it' objection and improve close rates on presented estimates — particularly for complex multi-facet roofs where the measurement rationale isn't obvious.
+      </div>
+      <div class="feature-desc">Visualize every roof section on a live satellite map. Click to define damage zones, overlay pitch and eave data, and switch to a 3D viewer that extrudes the real OSM building footprint with openings placed correctly on each wall face.</div>
+      <div class="competitor-note"><strong>vs. EagleView Assess / HailTrace / Hover:</strong> EagleView delivers PDF measurement reports with static aerial imagery — no zone drawing, no interactive model, no 3D viewer. HailTrace shows storm data overlaid on maps but has no measurement or damage zone tools. Hover produces a 3D model but uses their proprietary capture session, charges per model, and has no estimate integration — the model lives in Hover, not the CRM. CompanySync's 3D viewer uses real OSM building polygon data, requires no specialized capture, and lives natively on the estimate record where it actually contributes to the sales conversation.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">AI Damage Photo Analysis</div>
+      <div class="feature-pill" style="background:#ede9fe;color:#7c3aed;">AI</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Inspectors spend hours documenting damage manually, often missing subtle impact signs that adjusters later dispute during the claim review.</div>
+        <div class="solution">✅ Solution: AI analyzes inspection photos for hail bruising, wind damage, shingle cracking, and granule loss — generating a scored damage narrative in seconds.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Upload inspection photos from any source — phone camera, drone, DSLR; AI processes all images simultaneously, not sequentially</li><li>AI classifies each photo: hail bruising, wind damage, shingle cracking, granule loss, or water intrusion — with a confidence score</li><li>A formatted damage report with damage type counts, severity scores, and a professionally worded claim narrative is ready in seconds</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for storm restoration specialists who need to document hail and wind damage quickly and accurately enough to survive a carrier dispute at the adjuster meeting. Replaces manual photo review where inspectors miss 15–30% of subtle damage types that adjusters use to reduce claim values — particularly granule loss patterns and marginal hail bruising. Systematic AI detection ensures no damage category is missed, protecting the full claim value from carrier downgrade.
+      </div>
+      <div class="feature-desc">Upload inspection photos and receive an AI-generated damage report with individual damage type counts, severity scores, and a professionally worded claim narrative. The AI cross-references multiple photos to prevent double-counting and flags uncertain findings for human review before submission.</div>
+      <div class="competitor-note"><strong>vs. Hover / EagleView / CompanyCam:</strong> Hover and EagleView are measurement tools — they produce no damage narrative, no type classification, and no severity scoring. CompanyCam organizes photos but performs no AI analysis — the inspector still evaluates every image manually and writes all damage descriptions by hand. No competitor produces an adjuster-ready damage report with type counts, confidence scores, and a formatted narrative from uploaded photos. The practical difference: AI detection flags damage that an inspector's eye misses, particularly under time pressure on a multi-facet roof.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Aerial Property Intelligence</div>
+      <div class="feature-pill" style="background:#ede9fe;color:#7c3aed;">AI</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Reps arrive at properties without previewing roof complexity or access challenges — leading to surprise scope changes after the estimate is signed.</div>
+        <div class="solution">✅ Solution: In-platform aerial view with building detection lets reps assess any property before visiting, directly from the lead record.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Open any lead or customer record and click 'View Aerial'; the platform loads a high-resolution property image with building detection</li><li>Assess roof complexity (pitch changes, dormers, valleys), access points, driveways, fencing, and surrounding trees before visiting</li><li>Rep arrives at the property prepared with the right equipment, realistic scope expectations, and zero surprise discoveries on-site</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for canvass teams and inside estimators who pre-qualify properties before committing a rep to drive to the site — particularly valuable for insurance claims where the scope determines whether the job is worth pursuing. Replaces switching to Google Maps or Google Earth separately — a 2–5 minute context break per property that multiplies to hours across a canvass list. Reps who arrive prepared at the right jobs skip the surprise complexity that would have required a revised estimate after a wasted trip.
+      </div>
+      <div class="feature-desc">View a high-resolution aerial image of any property from the lead or customer record before visiting the site. Assess roof complexity, access points, and surrounding obstructions — so reps arrive prepared with the right equipment and a realistic scope expectation.</div>
+      <div class="competitor-note"><strong>vs. Google Maps manual lookup / Nearmap:</strong> Switching to Google Maps breaks the CRM workflow, offers no building detection overlay, and shows imagery that may be 1–3 years out of date for recent construction. Nearmap provides current high-resolution imagery but is a separate subscription tool with no CRM integration — opening it requires navigating away from the lead record. No competitor surfaces aerial property view inline on the lead record, inside the platform, without a context break. CompanySync is the only option where 'check the aerial before I drive there' is a one-click action from the record.</div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══ 4 — FIELD OPS ═══ -->
+<section id="field" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#fef9c3;">📸</div>
+    <div class="section-title">Field Operations</div>
+  </div>
+  <p class="section-sub">Everything the crew needs in the field — from photo capture to build schedule — on one mobile-ready platform.</p>
+  <div class="features-grid">
+
+    <div class="feature-card">
+      <div class="feature-name">Inspection Capture &amp; CrewCam</div>
+      <div class="feature-pill" style="background:#fef9c3;color:#92400e;">Field</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Field crews send damage photos via text — unorganized, unlabeled, and completely disconnected from the job record or insurance file.</div>
+        <div class="solution">✅ Solution: A mobile capture tool where inspectors photograph, label, annotate, and tag damage synced to the inspection report in real time.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Inspector opens the mobile app on-site; creates labeled sections (Roof — North Face, Gutters, Siding) and photographs each area</li><li>Draw directly on photos to circle damage areas; add typed notes; AI auto-categorizes by damage type in the background</li><li>All photos sync to the job record; a formatted inspection report is one click away in the office — adjuster-ready immediately</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for inspection crews who need their field documentation to meet adjuster standards without post-processing work back at the office. Replaces CompanyCam, photo text chains, and unlabeled photo dumps that require 2–4 hours of office organization before an adjuster can review the file. Inspection documentation going from field capture to adjuster-ready report in minutes instead of hours is the difference between submitting a claim the same day as the inspection and waiting until tomorrow.
+      </div>
+      <div class="feature-desc">Give every crew member a mobile inspection app that captures labeled photos, allows drawing on images to mark damage, and syncs everything to a shareable inspection report. Photos are geotagged, timestamped, and organized by damage section — adjuster-ready without any post-processing.</div>
+      <div class="competitor-note"><strong>vs. CompanyCam / AccuLynx photos / generic camera roll:</strong> CompanyCam is a strong photo organization tool but is completely disconnected from the CRM, the estimate, and the insurance claim — every photo must be manually exported and re-attached elsewhere. AccuLynx photo uploads offer labeling but no annotation drawing, no AI damage categorization, and no one-click report generation. Photos sent by text or email have no labeling, no job linkage, and require an office admin to organize them into something an adjuster can use. CompanySync is the only option where field capture and adjuster-ready output are the same workflow step.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Drone Inspection Management</div>
+      <div class="feature-pill" style="background:#fef9c3;color:#92400e;">Field</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Drone footage gets stored on a laptop hard drive, never organized, and rarely makes it into the insurance file where it matters most.</div>
+        <div class="solution">✅ Solution: A dedicated drone module with bulk media upload, organized by job, with AI damage analysis available on every captured frame.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Upload drone photos or video clips from any device to the dedicated drone job folder — no specialized import tool required</li><li>Select individual frames for AI damage analysis; attach selected frames directly to the inspection report with labels</li><li>Share a professional drone media package with the adjuster via a single link — organized, branded, and linked to the claim</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for companies using drone inspection as a competitive differentiator who need the footage to actually reach the insurance file in a professional, organized format. Replaces saving drone footage on personal laptops, sharing via WeTransfer, or handing adjusters a USB drive — none of which connect to the job record or the claim documentation. Professional drone media packages strengthen the claim presentation and reduce adjuster revision requests by providing organized visual evidence that stands up to scrutiny.
+      </div>
+      <div class="feature-desc">Upload, organize, and manage drone inspection footage and photos in a dedicated job folder. Route footage to AI damage analysis, attach selected frames to inspection reports, and share a professional drone media package with adjusters — all linked to the job automatically.</div>
+      <div class="competitor-note"><strong>vs. all roofing CRMs / generic cloud storage:</strong> No competitor roofing CRM has a dedicated drone media management module — footage typically lives on a laptop hard drive or a generic cloud storage folder, completely disconnected from the CRM, the job, and the insurance file. Uploading drone footage to Google Drive or Dropbox and sharing a folder link with an adjuster is the current industry standard — an informal, disorganized approach that doesn't reflect the professionalism of the underlying work. CompanySync makes drone documentation a first-class part of the claim file, not an afterthought.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Inspection Reports &amp; Adjuster Review</div>
+      <div class="feature-pill" style="background:#fef9c3;color:#92400e;">Field</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Producing a professional inspection report requires hours of copy-pasting photos, writing damage descriptions, and formatting in Word or Canva.</div>
+        <div class="solution">✅ Solution: One-click generation of a fully-formatted report with labeled photos, AI damage narrative, and a dedicated adjuster review link — in seconds.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>All field-captured photos, notes, and damage annotations auto-assemble into a structured report draft — sections pre-labeled by damage area</li><li>AI fills damage descriptions per section; rep reviews, adjusts scope notes, and adds any missing context in under 5 minutes</li><li>Send a PDF and a dedicated adjuster review link simultaneously — adjuster opens the link and comments on specific photos in the portal</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for public adjusters and roofing contractors submitting insurance claims where report quality and organization directly influence the claim outcome and payment amount. Replaces Word-document report templates, Canva decks, and CompanyCam PDFs that require manual assembly and offer no adjuster collaboration feature. A 60-second AI report generation replacing a 2–4 hour manual production process per claim produces enough time savings to fund the platform cost within the first week of use.
+      </div>
+      <div class="feature-desc">Generate a branded, photo-rich inspection report in one click from all captured field photos. The AI pre-fills damage descriptions per section, organizes photos by damage type, and produces a professional PDF with an adjuster review link for commenting on specific photos.</div>
+      <div class="competitor-note"><strong>vs. CompanyCam / Word templates / Canva:</strong> CompanyCam produces a basic PDF photo report with labels but no AI-written damage narrative, no structured damage-type sections, and no adjuster collaboration portal. Word templates require manual photo insertion, damage description writing, and formatting for each claim — 2–4 hours of production per report that looks different every time depending on who created it. Canva decks produce visually polished reports but with no CRM connection and no photo auto-import from the job record. None of these tools offer a live adjuster review portal where the adjuster can comment on specific photos without a phone call.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Build Schedule &amp; Scope-of-Work Checklist</div>
+      <div class="feature-pill" style="background:#fef9c3;color:#92400e;">Field</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Installation crews miss steps or install wrong materials because the scope lives in the estimate PDF, not a jobsite-facing checklist crew members can use.</div>
+        <div class="solution">✅ Solution: A build schedule linked to the estimate auto-generates a per-job checklist crew check off on their phones as work progresses.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Create a build schedule from the approved estimate; line items become ordered checklist steps with assigned crew automatically</li><li>Crew accesses the checklist on their phone on-site; checks off each step as work progresses with optional photo confirmation</li><li>Office watches completion status in real time; the schedule marks 'Complete' only when every checklist item is signed off</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for operations managers overseeing crews on 10–40 simultaneous installs who need proof that every scope item was completed correctly — not just a verbal sign-off. Replaces paper checklists that are never returned, verbal crew confirmations that are unverifiable, and text message updates that aren't logged to the job. Preventing the average 'missed step' callback — which costs $500–$2,000 in return labor per incident — pays for months of platform use in one avoided mistake.
+      </div>
+      <div class="feature-desc">Schedule installations, assign crew, and give workers a jobsite checklist generated from the approved estimate line items. Crew check off tasks on their phone; the office sees real-time completion status. A soft gate prevents sign-off until every checklist item is done.</div>
+      <div class="competitor-note"><strong>vs. JobNimbus / AccuLynx / paper checklists:</strong> JobNimbus has basic job scheduling and status tracking but no estimate-linked checklist generation — the scope document and the crew's on-site checklist are completely disconnected, requiring manual transfer. AccuLynx has similar limitations: job stages can be updated but not at the individual checklist-item level from a mobile device. Paper checklists are unverifiable — there's no audit trail, no photo confirmation, no real-time office visibility, and no enforcement that every item was actually completed before sign-off. CompanySync's build schedule creates a traceable, mobile-accessible record that every completed step was actually done.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Subcontractor Management</div>
+      <div class="feature-pill" style="background:#fef9c3;color:#92400e;">Field</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Managing sub crews requires separate spreadsheets for contact info, assignments, certificates, and payments — all disconnected from the job record.</div>
+        <div class="solution">✅ Solution: A dedicated subcontractor directory with job assignment, certificate storage, and payment tracking — all linked to the parent job record.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Add subs to the directory with trade specialty, contact info, insurance certificate upload, and certificate expiry alert date</li><li>Assign a sub to a specific job; they receive a notification with scope details and access to the relevant job record section</li><li>Track sub completion status, process payment against job cost, and log disbursements — all linked to the parent job record</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for general contractors and storm restoration companies managing rotating crews of 10–40 subcontractors across multiple active jobs where disconnected sub management creates real liability exposure. Replaces sub management in spreadsheets, email threads, and separate payroll systems that have no connection to the job record or cost picture. Real-time sub assignment and payment tracking eliminates the end-of-job reconciliation scramble that routinely causes payment disputes and lien filings.
+      </div>
+      <div class="feature-desc">Maintain a complete subcontractor database with contact details, trade specialties, insurance certificate expiry tracking, and job history. Assign subs to specific jobs, track completion, and process sub payments against job cost — all linked directly to the parent job record.</div>
+      <div class="competitor-note"><strong>vs. ServiceTitan / generic CRMs / spreadsheets:</strong> ServiceTitan subcontractor management is designed for HVAC trade businesses and requires enterprise configuration to approximate roofing subcontractor workflows. Generic CRMs treat subs as contacts, not as operational resources with assignments, certificates, and job-level cost tracking. Spreadsheet sub management creates the classic liability gap: an expired insurance certificate isn't noticed until the job is already started and the incident has occurred. CompanySync's automatic certificate expiry alerting — surfaced on the sub record before assignment — is a risk management tool as much as an operational one.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Color Visualizer</div>
+      <div class="feature-pill" style="background:#fef9c3;color:#92400e;">Field</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Homeowners struggle to commit to a siding or shingle color from a small sample chip — leading to mid-job changes and costly material returns.</div>
+        <div class="solution">✅ Solution: AI recolors the homeowner's actual house photo in any material color, letting them see the finished result before signing the contract.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Upload a property photo from the job record or from any device; select the structure and material type (shingle, siding, trim)</li><li>Browse the manufacturer color palette or upload a custom swatch; AI renders the selected color on the actual house photo</li><li>Homeowner sees the finished result — on their real house, not a stock image — and confirms color selection before signing the contract</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for retail sales reps and design-conscious homeowners in the $15,000–$50,000 project range where color commitment anxiety causes mid-job changes and costly material returns. Replaces manufacturer sample chip books and generic 'see it on a sample house' apps that don't show the homeowner's actual property. Eliminating mid-job color change requests — an average $800–$3,000 material return and re-order cost per incident — creates enough savings to justify the feature on the first prevented change.
+      </div>
+      <div class="feature-desc">Upload a property photo and select any shingle or siding color. AI replaces the current exterior with the chosen material rendered on the real house — not a stock image — so homeowners commit to a color before signing the contract.</div>
+      <div class="competitor-note"><strong>vs. Owens Corning Visualizer / GAF Virtual Remodeler / generic apps:</strong> Manufacturer visualizer tools render colors on generic stock house photos — not the homeowner's actual property — which fails to address the real anxiety of not knowing how it will look on their home specifically. These tools are also completely disconnected from the estimate, the contract, and the CRM — color selection happens in a separate tool with no documentation in the job record. CompanySync's color visualizer renders on the actual property photo and saves the selection directly to the job record, creating a documented, agreed-upon color choice that eliminates the 'I didn't realize it would look like that' dispute.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Field Rep Mobile App (PWA)</div>
+      <div class="feature-pill" style="background:#fef9c3;color:#92400e;">Field</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Field reps need their full workflow — leads, estimates, photos, jobs — on their phone, but most CRMs require desktop access or a separate native app download.</div>
+        <div class="solution">✅ Solution: A full-featured progressive web app installs to the home screen from a browser — no App Store, no IT department, no separate download required.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Rep opens the platform URL on their smartphone and taps 'Add to Home Screen' — the app icon appears on the home screen instantly</li><li>The PWA installs without App Store download, works offline on job sites, and syncs all data the moment connectivity returns</li><li>Every platform update deploys immediately to every rep's 'app' — no version mismatch, no 'please update' prompt, no IT coordination</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for mobile-first field sales teams where every rep needs full CRM access on their phone without IT managing App Store deployments or version conflicts across a fleet of Android and iOS devices. Replaces native app builds that require separate App Store approval for every update, a 1–7 day review cycle per release, and a version lag window where some reps run old code and some run new. Zero app update friction — every rep runs the current version within seconds of a deployment.
+      </div>
+      <div class="feature-desc">A fully offline-capable progressive web app gives reps complete access to leads, estimates, jobs, and inspection tools from any smartphone. It installs from the browser in one tap — no App Store required, no version mismatch, and works on sites with no signal.</div>
+      <div class="competitor-note"><strong>vs. native apps (ServiceTitan, AccuLynx, JobNimbus):</strong> Native apps require App Store and Play Store submissions for every update, creating review delays of 1–7 days during which the production app may be running outdated code. Different reps on different devices may run different app versions simultaneously, creating inconsistent behavior that's impossible to debug remotely. Native apps also require separate iOS and Android codebases — doubling the development and QA overhead for every feature. A PWA deploys instantly to every device, works offline, and requires zero App Store infrastructure — a meaningful operational advantage for a platform that updates regularly.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Permit Assistant</div>
+      <div class="feature-pill" style="background:#fef9c3;color:#92400e;">Field</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Tracking permit submission, approval, and inspection dates across dozens of active jobs requires a separate spreadsheet that's always out of date.</div>
+        <div class="solution">✅ Solution: A per-job permit tracker stores submission status, permit numbers, inspection dates, and linked permit files on each job record.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Open the job record and navigate to the permit section; enter the submission date, permit number, and applicable jurisdiction</li><li>Upload the permit document; set inspection appointment dates with automatic SMS and in-app reminders for responsible staff</li><li>Every team member sees current permit status on the job overview — no spreadsheet check required, no phone call to find the status</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for office admins managing permit compliance across 20–80 active jobs in multiple municipalities with different submission requirements and inspection timelines. Replaces shared Google Sheets permit trackers that fall behind in real time and create compliance gaps only visible during a state audit or when an inspector arrives at an unpermitted job. Missing an inspection date or permit renewal — a $5,000–$15,000 stalled crew cost per incident — is preventable with 30-second status visibility from any device.
+      </div>
+      <div class="feature-desc">Document permit submission status, store permit numbers, attach permit files, and track inspection appointment dates — all linked to the job record. Every permit status is visible to office and field staff without hunting through email threads or county portal websites.</div>
+      <div class="competitor-note"><strong>vs. separate permit spreadsheets / no system:</strong> The roofing industry's standard practice for permit tracking is a shared Google Sheet maintained by the office admin, manually updated when someone remembers to do it. This approach is accurate roughly 60–70% of the time and fails exactly when a job is busy — during the installation window when permit inspection timing matters most. No roofing CRM competitor includes a dedicated permit tracking module with document storage, inspection date alerts, and per-job status visibility in one view. CompanySync's permit assistant treats compliance as a workflow, not an afterthought.</div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══ 5 — COMMUNICATION ═══ -->
+<section id="communication" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#fce7f3;">📱</div>
+    <div class="section-title">Communication &amp; Automation</div>
+  </div>
+  <p class="section-sub">AI phone agents, two-way texting, automated workflows — the office runs even when no one's watching.</p>
+  <div class="features-grid">
+
+    <div class="feature-card">
+      <div class="feature-name">AI Receptionist — Lexi</div>
+      <div class="feature-pill" style="background:#fce7f3;color:#9d174d;">Comms</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Inbound calls after hours go to voicemail; missed leads mean missed revenue — and a full-time receptionist costs $40,000+ annually.</div>
+        <div class="solution">✅ Solution: Lexi answers every inbound call and text 24/7, books appointments, answers FAQs, and creates a CRM record automatically.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Inbound call or SMS arrives on the company number; Lexi answers within the first ring using your company name and greeting</li><li>Lexi asks qualifying questions naturally, collects homeowner details, checks available calendar slots, and books the appointment</li><li>A new lead record with the full call transcript, booked appointment, and homeowner details is created in the CRM; rep is notified instantly</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for owner-operators and solo office managers who can't staff a phone line 24/7 but lose a measurable number of leads every time a call goes to voicemail after hours or during a busy storm surge. Replaces third-party answering services charging $200–$500/month with no CRM sync, no appointment booking, and no lead record creation — just a message pad email delivered hours later. Capturing even 2 additional leads per month at an $8,000 average job value covers the platform cost many times over.
+      </div>
+      <div class="feature-desc">Lexi handles every inbound call and SMS — answering questions, collecting homeowner details, booking appointments, and creating a CRM lead automatically. She speaks naturally using your company name and tone. Every conversation is transcribed and logged to the CRM for the team.</div>
+      <div class="competitor-note"><strong>vs. answering services / voicemail / all roofing CRMs:</strong> No roofing CRM includes a built-in AI phone receptionist — this capability simply doesn't exist in JobNimbus, AccuLynx, ServiceTitan, or any other platform. Third-party answering services (PATLive, Ruby, Smith.ai) charge $200–$500/month, route messages via email 30–60 minutes later, and have no integration with your CRM — every lead they capture must be manually entered. Voicemail converts less than 10% of callers who hang up. Lexi converts inbound calls into booked appointments and CRM records in real time, 24 hours per day, without staffing overhead.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">AI Outbound Assistant — Alex</div>
+      <div class="feature-pill" style="background:#fce7f3;color:#9d174d;">Comms</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Following up on 50 unsold estimates by phone takes a rep an entire afternoon — most calls go to voicemail and the rep gives up after one try.</div>
+        <div class="solution">✅ Solution: Alex autonomously dials prospects, delivers natural follow-up, handles objections, and books callbacks — without a rep on the line.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Select a target list — unsold estimates over 7 days, cold leads, or appointment no-shows — and schedule the campaign</li><li>Alex calls each prospect, introduces himself using your company name, and delivers natural conversational follow-up with objection handling</li><li>Booked appointments enter the calendar automatically; hot leads are flagged with a full transcript for immediate rep callback</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for sales managers with 50–200 unsold estimates in the pipeline who need systematic follow-up without burning rep time on cold calls that go to voicemail on the first two attempts. Replaces manual power-dialer follow-up where reps spend 60–90 minutes per day dialing for 2–3 actual conversations — an inefficient use of skilled rep time on a largely low-probability activity. Alex handles unsold-estimate outreach autonomously, freeing every rep for warm conversations and on-site presentations exclusively.
+      </div>
+      <div class="feature-desc">Deploy Alex to call unsold estimates, dormant leads, or appointment no-shows automatically. He delivers conversational follow-up, answers objections using your knowledge base, books live appointments, or flags hot leads for immediate rep callback — without a human on the line.</div>
+      <div class="competitor-note"><strong>vs. power dialers / manual follow-up / all competitors:</strong> Power dialers (PhoneBurner, Mojo) automate dialing but require a live rep on every call — the cost savings are in dial time, not conversation time. No roofing CRM includes an AI outbound caller with natural language capability and objection handling. Manual rep follow-up on a list of 100 cold estimates takes 3–5 hours of calling for perhaps 8–12 conversations — a deeply inefficient ratio. Alex runs the same campaign in the background while reps are on-site, producing qualified callbacks without consuming any rep capacity.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Live AI Voice Bridge (Gemini Live)</div>
+      <div class="feature-pill" style="background:#fce7f3;color:#9d174d;">Comms</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Staff in the field need CRM data — job status, estimate totals, customer details — while their hands are occupied on a ladder or in a truck.</div>
+        <div class="solution">✅ Solution: Staff call the company AI line, authenticate by voice PIN, and converse naturally with the full CRM — entirely hands-free in real time.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Rep calls the company AI line from any phone; Lexi authenticates by spoken PIN and confirms identity</li><li>Rep asks for a customer record, estimate total, job status, or requests to log a note — all by speaking naturally without a screen</li><li>CRM updates in real time; every interaction is transcribed and logged automatically so the office sees every field update</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for field reps and crew managers who need CRM data while physically working on rooftops, in trucks, or in conditions where screen use is unsafe or impossible. Replaces pulling over to use a smartphone screen, calling the office and waiting on hold, or simply skipping the CRM update entirely because the friction is too high in the moment. Hands-free CRM updates from the field increase data completeness — ensuring every job note, status change, and customer update gets logged in real time, not reconstructed at end of day.
+      </div>
+      <div class="feature-desc">Every staff member calls the AI line from their personal cell, authenticates by spoken PIN, and interacts with the full CRM by voice — pulling up estimates, logging notes, checking schedules, or updating job status completely hands-free from any job site.</div>
+      <div class="competitor-note"><strong>vs. all competitors / mobile apps:</strong> No roofing or field-service CRM offers a live voice-activated CRM interface — all competitors require a smartphone screen interaction, which is impractical with gloves on a ladder, impossible with both hands occupied, and dangerous while driving. Mobile apps are the assumed solution, but opening a CRM app while working requires stopping work entirely. CompanySync's voice bridge lets a rep check a job status, log a note, or look up a phone number by speaking naturally — without stopping work, without looking at a screen, without calling the office.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Two-Way SMS &amp; Email</div>
+      <div class="feature-pill" style="background:#fce7f3;color:#9d174d;">Comms</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Customer texts go to a rep's personal cell — invisible to the office, not logged to the CRM, and lost when that rep leaves the company.</div>
+        <div class="solution">✅ Solution: A unified inbox where every customer SMS and email threads into the CRM, visible to the whole team and replying from your company number.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Open the customer record and compose an SMS or email from the company-owned number — not a personal cell or generic email</li><li>Customer replies; the message appears in the platform inbox threaded to the customer record within seconds of arrival</li><li>Any authorized team member can view the full conversation history and continue the thread — visibility doesn't depend on one rep</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for companies where multiple reps manage the same homeowner relationship and need complete conversation visibility without forwarding personal phone threads to the office. Replaces reps texting from personal phones — creating dark-channel conversations the company can never audit, reference in disputes, or preserve when the rep leaves. Every communication becoming a permanent, searchable CRM record protects the company from 'I never said that' disputes and preserves customer relationships through rep turnover.
+      </div>
+      <div class="feature-desc">Send and receive SMS and email from a company-owned number directly inside the platform. Every reply threads to the customer record — visible to managers, fully searchable, and never lost when a rep changes. Compose from reusable templates with real-time delivery tracking.</div>
+      <div class="competitor-note"><strong>vs. personal phone texting / JobNimbus / AccuLynx:</strong> The industry default — reps text homeowners from personal phones — means all customer communication leaves the company when the rep does, is invisible to management, and is inadmissible in a dispute. JobNimbus and AccuLynx have basic SMS capability but limited threading depth, no email threading, and no shared team inbox where multiple staff can see and respond to the same conversation. CompanySync's inbox treats every customer communication as a company asset — owned by the business, not by the rep who happened to have the conversation.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Automated Workflow Engine</div>
+      <div class="feature-pill" style="background:#fce7f3;color:#9d174d;">Comms</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Consistent follow-up requires staff to manually trigger every communication — and human memory fails, especially during busy storm season.</div>
+        <div class="solution">✅ Solution: Define trigger-based workflows that run automatically — "Estimate sent → wait 2 days → SMS follow-up → wait 3 days → manager alert."</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Choose a trigger event (estimate sent, lead created, invoice overdue) and add action steps: wait, send SMS, send email, create task, change status</li><li>Save the workflow; it activates immediately and runs automatically for all future events matching the trigger condition</li><li>Every execution is logged to the customer record — managers see what automated messages fired, when, and to whom</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for owners who want consistent, professional follow-up across every customer touchpoint without relying on rep discipline during peak storm season when manual processes always break down. Replaces manual follow-up checklists that work when business is slow and get abandoned exactly when volume peaks. Automated follow-up running 24/7 captures the 30–40% of revenue that falls through the cracks during a busy storm season when human attention is spread too thin.
+      </div>
+      <div class="feature-desc">Build multi-step automated workflows triggered by any CRM event — new lead, estimate approved, job started, invoice overdue. Add SMS, email, internal alerts, status changes, and time delays. Workflows run 24/7 silently, ensuring every prospect gets the right message automatically.</div>
+      <div class="competitor-note"><strong>vs. ServiceTitan / JobNimbus / AccuLynx:</strong> ServiceTitan's workflow engine is powerful but enterprise-only — most roofing companies at $500K–$3M revenue are on tiers that don't include multi-step trigger automation. JobNimbus has basic triggers (send an email when a job status changes) without multi-step delays, branching logic, or combined SMS+email+internal alert sequences. AccuLynx has similar basic automation with no conditional branching. The practical gap: a five-step 'estimate follow-up' workflow that waits 2 days, sends SMS, waits 3 days, sends email, then creates a manager task if still unanswered — is impossible in any competitor without Zapier middleware.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Proactive Appointment &amp; Build Reminders</div>
+      <div class="feature-pill" style="background:#fce7f3;color:#9d174d;">Comms</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Homeowners forget inspection appointments or aren't home for scheduled installations — causing costly crew no-shows and rescheduling delays.</div>
+        <div class="solution">✅ Solution: Automated SMS and email reminders go to homeowners before every appointment and installation, with an optional AI voice confirmation call.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Create an appointment or installation event; the platform automatically queues the reminder sequence without any additional setup</li><li>Homeowner receives personalized SMS messages at 48 hours, 24 hours, and 2 hours before the scheduled time automatically</li><li>Optionally, an AI voice call confirms the appointment the evening before using a natural conversation — not a robocall recording</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for schedulers and office managers who lose 10–20% of appointment slots to no-shows and late cancellations that waste crew time, vehicle costs, and material staging. Replaces manual reminder texting — done inconsistently, forgotten during rush periods, and never confirmed via voice. Research consistently shows automated reminders reduce no-show rates by 25–40%; for a crew with a $500/day standby cost, preventing one no-show per week pays for months of platform use.
+      </div>
+      <div class="feature-desc">Configure reminder cadences — 48 hours, 24 hours, and 2 hours before — for every appointment and installation date. Messages are personalized with homeowner name, job details, and arrival window. Optionally add an AI voice confirmation call the evening before.</div>
+      <div class="competitor-note"><strong>vs. generic CRMs / manual texting / no system:</strong> The most common approach — a rep texts the homeowner the day before — is inconsistently executed, happens too late to reduce no-shows, and is forgotten completely during storm surge when scheduling is heaviest. Generic CRM reminder systems send a single automated message with no follow-up cadence and no voice confirmation option. No roofing CRM offers an AI voice confirmation call the evening before as a built-in feature. CompanySync's three-touch reminder cadence (48hr SMS, 24hr SMS, 2hr SMS, optional voice call) is the closest to the multi-touch approach medical practices use — and achieves similar no-show reduction rates.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Calendar &amp; Scheduling</div>
+      <div class="feature-pill" style="background:#fce7f3;color:#9d174d;">Comms</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Appointments booked in the CRM don't sync to reps' personal calendars, causing double-bookings, missed inspections, and scheduling conflicts.</div>
+        <div class="solution">✅ Solution: A team-wide calendar with Google sync, drag-and-drop rescheduling, crew availability view, and automated homeowner reminders — fully integrated.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Create an appointment from any customer record or the shared calendar; assign it to a rep, crew member, or team</li><li>Google Calendar syncs both directions instantly — the rep sees the appointment on their personal calendar within seconds</li><li>Drag to reschedule from the calendar view; CRM updates automatically and a new reminder sequence fires to the homeowner</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for office coordinators managing crew schedules across inspections, estimates, installations, and adjuster meetings — all in one shared view with real Google Calendar sync. Replaces the island of disconnected Google Calendars (each rep has their own, none connected to the CRM) and whiteboard schedules that require a phone call to update from the field. Preventing one double-booking per week — with its rescheduled crew, frustrated homeowner, and rushed material reorder — justifies the coordination tool's existence.
+      </div>
+      <div class="feature-desc">Schedule inspections, installations, and appointments on a shared team calendar with two-way Google Calendar sync. Drag-and-drop rescheduling updates the CRM and triggers new homeowner reminders automatically. View crew availability and prevent double-bookings from any device, at any time.</div>
+      <div class="competitor-note"><strong>vs. Google Calendar alone / JobNimbus / AccuLynx:</strong> A standalone Google Calendar has no CRM context — appointments have no connection to the customer record, estimate value, job stage, or homeowner contact details. JobNimbus has basic scheduling but no two-way Google Calendar sync and no automated homeowner reminder trigger when an event is moved. AccuLynx has similar limitations with no drag-to-reschedule that cascades through reminder sequences. CompanySync's calendar is the only option where rescheduling an appointment in one click updates the CRM, notifies the homeowner, and queues a new reminder sequence automatically.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Google Review Requests</div>
+      <div class="feature-pill" style="background:#fce7f3;color:#9d174d;">Comms</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Most contractors forget to ask for reviews, and the homeowners who would leave five stars are the ones never contacted after the job closes.</div>
+        <div class="solution">✅ Solution: Automated review requests go to every homeowner after job close, timed to capture peak satisfaction when the experience is freshest.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Job status moves to 'Complete'; the platform queues a personalized review request automatically — no manual trigger required</li><li>Homeowner receives an SMS with the rep's name, job address, and a direct link to your Google Business profile review page</li><li>Platform tracks sent, opened, and clicked status; uncompleted requests appear in the follow-up queue for optional second outreach</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for marketing-conscious owners who understand that 10 new Google reviews outperform $1,000 of digital ad spend in driving organic lead volume for local search. Replaces hoping reps manually ask for reviews — which happens inconsistently and only for the easiest, most satisfied customers — or relying on third-party review platforms at $200–$400/month with no CRM job-close trigger. Companies that systematize review collection at job close typically reach 4.5+ stars within 90 days, the threshold where Google Maps organic visibility increases dramatically.
+      </div>
+      <div class="feature-desc">Automatically send a personalized review request to every homeowner after a job closes. Target your Google Business profile, customize the message, and track request and response status. Timing requests immediately after a successful install drives consistently higher five-star ratings.</div>
+      <div class="competitor-note"><strong>vs. Birdeye / Podium / manual requests:</strong> Birdeye and Podium are strong review management tools but cost $200–$400/month with no CRM job-close trigger — the 'send after job complete' timing that drives the highest response rates must be coordinated manually between two disconnected systems. Manual review requests from reps happen at maybe 20–30% of jobs and skew toward already-satisfied homeowners (the ones reps feel comfortable asking). CompanySync sends a request after every completed job automatically — capturing review opportunities from the full job volume, not just the ones reps remember and feel confident asking.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Team Chat &amp; Internal Spaces</div>
+      <div class="feature-pill" style="background:#fce7f3;color:#9d174d;">Comms</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Internal communication happens across group texts and email threads — completely disconnected from job context and invisible to management.</div>
+        <div class="solution">✅ Solution: Built-in team chat with dedicated spaces where conversations can reference live CRM records, jobs, and estimates directly.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Create or join a topic space (Sales, Crew, Alerts, Management); invite team members by name or role</li><li>Paste a customer record link in any conversation — it expands inline with live status, estimate value, and current job stage</li><li>System alert notifications (new lead, overdue task, payment received, storm alert) post automatically to the Alerts space</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for teams of 5–30 where job-specific communication is currently scattered across WhatsApp groups, personal texts, and email threads with no connection to the CRM records being discussed. Replaces Slack (no CRM context, no customer record linking, separate subscription) and group texts (no organization, no searchability, no manager visibility). Eliminating the context switch between Slack and the CRM saves 15–30 minutes per team member per day during active storm season.
+      </div>
+      <div class="feature-desc">Create topic spaces for crew, sales, alerts, and management inside the platform. Share customer records, link to estimates, and receive system alert notifications — all in built-in chat that keeps full job context and replaces disconnected group texts permanently.</div>
+      <div class="competitor-note"><strong>vs. Slack / Microsoft Teams / group texts:</strong> Slack is an excellent general communication tool but has zero native connection to roofing CRM data — every reference to a customer, estimate, or job requires copying and pasting information between tools. Microsoft Teams has even less relevance for a mobile roofing team. Group texts are unorganized, unsearchable, invisible to management, and completely disconnected from the job context. CompanySync's built-in chat eliminates the context switch: a customer record link expands inline with live data, and system alerts arrive in the same interface where the conversation is happening.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Zoom, Slack &amp; Google Calendar Integrations</div>
+      <div class="feature-pill" style="background:#fce7f3;color:#9d174d;">Comms</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Appointments booked in the CRM don't appear in personal calendars, and Slack alerts for new leads require a separate Zapier subscription to configure.</div>
+        <div class="solution">✅ Solution: Native two-way Google Calendar sync, Zoom meeting generation, and Slack/Google Chat webhooks — all built-in, no Zapier required.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Connect Google, Slack, and Zoom once from the integrations hub — no Zapier account, no API developer, no ongoing maintenance</li><li>Every new appointment generates a Zoom link automatically; Slack channels receive event-triggered notifications in real time</li><li>Google Calendar stays two-way synced — any change in either platform reflects in the other within seconds, not minutes</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for operations leads who have already committed to Google, Slack, and Zoom and need those systems to work with — not against — their roofing CRM without Zapier middleware or developer maintenance. Replaces Zapier workflows ($50–$500/month) that break silently when API changes upstream, require monitoring, and often have a 1–15 minute delay that makes them unsuitable for time-sensitive events like storm alerts and lead assignments. Real-time, native data flow prevents the compounding errors from stale sync.
+      </div>
+      <div class="feature-desc">Connect Google Calendar for two-way appointment sync. Generate Zoom links for virtual estimate walk-throughs from the appointment record. Send automated Slack or Google Chat notifications when leads are assigned, estimates approved, or jobs close — all built-in, no Zapier needed.</div>
+      <div class="competitor-note"><strong>vs. AccuLynx / JobNimbus + Zapier / manual connection:</strong> AccuLynx offers no native Zoom meeting generation and no Slack webhooks — contractors who want these integrations must build Zapier workflows that add $50–$500/month in middleware cost and break silently when either API changes. JobNimbus has a Zapier integration library but no native implementations of calendar sync, Zoom generation, or Slack notifications. Zapier integrations also introduce a 1–15 minute data sync delay — a material problem when a storm alert needs to fire to a Slack channel within seconds of detection, not 15 minutes later.</div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══ 6 — REPORTING ═══ -->
+<section id="reporting" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#d1fae5;">📊</div>
+    <div class="section-title">Reporting &amp; Analytics</div>
+  </div>
+  <p class="section-sub">Real decisions require real data — not a spreadsheet export from last Tuesday.</p>
+  <div class="features-grid">
+
+    <div class="feature-card">
+      <div class="feature-name">Sales &amp; Revenue Analytics Dashboard</div>
+      <div class="feature-pill" style="background:#d1fae5;color:#065f46;">Reporting</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Owners don't know their close rate or revenue pipeline until the bookkeeper produces a monthly report — weeks too late to act on it.</div>
+        <div class="solution">✅ Solution: A live analytics dashboard surfaces closed revenue, pipeline value, and conversion rates updated in real time — no export required.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Open the sales dashboard; apply filters by date range, rep name, territory, lead source, or job type to focus on any business slice</li><li>Real-time metrics load without export: revenue closed, pipeline value, estimate-to-close rate, average job size — updated live</li><li>Click any metric to drill into individual records — see exactly which leads converted, which stalled, and at what stage</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for owners and sales directors who need to make pricing, staffing, and territory decisions based on today's data — not last month's exported CSV. Replaces the weekly Excel summary built by an office manager from manual CSV exports that is always 7–14 days stale and requires 2–3 hours to produce. Real-time conversion rate visibility allows coaching interventions in hours, not weeks — preventing the compounding revenue loss from a rep who is off-pace all month before anyone notices.
+      </div>
+      <div class="feature-desc">Monitor revenue, pipeline value, estimate-to-close conversion rate, average job size, and rep performance on a single live dashboard. Filter by date range, rep, lead source, or job type to spot underperforming reps and revenue gaps in real time every day.</div>
+      <div class="competitor-note"><strong>vs. AccuLynx / JobNimbus / generic CRMs:</strong> AccuLynx and JobNimbus both require data export to Excel or a third-party BI tool to build the analytical views most sales managers need — and by the time the export is processed, the data is already stale. Neither has a real-time conversion rate dashboard or a rep-level revenue attribution view without additional configuration. Generic CRMs (Salesforce, HubSpot) have powerful analytics but require roofing-specific custom field configuration and dashboard builds costing $500–$5,000 to set up. CompanySync ships the roofing sales dashboard preconfigured — open it and see your business today, on day one.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Configurable Report Builder</div>
+      <div class="feature-pill" style="background:#d1fae5;color:#065f46;">Reporting</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Built-in CRM reports answer the vendor's questions, not yours — and custom reports require a developer or data export to Excel every single time.</div>
+        <div class="solution">✅ Solution: A visual report builder lets any user create, save, and schedule custom reports from any data entity — no developer required.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Open the report builder; select an entity (leads, invoices, jobs, commissions) and add filter conditions with visual dropdowns</li><li>Add groupings, date ranges, and calculated columns; preview results instantly — see real data in the configured format before saving</li><li>Save as a named template; share with team members or schedule automatic delivery to email recipients at a set daily time</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for operations managers who need to answer specific business questions — territory ROI, lead source performance, seasonal revenue patterns — without an IT team or data analyst. Replaces Excel pivot tables built from manual CRM exports that take 30–90 minutes to produce and are outdated the moment they're finished. Self-service reporting eliminates the average 2–4 hours per week a manager spends producing reports that were already sitting in the CRM platform.
+      </div>
+      <div class="feature-desc">Build any report from any entity — leads, customers, estimates, invoices, jobs, commissions — using a visual report builder. Define filters, date ranges, groupings, and calculated columns. Save as templates, share with the team, and schedule automatic morning email delivery.</div>
+      <div class="competitor-note"><strong>vs. ServiceTitan / AccuLynx / JobNimbus:</strong> ServiceTitan custom reports require an enterprise plan and often a certified consultant to configure — a $500–$3,000 one-time engagement before you can answer a business question that the data already contains. AccuLynx and JobNimbus have fixed report templates with no customization, no grouping control, and no scheduled delivery — whatever questions their templates don't answer require a CSV export and manual Excel work. CompanySync's report builder is self-service: any manager can build, save, and schedule a report answering any question the platform data supports — in minutes, not days.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Accounts Receivable Aging Report</div>
+      <div class="feature-pill" style="background:#d1fae5;color:#065f46;">Reporting</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Outstanding invoices 60+ days past due aren't visible until the bookkeeper produces a monthly aging report — by which time cash flow is already strained.</div>
+        <div class="solution">✅ Solution: A live AR aging report buckets every outstanding invoice by age in real time, turning a passive report into an active collections tool.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Open the AR aging report; outstanding invoices auto-sort into 0–30, 31–60, 61–90, and 90+ day buckets — updated live without export</li><li>Drill into any bucket to see individual invoices with homeowner name, balance, job address, and original due date</li><li>Click 'Send Reminder' on any invoice from within the report; a configured SMS or email reminder fires immediately from the company number</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for owners and bookkeepers who need to proactively collect outstanding balances before cash flow gaps force a line of credit draw during slow season. Replaces QuickBooks AR aging reports that are accurate but disconnected from homeowner contact info, job history, and the ability to send a reminder from the same screen. Collections from the 31–60 day bucket succeed at 85%+ rates; the 90+ day bucket drops below 40% — timing the reminder within the window is the entire difference.
+      </div>
+      <div class="feature-desc">See every outstanding invoice in 0-30, 31-60, 61-90, and 90+ day aging buckets — updated live. Drill into any bucket for individual invoices and customer contact details. Trigger one-click reminder sequences directly from the aging view without switching to a separate tool.</div>
+      <div class="competitor-note"><strong>vs. QuickBooks standalone / generic CRMs / AccuLynx:</strong> QuickBooks produces accurate AR aging but has no homeowner contact details linked to the invoice, no job history context, and no way to send a reminder from the aging report itself — you must navigate to a separate tool to send a message. AccuLynx has basic invoice tracking but no live AR aging buckets with drill-down and no integrated reminder trigger. Generic CRMs have no accounting data. CompanySync's AR aging is the only view where you see an overdue invoice, see the homeowner's contact details, review the job context, and send a reminder — all from a single report screen without switching tools.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Storm Tracking &amp; Automated Alerts</div>
+      <div class="feature-pill" style="background:#d1fae5;color:#065f46;">Reporting</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Identifying which customers were hit by a new storm requires cross-referencing a storm map with a customer address list — a manual process that takes hours.</div>
+        <div class="solution">✅ Solution: Automated storm alerts surface which leads and customers fall inside a confirmed storm boundary, ready for a same-day outreach campaign launch.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Platform monitors NOAA, NWS, and IEM data continuously for qualifying hail and wind events within your configured service area</li><li>When an event is detected, your team receives an automatic notification with the impact zone, hail size, and confirmed damage area</li><li>A cross-reference view shows every customer and lead inside the storm boundary — filtered, addressable, and ready for same-day outreach</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for storm-chasing companies that need to be the first contractor at the door — not the third after a competitor has already signed the homeowner. Replaces manually watching weather.gov, subscribing to HailTrace separately, and cross-referencing an impact address list with your customer database by hand — a process that takes 2–4 hours after each storm event. First-to-door advantage in storm restoration typically means a 60–70% close rate; arriving third drops it below 20%.
+      </div>
+      <div class="feature-desc">Monitor real-time hail, wind, and severe weather using NOAA, NWS, and IEM data across your service area. When a storm hits, the platform notifies your team automatically and shows every customer and lead inside the impact zone — ready for same-day outreach.</div>
+      <div class="competitor-note"><strong>vs. HailTrace / standalone storm tracking / no system:</strong> HailTrace is the best standalone storm intelligence tool — it shows confirmed hail data with excellent geographic resolution — but it has no CRM integration, no customer cross-reference, and no ability to launch an outreach campaign from within the same tool. Contractors using HailTrace must export an address list, cross-reference it manually with their customer database, and then use a separate tool to initiate contact. CompanySync collapses those three steps into one: storm hits → team alerted → impact-zone customer list ready → outreach launches, all from inside the platform within minutes of detection.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">AI Morning Digest</div>
+      <div class="feature-pill" style="background:#d1fae5;color:#065f46;">Reporting</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Starting the day requires opening five tools to understand what happened yesterday, who needs follow-up, and what's on the schedule — consuming 30 minutes before real work starts.</div>
+        <div class="solution">✅ Solution: An AI-generated morning digest texts or emails each staff member a personalized summary of their priorities before 8am.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Platform aggregates the prior day's closed jobs, new leads, overdue items, and each staff member's schedule for the coming day</li><li>AI composes a personalized briefing per staff member based on their role, assignments, and outstanding action items</li><li>Digest delivers by email or SMS before 8am — each rep starts the day knowing their priorities without opening the platform first</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for field-heavy companies where reps start the day on-site at 7am, not in front of a laptop, but still need to know their priorities before the first call or customer interaction. Replaces the morning team meeting (takes everyone off productive work for 20 minutes), the manager's daily text chain, and the 20-minute inbox review that happens from the parking lot before the first appointment. Each rep saving 20–30 minutes of reactive catch-up per day across a team of 10 recovers 200–300 hours of productive capacity monthly.
+      </div>
+      <div class="feature-desc">Every morning, each staff member receives a personalized AI-written digest summarizing yesterday's closed jobs, today's appointments, overdue follow-ups, and escalated action items. Delivered by email or SMS before work starts — so every rep knows their priorities without opening the platform.</div>
+      <div class="competitor-note"><strong>vs. all roofing CRMs / generic tools:</strong> No competitor offers an AI-generated, per-staff-member personalized daily digest — this capability simply doesn't exist in JobNimbus, AccuLynx, ServiceTitan, or any other roofing platform. Generic notification systems send the same daily digest to everyone (irrelevant to 80% of recipients) or require each user to build their own report and remember to check it. CompanySync's digest is written by AI, personalized per role and assignment, and delivered proactively — so the rep doesn't need to log in to know what matters today.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Claims Audit &amp; Daily Field Reports</div>
+      <div class="feature-pill" style="background:#d1fae5;color:#065f46;">Reporting</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Tracking which claims are in review, supplement, or approved requires a separate spreadsheet — and crew daily reports are still handwritten paper forms.</div>
+        <div class="solution">✅ Solution: A digital claims audit tracker and auto-generated daily crew reports from build schedule and field captures replace both manual processes entirely.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Log a new insurance claim; assign a stage (submitted, in review, supplement requested, approved) and track adjuster notes and dates</li><li>Build schedule completions and field photo uploads auto-generate a daily crew activity summary for each active job</li><li>Owner reviews the claims dashboard for portfolio-level status and the daily reports for crew productivity — without a status call</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for public adjusters and insurance-focused contractors managing 20–100 active claims who need a compliance-grade audit trail without a dedicated claims management software subscription alongside the CRM. Replaces Excel claim trackers (always behind), handwritten daily reports (illegible, unsearchable, always a day late), and verbal morning status standups (no written record). A searchable audit trail prevents the average 2–3 claim disputes per quarter that arise from 'we can't prove we submitted that supplement.'
+      </div>
+      <div class="feature-desc">Track every insurance claim through submitted, in-review, supplement, and approved stages with a dashboard and sortable audit trail. Daily crew reports are auto-generated from build schedule completions and field photo activity — no handwritten report or morning status call needed.</div>
+      <div class="competitor-note"><strong>vs. Excel claim tracking / paper crew reports / no system:</strong> The roofing industry's standard claims tracking tool is a shared Excel spreadsheet maintained by the project manager — updated reactively, always missing the most recent action, and incapable of showing portfolio-level status across 50 active claims at a glance. Daily crew reports are handwritten on paper, collected at the office (if collected at all), and stored in a physical binder with no searchability. No competitor roofing CRM generates daily crew activity reports automatically from field actions. CompanySync makes claims management and daily reporting happen as a byproduct of normal field and office workflows — no dedicated entry step required.</div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══ 7 — PAYMENTS ═══ -->
+<section id="payments" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#fef3c7;">💳</div>
+    <div class="section-title">Payments &amp; Accounting</div>
+  </div>
+  <p class="section-sub">Invoice, collect, reconcile, and close the books — without switching to QuickBooks for every step.</p>
+  <div class="features-grid">
+
+    <div class="feature-card">
+      <div class="feature-name">Invoice Creation &amp; Payment Collection</div>
+      <div class="feature-pill" style="background:#fef3c7;color:#92400e;">Payments</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Paper invoices or PDF emails lead to slow payment, lost checks, and no visibility into whether the homeowner has even opened the document.</div>
+        <div class="solution">✅ Solution: Create an invoice and send a secure payment link the homeowner pays from their phone — with real-time confirmed status visible to the office.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Convert a closed estimate to an invoice in one click; line items, taxes, and totals carry over — no re-entry required</li><li>Send a branded payment link by SMS or email; homeowner pays by card or ACH from any device without creating an account</li><li>Payment is confirmed in the platform immediately; job status updates to 'Paid' and the record closes automatically</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for office admins and project managers who close jobs and need payment collected in hours — not the 14–45 days typical of mailed paper invoices or emailed PDFs with no payment link. Replaces the PDF invoice email workflow where the homeowner receives an attachment, has to figure out how to pay, calls the office for instructions, and mails a check. Digital invoices with payment links reduce average collection time from 21 days to 2–5 days for card-paying homeowners — a meaningful cash flow improvement.
+      </div>
+      <div class="feature-desc">Build and send branded invoices from a closed estimate with auto-populated line items. Customers pay by card or ACH via a secure link from any device. The office sees payment confirmed instantly, the job is marked paid, and everything records automatically.</div>
+      <div class="competitor-note"><strong>vs. AccuLynx / paper invoicing / Square:</strong> AccuLynx can generate an invoice but requires a separate Stripe setup by the contractor and has no native payment link generation built into the invoice sending flow. Paper invoicing (mailed or hand-delivered) averages 21–45 day collection windows and requires the office to track check receipt and deposit manually. Square processes payments but has no roofing job linkage — a payment received in Square must be manually reconciled to the correct invoice and customer record in the CRM. CompanySync's invoice-to-payment workflow is end-to-end: create, send, confirm payment, close the record — without switching tools.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Stripe Connect Payouts</div>
+      <div class="feature-pill" style="background:#fef3c7;color:#92400e;">Payments</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Collected card payments sit in a processor account for days before manual bank transfer, creating a cash flow gap the business has to bridge.</div>
+        <div class="solution">✅ Solution: Stripe Connect links your bank account directly; collected payments deposit automatically with full payout tracking inside the platform.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Navigate to payment settings and click 'Connect Bank Account'; Stripe Connect links your bank in under 5 minutes</li><li>Every card or ACH payment collected deposits to your bank account on Stripe's standard payout schedule automatically</li><li>View each payout in the platform, see which invoices it includes, and reconcile against open receivables without a separate dashboard</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for owners who want card and ACH payment acceptance without managing a separate Stripe dashboard, reconciling deposits against invoices manually, or maintaining a point-of-sale device the field never uses correctly. Replaces managing payouts from Square, PayPal, or a Stripe account managed separately — all of which require manual reconciliation against the CRM invoice records to close the books. Automatic payout reconciliation eliminates the 4–8 hour monthly bookkeeper session spent matching bank deposits to open invoices.
+      </div>
+      <div class="feature-desc">Connect your company bank account via Stripe Connect in under five minutes. Every card or ACH payment deposits to your account on Stripe's standard payout schedule. View every payout, track included invoices, and reconcile everything from inside the platform without a separate dashboard.</div>
+      <div class="competitor-note"><strong>vs. Square / PayPal / manual ACH / separate Stripe account:</strong> Square processes payments efficiently for retail transactions but has no roofing job linkage — every payment must be manually matched to a CRM record and an invoice, a reconciliation step that takes 30–60 minutes per week at volume. PayPal has similar disconnection and additional fee structures that compound on roofing-scale job sizes. A Stripe account managed separately from the CRM creates the same reconciliation problem. CompanySync's Stripe Connect integration links payment collection directly to the invoice record — payment posts, invoice closes, payout is tracked — without any manual matching step.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Full Accounting Suite</div>
+      <div class="feature-pill" style="background:#fef3c7;color:#92400e;">Payments</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Running a CRM and a separate accounting tool duplicates data entry, creates reconciliation errors, and splits financial visibility across two subscriptions.</div>
+        <div class="solution">✅ Solution: A built-in accounting module with GL, chart of accounts, bank reconciliation, bills, expenses, and journal entries — all connected to every job and invoice.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Job revenue flows from paid invoices into the general ledger automatically — no manual journal entry or re-keying required</li><li>Log vendor bills, material expenses, and bank transactions; reconcile accounts from the reconciliation view monthly</li><li>Run profit and loss, balance sheet, or per-job cost reports at any time — financial statements are always current and on-demand</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for growth-stage roofing companies ($1M–$5M revenue) that have outgrown spreadsheet bookkeeping but haven't yet committed to a full-time bookkeeper and a separate QuickBooks subscription. Replaces the dual-system pain of running a roofing CRM alongside QuickBooks — two subscriptions, two logins, and constant re-entry of invoice and payment data between them. Eliminating the second system saves $600–$2,400/year in QuickBooks fees and 5–10 hours of weekly bookkeeper re-entry time.
+      </div>
+      <div class="feature-desc">Manage your full books without leaving the platform — chart of accounts, vendor bills, expenses, bank reconciliation, journal entries, and fund transfers. Job revenue flows from paid invoices automatically; material costs feed expense entries, eliminating the double-entry cycle between CRM and accounting.</div>
+      <div class="competitor-note"><strong>vs. QuickBooks + roofing CRM / AccuLynx + QuickBooks:</strong> The dominant model in the roofing industry is two systems: a roofing CRM for job management and QuickBooks for accounting. This creates a permanent re-entry burden — every invoice created in the CRM must be recreated in QuickBooks; every payment received must be recorded in both places. AccuLynx offers a QuickBooks sync that reduces this burden partially, but it's one-directional and incomplete. No other roofing CRM includes a full double-entry accounting module with GL, bank reconciliation, and on-demand financial statements built in. CompanySync eliminates the second system entirely.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">QuickBooks Integration</div>
+      <div class="feature-pill" style="background:#fef3c7;color:#92400e;">Payments</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Contractors committed to QuickBooks re-enter every invoice and payment between two systems by hand — wasting hours weekly without exception.</div>
+        <div class="solution">✅ Solution: A native QuickBooks integration syncs invoices, payments, and customers bidirectionally so books stay current in both systems automatically.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Connect QuickBooks Online from the integrations hub; map your chart of accounts and class tracking preferences once</li><li>New invoices created in the platform appear in QuickBooks within seconds — no manual re-entry, no CSV import required</li><li>Payments recorded in either system sync bidirectionally; books stay current without a bookkeeper manually reconciling daily</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for established roofing companies with a bookkeeper or accountant already committed to QuickBooks who need their CRM and accounting books to stay in sync without manual effort. Replaces the one-directional 'invoice push' that other roofing CRMs call an integration — which still requires manual payment entry in QuickBooks and leaves AR aging out of sync between the two systems. True bidirectional sync saves the bookkeeper 3–5 hours per week of manual reconciliation between two systems that each claim to be the source of truth.
+      </div>
+      <div class="feature-desc">Connect QuickBooks Online and sync customers, invoices, and payments bidirectionally. New invoices appear in QuickBooks automatically; payments recorded there update the CRM immediately. Mapping rules keep your chart of accounts and class tracking aligned without manual daily bookkeeper reconciliation.</div>
+      <div class="competitor-note"><strong>vs. AccuLynx / JobNimbus QuickBooks sync:</strong> Both AccuLynx and JobNimbus offer QuickBooks 'integration' that pushes invoices one-directionally — invoices created in the CRM appear in QuickBooks, but payments recorded in QuickBooks don't flow back to update the CRM's invoice status or the customer's balance. This means the bookkeeper still manually reconciles every payment, and the CRM invoice list always shows open invoices for customers who have already paid in QuickBooks. CompanySync's bidirectional sync means both systems are correct at the same time — no reconciliation step, no stale balance, no manual matching.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">AI Accountant</div>
+      <div class="feature-pill" style="background:#fef3c7;color:#92400e;">Payments</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Answering basic accounting questions — job profitability, expense categories, cash position — requires scheduling time with a bookkeeper or accountant.</div>
+        <div class="solution">✅ Solution: An AI assistant trained on your books answers accounting questions, flags unusual transactions, and categorizes expenses automatically around the clock.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Type a plain-language question: 'Which jobs lost money last month?' or 'What's our cash position this week?'</li><li>AI queries your live accounting data and returns a clear, specific answer with supporting figures and job-level detail</li><li>AI can also auto-categorize an expense description, flag an unusual transaction, or generate a journal entry from a plain description</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for owner-operators who need quick financial answers but don't have a bookkeeper on call — or who want to reduce their dependency on scheduled accounting consultations for routine questions they should be able to answer themselves. Replaces the weekly bookkeeper call, the hour spent navigating QuickBooks reports, or the 'I'll figure it out at tax time' approach that hides cash flow problems until they become existential. Catching a loss-making job category in month 1 instead of month 12 can save tens of thousands of dollars in continued mispricing.
+      </div>
+      <div class="feature-desc">Ask the AI Accountant a plain-language question — 'Which jobs lost money last quarter?' — and receive an immediate, context-aware answer. It flags unusual transactions, auto-categorizes expenses, and generates journal entries from plain descriptions — available around the clock, zero wait time.</div>
+      <div class="competitor-note"><strong>vs. all CRMs / QuickBooks / ChatGPT:</strong> No roofing CRM or standard accounting tool includes a conversational AI trained on your specific company's books for instant financial Q&A. QuickBooks has AI features in development but they operate on generic accounting concepts, not your specific job-level cost structure. Using ChatGPT requires exporting data, pasting it in, and hoping for a correct interpretation — it has no live connection to your actual books. CompanySync's AI Accountant has live access to your actual invoice, expense, payment, and job cost data — it answers from facts, not estimates.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Payroll &amp; Labor Cost Tracking</div>
+      <div class="feature-pill" style="background:#fef3c7;color:#92400e;">Payments</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Labor costs tracked in a separate payroll app are never linked to individual jobs, making it impossible to know true per-job profitability in real time.</div>
+        <div class="solution">✅ Solution: Track crew hours and pay against specific jobs so every labor cost appears alongside material costs in the job's total cost summary.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Log crew hours against a specific job — hourly or day-rate entries link directly to the job cost ledger</li><li>Subcontractor invoices link to the job cost record; view each job's total cost: materials plus labor plus subs in one number</li><li>Run a pay summary for the period; approve and log disbursements without switching to a separate payroll tool</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for operations managers who need true per-job profitability — not just revenue minus materials — to make accurate pricing and crew efficiency decisions. Replaces tracking labor in a separate payroll tool (Gusto, ADP) that has no concept of which job the hours were associated with, making per-job profitability a manual calculation. Companies that track per-job labor cost discover they're losing margin on specific job types — an insight that pays for itself on the next repricing decision.
+      </div>
+      <div class="feature-desc">Track crew hours, per-job labor costs, and sub payments alongside material expenses in a unified job cost view. Link every disbursement to specific jobs and maintain a clear payroll audit trail — without switching to a separate tool or maintaining a manual spreadsheet.</div>
+      <div class="competitor-note"><strong>vs. Gusto / ADP / separate payroll tools:</strong> Stand-alone payroll tools process wages accurately but have zero awareness of which job the hours were allocated to — all labor is simply a company expense, not a per-job cost. This makes true job profitability impossible to calculate without a manual spreadsheet exercise at month-end. No roofing CRM competitor includes job-linked labor and sub cost tracking with payout logging in one integrated system. CompanySync closes the gap: every dollar of labor and sub cost is attached to the job that generated it, making profitability visible in real time rather than reconstructed at month-end.</div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══ 8 — SETTINGS ═══ -->
+<section id="settings" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#e0e7ff;">⚙️</div>
+    <div class="section-title">Settings &amp; Administration</div>
+  </div>
+  <p class="section-sub">Set up in minutes, not months — and lock down exactly who sees what.</p>
+  <div class="features-grid">
+
+    <div class="feature-card">
+      <div class="feature-name">AI Smart Setup — 5-Minute Onboarding</div>
+      <div class="feature-pill" style="background:#e0e7ff;color:#3730a3;">Admin</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: New CRM onboarding typically takes days of manual configuration and consultant calls before a single real job can be entered in the system.</div>
+        <div class="solution">✅ Solution: A 5-step AI wizard extracts company info from your website, configures AI assistants, imports subs, and readies the platform in under 10 minutes.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Enter your company website URL; AI reads your branding, services, service area, and contact information automatically from the page</li><li>Answer 5 questions about your team size, pricing approach, and primary job type; AI pre-configures all AI assistants accordingly</li><li>Import your subcontractor list via CSV, connect integrations, and run the Launch Checklist — fully live in under 10 minutes</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for new subscribers who want to go live in hours, not weeks, without a dedicated implementation consultant or a multi-call onboarding sequence. Replaces the standard CRM onboarding that requires a discovery call, configuration session, data import meeting, and training call before a rep can run a real job through the system — typically 2–4 weeks. Every day of platform delay costs the subscription fee without delivering any operational value.
+      </div>
+      <div class="feature-desc">Enter your website URL and answer five questions. AI Smart Setup reads your branding, contact info, service area, and tagline, auto-configures your AI phone assistant, imports your subcontractor list via CSV, and sets up integrations — fully operational in under ten minutes.</div>
+      <div class="competitor-note"><strong>vs. ServiceTitan / AccuLynx / JobNimbus onboarding:</strong> ServiceTitan requires a mandatory onboarding package ($500–$2,000+) and a dedicated implementation manager before the system is configured for use — a multi-week process by design. AccuLynx and JobNimbus have self-service setup but no AI-assisted configuration, no website extraction, and no guided 5-question flow — contractors face a blank configuration screen and must know what they're building before they start. CompanySync's AI reads your existing business information (your website) and asks 5 targeted questions — producing a configured, operational platform that no other roofing CRM can match for time-to-first-real-job.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Role-Based Permissions</div>
+      <div class="feature-pill" style="background:#e0e7ff;color:#3730a3;">Admin</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Giving a field rep the same access as the company owner is a security and liability risk — but most tools make permissions complicated to configure and easy to break.</div>
+        <div class="solution">✅ Solution: Define roles with granular menu and action permissions enforced server-side — not just hidden in the UI — for real access control on every request.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Create a role (Inspector, Sales Rep, Admin, Owner) and select which menu sections and specific actions are visible for that role</li><li>Assign the role to one or more staff members; access changes take effect immediately on their next page load</li><li>Every action is verified server-side on each API request — a field rep cannot access financial data via a direct URL even if they try</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for owners and managers who need different staff members to see and do different things — without a security incident discovering the gap after a disgruntled rep exports the customer list. Replaces coarse 'admin vs. user' role options where financial data, customer lists, and commission records remain visible to field reps who have no business reason to access them. Preventing one data exposure incident is worth more than the entire platform cost — and the liability risk is real for any company with more than 5 staff members.
+      </div>
+      <div class="feature-desc">Create custom roles with granular menu visibility and action permissions. A field inspector sees only assigned inspection tools; a rep sees leads but not accounting rules. Permissions are enforced server-side on every API call — not just hidden in the interface.</div>
+      <div class="competitor-note"><strong>vs. JobNimbus / AccuLynx / ServiceTitan:</strong> JobNimbus and AccuLynx offer basic 'admin' and 'user' role types with limited field-level visibility control — and critically, access controls are enforced only in the UI, not server-side. A technically savvy staff member can access any data by navigating directly to a known URL or calling the API with their session token — the role is a label, not an enforcement mechanism. ServiceTitan has more granular permissions at enterprise tier but requires consultant configuration. CompanySync enforces permissions server-side on every API call — there is no workaround for UI-hidden data because the server rejects unauthorized requests before they're processed.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">PDF &amp; Report Branding</div>
+      <div class="feature-pill" style="background:#e0e7ff;color:#3730a3;">Admin</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Estimates, invoices, and reports from most CRMs look like software templates — not like they came from a professional, branded company with standards.</div>
+        <div class="solution">✅ Solution: Upload your logo, set brand colors and fonts, and configure PDF headers and footers — every document produced looks professionally branded.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Upload your company logo and enter primary and secondary brand colors in settings — a 2-minute one-time configuration</li><li>Configure a custom PDF header with your contractor license number, contact details, and slogan for each document type separately</li><li>Every estimate, invoice, inspection report, and proposal generated carries your full brand identity automatically — no per-document setup</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for companies presenting estimates and proposals to homeowners where brand professionalism directly influences perceived value and the homeowner's comfort level with the accepted price. Replaces generic 'Powered by [Software Name]' PDFs that signal to a homeowner that this is a template output, not a professional firm with standards. Branded proposals command 10–20% higher accepted prices in controlled tests — homeowners pay for perceived professionalism before ever seeing the work completed.
+      </div>
+      <div class="feature-desc">Upload your logo, set brand colors, and configure PDF headers with contractor license numbers and custom footers for every document type — estimates, invoices, inspection reports, and proposals. Every PDF carries your full brand identity, not a generic software template.</div>
+      <div class="competitor-note"><strong>vs. AccuLynx / JobNimbus / generic CRMs:</strong> AccuLynx allows logo upload and basic color selection, but lacks custom footer configuration, per-document-type settings for inspection reports vs. estimates, and the license number / credential display that professional roofing PDFs require. JobNimbus offers even more limited branding control — logo only, no color theming, no custom headers. Generic CRM PDFs are designed for SaaS businesses, not for construction documents that carry licensing requirements and warranty terms. CompanySync is the only option where every document type — estimate, invoice, report, proposal, contract — can have independent, fully branded headers, footers, and credential displays.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Integrations Hub</div>
+      <div class="feature-pill" style="background:#e0e7ff;color:#3730a3;">Admin</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Connecting a CRM to external tools requires Zapier subscriptions, API developer work, and constant maintenance every time an API changes upstream.</div>
+        <div class="solution">✅ Solution: One-click connections to GoHighLevel, JobNimbus, Stripe, QuickBooks, Google, Slack, and Zoom — all native, no Zapier required.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Open the integrations hub and browse connectors by category (CRM, accounting, communication, calendar, payments)</li><li>Select a connector; authenticate with your credentials and map data fields in under 2 minutes — no API keys or developer required</li><li>Data flows automatically from that point forward: leads sync, payments post, alerts fire — real-time, without a Zapier workflow</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for operations directors who need their entire tech stack synchronized without a developer on staff to maintain Zapier workflows or custom API scripts. Replaces the 'integration tax' of Zapier ($50–$500/month), occasional developer time to fix broken zaps, and the 2–15 minute data lag that native connections eliminate. Real-time data flow prevents compounding errors — a lead assigned to the wrong rep because Zapier was 10 minutes behind when the storm alert fired is a real operational failure mode.
+      </div>
+      <div class="feature-desc">Connect your entire tech stack from one dashboard — GoHighLevel lead sync, Stripe payments, QuickBooks accounting, Google Calendar, Slack and Google Chat webhooks, and Zoom meeting generation — all native one-click connections with no third-party automation middleware required.</div>
+      <div class="competitor-note"><strong>vs. JobNimbus / AccuLynx + Zapier / manual API work:</strong> Both JobNimbus and AccuLynx rely on Zapier for integrations beyond their native CRM and accounting connections — adding $50–$500/month per workspace in Zapier fees, requiring someone to monitor for silent failures, and introducing a 1–15 minute latency on every data transfer. Zapier zaps break silently when an upstream API changes without notice — a common occurrence with Stripe, Google, and Slack — and the contractor discovers the failure days later when data is missing. CompanySync's native integrations have zero latency, no middleware cost, and no silent failure mode — they're maintained by the platform, not by a Zapier workflow the contractor built.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Backup &amp; Restore</div>
+      <div class="feature-pill" style="background:#e0e7ff;color:#3730a3;">Admin</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: A bad bulk delete or import can wipe customer records — and most CRMs offer no undo, no backup, and no path to data recovery without a support ticket.</div>
+        <div class="solution">✅ Solution: Automated daily backups with one-click browser restore let owners recover from any data error in minutes, not days of support escalation.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Daily automated backups run every night; 30 days of full dataset snapshots are retained automatically — no configuration required</li><li>If a data error occurs, open Backup & Restore, select the restore point date, and choose the entity type to recover</li><li>Restore completes in the browser within minutes — no support ticket, no vendor callback, no data permanently lost</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for owners who have experienced a data loss event — or have the common fear of one — and want a recovery option they control without depending on vendor support timelines and uncertain outcomes. Replaces the complete absence of user-accessible data backup in most roofing CRMs, where support-ticket recovery takes 24–72 hours with no guaranteed restoration to the correct point in time. Preventing even one major data loss event — accidental bulk delete, bad import overwriting records — saves the company from the impossible task of reconstructing years of customer history manually.
+      </div>
+      <div class="feature-desc">Automated daily backups of your entire company dataset are retained for 30 days. If a data error occurs, restore the full dataset or a specific entity type from any backup point directly from the browser — no support ticket and no data loss.</div>
+      <div class="competitor-note"><strong>vs. all competitors:</strong> No roofing CRM — AccuLynx, JobNimbus, ServiceTitan, or others — offers self-service, browser-based data backup and restore as a standard feature. All rely on vendor-side backup systems that the contractor cannot access or control. If a data error occurs, the contractor files a support ticket, waits 24–72 hours for a response, and hopes the vendor's backup aligns with the point-in-time they need restored. CompanySync treats data sovereignty as a contractor right: your 30-day backup history is visible to you, restorable by you, and available immediately when you need it — with no support ticket and no waiting.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Multi-Location Company Support</div>
+      <div class="feature-pill" style="background:#e0e7ff;color:#3730a3;">Admin</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Growing companies opening a second location need either separate accounts at double the cost or one shared account where all data intermingles uncontrollably.</div>
+        <div class="solution">✅ Solution: Multi-location support under one subscription — separate data and staff per location, unified cross-location reporting for owners, one login.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Add a new market location from the company admin panel; configure staff, territory boundaries, and settings independently per location</li><li>Switch between locations with a single click from the account menu — one login covers all markets, no separate credentials</li><li>View cross-location performance comparisons on the owner dashboard — revenue, pipeline, and conversion side-by-side across all markets</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for successful single-location contractors expanding to a second or third market who don't want to manage separate CRM accounts at double the cost and complexity. Replaces the impossible choice between one shared CRM account (all locations' data intermixed, no isolation) or multiple separate accounts (double the subscription cost, no cross-location reporting). One subscription covering all markets prevents the $400–$1,200/month incremental subscription cost per new location that competitors charge for multi-account arrangements.
+      </div>
+      <div class="feature-desc">Operate multiple business locations under a single subscription. Each location maintains its own customer records, staff, estimates, and reporting with full data isolation. Owners switch between locations in one click and access cross-location performance comparisons — one login, unlimited markets.</div>
+      <div class="competitor-note"><strong>vs. ServiceTitan / AccuLynx / JobNimbus multi-location:</strong> ServiceTitan supports multi-location at enterprise pricing — companies with 2–3 locations pay enterprise rates that aren't justified until a much larger scale. AccuLynx and JobNimbus handle multi-location by selling separate accounts — each location gets its own billing, its own login, and its own data silo with no cross-location reporting capability. The owner must log into two or three separate accounts to see the full business picture, then manually compile the comparison. CompanySync's multi-location support is native to the base platform — one login, one subscription, full isolation between locations, and unified owner reporting across all markets.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-name">Launch Checklist &amp; Health Diagnostics</div>
+      <div class="feature-pill" style="background:#e0e7ff;color:#3730a3;">Admin</div>
+      <div class="problem-solution">
+        <div class="problem">⚠ Problem: Companies go live without verifying email delivery, SMS sending, payment processing, and calendar sync actually work — discovering failures when a real customer is affected.</div>
+        <div class="solution">✅ Solution: A pre-launch checklist runs live API probes — not checkboxes — and surfaces every failure with a direct fix-it link before you go live.</div>
+      </div>
+      
+      <div class="how-it-works">
+        <h4>⚙ How It Works</h4>
+        <ol><li>Open the Launch Checklist from the admin panel and click 'Run All Checks' — the platform makes real API calls, not checkboxes</li><li>Each system probe runs live: a test email sends, a test SMS fires, a Stripe ping verifies, a Google Calendar OAuth token validates</li><li>Every result shows green (confirmed) or red (failed) with a specific fix-it link pointing directly to the broken configuration</li></ol>
+      </div>
+      <div class="market-position">
+        <strong>📍 Market Position</strong>
+        Built for new subscribers and growing companies configuring new integrations who need certainty that everything works before a real customer depends on it — not hope. Replaces the 'go live and see what breaks' approach where broken email delivery, failed SMS, and disconnected payment processing are discovered by a homeowner rather than caught during setup. Preventing one 'the homeowner never got the contract' incident — with its resend, re-sign, and lost job-start delay — is worth the 10 minutes the checklist takes to run.
+      </div>
+      <div class="feature-desc">Before going live, run the Launch Checklist to verify every critical system with real API calls — test email delivery, Twilio SMS, Stripe connection, and Google Calendar OAuth. Every result shows green or red with a direct fix-it link — no guessing.</div>
+      <div class="competitor-note"><strong>vs. all competitors:</strong> No roofing CRM includes a live-probe pre-launch health checker — setup completion is assumed, not verified. AccuLynx, JobNimbus, and ServiceTitan all display a configuration checklist of 'steps completed' but none actually make a real API call to confirm the configured integration works end-to-end before a real customer is affected. The distinction is critical: marking 'Twilio connected' as complete after entering a phone number is not the same as confirming that phone number can successfully send an SMS to a test recipient. CompanySync runs the actual test before you go live — every other platform finds out the SMS doesn't work when a real homeowner doesn't receive their contract link.</div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══ COMPARISON TABLE ═══ -->
+<section id="comparison" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#f1f5f9;">🆚</div>
+    <div class="section-title">Feature Comparison</div>
+  </div>
+  <p class="section-sub">How CompanySync stacks up against the tools contractors currently use.</p>
+  <div class="competitor-table-wrap">
+    <h3>Platform Capability Matrix</h3>
+    <div style="overflow-x:auto;">
+    <table class="comp-table">
+      <thead>
+        <tr>
+          <th>Capability</th>
+          <th>CompanySync</th>
+          <th>ServiceTitan</th>
+          <th>JobNimbus</th>
+          <th>AccuLynx</th>
+          <th>EagleView / HailTrace</th>
+          <th>Spreadsheets</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>AI Roof Measurement (no per-report fee)</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="partial">⚠ $30–75/report</td><td class="cross">❌</td></tr>
+        <tr><td>AI Siding Measurement from Photos</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Interactive 3D Roof Viewer</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="partial">⚠ PDF only</td><td class="cross">❌</td></tr>
+        <tr><td>AI Damage Photo Analysis &amp; Scoring</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="partial">⚠ Basic</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Symbility Claims Workspace Export</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="partial">⚠ Partial</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>AI Phone Receptionist (Inbound 24/7)</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>AI Outbound Follow-Up Caller</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Voice-Activated CRM (hands-free field)</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Storm-Area Lead Canvass Map</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="partial">⚠ Map only</td><td class="cross">❌</td></tr>
+        <tr><td>Homeowner Self-Service Portal</td><td class="check">✅ Built-in</td><td class="partial">⚠ Enterprise</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Electronic Contracts &amp; E-Sign</td><td class="check">✅ Built-in</td><td class="partial">⚠ Add-on</td><td class="partial">⚠ Add-on</td><td class="partial">⚠ Basic</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Full Accounting Suite (GL + Reconcile)</td><td class="check">✅ Built-in</td><td class="partial">⚠ Enterprise</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Multi-Step Workflow Automation</td><td class="check">✅ Built-in</td><td class="partial">⚠ Enterprise</td><td class="partial">⚠ Basic</td><td class="partial">⚠ Basic</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>AI Marketing Content Generator</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Color Visualizer on Real Property Photo</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Self-Service Backup &amp; Restore</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>AI Onboarding (website-extracted setup)</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Two-Way Google Calendar Sync</td><td class="check">✅ Built-in</td><td class="partial">⚠ Add-on</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Commission Rules, Splits &amp; Rep Visibility</td><td class="check">✅ Built-in</td><td class="partial">⚠ Enterprise</td><td class="partial">⚠ Basic</td><td class="partial">⚠ Basic</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Financing Options Built Into Estimates</td><td class="check">✅ Built-in</td><td class="partial">⚠ Add-on</td><td class="partial">⚠ Add-on</td><td class="partial">⚠ Add-on</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Territory Manager with Boundary Drawing</td><td class="check">✅ Built-in</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Automated Google Review Requests</td><td class="check">✅ Built-in</td><td class="partial">⚠ Add-on</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+        <tr><td>Field Rep PWA (offline, home-screen)</td><td class="check">✅ Built-in</td><td class="partial">⚠ Native app</td><td class="partial">⚠ Native app</td><td class="partial">⚠ Native app</td><td class="cross">❌</td><td class="cross">❌</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p style="font-size:12px;color:#6b7280;margin-top:12px;">✅ = included at no extra cost &nbsp;|&nbsp; ⚠ = limited / add-on / enterprise tier only &nbsp;|&nbsp; ❌ = not available</p>
+  </div>
+
+  <div class="why-we-win">
+    <h3>🏆 Why CompanySync Wins — A Structural View by Competitor</h3>
+    <div class="why-win-grid">
+      <div class="why-win-card"><h4>vs. ServiceTitan</h4><p>ServiceTitan was built for multi-trade service businesses — HVAC, plumbing, and electrical — with a data model optimized for recurring service agreements, dispatch routing, and maintenance schedules. Every roofing-specific workflow (storm damage documentation, insurance claim tracking, satellite measurement, Symbility export, or AI phone receptionist) is either missing entirely or a bolted-on workaround built on top of a data model that doesn't naturally support it. Contractors pay enterprise pricing ($200–$700+/month with mandatory onboarding fees) for a system that requires significant customization to handle roofing's core workflows. For storm restoration specifically — which combines canvassing, insurance claims, adjuster coordination, and high-volume seasonal activity — ServiceTitan is a general-purpose platform pressed into a vertical it wasn't designed for.</p></div>
+      <div class="why-win-card"><h4>vs. JobNimbus</h4><p>JobNimbus was designed as a lightweight contact and pipeline manager primarily marketed to smaller roofing companies prioritizing simplicity. Its strength is ease of use; its weakness is depth. It lacks the capabilities required for insurance-focused restoration work: no AI roof measurement, no damage photo analysis, no adjuster-facing tools, no built-in accounting module, no AI communication layer, and no territory management with enforcement rules. Integrations beyond the core CRM rely on Zapier, adding monthly cost and fragility. JobNimbus has invested meaningfully in UX polish and mobile usability but has not built the vertical-specific AI and insurance workflow features that growing storm restoration companies need to scale past $2–3M in revenue without a parallel technology stack.</p></div>
+      <div class="why-win-card"><h4>vs. AccuLynx</h4><p>AccuLynx is the most roofing-specific of the incumbent competitors and the most feature-complete for basic job management — but it was built before AI measurement, AI communication, and conversational AI became commercially viable, and it shows. Its measurement tool is a third-party integration with EagleView that preserves the per-report fee model rather than eliminating it. Core capabilities missing from AccuLynx include a homeowner self-service portal, AI phone receptionist, AI outbound calling, AI siding measurement from photos, voice-activated CRM, a built-in accounting suite, and a configurable report builder. For contractors who need to compete in 2025+ with AI-driven efficiency across measurement, communication, and documentation, AccuLynx is a strong 2019 platform that requires significant manual workarounds for the capabilities that define the next five years of the industry.</p></div>
+      <div class="why-win-card"><h4>vs. EagleView / HailTrace</h4><p>EagleView and HailTrace are industry leaders in aerial intelligence and storm data respectively, but neither is a business management platform — they're measurement and intelligence tools that solve one problem well and leave contractors to manually connect their output to everything else. EagleView produces accurate measurement reports at $30–$120 per address with no CRM integration, no estimate auto-population, no communication tools, and no workflow automation — the PDF output must be manually transcribed into every downstream step. HailTrace shows confirmed storm impact zones with excellent geographic resolution but has no CRM, no customer cross-reference, and no ability to launch an outreach campaign from within the tool itself. Both are point solutions that dramatically improve the specific task they address while leaving the full contractor workflow equally fragmented.</p></div>
+      <div class="why-win-card"><h4>vs. Spreadsheets</h4><p>The hidden competitor — most roofing companies still manage some part of their business in Excel, Google Sheets, or Google Contacts, often alongside a CRM that doesn't fully replace them. Spreadsheets have zero automation, no audit trail, no real-time collaboration without version conflict, no field accessibility from mobile without a cumbersome workflow, and no path to the AI-driven efficiency (measurement, follow-up, communication) that defines modern roofing operations. Every insight requires manual aggregation; every communication requires a separate tool; every update requires someone to remember to do it. The true cost of spreadsheet management is invisible — measured in hours of staff time, missed follow-ups, data errors, and the management overhead of coordinating a team that works from documents rather than a shared, live system — but every roofing business owner feels it, even those who can't yet quantify it.</p></div>
+    </div>
+  </div>
+</section>
+
+<div class="footer">
+  <strong>CompanySync — The AI-First Roofing &amp; Storm Restoration Platform</strong>
+  <p>This document is an internal product marketing brief. Feature availability may vary by subscription tier.</p>
+</div>
+
+</body>
+</html>

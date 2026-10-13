@@ -1,0 +1,270 @@
+r;
+      unlockSource.connect(audioContext.destination);
+      unlockSource.start(0);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } catch (e) {}
+
+    try {
+      const currentUser = user || await base44.auth.me();
+      if (!currentUser) {
+        setError("Please log in first");
+        setStatus("idle");
+        return;
+      }
+
+      let resolvedCompanyId = companyId;
+      if (!resolvedCompanyId) {
+        const ownedCompanies = await base44.entities.Company.filter({ created_by: currentUser.email });
+        const staffProfiles = await base44.entities.StaffProfile.filter({ user_email: currentUser.email });
+        resolvedCompanyId = ownedCompanies?.[0]?.id || staffProfiles?.[0]?.company_id;
+      }
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/lexi-native?companyId=${encodeURIComponent(resolvedCompanyId || '')}&userEmail=${encodeURIComponent(currentUser.email)}&userName=${encodeURIComponent(currentUser.full_name || currentUser.email)}&voice=${encodeURIComponent(selectedVoice)}`;
+
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = async () => {
+        setStatus("connected");
+        try {
+          await startAudioCapture(ws);
+          setMicEnabled(true);
+        } catch (err) {
+          setError(`Microphone error: ${err.message}`);
+          ws.close();
+          return;
+        }
+      };
+
+      ws.onmessage = async (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+
+          if (msg.type === 'status') {
+            if (msg.status === 'ready') {
+              setStatus("live");
+              setError("");
+            } else if (msg.status === 'disconnected') {
+              setStatus("idle");
+            }
+          }
+
+          if (msg.type === 'error') {
+            setError(msg.message);
+          }
+
+          if (msg.type === 'transcript') {
+            setTranscript(prev => [...prev, { role: msg.role, text: msg.text, time: new Date().toLocaleTimeString() }]);
+          }
+
+          if (msg.type === 'audio') {
+            if (audioContextRef.current && audioContextRef.current.state !== 'running') {
+              await audioContextRef.current.resume();
+            }
+
+            const binaryString = atob(msg.data);
+            const len = binaryString.length;
+            const bytes = new Int16Array(len / 2);
+            const view = new DataView(new ArrayBuffer(len));
+            for (let i = 0; i < len; i++) {
+              view.setUint8(i, binaryString.charCodeAt(i));
+            }
+            for (let i = 0; i < len / 2; i++) {
+              bytes[i] = view.getInt16(i * 2, true);
+            }
+
+            audioQueueRef.current.push(bytes);
+            playNextChunk();
+          }
+
+          if (msg.type === 'interrupted') {
+            stopAllAudio();
+          }
+
+          if (msg.type === 'tool_call') {
+            setToolCalls(prev => [...prev, { name: msg.name, time: new Date().toLocaleTimeString() }]);
+          }
+        } catch (err) {
+          console.error("[Lexi Native] WS message error:", err);
+        }
+      };
+
+      ws.onclose = (e) => {
+        console.log("[Lexi Native] WS Closed", e.code);
+        cleanupSession();
+        setStatus("idle");
+      };
+
+      ws.onerror = (err) => {
+        console.error("[Lexi Native] WS Error:", err);
+        setError("Connection error. Please try again.");
+        cleanupSession();
+        setStatus("idle");
+      };
+
+    } catch (err) {
+      console.error("[Lexi Native] Start error:", err);
+      setError(err.message);
+      setStatus("idle");
+    }
+  };
+
+  const cleanupSession = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(t => t.stop());
+      localStreamRef.current = null;
+    }
+    if (processorRef.current) {
+      try {
+        processorRef.current.processor.disconnect();
+        processorRef.current.audioContext.close();
+      } catch (e) {}
+      processorRef.current = null;
+    }
+    stopAllAudio();
+    if (audioContextRef.current) {
+      try { audioContextRef.current.close(); } catch (e) {}
+      audioContextRef.current = null;
+    }
+  };
+
+  const stopSession = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    cleanupSession();
+    setStatus("idle");
+  };
+
+  const toggleMic = () => {
+    setMicEnabled(prev => !prev);
+  };
+
+  const isLive = status === "live";
+  const isConnecting = status === "connecting" || status === "connected";
+
+  return (
+    <Card data-testid="card-lexi-native-voice">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <CardTitle className="text-base">Native Voice (STS)</CardTitle>
+          <Badge variant={isLive ? "default" : "secondary"} data-testid="badge-native-status">
+            {status === "idle" ? "Ready" : status === "live" ? "Live" : status === "connecting" || status === "connected" ? "Connecting..." : status}
+          </Badge>
+          {isSpeaking && <Badge variant="outline"><Volume2 className="w-3 h-3 mr-1" />Speaking</Badge>}
+          {isLive && !isSpeaking && micEnabled && <Badge variant="outline"><Mic className="w-3 h-3 mr-1" />Listening</Badge>}
+        </div>
+        {onFallbackToTTS && (
+          <Button variant="ghost" size="sm" onClick={onFallbackToTTS} data-testid="button-switch-tts">
+            Switch to TTS
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <Select value={selectedVoice} onValueChange={setSelectedVoice} disabled={isLive || isConnecting}>
+            <SelectTrigger className="w-[200px]" data-testid="select-native-voice">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {GEMINI_VOICES.map(v => (
+                <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {!isLive && !isConnecting ? (
+            <Button onClick={startSession} data-testid="button-start-native">
+              <Play className="w-4 h-4 mr-1" />
+              Start Native Voice
+            </Button>
+          ) : (
+            <Button variant="destructive" onClick={stopSession} data-testid="button-stop-native">
+              <Square className="w-4 h-4 mr-1" />
+              Stop
+            </Button>
+          )}
+        </div>
+
+        {isLive && (
+          <>
+            <div className="flex flex-col items-center gap-3 py-4">
+              <button
+                onClick={toggleMic}
+                data-testid="button-toggle-mic-large"
+                className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 ${
+                  isSpeaking
+                    ? 'bg-blue-500/20 dark:bg-blue-400/20 border-2 border-blue-500/50 dark:border-blue-400/50'
+                    : micEnabled
+                      ? 'bg-primary/10 border-2 border-primary/50 active:scale-95'
+                      : 'bg-muted border-2 border-muted-foreground/30'
+                }`}
+              >
+                {isSpeaking ? (
+                  <Volume2 className="w-8 h-8 text-blue-500 dark:text-blue-400 animate-pulse" />
+                ) : micEnabled ? (
+                  <Mic className="w-8 h-8 text-primary" />
+                ) : (
+                  <MicOff className="w-8 h-8 text-muted-foreground" />
+                )}
+              </button>
+              <span className="text-sm text-muted-foreground" data-testid="text-mic-status">
+                {isSpeaking ? "Lexi is speaking..." : micEnabled ? "Listening — speak naturally" : "Mic muted — tap to unmute"}
+              </span>
+              {isSpeaking && (
+                <span className="text-xs text-muted-foreground" data-testid="text-auto-mute-notice">Mic auto-muted to prevent echo</span>
+              )}
+            </div>
+          </>
+        )}
+
+        {isLive && !isSpeaking && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Sparkles className="w-4 h-4" />
+            <span>Gemini 2.5 Flash Native Audio — speak naturally, Lexi hears and responds</span>
+          </div>
+        )}
+
+        {transcript.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-muted-foreground">Conversation</div>
+            <ScrollArea className="h-[200px] rounded-md border p-3">
+              {transcript.map((entry, i) => (
+                <div key={i} className={`text-sm mb-2 ${entry.role === 'user' ? 'text-right' : 'text-left'}`}>
+                  <span className="text-xs text-muted-foreground mr-2">{entry.time}</span>
+                  <Badge variant={entry.role === 'user' ? 'outline' : 'secondary'} className="no-default-active-elevate">
+                    {entry.role === 'user' ? 'You' : 'Lexi'}
+                  </Badge>
+                  <p className="mt-0.5">{entry.text}</p>
+                </div>
+              ))}
+            </ScrollArea>
+          </div>
+        )}
+
+        {toolCalls.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+              <Wrench className="w-3 h-3" /> CRM Actions
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {toolCalls.map((tc, i) => (
+                <Badge key={i} variant="outline" className="text-xs no-default-active-elevate">
+                  {tc.name} ({tc.time})
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

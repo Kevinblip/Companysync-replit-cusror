@@ -1,0 +1,41 @@
+📧 Email Template
+Subject: Important Update regarding your property restoration - [Address]
+
+Hi [Lead Name],
+
+We are following up regarding the recent hail damage claim at your property. As an approved service provider for Sedgwick Repair Solutions, we’ve been working through the initial estimate and revision process for your claim with American Economy Insurance Company.
+
+We wanted to touch base to see if you would like to continue working with us for your restoration or if you’ve decided to move forward with your own contractor.
+
+Why homeowners choose a Sedgwick-vetted contractor:
+
+Direct Accountability: We are pre-vetted and held to strict performance and quality standards by Sedgwick and major carriers like State Farm and Liberty Mutual.
+
+Seamless Logistics: We use industry-standard tools like Hover, ITEL, and Symbility to ensure your estimate is accurate and approved quickly, minimizing your out-of-pocket stress.
+
+Warranty Protection: Working with an approved network professional often provides additional peace of mind that the work meets specific insurance compliance codes.
+
+If you’d like us to handle the full restoration and manage the remaining supplement requirements, please let us know by replying to this email or calling us at (330) 501-3618.
+
+Best regards,
+
+Kevin Stone
+YICN Roofing – We Have You Covered
+
+💬 SMS Template
+Note for Sarah: Replace [Link] with the URL to your PDF brochure.
+
+"Hi [Lead Name], this is Kevin from YICN Roofing. We’re currently listed as your Sedgwick-vetted contractor for the hail claim at [Address].
+
+Are you still planning to work with us on your restoration, or are you using an outside contractor? Working with a vetted pro (vetted by Sedgwick, State Farm, etc.) ensures your repairs meet carrier standards.
+
+View our digital brochure here: [Link]
+
+Text back 'YES' to keep moving forward, or call us at (330) 501-3618."
+
+🛠️ Key Details Included
+Lead Specifics: References the Hail loss from April 3, 2026 (as seen in your Lead Profile).
+
+Network Credibility: Explicitly mentions the vetting by Sedgwick, State Farm, and Liberty Mutual.
+
+Technical Compliance: Mentions the use of ITEL and Hover, which addresses the specific revision notes currently on the file.

@@ -1,0 +1,271 @@
+Invoices
+Facturas recurrentes →
+
+
+2026
+Paid Invoices
+$94,058.63
+Overdue Invoices
+$0.00
+Amount Due Invoices
+$36,350.88
+
+All
+(10)
+
+Amount Due
+(50.00%) 5 / 10
+
+Paid
+(90.00%) 9 / 10
+
+Partially Paid
+(0.00%) 0 / 10
+
+Overdue
+(0.00%) 0 / 10
+
+Draft
+(0.00%) 0 / 10
+Create Invoice
+Record Payment (0)
+Delete (0)
+Corregir estados
+
+25
+Columns
+Export
+Search invoices...
+	Invoice #	Amount	Balance Due	Tax	Date	Customer	Due Date	Status	Actions
+	
+INV-2026-0335
+View
+|
+Edit
+|
+Delete
+$6480.19	$6480.19	0.00	-	Yvonne Whitt	-	Amount Due	
+Send Invoice
+Sent
+
+	
+INV-2026-0336
+View
+|
+Edit
+|
+Delete
+$6240.00	$2426.89	0.00	-	DONNA SIRMONS	-	Partially Paid	
+
+	
+INV-2026-0335
+View
+|
+Edit
+|
+Delete
+$22975.43	$14375.34	0.00	-	KAROL GLADDEN	-	Partially Paid	
+
+	
+INV-2026-0334
+View
+|
+Edit
+|
+Delete
+$16500.00	$3500.00	0.00	-	Claude Carson	-	Partially Paid	
+
+	
+INV-2026-0332
+View
+|
+Edit
+|
+Delete
+$9294.35	—	0.00	-	John Yeswekan	-	Paid	
+
+	
+INV-2026-0333
+View
+|
+Edit
+|
+Delete
+$16640.26	$0.00	0.00	-	AI Mathews	-	Partially Paid	
+
+	
+INV-2026-0331
+View
+|
+Edit
+|
+Delete
+$7931.01	$7931.01	0.00	-	Linda Whitehead	-	Amount Due	
+Send Invoice
+Sent
+
+	
+INV-2026-0329
+View
+|
+Edit
+|
+Delete
+$14360.00	$7179.00	0.00	-	Christina Fox	-	Partially Paid	
+
+	
+INV-2026-0333
+View
+|
+Edit
+|
+Delete
+$8600.09	$8600.09	0.00	-	KAROL GLADDEN	-	Amount Due	
+Send Invoice
+Sent
+
+	
+INV-2026260354223
+View
+|
+Edit
+|
+Delete
+$1260.00	—	0.00	2026-03-16	Erma Simms	-	Paid	
+
+	
+INV-2026260354222
+View
+|
+Edit
+|
+Delete
+$360.00	—	0.00	2026-03-09	Harvey Mitchell	2026-03-09	Paid	
+
+	
+INV-003
+View
+|
+Edit
+|
+Delete
+$1200.00	$1200.00	0.00	2024-12-14	Mike Wilson	2024-12-29	Partially Paid	
+
+	
+INV-004
+View
+|
+Edit
+|
+Delete
+$3200.00	$3200.00	0.00	2025-01-04	Emily Davis	2025-01-19	Partially Paid	
+
+	
+INV-002
+View
+|
+Edit
+|
+Delete
+$5800.00	$5800.00	0.00	2025-01-11	Sarah Johnson	2025-01-26	Partially Paid	
+
+	
+INV-001
+View
+|
+Edit
+|
+Delete
+$2500.00	$2500.00	0.00	2025-01-09	John Smith	2025-01-24	Partially Paid	
+
+	
+Invoice -10412
+View
+|
+Edit
+|
+Delete
+$3716.60	$3716.60	0.00	2025-08-08	Vera Thompson	2025-09-07	Partially Paid	
+
+	
+Invoice -10410
+View
+|
+Edit
+|
+Delete
+$15000.00	$15000.00	0.00	2025-07-28	DENNIS JAMES	-	Partially Paid	
+
+	
+Invoice -10398
+View
+|
+Edit
+|
+Delete
+$13587.47	$13587.47	0.00	2025-06-05	Levaties Sands	2025-07-05	Partially Paid	
+
+	
+Invoice -10414
+View
+|
+Edit
+|
+Delete
+$6370.42	$6370.42	0.00	2025-08-13	Wilbert and Debra Brown	2025-09-12	Partially Paid	
+
+	
+Invoice -10405
+View
+|
+Edit
+|
+Delete
+$16698.42	$16698.42	0.00	2025-07-14	Robert & Ilka Hall	2025-08-13	Partially Paid	
+
+	
+Invoice -10404
+View
+|
+Edit
+|
+Delete
+$9150.46	$9150.46	0.00	2025-07-09	LAURA MCLEOD	2025-08-08	Partially Paid	
+
+	
+Invoice -10406
+View
+|
+Edit
+|
+Delete
+$13372.07	$13372.07	0.00	2025-07-20	AMY DIEFFENBAUCH	2025-08-19	Partially Paid	
+
+	
+Invoice -10402
+View
+|
+Edit
+|
+Delete
+$250.00	$250.00	0.00	2025-06-09	TIA YORK	2025-07-09	Partially Paid	
+
+	
+Invoice -10413
+View
+|
+Edit
+|
+Delete
+$11980.29	$11980.29	0.00	2025-08-12	William Montgomery	2025-09-11	Partially Paid	
+
+	
+Invoice -10409
+View
+|
+Edit
+|
+Delete
+$11500.00	$11500.00	0.00	2025-07-24	BLAINE GRIFFIN	2025-08-23	Partially Paid	
+
+Showing 1 to 25 of 331 entries

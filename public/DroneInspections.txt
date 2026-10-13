@@ -1,0 +1,2994 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Plus,
+  Upload,
+  Loader2,
+  MapPin,
+  Camera,
+  AlertTriangle,
+  Wind,
+  CloudHail,
+  CheckCircle2,
+  FileText,
+  Sparkles,
+  Eye,
+  Trash2,
+  DollarSign,
+  Download,
+  Satellite,
+  Link2,
+  FlaskConical,
+  Target,
+  Edit,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw
+} from "lucide-react";
+import { format } from "date-fns";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { annotateImage } from "@/components/inspections/ImageAnnotation";
+import { toast } from "react-hot-toast";
+import { GoogleAddressAutocomplete } from "../components/GoogleAddressAutocomplete";
+import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+
+
+export default function DroneInspections() {
+  const navigate = useNavigate();
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showDialog, setShowDialog] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState(null);
+  const [selectedPhotos, setSelectedPhotos] = useState([]);
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState(new Set()); // For bulk actions
+  const [formData, setFormData] = useState({
+    property_address: "",
+    customer_name: "",
+    inspection_date: new Date().toISOString().split('T')[0],
+    inspection_type: "drone", // 'drone' or 'physical'
+    weather_conditions: "",
+    notes: "",
+    storm_event_id: ""
+  });
+
+  const [satelliteData, setSatelliteData] = useState(null);
+  const [loadingSatellite, setLoadingSatellite] = useState(false);
+  const [googleMapsLoaded, setGoogleMapsLoaded] = useState(false);
+  const [googleMapsError, setGoogleMapsError] = useState(null);
+  const [generatingTest, setGeneratingTest] = useState(false);
+
+  // Report Generation State
+  const [showReportDialog, setShowReportDialog] = useState(false);
+  const [selectedInspectionForReport, setSelectedInspectionForReport] = useState(null);
+  const [reportConfig, setReportConfig] = useState({
+    hailThreshold: 7,
+    windThreshold: 5,
+    itelStatus: 'none', // 'none', 'match_found', 'no_match'
+    applyOhioCode: false
+  });
+
+  // Storm Event Linking State
+  const [showStormLinkDialog, setShowStormLinkDialog] = useState(false);
+  const [selectedInspectionForStorm, setSelectedInspectionForStorm] = useState(null);
+  const [stormSearchLocation, setStormSearchLocation] = useState('');
+  const [stormSearchDate, setStormSearchDate] = useState('');
+
+  // Reference Photos State
+  const [showReferenceDialog, setShowReferenceDialog] = useState(false);
+  const [uploadingReference, setUploadingReference] = useState(false);
+  const [referenceForm, setReferenceForm] = useState({
+    damage_type: 'wind_crease',
+    custom_damage_type: '',
+    description: ''
+  });
+  const [testResults, setTestResults] = useState(null);
+  const [runningTest, setRunningTest] = useState(false);
+  const [selectedRefPhoto, setSelectedRefPhoto] = useState(null);
+  const [verifyForm, setVerifyForm] = useState({
+    hail_count: 0,
+    wind_count: 0
+  });
+  const [imageZoom, setImageZoom] = useState(1);
+  const [imagePan, setImagePan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [selectedRefIds, setSelectedRefIds] = useState(new Set());
+  const [bulkLabelType, setBulkLabelType] = useState("");
+
+  const queryClient = useQueryClient();
+
+  // 1. Init Hooks: user, myCompany
+  const [user, setUser] = useState(null);
+
+  const { company: myCompany, companies } = useCurrentCompany(user);
+
+  const { data: inspections = [] } = useQuery({
+    queryKey: ['drone-inspections', myCompany?.id],
+    queryFn: () => myCompany?.id ? base44.entities.DroneInspection.filter({ company_id: myCompany.id }, "-created_date") : [],
+    enabled: !!myCompany?.id,
+    initialData: [],
+  });
+
+  const { data: customers = [] } = useQuery({
+    queryKey: ['customers', myCompany?.id],
+    queryFn: () => myCompany?.id ? base44.entities.Customer.filter({ company_id: myCompany.id }) : [],
+    enabled: !!myCompany?.id,
+    initialData: [],
+  });
+
+  const { data: allStormEvents = [] } = useQuery({
+    queryKey: ['storm-events-all', myCompany?.id],
+    queryFn: () => myCompany ? base44.entities.StormEvent.filter({ company_id: myCompany.id }, '-start_time', 5000) : [],
+    enabled: !!myCompany,
+    initialData: [],
+  });
+
+  // Client-side filtering
+  const stormEvents = React.useMemo(() => {
+    let filtered = allStormEvents;
+
+    // Default: Show last 365 days only (unless user picks a specific date)
+    if (!stormSearchDate) {
+      const today = new Date();
+      const oneYearAgo = new Date();
+      oneYearAgo.setDate(oneYearAgo.getDate() - 365);
+      
+      filtered = filtered.filter(storm => {
+        const stormDate = new Date(storm.start_time);
+        return stormDate >= oneYearAgo && stormDate <= today;
+      });
+    } else {
+      // If user picks a date, show ±90 days around that date
+      const searchDate = new Date(stormSearchDate);
+      const startDate = new Date(searchDate);
+      startDate.setDate(startDate.getDate() - 90);
+      const endDate = new Date(searchDate);
+      endDate.setDate(endDate.getDate() + 90);
+
+      filtered = filtered.filter(storm => {
+        const stormDate = new Date(storm.start_time);
+        return stormDate >= startDate && stormDate <= endDate;
+      });
+    }
+
+    // Filter by location
+    if (stormSearchLocation) {
+      const searchTerm = stormSearchLocation.toLowerCase();
+      filtered = filtered.filter(storm => {
+        const location = (storm.location || '').toLowerCase();
+        const title = (storm.title || '').toLowerCase();
+        const affectedAreas = (storm.affected_areas || []).join(' ').toLowerCase();
+        return location.includes(searchTerm) || title.includes(searchTerm) || affectedAreas.includes(searchTerm);
+      });
+    }
+
+    return filtered;
+  }, [allStormEvents, stormSearchLocation, stormSearchDate]);
+
+  const { data: referencePhotos = [] } = useQuery({
+    queryKey: ['damage-references', myCompany?.id, companies.length],
+    queryFn: async () => {
+      const companySync = companies.find(c => c.company_name === 'CompanySync');
+      const companySyncId = companySync?.id;
+      
+      let refs = [];
+      
+      // 1. Fetch System Examples (CompanySync)
+      if (companySyncId) {
+        const systemRefs = await base44.entities.DamageReferencePhoto.filter({ company_id: companySyncId, is_active: true });
+        refs = [...systemRefs];
+      }
+      
+      // 2. Fetch User Company Examples (if different and company exists)
+      if (myCompany && myCompany.id !== companySyncId) {
+        const companyRefs = await base44.entities.DamageReferencePhoto.filter({ company_id: myCompany.id, is_active: true });
+        refs = [...refs, ...companyRefs];
+      }
+      
+      // Deduplicate
+      return [...new Map(refs.map(item => [item.id, item])).values()];
+    },
+    enabled: companies.length > 0,
+    initialData: [],
+  });
+
+  useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  // Load Google Maps API
+  useEffect(() => {
+    const loadGoogleMaps = async () => {
+      if (window.google && window.google.maps && window.google.maps.places) {
+        setGoogleMapsLoaded(true);
+        return;
+      }
+
+      try {
+        const response = await base44.functions.invoke('getGoogleMapsApiKey');
+        const { apiKey } = response.data;
+
+        if (!apiKey) {
+          throw new Error('Google Maps API key not configured');
+        }
+
+        const script = document.createElement('script');
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,geometry,drawing`;
+        script.async = true;
+        script.defer = true;
+
+        script.onload = () => {
+          console.log('✅ Google Maps loaded successfully');
+          setGoogleMapsLoaded(true);
+        };
+
+        script.onerror = () => {
+          console.error('❌ Failed to load Google Maps');
+          setGoogleMapsError('Failed to load Google Maps. Please refresh the page.');
+        };
+
+        document.head.appendChild(script);
+      } catch (error) {
+        console.error('Error loading Google Maps:', error);
+        setGoogleMapsError(error.message || 'Failed to load Google Maps API');
+      }
+    };
+
+    loadGoogleMaps();
+  }, []);
+
+  const createMutation = useMutation({
+    mutationFn: async (data) => {
+      const newInspection = await base44.entities.DroneInspection.create(data);
+      
+      // Trigger workflow for inspection completed
+      if (myCompany?.id && newInspection.status === 'analyzed') {
+        try {
+          await base44.functions.invoke('triggerWorkflow', {
+            triggerType: 'inspection_completed',
+            companyId: myCompany.id,
+            entityType: 'DroneInspection',
+            entityId: newInspection.id,
+            entityData: {
+              inspection_number: newInspection.inspection_number,
+              property_address: newInspection.property_address,
+              customer_name: newInspection.customer_name,
+              overall_condition: newInspection.overall_condition,
+              hail_damage_detected: newInspection.hail_damage_detected,
+              wind_damage_detected: newInspection.wind_damage_detected,
+              estimated_repair_cost: newInspection.estimated_repair_cost,
+              app_url: window.location.origin
+            }
+          });
+        } catch (error) {
+          console.error('Workflow trigger failed (non-critical):', error);
+        }
+      }
+      
+      return newInspection;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drone-inspections'] });
+      setShowDialog(false);
+      setSelectedPhotos([]);
+      setFormData({
+        property_address: "",
+        customer_name: "",
+        inspection_date: new Date().toISOString().split('T')[0],
+        inspection_type: "drone",
+        weather_conditions: "",
+        notes: "",
+        storm_event_id: ""
+      });
+      setUploadStatus(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => base44.entities.DroneInspection.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drone-inspections'] });
+    },
+  });
+
+  const updateStormLinkMutation = useMutation({
+    mutationFn: ({ inspectionId, stormEventId }) => 
+      base44.entities.DroneInspection.update(inspectionId, { storm_event_id: stormEventId || null }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drone-inspections'] });
+      setShowStormLinkDialog(false);
+      toast.success('Storm event link updated!');
+    },
+  });
+
+  const uploadReferenceMutation = useMutation({
+    mutationFn: async ({ file, damage_type, custom_damage_type, description }) => {
+      let fileToUpload = file;
+      
+      // Auto-convert WEBP to JPG for reference photos too
+      if (file.type === 'image/webp' || file.name.toLowerCase().endsWith('.webp')) {
+        try {
+          console.log('Converting reference WEBP to JPG...');
+          fileToUpload = await convertImageToJpg(file);
+        } catch (e) {
+          console.error("Failed to convert reference photo", e);
+        }
+      }
+
+      const { file_url } = await base44.integrations.Core.UploadFile({ file: fileToUpload });
+      
+      // Use custom type if provided, otherwise use dropdown selection
+      const finalDamageType = custom_damage_type && custom_damage_type.trim() 
+        ? custom_damage_type.trim() 
+        : damage_type;
+      
+      const photoData = {
+        company_id: myCompany?.id,
+        damage_type: finalDamageType,
+        photo_url: file_url,
+        description,
+        is_active: true
+      };
+      return base44.entities.DamageReferencePhoto.create(photoData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['damage-references'] });
+      setShowReferenceDialog(false);
+      setReferenceForm({ damage_type: 'wind_crease', custom_damage_type: '', description: '' });
+      toast.success('✅ Reference photo added!');
+    }
+  });
+
+  const deleteReferenceMutation = useMutation({
+    mutationFn: (id) => base44.entities.DamageReferencePhoto.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['damage-references'] });
+      toast.success('Reference photo deleted');
+    }
+  });
+
+  const bulkDeleteReferencesMutation = useMutation({
+    mutationFn: async (ids) => {
+      for (const id of ids) {
+        await base44.entities.DamageReferencePhoto.delete(id);
+        // Add delay to avoid rate limits
+        if (ids.indexOf(id) < ids.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+    },
+    onSuccess: (_, ids) => {
+      queryClient.invalidateQueries({ queryKey: ['damage-references'] });
+      setSelectedRefIds(new Set());
+      toast.success(`Deleted ${ids.length} reference photos`);
+    }
+  });
+
+  const bulkLabelReferencesMutation = useMutation({
+    mutationFn: async ({ ids, damageType }) => {
+      for (const id of ids) {
+        await base44.entities.DamageReferencePhoto.update(id, {
+          damage_type: damageType
+        });
+        // Add delay to avoid rate limits
+        if (ids.indexOf(id) < ids.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+    },
+    onSuccess: (_, { ids }) => {
+      queryClient.invalidateQueries({ queryKey: ['damage-references'] });
+      setSelectedRefIds(new Set());
+      setBulkLabelType("");
+      toast.success(`Updated ${ids.length} reference photos`);
+    }
+  });
+
+  const markRefAsVerifiedMutation = useMutation({
+    mutationFn: async ({ refId, hailCount, windCount }) => {
+      return base44.entities.DamageReferencePhoto.update(refId, {
+        is_verified: true,
+        verified_hail_count: hailCount,
+        verified_wind_count: windCount,
+        verified_by: user.email,
+        verified_at: new Date().toISOString()
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['damage-references'] });
+      setSelectedRefPhoto(null);
+      toast.success('✅ Reference photo verified!');
+    }
+  });
+
+  const handleRunAccuracyTest = async () => {
+    const verifiedCount = referencePhotos.filter(p => p.is_verified).length;
+    if (verifiedCount === 0) {
+      toast.error('No verified photos. Click a photo to verify it first.');
+      return;
+    }
+
+    setRunningTest(true);
+    setTestResults(null);
+
+    try {
+      const response = await base44.functions.invoke('testAIDamageAccuracy', {
+        companyId: myCompany.id
+      });
+      setTestResults(response.data);
+      toast.success(`✅ Test complete! Avg Accuracy: ${response.data.summary.avg_hail_accuracy}%`);
+    } catch (error) {
+      toast.error('Test failed: ' + error.message);
+    } finally {
+      setRunningTest(false);
+    }
+  };
+
+  const handleAddressSelect = async (address, details) => {
+    console.log('🎯 handleAddressSelect called with:', address, details);
+    
+    if (!details?.geometry?.location) {
+      toast.error('Could not get location details. Please try again.');
+      return;
+    }
+
+    const fullAddress = address;
+    console.log('✅ Setting property_address to:', fullAddress);
+    
+    setFormData(prev => ({...prev, property_address: fullAddress}));
+    setLoadingSatellite(true);
+    setSatelliteData(null);
+    
+    try {
+      const response = await base44.functions.invoke('analyzeSatelliteImage', {
+        address: fullAddress
+      });
+
+      setSatelliteData(response.data);
+      toast.success('🛰️ Satellite loaded!');
+    } catch (error) {
+      toast.error('Failed to load satellite: ' + error.message);
+    } finally {
+      setLoadingSatellite(false);
+    }
+  };
+
+  const handlePhotoSelect = (e) => {
+    const files = Array.from(e.target.files);
+
+    const validFiles = [];
+    const heicFiles = [];
+    const unsupportedFiles = [];
+
+    files.forEach(file => {
+      const fileName = file.name.toLowerCase();
+      const extension = fileName.split('.').pop();
+
+      if (extension === 'heic' || extension === 'heif') {
+        heicFiles.push(file.name);
+      } else if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(extension)) {
+        validFiles.push(file);
+      } else {
+        unsupportedFiles.push(file.name);
+      }
+    });
+
+    // Show warnings but don't block valid files
+    if (heicFiles.length > 0) {
+      setUploadStatus({
+        type: 'error',
+        message: `⚠️ SKIPPED ${heicFiles.length} HEIC file(s): ${heicFiles.join(', ')}. iPhone users: Settings → Camera → Formats → "Most Compatible" to save as JPG.`
+      });
+    }
+
+    if (unsupportedFiles.length > 0) {
+      setUploadStatus({
+        type: 'error',
+        message: `⚠️ SKIPPED ${unsupportedFiles.length} unsupported file(s): ${unsupportedFiles.join(', ')}.`
+      });
+    }
+
+    if (validFiles.length === 0) {
+      setUploadStatus({
+        type: 'error',
+        message: '❌ No valid images found. Please select JPG, PNG, or WEBP files only.'
+      });
+      return;
+    }
+
+    // Wrap files with metadata for slope/notes and photo type
+    const newPhotos = validFiles.map(file => ({
+      id: Math.random().toString(36).substr(2, 9),
+      file,
+      preview: URL.createObjectURL(file),
+      section: 'General',
+      notes: '',
+      photo_type: 'roof_closeup'
+    }));
+
+    // Add valid photos (don't clear existing ones)
+    if (heicFiles.length === 0 && unsupportedFiles.length === 0) {
+      setUploadStatus(null); // Clear error only if all files were valid
+    }
+    setSelectedPhotos(prev => [...prev, ...newPhotos]);
+    
+    // Auto-select the newly added photos
+    const newIds = new Set(selectedPhotoIds);
+    newPhotos.forEach(p => newIds.add(p.id));
+    setSelectedPhotoIds(newIds);
+  };
+
+  const updatePhotoMetadata = (id, field, value) => {
+    setSelectedPhotos(prev => prev.map(p => 
+      p.id === id ? { ...p, [field]: value } : p
+    ));
+  };
+
+  const applySatelliteSectionsToPhotos = () => {
+    if (!satelliteData?.roof_layout_analysis?.sections_identified) return;
+    
+    const sections = satelliteData.roof_layout_analysis.sections_identified;
+    
+    // Auto-assign photos to sections based on order
+    setSelectedPhotos(prev => prev.map((photo, idx) => {
+      const sectionIdx = idx % sections.length;
+      const suggestedSection = sections[sectionIdx];
+      
+      return {
+        ...photo,
+        section: suggestedSection.section_name,
+        notes: `${suggestedSection.orientation} - ${suggestedSection.description}`
+      };
+    }));
+    
+    toast.success(`✅ Auto-assigned ${selectedPhotos.length} photos to ${sections.length} roof sections`);
+  };
+
+  // Toggle selection of a single photo
+  const toggleSelection = (id) => {
+    const newIds = new Set(selectedPhotoIds);
+    if (newIds.has(id)) {
+      newIds.delete(id);
+    } else {
+      newIds.add(id);
+    }
+    setSelectedPhotoIds(newIds);
+  };
+
+  // Toggle select all
+  const toggleSelectAll = () => {
+    if (selectedPhotoIds.size === selectedPhotos.length) {
+      setSelectedPhotoIds(new Set());
+    } else {
+      setSelectedPhotoIds(new Set(selectedPhotos.map(p => p.id)));
+    }
+  };
+
+  // Bulk update function
+  const handleBulkUpdate = (field, value) => {
+    if (selectedPhotoIds.size === 0) return;
+    
+    setSelectedPhotos(prev => prev.map(p => 
+      selectedPhotoIds.has(p.id) ? { ...p, [field]: value } : p
+    ));
+  };
+
+  const removePhoto = (id) => {
+    setSelectedPhotos(prev => prev.filter(p => p.id !== id));
+    const newIds = new Set(selectedPhotoIds);
+    newIds.delete(id);
+    setSelectedPhotoIds(newIds);
+  };
+
+  const analyzeDronePhotos = async () => {
+    if (selectedPhotos.length === 0) {
+      setUploadStatus({ type: 'error', message: 'Please select drone photos to analyze' });
+      return;
+    }
+    if (!formData.property_address) {
+      setUploadStatus({ type: 'error', message: 'Please enter a Property Address.' });
+      return;
+    }
+
+    setUploading(true);
+    setAnalyzing(true);
+    setUploadStatus({ type: 'info', message: 'Uploading and analyzing drone photos...' });
+
+    try {
+      const photoResults = [];
+      let hailDetected = false;
+      let windDetected = false;
+      // Cost estimation removed as per user request (defer to manual/AI estimator)
+
+      // Upload and analyze each photo
+      for (let i = 0; i < selectedPhotos.length; i++) {
+        const photoItem = selectedPhotos[i];
+        const file = photoItem.file;
+        const userSection = photoItem.section;
+        const userNotes = photoItem.notes;
+
+        setUploadStatus({
+          type: 'info',
+          message: `Analyzing ${userSection} image (${i + 1}/${selectedPhotos.length})...`
+        });
+
+        // Normalize file with better error handling
+        const fileNameParts = file.name.split('.');
+        const originalExtension = fileNameParts.length > 1 ? fileNameParts[fileNameParts.length - 1] : '';
+        const lowercaseExtension = originalExtension.toLowerCase();
+
+        // Double-check for HEIC files (should be caught earlier, but extra safety)
+        if (lowercaseExtension === 'heic' || lowercaseExtension === 'heif') {
+          throw new Error(`Unsupported file type: ${file.name}. Please convert HEIC files to JPG first. On iPhone: Settings → Camera → Formats → "Most Compatible"`);
+        }
+
+        const baseName = fileNameParts.slice(0, -1).join('.');
+        let normalizedFileName = originalExtension ? `${baseName}.${lowercaseExtension}` : file.name;
+
+        let mimeType = file.type;
+        if (!mimeType || mimeType === 'application/octet-stream') {
+          const mimeTypes = {
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'webp': 'image/webp'
+          };
+          mimeType = mimeTypes[lowercaseExtension] || 'image/jpeg'; // Default to JPEG for valid image types if mime type is missing
+        }
+
+        let normalizedFile = new File([file], normalizedFileName, { type: mimeType });
+
+        // Auto-convert WEBP to JPG to ensure AI compatibility
+        if (lowercaseExtension === 'webp' || mimeType === 'image/webp') {
+          try {
+            console.log('Converting WEBP to JPG for compatibility...');
+            setUploadStatus({
+              type: 'info',
+              message: `Converting ${file.name} to JPG format...`
+            });
+            normalizedFile = await convertImageToJpg(file);
+            // Update extension and mimetype for the converted file
+            normalizedFileName = normalizedFile.name;
+            mimeType = 'image/jpeg';
+          } catch (err) {
+            console.error('WEBP conversion failed:', err);
+            throw new Error(`Failed to automatically convert WebP image (${file.name}) to JPG. Please convert it manually and upload as JPG/PNG.`);
+          }
+        }
+
+        // Upload photo
+        let file_url;
+        try {
+          const uploadResponse = await base44.integrations.Core.UploadFile({ file: normalizedFile });
+          file_url = uploadResponse.file_url;
+          console.log(`✅ Photo uploaded: ${file_url}`);
+        } catch (uploadError) {
+          console.error('❌ Photo upload failed:', uploadError);
+          throw new Error(`Failed to upload photo ${i + 1}: ${uploadError.message}`);
+        }
+
+        // Gather reference photos for this damage type (filter out WEBP/HEIC to prevent AI errors)
+        const referenceUrls = referencePhotos
+          .map(ref => ref.photo_url)
+          .filter(url => {
+            const lower = url.toLowerCase();
+            return !lower.endsWith('.webp') && !lower.endsWith('.heic');
+          });
+
+        console.log(`📸 Analyzing photo ${i + 1} with ${referenceUrls.length} reference photos`);
+
+        // Determine photo type-specific analysis
+        const photoType = photoItem.photo_type || 'roof_closeup';
+
+        // AI Analysis with Visual Detections & Square Test
+        let analysisPrompt = "";
+
+        if (formData.inspection_type === 'physical') {
+           // 👷 CHALK MARK DETECTION MODE - ULTRA AGGRESSIVE COUNTING
+           analysisPrompt = `🚨 CRITICAL CHALK MARK COUNTING MISSION 🚨
+
+You are analyzing a photo where an inspector physically CHALKED damage on shingles.
+
+**YOUR MISSION: COUNT EVERY SINGLE CHALK MARK - DO NOT MISS ANY**
+
+**WHAT CHALK LOOKS LIKE:**
+- CIRCLES/OVALS = Hail damage (inspector circled the hits)
+- LINES/SLASHES/X-MARKS = Wind damage (inspector marked creases)
+- Colors: Yellow, White, Red, Blue, Orange - ANY colored marking on shingles
+
+**COUNTING RULES - BE AGGRESSIVE:**
+✓ If you see a colored circle on a shingle → COUNT IT as hail
+✓ If you see a colored line/slash on a shingle → COUNT IT as wind
+✓ Partial circles still count
+✓ Faint marks still count
+✓ Small marks still count
+✓ Don't ask "is this real?" - the inspector marked it, so it's real
+
+**DO NOT SKIP MARKS BECAUSE:**
+- "Not sure if it's chalk" → If it looks like chalk, COUNT IT
+- "Could be a shadow" → If it's colored and on a shingle, COUNT IT
+- "Unclear if circular" → If it's roundish, COUNT IT
+- "Only partial visible" → Still COUNT IT
+
+**SYSTEMATIC SCAN:**
+1. Start top-left of photo
+2. Scan left-to-right, row by row
+3. Count EVERY mark you see
+4. Don't stop until you've checked every shingle
+
+**DETECTIONS ARRAY - MANDATORY:**
+For EVERY mark you count, add a box to 'detections':
+- Hail circle: {type: "hail", box_2d: [ymin, xmin, ymax, xmax]}
+- Wind line: {type: "wind", box_2d: [ymin, xmin, ymax, xmax]}
+- Use 0-1000 scale, tight boxes around marks
+
+**CRITICAL: COUNT ONLY WHAT YOU SEE IN THIS PHOTO**
+- Do NOT estimate or extrapolate beyond this image
+- Do NOT calculate "per square" averages
+- Just count the actual marks visible here
+
+**RETURN EXACT COUNTS + DETECTIONS:**
+- hail_hits_counted: Exact number of circles in THIS photo
+- wind_marks_counted: Exact number of lines in THIS photo
+- detections: Array with a box for EACH mark
+- description: "Counted X circles + Y lines in this photo"`;
+
+
+        } else if (photoType === 'elevation_wide') {
+          // 🏘️ ELEVATION/SIDING ANALYSIS MODE (like Hover)
+          analysisPrompt = `You are analyzing a WIDE-ANGLE ELEVATION photo to detect damage on SIDING, GUTTERS, and other exterior components (NOT roof).
+
+**Context:**
+- Elevation: ${userSection}
+- Inspector Notes: ${userNotes}
+- Satellite Context: ${satelliteData?.roof_layout_analysis?.ai_description || 'Not available'}
+
+**OBJECTIVE:** Detect storm damage on NON-ROOF components from this wide-angle view.
+
+**LOOK FOR:**
+1. **SIDING DAMAGE:**
+   - Hail dents on vinyl/aluminum siding (circular indentations)
+   - Cracks or holes in siding panels
+   - Missing or damaged sections
+
+2. **GUTTER DAMAGE:**
+   - Dents on gutter faces
+   - Sagging or detached sections
+   - Crushed downspouts
+
+3. **SOFT METAL HITS:**
+   - Dents on vents, flashing, drip edge
+   - Window trim/bead damage
+   - Air conditioner unit dents
+
+4. **OTHER EXTERIOR:**
+   - Fence damage
+   - Awning/canopy damage
+   - Screen damage
+
+**VISUAL ANNOTATION:**
+- Draw boxes around EACH damaged area
+- [ymin, xmin, ymax, xmax] on 0-1000 scale
+- Focus on visible, clear damage
+
+**Return JSON:**
+- Set 'hail_hits_per_sq' and 'wind_damage_per_sq' to 0 (N/A for elevations)
+- List damage types in 'damage_types' array (e.g., "siding_hail", "gutter_dent", "soft_metal_vent")
+- Provide detailed description of collateral damage observed`;
+        } else if (userSection === 'General' || userSection === 'Garage' || userSection === 'Shed') {
+          // 🔭 WIDE ANGLE / DRONE CONTEXT MODE
+          analysisPrompt = `You are an expert storm damage inspector analyzing a GENERAL OVERVIEW DRONE photo of a property.
+
+        **Context:**
+        - View Type: ${userSection} (Overview/Context)
+        - Inspector Notes: ${userNotes}
+        - Satellite Analysis: ${satelliteData?.roof_layout_analysis?.ai_description || 'Not available'}
+
+        **Objective:** Establish the general condition of the roof AND other exterior components (Collateral Damage).
+
+        **Tasks:**
+        1. **Overall Condition**: Is the roof generally intact? Are there large missing sections?
+        2. **Major Damage Only**: Identify LARGE, obvious damage visible from a distance on ROOF (e.g. missing ridge caps, tree impact, massive wind lift) AND OTHER EXTERIOR COMPONENTS (e.g., dented gutters, damaged siding, bent awnings, damaged fences, soft metal hits).
+        3. **Ignore Noise**: Do not try to find small hail hits on a wide angle shot.
+
+        **Visual Annotation**:
+        - Draw boxes around MAJOR issues (missing shingles, holes, dents on siding/gutters, etc.).
+        - [ymin, xmin, ymax, xmax] on 0-1000 scale.
+
+        **Return JSON**:
+        - Set 'hail_hits_per_sq' and 'wind_damage_per_sq' to 0 (Not applicable for Overview).
+        - Describe the overall impression in 'description'.
+        - **CRITICAL**: Include other damage types in 'damage_types' array (e.g. "siding", "gutters", "fence", "awning", "soft metal", "window bead", "screens").`;
+        } else {
+          // 🔬 DRONE/CLOSE-UP MODE - ACTUAL DAMAGE DETECTION (HIGH SENSITIVITY)
+          analysisPrompt = `You are an elite forensic storm damage inspector analyzing a close-up roof photo.
+          
+**MISSION:** Detect ALL signs of hail and wind damage, including subtle or early-stage damage.
+**BIAS:** Lean towards DETECTION. If it looks like damage, mark it. Do not be conservative.
+
+**Context:**
+- Roof Section: ${userSection}
+- Inspector Notes: ${userNotes}
+
+**🔍 DETECTION CRITERIA (AGGRESSIVE):**
+
+**1. HAIL DAMAGE (Bruising & Impact):**
+- **LOOK FOR:** Dark spots, circular black marks, granule displacement, or physical dents.
+- **SUBTLE HITS:** Even small dark spots where granules are missing count as hail hits.
+- **CLUSTERS:** If you see multiple small marks in an area, count them all.
+- **ACTION:** Draw a box around EVERY individual hit you see.
+
+**2. WIND DAMAGE (Creased & Lifted):**
+- **LOOK FOR:** Horizontal dark lines near the top of shingles (creases).
+- **SHADOW VS CREASE:** If a dark line crosses the shingle horizontally, assume it is a wind crease unless strictly proven otherwise.
+- **LIFTED:** Any shadow under a shingle tab indicating lift.
+- **MISSING:** Any missing tabs or sections.
+- **ACTION:** Draw a box around EVERY affected shingle.
+
+**REFERENCE COMPARISON:**
+- Use the provided ${referenceUrls.length} reference photos as your "ground truth" for what damage looks like.
+- If features in this photo resemble the reference photos, FLAG THEM.
+
+**SHINGLE MEASUREMENTS (ITEL):**
+- Measure shingle exposure: distance from one shingle bottom to the next (usually 5-7 inches)
+- Estimate width: left-to-right measurement
+- Type: Is this 3-tab (flat, uniform) or dimensional (textured, varied)?
+
+**🚨 DISCONTINUED MATERIAL FLAGS:**
+- 3-tab shingles = likely_discontinued: TRUE (most manufacturers stopped making these)
+- Dimensional with 5" exposure + ~36" width = likely_discontinued: TRUE
+- This is CRITICAL for insurance - discontinued = can't match = full replacement
+
+**CRITICAL - VISUAL MARKUPS:**
+For EVERY damage point, add to 'detections' array:
+- {type: "hail"/"wind"/"other", box_2d: [ymin, xmin, ymax, xmax]}
+- Coordinates on 0-1000 scale
+- Place box CENTER over the damage
+
+**Return JSON with damage counts, shingle specs, discontinued flag, and detections array.**`;
+        }
+
+        let analysis;
+        try {
+          console.log(`🤖 Calling AI analysis for photo ${i + 1}... Mode: ${formData.inspection_type}`);
+          
+          analysis = await base44.integrations.Core.InvokeLLM({
+            prompt: analysisPrompt + (formData.inspection_type !== 'physical' && referenceUrls.length > 0 ? `\n\n**REFERENCE PHOTOS PROVIDED**: You have ${referenceUrls.length} example photos showing what damage looks like. Compare the inspection photo against these visual references to improve accuracy.` : '') + (formData.inspection_type !== 'physical' ? `\n\n**SHINGLE DIMENSION ANALYSIS (CRITICAL FOR ITEL):**
+          - Measure visible shingle exposure (distance from bottom of one shingle to bottom of next)
+          - Estimate shingle width (left to right measurement)
+          - Identify shingle type: "3-tab", "dimensional", "architectural", "unknown"
+          - **HIGH RISK DISCONTINUED**: Dimensional shingles with 5-inch exposure and 36-inch width are VERY LIKELY discontinued (flag as likely_discontinued=true)
+          - **HIGH RISK DISCONTINUED**: 3-tab shingles (ALL types) are increasingly discontinued by manufacturers (flag as likely_discontinued=true)
+          - If measurements suggest discontinued materials, this STRENGTHENS the case for full replacement under matching codes.` : ''),
+            file_urls: formData.inspection_type === 'physical' ? [file_url] : [file_url, ...referenceUrls],
+            response_json_schema: {
+              type: "object",
+              properties: {
+                damage_types: { type: "array", items: { type: "string" } },
+                severity: { type: "string", enum: ["none", "minor", "moderate", "severe"] },
+                has_hail_damage: { type: "boolean" },
+                has_wind_damage: { type: "boolean" },
+                hail_hits_counted: { type: "number", description: "EXACT count of hail marks visible in THIS photo ONLY" },
+                wind_marks_counted: { type: "number", description: "EXACT count of wind marks visible in THIS photo ONLY" },
+                description: { type: "string" },
+                insurance_recommended: { type: "boolean" },
+                roof_section: { type: "string" },
+                shingle_type: { type: "string", enum: ["3-tab", "dimensional", "architectural", "unknown"] },
+                shingle_exposure_inches: { type: "number", description: "Visible exposure in inches" },
+                shingle_width_inches: { type: "number", description: "Width in inches" },
+                likely_discontinued: { type: "boolean", description: "True if dimensions match discontinued profiles" },
+                detections: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      type: { type: "string", enum: ["hail", "wind", "other"] },
+                      box_2d: { 
+                        type: "array", 
+                        items: { type: "number" },
+                        description: "[ymin, xmin, ymax, xmax] on 0-1000 scale"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          });
+          console.log(`✅ AI analysis complete for photo ${i + 1}`);
+        } catch (aiError) {
+          console.error(`❌ AI analysis failed for photo ${i + 1}:`, aiError);
+          throw new Error(`AI analysis failed for photo ${i + 1}: ${aiError.message}`);
+        }
+
+        // 🎨 GENERATE VISUAL ANNOTATIONS
+        let annotatedFileUrl = null;
+        if (analysis.detections && analysis.detections.length > 0) {
+          try {
+            console.log(`✅ AI found ${analysis.detections.length} detections, drawing annotations...`);
+            setUploadStatus({
+              type: 'info',
+              message: `Drawing ${analysis.detections.length} markups on image ${i + 1}...`
+            });
+
+            const annotatedBlob = await annotateImage(file_url, analysis.detections);
+            const annotatedFile = new File([annotatedBlob], `annotated_${normalizedFileName}`, { type: 'image/jpeg' });
+            const uploadRes = await base44.integrations.Core.UploadFile({ file: annotatedFile });
+            annotatedFileUrl = uploadRes.file_url;
+            console.log(`✅ Annotated image uploaded: ${annotatedFileUrl}`);
+          } catch (annotError) {
+            console.error("❌ Annotation failed:", annotError);
+            setUploadStatus({
+              type: 'info',
+              message: `Annotation failed for image ${i + 1}, continuing with original image...`
+            });
+            // Continue without annotation if drawing fails
+          }
+        } else {
+          console.log(`⚠️ No detections returned by AI for image ${i + 1}`);
+        }
+
+        // 🔍 VALIDATION: Fix AI inconsistencies
+        let validatedAnalysis = { ...analysis };
+        let validationNotes = [];
+
+        // If AI drew boxes but said "no damage", enforce minimum counts
+        if (validatedAnalysis.detections && validatedAnalysis.detections.length > 0) {
+          const hailBoxes = validatedAnalysis.detections.filter(d => d.type === 'hail').length;
+          const windBoxes = validatedAnalysis.detections.filter(d => d.type === 'wind').length;
+
+          // Enforce counts based on detections
+          if (hailBoxes > 0 && (!validatedAnalysis.hail_hits_counted || validatedAnalysis.hail_hits_counted === 0)) {
+            validatedAnalysis.hail_hits_counted = hailBoxes;
+            validatedAnalysis.has_hail_damage = true;
+            validatedAnalysis.severity = validatedAnalysis.severity === 'none' ? 'minor' : validatedAnalysis.severity;
+            validationNotes.push(`AI drew ${hailBoxes} hail boxes but didn't count them - corrected`);
+          }
+          
+          if (windBoxes > 0 && (!validatedAnalysis.wind_marks_counted || validatedAnalysis.wind_marks_counted === 0)) {
+            validatedAnalysis.wind_marks_counted = windBoxes;
+            validatedAnalysis.has_wind_damage = true;
+            validatedAnalysis.severity = validatedAnalysis.severity === 'none' ? 'minor' : validatedAnalysis.severity;
+            validationNotes.push(`AI drew ${windBoxes} wind boxes but didn't count them - corrected`);
+          }
+
+          // Ensure damage_types is populated
+          if (!validatedAnalysis.damage_types || validatedAnalysis.damage_types.length === 0) {
+            validatedAnalysis.damage_types = [];
+            if (hailBoxes > 0) validatedAnalysis.damage_types.push('hail_damage');
+            if (windBoxes > 0) validatedAnalysis.damage_types.push('wind_damage');
+          }
+        }
+
+        // Enforce minimum counts based on severity
+        if (validatedAnalysis.severity === 'moderate' && (!validatedAnalysis.hail_hits_counted || validatedAnalysis.hail_hits_counted < 5)) {
+          validatedAnalysis.hail_hits_counted = Math.max(validatedAnalysis.hail_hits_counted || 0, 5);
+          validationNotes.push('Moderate severity enforced minimum 5 hits');
+        }
+        if (validatedAnalysis.severity === 'severe' && (!validatedAnalysis.hail_hits_counted || validatedAnalysis.hail_hits_counted < 10)) {
+          validatedAnalysis.hail_hits_counted = Math.max(validatedAnalysis.hail_hits_counted || 0, 10);
+          validationNotes.push('Severe severity enforced minimum 10 hits');
+        }
+
+        // Log validation actions
+        if (validationNotes.length > 0) {
+          console.log(`⚠️ Validation corrections for photo ${i + 1}:`, validationNotes);
+        }
+
+        if (validatedAnalysis.has_hail_damage) hailDetected = true;
+        if (validatedAnalysis.has_wind_damage) windDetected = true;
+
+        const damageTypes = validatedAnalysis?.damage_types || [];
+        
+        photoResults.push({
+          url: file_url,
+          annotated_url: annotatedFileUrl,
+          photo_type: photoItem.photo_type || 'roof_closeup',
+          caption: file.name,
+          damage_detected: damageTypes.length > 0 || (validatedAnalysis.detections && validatedAnalysis.detections.length > 0),
+          damage_type: damageTypes,
+          severity: validatedAnalysis?.severity || 'none',
+          ai_analysis: (validatedAnalysis?.description || 'Analysis completed') + (validationNotes.length > 0 ? '\n[Validation: ' + validationNotes.join('; ') + ']' : ''),
+          roof_section: validatedAnalysis?.roof_section || userSection,
+          user_notes: userNotes,
+          hail_hits_counted: validatedAnalysis?.hail_hits_counted || 0,
+          wind_marks_counted: validatedAnalysis?.wind_marks_counted || 0,
+          shingle_type: validatedAnalysis?.shingle_type || 'unknown',
+          shingle_exposure_inches: validatedAnalysis?.shingle_exposure_inches || 0,
+          shingle_width_inches: validatedAnalysis?.shingle_width_inches || 0,
+          likely_discontinued: validatedAnalysis?.likely_discontinued || false,
+          detections: validatedAnalysis?.detections || []
+        });
+      }
+
+      // 📊 GROUP BY SECTION - Calculate summaries
+      const sectionSummaries = {};
+      photoResults.forEach(photo => {
+        const section = photo.roof_section || 'General';
+        if (!sectionSummaries[section]) {
+          sectionSummaries[section] = {
+            total_hail_marks: 0,
+            total_wind_marks: 0,
+            photo_count: 0,
+            hail_per_sq: 0,
+            wind_per_sq: 0
+          };
+        }
+        
+        sectionSummaries[section].total_hail_marks += photo.hail_hits_counted || 0;
+        sectionSummaries[section].total_wind_marks += photo.wind_marks_counted || 0;
+        sectionSummaries[section].photo_count += 1;
+      });
+
+      // Calculate averages per section
+      Object.keys(sectionSummaries).forEach(section => {
+        const summary = sectionSummaries[section];
+        summary.hail_per_sq = summary.photo_count > 0 
+          ? Math.round(summary.total_hail_marks / summary.photo_count) 
+          : 0;
+        summary.wind_per_sq = summary.photo_count > 0 
+          ? Math.round(summary.total_wind_marks / summary.photo_count) 
+          : 0;
+      });
+
+      // Determine overall condition
+      const maxSeverity = photoResults.reduce((max, photo) => {
+        const severityLevels = { none: 0, minor: 1, moderate: 2, severe: 3 };
+        const photoLevel = severityLevels[photo.severity] || 0;
+        return photoLevel > max ? photoLevel : max;
+      }, 0);
+
+      const overallCondition =
+        maxSeverity === 0 ? 'excellent' :
+        maxSeverity === 1 ? 'good' :
+        maxSeverity === 2 ? 'fair' : 'poor';
+
+      // Check if discontinued materials detected
+      const discontinuedDetected = photoResults.some(p => p.likely_discontinued);
+      const discontinuedNotes = discontinuedDetected 
+        ? '\n\n🚨 MATERIAL MATCHING ALERT: AI detected likely discontinued shingle profile (3-tab or dimensional 5"x36"). ITEL report recommended. If no match found, building codes (e.g., Ohio OAC 3901-1-54) may require full replacement for uniform appearance.'
+        : '';
+
+      // Create inspection record
+      const inspectionData = {
+        company_id: myCompany?.id,
+        inspection_number: `DRONE-${Date.now().toString().slice(-8)}`,
+        property_address: formData.property_address,
+        customer_name: formData.customer_name,
+        inspection_date: formData.inspection_date,
+        weather_conditions: formData.weather_conditions,
+        storm_event_id: formData.storm_event_id || null,
+        satellite_image_url: satelliteData?.satellite_image_url,
+        roof_layout_analysis: satelliteData?.roof_layout_analysis,
+        photos: photoResults,
+        section_summaries: sectionSummaries,
+        overall_condition: overallCondition,
+        hail_damage_detected: hailDetected,
+        wind_damage_detected: windDetected,
+        estimated_repair_cost: 0,
+        notes: (formData.notes || '') + discontinuedNotes,
+        status: 'analyzed',
+        material_matching_flag: discontinuedDetected
+      };
+
+      await createMutation.mutateAsync(inspectionData);
+
+      setUploadStatus({
+        type: 'success',
+        message: `Drone analysis complete! ${hailDetected || windDetected ? 'Storm damage detected!' : 'No significant damage found.'}`
+      });
+
+    } catch (error) {
+      console.error('Drone analysis error:', error);
+      setUploadStatus({ type: 'error', message: `Drone analysis error: ${error.message}` });
+    }
+
+    setUploading(false);
+    setAnalyzing(false);
+  };
+
+  const handleDownloadReport = (inspection) => {
+    setSelectedInspectionForReport(inspection);
+    
+    // Auto-detect property state
+    let detectedState = null;
+    if (inspection.property_address) {
+      const addressParts = inspection.property_address.split(',').map(p => p.trim());
+      if (addressParts.length >= 2) {
+        const statePart = addressParts[addressParts.length - 2];
+        const stateMatch = statePart.match(/\b([A-Z]{2})\b/);
+        if (stateMatch) {
+          detectedState = stateMatch[1];
+        }
+      }
+    }
+    
+    // Reset config defaults
+    setReportConfig({
+      hailThreshold: 7,
+      windThreshold: 5,
+      itelStatus: 'none',
+      applyOhioCode: false,
+      detectedState: detectedState
+    });
+    setShowReportDialog(true);
+  };
+
+  const confirmGenerateReport = async () => {
+    if (!selectedInspectionForReport) return;
+    
+    setUploadStatus({ type: 'info', message: 'Generating report...' }); // Reuse upload status for feedback or add new state
+    
+    try {
+      const response = await base44.functions.invoke('generateDroneReport', {
+        inspectionId: selectedInspectionForReport.id,
+        hailThreshold: reportConfig.hailThreshold,
+        windThreshold: reportConfig.windThreshold,
+        itelStatus: reportConfig.itelStatus,
+        applyOhioCode: reportConfig.applyOhioCode
+      });
+
+      // Download PDF
+      const link = document.createElement('a');
+      link.href = response.data.pdf_url;
+      link.download = `Drone-Report-${selectedInspectionForReport.inspection_number}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      setShowReportDialog(false);
+      setUploadStatus(null);
+    } catch (error) {
+      alert('Failed to generate report: ' + error.message);
+      setUploadStatus(null);
+    }
+  };
+
+  const handleCreateEstimate = (inspection) => {
+    // Navigate to Estimates page with pre-filled data
+    const params = new URLSearchParams({
+      create_new: 'true',
+      prefill: 'true',
+      customer_name: inspection.customer_name,
+      property_address: inspection.property_address,
+      drone_inspection_id: inspection.id
+    });
+    navigate(createPageUrl('Estimates') + '?' + params.toString());
+  };
+
+  const handleDelete = (inspectionId) => {
+    if (window.confirm("Are you sure you want to delete this drone inspection?")) {
+      deleteMutation.mutate(inspectionId);
+    }
+  };
+
+  const handleTestReport = async () => {
+    setGeneratingTest(true);
+    const toastId = toast.loading('Generating test report...');
+    try {
+      const response = await base44.functions.invoke('generateDroneReport', { 
+        testMode: true,
+        companyId: myCompany?.id
+      });
+      
+      const link = document.createElement('a');
+      link.href = response.data.pdf_url;
+      link.download = `TEST-Drone-Report.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success('Test report generated!', { id: toastId });
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to generate test report: ' + error.message, { id: toastId });
+    } finally {
+      setGeneratingTest(false);
+    }
+  };
+
+  const getSeverityColor = (severity) => {
+    const colors = {
+      'none': 'bg-green-100 text-green-700 border-green-200',
+      'minor': 'bg-yellow-100 text-yellow-700 border-yellow-200',
+      'moderate': 'bg-orange-100 text-orange-700 border-orange-200',
+      'severe': 'bg-red-100 text-red-700 border-red-200'
+    };
+    return colors[severity] || colors.none;
+  };
+
+  const getConditionColor = (condition) => {
+    const colors = {
+      'excellent': 'bg-green-100 text-green-700 border-green-200',
+      'good': 'bg-blue-100 text-blue-700 border-blue-200',
+      'fair': 'bg-yellow-100 text-yellow-700 border-yellow-200',
+      'poor': 'bg-orange-100 text-orange-700 border-orange-200',
+      'critical': 'bg-red-100 text-red-700 border-red-200'
+    };
+    return colors[condition] || colors.good;
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+            <Camera className="w-8 h-8 text-blue-600" />
+            AI Damage Analysis
+          </h1>
+          <p className="text-gray-500 mt-1">AI-powered storm damage detection from drone & inspection photos</p>
+        </div>
+
+        <div className="flex gap-3 flex-wrap">
+          <Button
+            variant="outline"
+            onClick={() => setShowReferenceDialog(true)}
+            className="border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100"
+          >
+            <Sparkles className="w-4 h-4 mr-2" />
+            Train AI ({referencePhotos.length} examples)
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setShowInstructions(!showInstructions)}
+          >
+            <Eye className="w-4 h-4 mr-2" />
+            How It Works
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={handleTestReport}
+            disabled={generatingTest}
+            className="bg-gray-100 hover:bg-gray-200 text-gray-800"
+          >
+            {generatingTest ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
+            Test PDF
+          </Button>
+          <Dialog open={showDialog} onOpenChange={setShowDialog}>
+            <DialogTrigger asChild>
+              <Button className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700">
+                <Plus className="w-4 h-4 mr-2" />
+                New Drone Analysis
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-blue-600" />
+                  New Drone Inspection Analysis
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {uploadStatus && (
+                  <Alert variant={uploadStatus.type === 'error' ? 'destructive' : 'default'}
+                         className={uploadStatus.type === 'success' ? 'bg-green-50 border-green-200' : ''}>
+                    <AlertDescription className={uploadStatus.type === 'success' ? 'text-green-800' : ''}>
+                      {uploadStatus.type === 'success' && <CheckCircle2 className="w-4 h-4 inline mr-2" />}
+                      {uploadStatus.message}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="space-y-4">
+                  <div>
+                    <Label>Customer Name</Label>
+                    <Input
+                      value={formData.customer_name}
+                      onChange={(e) => {
+                        const newName = e.target.value;
+                        let newAddress = formData.property_address;
+                        
+                        const matchedCustomer = customers.find(c => c.name.toLowerCase() === newName.toLowerCase());
+                        if (matchedCustomer) {
+                          const constructedAddress = matchedCustomer.street 
+                            ? `${matchedCustomer.street}, ${matchedCustomer.city || ''}, ${matchedCustomer.state || ''} ${matchedCustomer.zip || ''}`.replace(/,\s*,/g, ',').replace(/\s+/g, ' ').trim()
+                            : matchedCustomer.address;
+                            
+                          if (constructedAddress) {
+                            newAddress = constructedAddress;
+                            toast.success(`📍 Address found for ${matchedCustomer.name}`);
+                          }
+                        }
+                        
+                        setFormData({...formData, customer_name: newName, property_address: newAddress});
+                      }}
+                      placeholder="Enter customer name"
+                      list="customers-list"
+                    />
+                    <datalist id="customers-list">
+                      {customers.map((customer) => (
+                        <option key={customer.id} value={customer.name} />
+                      ))}
+                    </datalist>
+                  </div>
+
+                  <div>
+                    <Label>Property Address *</Label>
+                    <Input
+                      value={formData.property_address}
+                      onChange={(e) => setFormData({...formData, property_address: e.target.value})}
+                      placeholder="Enter property address..."
+                    />
+                  </div>
+
+                  {/* Loading State */}
+                  {loadingSatellite && (
+                    <div className="text-center py-8">
+                      <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-gray-900">Loading satellite view...</p>
+                      <p className="text-xs text-gray-500 mt-1">Please wait</p>
+                    </div>
+                  )}
+
+                  {/* Satellite View with AI Analysis */}
+                  {satelliteData && !loadingSatellite && (
+                    <div className="space-y-4">
+                      <div className="relative">
+                        <img 
+                          src={satelliteData.satellite_image_url} 
+                          alt="Satellite view"
+                          className="w-full rounded-lg border-2 border-blue-300"
+                        />
+                        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-full">
+                          <MapPin className="w-12 h-12 text-red-600 drop-shadow-lg" fill="#ef4444" />
+                        </div>
+                        <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-lg max-w-[80%]">
+                          <p className="text-sm font-semibold text-gray-900">{formData.property_address}</p>
+                        </div>
+                      </div>
+
+                      {/* AI Roof Analysis Results */}
+                      {satelliteData.roof_layout_analysis && (
+                        <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-4 border-2 border-purple-300">
+                          <h4 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+                            <Sparkles className="w-5 h-5 text-purple-600" />
+                            AI Roof Analysis
+                          </h4>
+
+                          {satelliteData.roof_layout_analysis.ai_description && (
+                            <p className="text-sm text-gray-700 mb-3">{satelliteData.roof_layout_analysis.ai_description}</p>
+                          )}
+
+                          {satelliteData.roof_layout_analysis.sections_identified && satelliteData.roof_layout_analysis.sections_identified.length > 0 && (
+                            <div className="space-y-2">
+                              <p className="text-sm font-semibold text-gray-800">Identified Roof Sections:</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                {satelliteData.roof_layout_analysis.sections_identified.map((section, idx) => (
+                                  <div key={idx} className="bg-white rounded p-2 border border-purple-200">
+                                    <p className="font-medium text-sm">{section.section_name}</p>
+                                    <p className="text-xs text-gray-600">{section.orientation}</p>
+                                    <p className="text-xs text-gray-500">{section.description}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Inspection Source</Label>
+                    <Select 
+                      value={formData.inspection_type} 
+                      onValueChange={(val) => setFormData({...formData, inspection_type: val})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="drone">Drone / Aerial</SelectItem>
+                        <SelectItem value="physical">Physical / On-Roof (Chalk Marks)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Inspection Date</Label>
+                    <Input
+                      type="date"
+                      value={formData.inspection_date}
+                      onChange={(e) => setFormData({...formData, inspection_date: e.target.value})}
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <Label>Weather Conditions</Label>
+                  <Input
+                    value={formData.weather_conditions}
+                    onChange={(e) => setFormData({...formData, weather_conditions: e.target.value})}
+                    placeholder="Sunny, clear visibility"
+                  />
+                </div>
+
+                <div>
+                  <Label>Notes</Label>
+                  <Textarea
+                    value={formData.notes}
+                    onChange={(e) => setFormData({...formData, notes: e.target.value})}
+                    rows={2}
+                    placeholder="Additional inspection notes..."
+                  />
+                </div>
+
+                <div>
+                  <Label>Related Storm Event (Optional)</Label>
+                  <Select 
+                    value={formData.storm_event_id} 
+                    onValueChange={(val) => setFormData({...formData, storm_event_id: val})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select storm event..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={null}>None</SelectItem>
+                      {stormEvents.map((storm) => (
+                        <SelectItem key={storm.id} value={storm.id}>
+                          {storm.title} - {storm.event_type} ({format(new Date(storm.start_time), 'MMM d, yyyy')})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500 mt-1">Link this inspection to a storm event for report inclusion</p>
+                </div>
+
+                <div className="border-2 border-dashed border-blue-300 rounded-lg p-6 bg-blue-50">
+                  <div className="text-center mb-4">
+                    <Upload className="w-12 h-12 mx-auto mb-2 text-blue-600" />
+                    <h3 className="font-semibold text-lg mb-1">Upload Drone/Inspection Photos</h3>
+                    <p className="text-sm text-gray-600">Select multiple photos for AI damage analysis</p>
+                  </div>
+
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                    multiple
+                    onChange={handlePhotoSelect}
+                    className="hidden"
+                    id="drone-photos"
+                    disabled={uploading}
+                  />
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full mb-3"
+                    onClick={() => document.getElementById('drone-photos')?.click()}
+                    disabled={uploading}
+                  >
+                    <Camera className="w-4 h-4 mr-2" />
+                    Select Photos
+                  </Button>
+
+                  {selectedPhotos.length > 0 && (
+                    <div className="bg-white rounded-lg p-4 space-y-4">
+                      {/* Bulk Actions Header */}
+                      <div className="flex flex-col gap-3 pb-3 border-b">
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="checkbox" 
+                              className="w-4 h-4 rounded border-gray-300"
+                              checked={selectedPhotos.length > 0 && selectedPhotoIds.size === selectedPhotos.length}
+                              onChange={toggleSelectAll}
+                            />
+                            <p className="font-medium text-sm text-gray-700">
+                              Select All ({selectedPhotos.length} Photos)
+                            </p>
+                          </div>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => setSelectedPhotos([])}
+                            className="text-red-600 h-8"
+                          >
+                            Clear List
+                          </Button>
+                        </div>
+
+                        {selectedPhotoIds.size > 0 && (
+                          <div className="bg-blue-50 p-3 rounded-md border border-blue-100 flex flex-col md:flex-row gap-3 items-end md:items-center">
+                            <span className="text-xs font-semibold text-blue-800 whitespace-nowrap">
+                              Bulk Edit ({selectedPhotoIds.size}):
+                            </span>
+                            <div className="flex-1 w-full grid grid-cols-2 gap-2">
+                              <Select onValueChange={(val) => handleBulkUpdate('section', val)}>
+                                <SelectTrigger className="h-8 bg-white text-xs">
+                                  <SelectValue placeholder="Set Section..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="General">General</SelectItem>
+                                  <SelectItem value="Front Slope">Front Slope</SelectItem>
+                                  <SelectItem value="Back Slope">Back Slope</SelectItem>
+                                  <SelectItem value="Left Slope">Left Slope</SelectItem>
+                                  <SelectItem value="Right Slope">Right Slope</SelectItem>
+                                  <SelectItem value="Front Elevation">Front Elevation</SelectItem>
+                                  <SelectItem value="Back Elevation">Back Elevation</SelectItem>
+                                  <SelectItem value="Left Elevation">Left Elevation</SelectItem>
+                                  <SelectItem value="Right Elevation">Right Elevation</SelectItem>
+                                  <SelectItem value="Garage">Garage</SelectItem>
+                                  <SelectItem value="Shed">Shed</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <div className="flex gap-1">
+                                <Input 
+                                  placeholder="Set Notes..." 
+                                  className="h-8 bg-white text-xs"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleBulkUpdate('notes', e.currentTarget.value);
+                                  }}
+                                  onBlur={(e) => {
+                                    if (e.target.value) handleBulkUpdate('notes', e.target.value);
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="space-y-4">
+                        {selectedPhotos.map((photo) => (
+                          <div 
+                            key={photo.id} 
+                            className={`flex gap-4 p-3 border rounded-lg transition-colors ${
+                              selectedPhotoIds.has(photo.id) ? 'bg-blue-50 border-blue-300' : 'bg-gray-50'
+                            }`}
+                          >
+                            <div className="flex flex-col justify-center">
+                              <input 
+                                type="checkbox" 
+                                className="w-5 h-5 rounded border-gray-300 cursor-pointer"
+                                checked={selectedPhotoIds.has(photo.id)}
+                                onChange={() => toggleSelection(photo.id)}
+                              />
+                            </div>
+
+                            <div className="relative w-32 h-32 flex-shrink-0 bg-gray-200 rounded-md overflow-hidden group">
+                              <img
+                                src={photo.preview}
+                                alt={photo.file.name}
+                                className="w-full h-full object-cover"
+                              />
+                              <button
+                                onClick={() => removePhoto(photo.id)}
+                                className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                            
+                            <div className="flex-1 space-y-3">
+                              <div>
+                                <Label className="text-xs text-gray-500">Photo Type</Label>
+                                <Select 
+                                  value={photo.photo_type || 'roof_closeup'} 
+                                  onValueChange={(val) => updatePhotoMetadata(photo.id, 'photo_type', val)}
+                                >
+                                  <SelectTrigger className="h-8 mt-1">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="roof_closeup">Roof Close-up (Test Square)</SelectItem>
+                                    <SelectItem value="elevation_wide">Elevation Wide-Angle (Siding)</SelectItem>
+                                    <SelectItem value="general_overview">General Overview</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div>
+                                <Label className="text-xs text-gray-500">Roof Slope / Section</Label>
+                                <Select 
+                                  value={photo.section} 
+                                  onValueChange={(val) => updatePhotoMetadata(photo.id, 'section', val)}
+                                >
+                                  <SelectTrigger className="h-8 mt-1">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {satelliteData?.roof_layout_analysis?.sections_identified ? (
+                                      <>
+                                        {satelliteData.roof_layout_analysis.sections_identified.map((section) => (
+                                          <SelectItem key={section.section_name} value={section.section_name}>
+                                            {section.section_name} ({section.orientation})
+                                          </SelectItem>
+                                        ))}
+                                        <SelectItem value="General">General</SelectItem>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <SelectItem value="General">General</SelectItem>
+                                        <SelectItem value="Front Slope">Front Slope</SelectItem>
+                                        <SelectItem value="Back Slope">Back Slope</SelectItem>
+                                        <SelectItem value="Left Slope">Left Slope</SelectItem>
+                                        <SelectItem value="Right Slope">Right Slope</SelectItem>
+                                        <SelectItem value="Front Elevation">Front Elevation</SelectItem>
+                                        <SelectItem value="Back Elevation">Back Elevation</SelectItem>
+                                        <SelectItem value="Left Elevation">Left Elevation</SelectItem>
+                                        <SelectItem value="Right Elevation">Right Elevation</SelectItem>
+                                        <SelectItem value="Garage">Garage</SelectItem>
+                                        <SelectItem value="Shed">Shed</SelectItem>
+                                      </>
+                                    )}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              
+                              <div>
+                                <Label className="text-xs text-gray-500">Notes (Manual or CrewCam)</Label>
+                                <Input 
+                                  value={photo.notes}
+                                  onChange={(e) => updatePhotoMetadata(photo.id, 'notes', e.target.value)}
+                                  placeholder="e.g. 5 hail hits in test square..."
+                                  className="h-8 mt-1 text-sm"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-4 border border-purple-200">
+                  <h4 className="font-semibold flex items-center gap-2 mb-2">
+                    <Sparkles className="w-4 h-4 text-purple-600" />
+                    AI Analysis Features
+                  </h4>
+                  <ul className="text-sm text-gray-700 space-y-1">
+                    <li className="flex items-center gap-2">
+                      <CloudHail className="w-4 h-4 text-blue-600" />
+                      Hail damage detection (impact marks, granule loss)
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Wind className="w-4 h-4 text-green-600" />
+                      Wind damage detection (missing/lifted shingles)
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-orange-600" />
+                      Severity assessment & cost estimation
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-indigo-600" />
+                      Downloadable PDF reports
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <DollarSign className="w-4 h-4 text-green-600" />
+                      One-click estimate creation
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setShowDialog(false);
+                      setSelectedPhotos([]);
+                      setUploadStatus(null);
+                      setFormData({
+                        property_address: "",
+                        customer_name: "",
+                        inspection_date: new Date().toISOString().split('T')[0],
+                        inspection_type: "drone",
+                        weather_conditions: "",
+                        notes: "",
+                        storm_event_id: ""
+                      });
+                    }}
+                    disabled={uploading}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={analyzeDronePhotos}
+                    disabled={uploading || selectedPhotos.length === 0 || !formData.property_address}
+                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                  >
+                    {uploading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Analyzing...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Analyze with AI
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Report Configuration Dialog */}
+          <Dialog open={showReportDialog} onOpenChange={setShowReportDialog}>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>Generate Inspection Report</DialogTitle>
+              </DialogHeader>
+              
+              <div className="space-y-6 py-4">
+                <div className="space-y-4">
+                  <h4 className="font-medium text-sm text-gray-900 border-b pb-2">Damage Thresholds</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Hail Hits / Square</Label>
+                      <Input 
+                        type="number" 
+                        value={reportConfig.hailThreshold}
+                        onChange={(e) => setReportConfig({...reportConfig, hailThreshold: parseInt(e.target.value) || 0})}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Standard: 7-10 hits</p>
+                    </div>
+                    <div>
+                      <Label>Wind Damaged Shingles / Square</Label>
+                      <Input 
+                        type="number" 
+                        value={reportConfig.windThreshold}
+                        onChange={(e) => setReportConfig({...reportConfig, windThreshold: parseInt(e.target.value) || 0})}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Standard: 3-5 shingles</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="font-medium text-sm text-gray-900 border-b pb-2">Material Matching (ITEL & Code)</h4>
+
+                  {reportConfig.detectedState && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                      <p className="text-sm text-green-900">
+                        <span className="font-semibold">📍 Detected State:</span> {reportConfig.detectedState}
+                      </p>
+                    </div>
+                  )}
+
+                  <div>
+                    <Label>ITEL Report Status</Label>
+                    <Select 
+                      value={reportConfig.itelStatus} 
+                      onValueChange={(val) => setReportConfig({...reportConfig, itelStatus: val})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Not Performed / N/A</SelectItem>
+                        <SelectItem value="match_found">Match Found (Repairable)</SelectItem>
+                        <SelectItem value="no_match">No Match Available (Discontinued)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {reportConfig.itelStatus === 'no_match' && (
+                    <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <input
+                        type="checkbox"
+                        id="ohioCode"
+                        className="mt-1"
+                        checked={reportConfig.applyOhioCode}
+                        onChange={(e) => setReportConfig({...reportConfig, applyOhioCode: e.target.checked})}
+                      />
+                      <label htmlFor="ohioCode" className="text-sm cursor-pointer">
+                        <span className="font-semibold block text-blue-900">
+                          Apply {reportConfig.detectedState || 'State'} Matching Code?
+                        </span>
+                        <span className="text-blue-700">
+                          {reportConfig.detectedState 
+                            ? `Apply ${reportConfig.detectedState} building code for reasonably uniform appearance. This will recommend replacement if materials don't match.`
+                            : 'Reference building code for reasonably uniform appearance. This will recommend replacement if materials don\'t match.'}
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" onClick={() => setShowReportDialog(false)}>Cancel</Button>
+                <Button onClick={confirmGenerateReport} className="bg-blue-600 hover:bg-blue-700">
+                  Generate PDF
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Storm Event Linking Dialog */}
+          <Dialog open={showStormLinkDialog} onOpenChange={setShowStormLinkDialog}>
+            <DialogContent className="sm:max-w-[600px]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Link2 className="w-5 h-5 text-blue-600" />
+                  Link Storm Event to Inspection
+                </DialogTitle>
+              </DialogHeader>
+              
+              <div className="space-y-4 py-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Search by Location</Label>
+                    <Input
+                      placeholder="e.g., Ohio, Cleveland..."
+                      value={stormSearchLocation}
+                      onChange={(e) => setStormSearchLocation(e.target.value)}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Type a state, city, or location
+                    </p>
+                  </div>
+                  <div>
+                    <Label>Search by Date Range</Label>
+                    <Input
+                      type="date"
+                      value={stormSearchDate}
+                      onChange={(e) => setStormSearchDate(e.target.value)}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Default: Last 365 days
+                    </p>
+                  </div>
+                </div>
+
+                {(stormSearchLocation || stormSearchDate) && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 flex items-center justify-between">
+                    <p className="text-sm text-blue-900">
+                      {stormEvents.length} storm{stormEvents.length !== 1 ? 's' : ''} found
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setStormSearchLocation('');
+                        setStormSearchDate('');
+                      }}
+                      className="text-blue-600 hover:text-blue-700 h-6 text-xs"
+                    >
+                      Clear Filters
+                    </Button>
+                  </div>
+                )}
+
+                <div>
+                  <Label>Select Storm Event</Label>
+                  <Select 
+                    value={selectedInspectionForStorm?.storm_event_id || ""} 
+                    onValueChange={(val) => {
+                      if (selectedInspectionForStorm) {
+                        updateStormLinkMutation.mutate({
+                          inspectionId: selectedInspectionForStorm.id,
+                          stormEventId: val
+                        });
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a storm..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={null}>None (Remove Link)</SelectItem>
+                      {stormEvents.map((storm) => (
+                        <SelectItem key={storm.id} value={storm.id}>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{storm.title}</span>
+                            <span className="text-xs text-gray-500">
+                              {storm.event_type} - {storm.severity} - {format(new Date(storm.start_time), 'MMM d, yyyy')}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500 mt-2">
+                    The storm details will be included in the PDF report
+                  </p>
+                </div>
+
+                {selectedInspectionForStorm?.storm_event_id && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <p className="text-sm text-blue-900">
+                      ✅ Storm linked! The report will include storm event details.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setShowStormLinkDialog(false)}>
+                  Close
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Reference Photos Training Dialog */}
+          <Dialog open={showReferenceDialog} onOpenChange={setShowReferenceDialog}>
+            <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-purple-600" />
+                  Train AI with Reference Photos
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-6">
+                <Alert className="bg-purple-50 border-purple-200">
+                  <AlertDescription className="text-purple-900">
+                    <strong>Upload clear examples</strong> of damage types. The AI will visually compare inspection photos against these references for better accuracy.
+                  </AlertDescription>
+                </Alert>
+
+                {/* Testing Stats */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="bg-white rounded-lg p-3 border">
+                    <p className="text-xs text-gray-500 mb-1">Total References</p>
+                    <p className="text-2xl font-bold text-purple-700">{referencePhotos.length}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border">
+                    <p className="text-xs text-gray-500 mb-1">Verified (Gold)</p>
+                    <p className="text-2xl font-bold text-blue-700">{referencePhotos.filter(p => p.is_verified).length}</p>
+                  </div>
+                  {testResults && (
+                    <>
+                      <div className="bg-white rounded-lg p-3 border">
+                        <p className="text-xs text-gray-500 mb-1">Hail Accuracy</p>
+                        <p className="text-2xl font-bold text-green-700">{testResults.summary.avg_hail_accuracy}%</p>
+                      </div>
+                      <div className="bg-white rounded-lg p-3 border">
+                        <p className="text-xs text-gray-500 mb-1">Wind Accuracy</p>
+                        <p className="text-2xl font-bold text-green-700">{testResults.summary.avg_wind_accuracy}%</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Test Button */}
+                <Button
+                  onClick={handleRunAccuracyTest}
+                  disabled={runningTest || referencePhotos.filter(p => p.is_verified).length === 0}
+                  className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                >
+                  {runningTest ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Running Accuracy Test...
+                    </>
+                  ) : (
+                    <>
+                      <FlaskConical className="w-4 h-4 mr-2" />
+                      Run AI Accuracy Test ({referencePhotos.filter(p => p.is_verified).length} verified photos)
+                    </>
+                  )}
+                </Button>
+
+                {testResults && (
+                  <div className="bg-blue-50 border border-blue-300 rounded-lg p-4">
+                    <h4 className="font-semibold text-blue-900 mb-3">Test Results:</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>✅ Tests Completed: <strong>{testResults.summary.tests_completed}</strong></div>
+                        <div>📊 Avg Confidence: <strong>{testResults.summary.avg_confidence}%</strong></div>
+                        <div>🎯 Hail Accuracy: <strong>{testResults.summary.avg_hail_accuracy}%</strong></div>
+                        <div>💨 Wind Accuracy: <strong>{testResults.summary.avg_wind_accuracy}%</strong></div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Upload Form */}
+                <div className="bg-gray-50 rounded-lg p-4 border-2 border-dashed border-gray-300">
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>Damage Type *</Label>
+                        <Select 
+                          value={referenceForm.damage_type} 
+                          onValueChange={(val) => setReferenceForm({...referenceForm, damage_type: val, custom_damage_type: ''})}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="wind_crease">Wind Creases (Shingles)</SelectItem>
+                            <SelectItem value="hail_shingle">Hail Hits (Shingles)</SelectItem>
+                            <SelectItem value="missing_shingle">Missing Shingles</SelectItem>
+                            <SelectItem value="soft_metal_hail">Soft Metal Dings (Vents/Flashing)</SelectItem>
+                            <SelectItem value="gutter_dent">Gutter Dents</SelectItem>
+                            <SelectItem value="siding_dent">Siding Damage</SelectItem>
+                            <SelectItem value="garage_door_dent">Garage Door Dents</SelectItem>
+                            <SelectItem value="fence_damage">Fence Damage</SelectItem>
+                            <SelectItem value="window_screen">Window Screen Damage</SelectItem>
+                            <SelectItem value="custom">+ Custom Type (Type Below)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Description</Label>
+                        <Input 
+                          value={referenceForm.description}
+                          onChange={(e) => setReferenceForm({...referenceForm, description: e.target.value})}
+                          placeholder="e.g., Clear wind crease example"
+                        />
+                      </div>
+                    </div>
+                    
+                    {referenceForm.damage_type === 'custom' && (
+                      <div>
+                        <Label>Custom Damage Type Name *</Label>
+                        <Input 
+                          value={referenceForm.custom_damage_type}
+                          onChange={(e) => setReferenceForm({...referenceForm, custom_damage_type: e.target.value})}
+                          placeholder="e.g., Awning Damage, AC Unit Dent, Mailbox..."
+                          className="border-purple-300"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Type any damage category to train the AI (e.g., "Fascia Damage", "Soffit Holes", "Chimney Cap")
+                        </p>
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={async (e) => {
+                        const files = Array.from(e.target.files || []);
+                        if (files.length > 0) {
+                          setUploadingReference(true);
+                          for (const file of files) {
+                            await uploadReferenceMutation.mutateAsync({
+                              file,
+                              damage_type: referenceForm.damage_type,
+                              custom_damage_type: referenceForm.custom_damage_type,
+                              description: referenceForm.description
+                            });
+                          }
+                          setUploadingReference(false);
+                          e.target.value = '';
+                        }
+                      }}
+                      className="hidden"
+                      id="reference-upload"
+                      disabled={uploadingReference}
+                    />
+                    <Button
+                      onClick={() => document.getElementById('reference-upload')?.click()}
+                      disabled={uploadingReference || (referenceForm.damage_type === 'custom' && !referenceForm.custom_damage_type.trim())}
+                      className="w-full bg-purple-600 hover:bg-purple-700"
+                    >
+                      {uploadingReference ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Uploading...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-4 h-4 mr-2" />
+                          Upload Reference Photo
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Reference Photo Gallery */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-gray-900">Current Reference Photos ({referencePhotos.length})</h3>
+                      <p className="text-sm text-gray-600">Click a photo to verify, or select multiple to delete in bulk</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {selectedRefIds.size === 0 ? (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const ids = referencePhotos.slice(0, 25).map(r => r.id);
+                              setSelectedRefIds(new Set(ids));
+                            }}
+                            disabled={referencePhotos.length < 1}
+                          >
+                            Select 25
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const ids = referencePhotos.slice(0, 50).map(r => r.id);
+                              setSelectedRefIds(new Set(ids));
+                            }}
+                            disabled={referencePhotos.length < 1}
+                          >
+                            Select 50
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const ids = referencePhotos.slice(0, 100).map(r => r.id);
+                              setSelectedRefIds(new Set(ids));
+                            }}
+                            disabled={referencePhotos.length < 1}
+                          >
+                            Select 100
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const ids = referencePhotos.map(r => r.id);
+                              setSelectedRefIds(new Set(ids));
+                            }}
+                            disabled={referencePhotos.length < 1}
+                          >
+                            Select All
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Select value={bulkLabelType} onValueChange={setBulkLabelType}>
+                            <SelectTrigger className="w-48">
+                              <SelectValue placeholder="Select label..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="hail_shingle">Hail (Shingles)</SelectItem>
+                              <SelectItem value="wind_crease">Wind Creases</SelectItem>
+                              <SelectItem value="missing_shingles">Missing Shingles</SelectItem>
+                              <SelectItem value="hail_siding">Hail (Siding)</SelectItem>
+                              <SelectItem value="wind_siding">Wind (Siding)</SelectItem>
+                              <SelectItem value="damaged_flashing">Damaged Flashing</SelectItem>
+                              <SelectItem value="damaged_gutters">Damaged Gutters</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => {
+                              if (!bulkLabelType) {
+                                toast.error('Please select a label first');
+                                return;
+                              }
+                              bulkLabelReferencesMutation.mutate({
+                                ids: Array.from(selectedRefIds),
+                                damageType: bulkLabelType
+                              });
+                            }}
+                            disabled={bulkLabelReferencesMutation.isPending || !bulkLabelType}
+                          >
+                            Label {selectedRefIds.size} Selected
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedRefIds(new Set())}
+                          >
+                            Clear
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => {
+                              if (window.confirm(`Delete ${selectedRefIds.size} reference photos?`)) {
+                                bulkDeleteReferencesMutation.mutate(Array.from(selectedRefIds));
+                              }
+                            }}
+                            disabled={bulkDeleteReferencesMutation.isPending}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Delete
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {referencePhotos.length === 0 ? (
+                    <p className="text-gray-500 text-sm italic">No reference photos yet. Upload examples above.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {referencePhotos.map((ref) => (
+                        <div 
+                          key={ref.id} 
+                          className="relative group border rounded-lg overflow-hidden hover:shadow-lg transition-shadow"
+                        >
+                          <div
+                            className="cursor-pointer"
+                            onClick={() => {
+                              setSelectedRefPhoto(ref);
+                              setVerifyForm({
+                                hail_count: ref.verified_hail_count || 0,
+                                wind_count: ref.verified_wind_count || 0
+                              });
+                              setImageZoom(1);
+                              setImagePan({ x: 0, y: 0 });
+                            }}
+                          >
+                            <img 
+                              src={ref.photo_url} 
+                              alt={ref.description}
+                              className="w-full h-32 object-cover"
+                            />
+                          </div>
+                          {ref.is_verified && (
+                            <div className="absolute top-2 left-2 bg-green-600 text-white rounded-full p-1">
+                              <CheckCircle2 className="w-4 h-4" />
+                            </div>
+                          )}
+                          <div className="absolute top-2 right-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedRefIds.has(ref.id)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                const newIds = new Set(selectedRefIds);
+                                if (newIds.has(ref.id)) {
+                                  newIds.delete(ref.id);
+                                } else {
+                                  newIds.add(ref.id);
+                                }
+                                setSelectedRefIds(newIds);
+                              }}
+                              className="w-5 h-5 rounded border-2 border-white shadow-lg cursor-pointer"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                          <div className="p-2 bg-white">
+                            <Badge className="text-xs" variant="outline">
+                              {ref.damage_type.replace(/_/g, ' ')}
+                            </Badge>
+                            {ref.is_verified && (
+                              <div className="flex gap-1 mt-1">
+                                <Badge className="text-xs bg-green-50 text-green-700">
+                                  {ref.verified_hail_count || 0} H
+                                </Badge>
+                                <Badge className="text-xs bg-blue-50 text-blue-700">
+                                  {ref.verified_wind_count || 0} W
+                                </Badge>
+                              </div>
+                            )}
+                            {ref.description && (
+                              <p className="text-xs text-gray-600 mt-1 truncate">{ref.description}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Verify Reference Photo Dialog */}
+          <Dialog open={!!selectedRefPhoto} onOpenChange={() => {
+            setSelectedRefPhoto(null);
+            setImageZoom(1);
+            setImagePan({ x: 0, y: 0 });
+          }}>
+            <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Target className="w-5 h-5 text-purple-600" />
+                  Verify Ground Truth Counts
+                </DialogTitle>
+              </DialogHeader>
+              
+              {selectedRefPhoto && (
+                <>
+                  <div className="flex-1 overflow-y-auto space-y-4 px-1">
+                    <div className="relative bg-gray-100 rounded-lg overflow-hidden" style={{ height: '400px' }}>
+                      {/* Zoom Controls */}
+                      <div className="absolute top-2 right-2 z-10 flex flex-col gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setImageZoom(Math.min(imageZoom + 0.5, 4))}
+                          className="shadow-lg"
+                        >
+                          <ZoomIn className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setImageZoom(Math.max(imageZoom - 0.5, 1))}
+                          className="shadow-lg"
+                        >
+                          <ZoomOut className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            setImageZoom(1);
+                            setImagePan({ x: 0, y: 0 });
+                          }}
+                          className="shadow-lg"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                        </Button>
+                      </div>
+
+                      {/* Zoom Level Indicator */}
+                      <div className="absolute top-2 left-2 z-10 bg-black/70 text-white px-2 py-1 rounded text-xs">
+                        {Math.round(imageZoom * 100)}%
+                      </div>
+
+                      {/* Zoomable Image */}
+                      <div 
+                        className="w-full h-full overflow-auto cursor-move"
+                        onWheel={(e) => {
+                          e.preventDefault();
+                          const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                          setImageZoom(Math.max(1, Math.min(4, imageZoom + delta)));
+                        }}
+                        onMouseDown={(e) => {
+                          if (imageZoom > 1) {
+                            setIsPanning(true);
+                            setPanStart({ x: e.clientX - imagePan.x, y: e.clientY - imagePan.y });
+                          }
+                        }}
+                        onMouseMove={(e) => {
+                          if (isPanning && imageZoom > 1) {
+                            setImagePan({
+                              x: e.clientX - panStart.x,
+                              y: e.clientY - panStart.y
+                            });
+                          }
+                        }}
+                        onMouseUp={() => setIsPanning(false)}
+                        onMouseLeave={() => setIsPanning(false)}
+                      >
+                        <img 
+                          src={selectedRefPhoto.photo_url}
+                          alt={selectedRefPhoto.damage_type}
+                          className="transition-transform duration-200"
+                          style={{
+                            transform: `scale(${imageZoom}) translate(${imagePan.x / imageZoom}px, ${imagePan.y / imageZoom}px)`,
+                            transformOrigin: 'center center',
+                            maxWidth: 'none',
+                            width: '100%',
+                            height: 'auto',
+                            cursor: imageZoom > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default'
+                          }}
+                          draggable={false}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <p className="text-sm font-medium text-gray-900">
+                        Type: {selectedRefPhoto.damage_type.replace(/_/g, ' ')}
+                      </p>
+                      {selectedRefPhoto.description && (
+                        <p className="text-sm text-gray-600">{selectedRefPhoto.description}</p>
+                      )}
+                    </div>
+
+                    <Alert className="bg-blue-50 border-blue-300">
+                      <AlertDescription className="text-blue-900 text-sm">
+                        Manually count all visible damage in this photo. This becomes the "ground truth" for testing AI accuracy.
+                      </AlertDescription>
+                    </Alert>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label>Ground Truth - Hail Count</Label>
+                        <Input 
+                          type="number"
+                          value={verifyForm.hail_count}
+                          onChange={(e) => setVerifyForm({...verifyForm, hail_count: parseInt(e.target.value) || 0})}
+                          placeholder="Count manually"
+                          className="mt-1"
+                        />
+                      </div>
+                      <div>
+                        <Label>Ground Truth - Wind Count</Label>
+                        <Input 
+                          type="number"
+                          value={verifyForm.wind_count}
+                          onChange={(e) => setVerifyForm({...verifyForm, wind_count: parseInt(e.target.value) || 0})}
+                          placeholder="Count manually"
+                          className="mt-1"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-4 border-t mt-4">
+                    <Button variant="outline" onClick={() => setSelectedRefPhoto(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        markRefAsVerifiedMutation.mutate({
+                          refId: selectedRefPhoto.id,
+                          hailCount: verifyForm.hail_count,
+                          windCount: verifyForm.wind_count
+                        });
+                      }}
+                      disabled={markRefAsVerifiedMutation.isPending}
+                      className="bg-purple-600 hover:bg-purple-700"
+                    >
+                      {markRefAsVerifiedMutation.isPending ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 mr-2" />
+                          Mark as Verified
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+      {showInstructions && (
+        <Card className="bg-gradient-to-r from-blue-50 via-purple-50 to-pink-50 border-2 border-blue-300">
+          <CardHeader className="border-b bg-white/50">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="w-6 h-6 text-blue-600" />
+                How Drone Analysis Works
+              </CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => setShowInstructions(false)}>
+                ✕
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="p-6 space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
+                  <span className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full text-sm">1</span>
+                  Capture Photos
+                </h3>
+                <ul className="text-sm text-gray-700 space-y-2">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5" />
+                    <span>Fly your drone over property at 30-50 feet altitude</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5" />
+                    <span>OR use phone/camera for ground-level inspection</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5" />
+                    <span>Take clear, high-resolution photos from multiple angles</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5" />
+                    <span>Cover all roof sections and damaged areas</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
+                  <span className="flex items-center justify-center w-8 h-8 bg-purple-600 text-white rounded-full text-sm">2</span>
+                  Upload & Analyze
+                </h3>
+                <ul className="text-sm text-gray-700 space-y-2">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5" />
+                    <span>Click "New Drone Analysis" and enter property details</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5" />
+                    <span>Upload multiple photos at once (JPG, PNG, WEBP, GIF)</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5" />
+                    <span>AI analyzes each photo automatically</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5" />
+                    <span>Wait 30-60 seconds for complete analysis</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
+                  <span className="flex items-center justify-center w-8 h-8 bg-orange-600 text-white rounded-full text-sm">3</span>
+                  AI Damage Detection
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2 text-sm">
+                    <CloudHail className="w-5 h-5 text-blue-600 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-gray-900">Hail Damage:</p>
+                      <p className="text-gray-600">Impact marks, granule loss, bruising, dents</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 text-sm">
+                    <Wind className="w-5 h-5 text-green-600 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-gray-900">Wind Damage:</p>
+                      <p className="text-gray-600">Missing shingles, lifted edges, torn sections</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 text-sm">
+                    <AlertTriangle className="w-5 h-5 text-orange-600 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-gray-900">Severity Rating:</p>
+                      <p className="text-gray-600">None, Minor, Moderate, or Severe</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
+                  <span className="flex items-center justify-center w-8 h-8 bg-green-600 text-white rounded-full text-sm">4</span>
+                  Report & Estimate
+                </h3>
+                <ul className="text-sm text-gray-700 space-y-2">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5" />
+                    <span>View detailed damage analysis for each photo</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5" />
+                    <span>Download professional PDF report</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5" />
+                    <span>Get automatic repair cost estimates</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5" />
+                    <span>Create estimate with one click</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Physical Inspection Tips */}
+            <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-4 col-span-1 md:col-span-2">
+              <h4 className="font-bold text-blue-900 mb-2 flex items-center gap-2">
+                <Camera className="w-5 h-5" />
+                Best Practices for Physical Test Squares (Chalk)
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-blue-800 mb-1">1. Chalking the Square</p>
+                  <ul className="text-sm text-blue-900 space-y-1">
+                    <li>• Draw a clear 10' x 10' box on the slope.</li>
+                    <li>• <strong>Hail:</strong> Draw distinct CIRCLES around hits.</li>
+                    <li>• <strong>Wind:</strong> Draw horizontal LINES or "X" marks over creases.</li>
+                    <li>• Use high-contrast chalk (Yellow, Red, or Blue) that stands out against the shingle color.</li>
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-blue-800 mb-1">2. Taking the Photo</p>
+                  <ul className="text-sm text-blue-900 space-y-1">
+                    <li>• Stand centered to the square to minimize perspective distortion.</li>
+                    <li>• Fill the entire frame with the 10x10 square.</li>
+                    <li>• Ensure no chalk marks are cut off by the edge of the photo.</li>
+                    <li>• Avoid casting your own shadow across the test area.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4 col-span-1 md:col-span-2">
+              <h4 className="font-bold text-yellow-900 mb-2 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5" />
+                Drone Photography Tips
+              </h4>
+              <ul className="text-sm text-yellow-900 space-y-1">
+                <li>✓ Fly in good lighting conditions (morning or late afternoon)</li>
+                <li>✓ Avoid shadows and glare on the roof surface</li>
+                <li>✓ Take photos perpendicular (straight down) to the roof, not at extreme angles</li>
+                <li>✓ Capture close-ups for Test Squares (flying lower) vs General Overviews (flying higher)</li>
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-blue-700">Total Inspections</p>
+                <p className="text-3xl font-bold text-blue-900">{inspections.length}</p>
+              </div>
+              <Camera className="w-8 h-8 text-blue-400" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-orange-50 to-red-50 border-orange-200">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-orange-700">Hail Damage Found</p>
+                <p className="text-3xl font-bold text-orange-900">
+                  {inspections.filter(i => i.hail_damage_detected).length}
+                </p>
+              </div>
+              <CloudHail className="w-8 h-8 text-orange-400" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-green-50 to-emerald-50 border-green-200">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-green-700">Wind Damage Found</p>
+                <p className="text-3xl font-bold text-green-900">
+                  {inspections.filter(i => i.wind_damage_detected).length}
+                </p>
+              </div>
+              <Wind className="w-8 h-8 text-green-400" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4">
+        {inspections.map((inspection) => (
+          <Card key={inspection.id} className="bg-white shadow-md hover:shadow-lg transition-shadow">
+            <CardHeader className="border-b bg-gradient-to-r from-gray-50 to-blue-50">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
+                    <MapPin className="w-5 h-5 text-blue-600" />
+                    <CardTitle className="text-xl">{inspection.property_address}</CardTitle>
+                    <Badge variant="outline" className={getConditionColor(inspection.overall_condition)}>
+                      {inspection.overall_condition}
+                    </Badge>
+                    {inspection.material_matching_flag && (
+                      <Badge className="bg-red-500 text-white">
+                        ⚠️ Discontinued Material Detected
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex gap-4 text-sm text-gray-600">
+                    <span>{inspection.inspection_number}</span>
+                    {inspection.customer_name && <span>• {inspection.customer_name}</span>}
+                    <span>• {format(new Date(inspection.inspection_date), 'MMM d, yyyy')}</span>
+                    {inspection.photos && <span>• {inspection.photos.length} photos</span>}
+                    {inspection.storm_event_id && <span>• 🌩️ Storm Linked</span>}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  {inspection.hail_damage_detected && (
+                    <Badge className="bg-orange-100 text-orange-700 flex items-center gap-1">
+                      <CloudHail className="w-3 h-3" />
+                      Hail
+                    </Badge>
+                  )}
+                  {inspection.wind_damage_detected && (
+                    <Badge className="bg-green-100 text-green-700 flex items-center gap-1">
+                      <Wind className="w-3 h-3" />
+                      Wind
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-6">
+              {inspection.photos && inspection.photos.length > 0 && (
+                <div className="space-y-6">
+                  {/* Section Summaries */}
+                  {inspection.section_summaries && Object.keys(inspection.section_summaries).length > 0 && (
+                    <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-4 border-2 border-blue-300">
+                      <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+                        <CheckCircle2 className="w-5 h-5 text-blue-600" />
+                        Damage Summary by Section
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {Object.entries(inspection.section_summaries).map(([section, summary]) => (
+                          <div key={section} className="bg-white rounded-lg p-3 border border-gray-200">
+                            <p className="font-semibold text-gray-900 mb-2">{section}</p>
+                            <div className="space-y-2">
+                              <div className="flex gap-2 text-sm flex-wrap">
+                                {summary.hail_per_sq > 0 && (
+                                  <Badge className="bg-red-100 text-red-700 border-red-200 font-bold text-base">
+                                    {summary.hail_per_sq} Hail/SQ
+                                  </Badge>
+                                )}
+                                {summary.wind_per_sq > 0 && (
+                                  <Badge className="bg-blue-100 text-blue-700 border-blue-200 font-bold text-base">
+                                    {summary.wind_per_sq} Wind/SQ
+                                  </Badge>
+                                )}
+                                {summary.hail_per_sq === 0 && summary.wind_per_sq === 0 && (
+                                  <Badge className="bg-green-100 text-green-700">No damage</Badge>
+                                )}
+                              </div>
+                              <p className="text-xs text-gray-600">
+                                {summary.total_hail_marks > 0 && `${summary.total_hail_marks} total hail marks`}
+                                {summary.total_hail_marks > 0 && summary.total_wind_marks > 0 && ' • '}
+                                {summary.total_wind_marks > 0 && `${summary.total_wind_marks} total wind marks`}
+                                {' • '}{summary.photo_count} photo{summary.photo_count > 1 ? 's' : ''}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {inspection.photos.map((photo, idx) => (
+                      <div key={idx} className="relative group">
+                        <div className="relative aspect-video rounded-lg overflow-hidden bg-gray-100 group">
+                          {/* Show annotated image by default if available, fallback to original */}
+                          <img
+                            src={photo.annotated_url || photo.url}
+                            alt={photo.caption}
+                            className="w-full h-full object-cover transition-opacity duration-300"
+                          />
+                          
+                          {/* Hover effect to compare original vs annotated */}
+                          {photo.annotated_url && (
+                            <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                              <img 
+                                src={photo.url} 
+                                alt="Original" 
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute bottom-2 left-2 bg-black/70 text-white text-[10px] px-2 py-1 rounded">
+                                Original (Hovering)
+                              </div>
+                            </div>
+                          )}
+
+                          {photo.annotated_url && (
+                            <div className="absolute top-2 left-2 bg-black/70 text-white text-[10px] px-2 py-1 rounded group-hover:opacity-0 transition-opacity">
+                              AI Annotated
+                            </div>
+                          )}
+
+                          {photo.damage_detected && (
+                            <div className="absolute top-2 right-2">
+                              <Badge variant="outline" className={getSeverityColor(photo.severity)}>
+                                {photo.severity}
+                              </Badge>
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-2 space-y-2">
+                          {/* Chalk Marks Found in THIS Photo - Editable */}
+                          {(photo.hail_hits_counted > 0 || photo.wind_marks_counted > 0) && (
+                            <div className="flex gap-2 text-xs">
+                              {photo.hail_hits_counted > 0 && (
+                                <div className="relative group/edit">
+                                  <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 cursor-pointer hover:bg-red-100">
+                                    {photo.hail_hits_counted} Hail
+                                  </Badge>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="absolute -top-1 -right-1 h-4 w-4 p-0 rounded-full bg-white border border-red-300 opacity-0 group-hover/edit:opacity-100 hover:bg-red-50"
+                                    onClick={async () => {
+                                      const newCount = prompt(`Edit hail count for this photo (currently ${photo.hail_hits_counted}):`, photo.hail_hits_counted);
+                                      if (newCount !== null && !isNaN(parseInt(newCount))) {
+                                        const updatedPhotos = inspection.photos.map((p, i) => 
+                                          i === idx ? { ...p, hail_hits_counted: parseInt(newCount) } : p
+                                        );
+                                        await base44.entities.DroneInspection.update(inspection.id, { photos: updatedPhotos });
+                                        queryClient.invalidateQueries({ queryKey: ['drone-inspections'] });
+                                        toast.success('Updated hail count');
+                                      }
+                                    }}
+                                  >
+                                    <Edit className="w-2 h-2" />
+                                  </Button>
+                                </div>
+                              )}
+                              {photo.wind_marks_counted > 0 && (
+                                <div className="relative group/edit">
+                                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 cursor-pointer hover:bg-blue-100">
+                                    {photo.wind_marks_counted} Wind
+                                  </Badge>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="absolute -top-1 -right-1 h-4 w-4 p-0 rounded-full bg-white border border-blue-300 opacity-0 group-hover/edit:opacity-100 hover:bg-blue-50"
+                                    onClick={async () => {
+                                      const newCount = prompt(`Edit wind count for this photo (currently ${photo.wind_marks_counted}):`, photo.wind_marks_counted);
+                                      if (newCount !== null && !isNaN(parseInt(newCount))) {
+                                        const updatedPhotos = inspection.photos.map((p, i) => 
+                                          i === idx ? { ...p, wind_marks_counted: parseInt(newCount) } : p
+                                        );
+                                        await base44.entities.DroneInspection.update(inspection.id, { photos: updatedPhotos });
+                                        queryClient.invalidateQueries({ queryKey: ['drone-inspections'] });
+                                        toast.success('Updated wind count');
+                                      }
+                                    }}
+                                  >
+                                    <Edit className="w-2 h-2" />
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Shingle Dimensions & Discontinued Flag */}
+                          {photo.shingle_type && photo.shingle_type !== 'unknown' && (
+                            <div className="flex flex-wrap gap-1 text-xs">
+                              <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
+                                {photo.shingle_type}
+                              </Badge>
+                              {photo.shingle_exposure_inches > 0 && (
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                  {photo.shingle_exposure_inches}" exp
+                                </Badge>
+                              )}
+                              {photo.likely_discontinued && (
+                                <Badge className="bg-red-500 text-white">
+                                  ⚠️ Likely Discontinued
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Section Label */}
+                          <div className="flex justify-between items-center text-xs text-gray-500">
+                            <span className="font-medium">{photo.roof_section || 'General'}</span>
+                            {photo.user_notes && (
+                              <span className="truncate max-w-[100px]" title={photo.user_notes}>
+                                📝 {photo.user_notes}
+                              </span>
+                            )}
+                          </div>
+
+                          {photo.ai_analysis && (
+                            <div className="p-2 bg-gray-50 rounded text-xs">
+                              <p className="text-gray-700 line-clamp-2">{photo.ai_analysis}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 mt-4">
+                     <div className="flex items-center justify-between flex-wrap gap-3">
+                       <div className="flex gap-2 flex-wrap">
+                         <Button
+                           variant="outline"
+                           onClick={() => {
+                             setSelectedInspectionForStorm(inspection);
+                             setShowStormLinkDialog(true);
+                           }}
+                           className={inspection.storm_event_id ? "bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100" : "bg-gray-50"}
+                         >
+                           <Link2 className="w-4 h-4 mr-2" />
+                           {inspection.storm_event_id ? 'Change Storm' : 'Link Storm'}
+                         </Button>
+                         <Button
+                           variant="outline"
+                           onClick={async () => {
+                             if (!window.confirm('Re-analyze this inspection with upgraded AI? This will update damage detection and annotations.')) return;
+                             setUploading(true);
+                             const loadingToast = toast.loading('Re-analyzing inspection with enhanced AI...');
+                             try {
+                               const res = await base44.functions.invoke('reanalyzeDroneInspection', { inspectionId: inspection.id });
+                               queryClient.invalidateQueries({ queryKey: ['drone-inspections'] });
+                               toast.success(`✅ Reanalysis complete!\n${res.data.photos_analyzed} photos analyzed\nHail: ${res.data.hail_detected ? 'YES' : 'NO'}\nWind: ${res.data.wind_detected ? 'YES' : 'NO'}`, { id: loadingToast });
+                             } catch (err) {
+                               console.error('Reanalysis error:', err);
+                               toast.error(`Reanalysis failed: ${err.message || 'Unknown error'}`, { id: loadingToast });
+                             } finally {
+                               setUploading(false);
+                             }
+                           }}
+                           disabled={uploading}
+                           className="bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100"
+                         >
+                           <Sparkles className="w-4 h-4 mr-2" />
+                           {uploading ? 'Reanalyzing...' : 'Reanalyze'}
+                         </Button>
+                         <Button
+                           variant="outline"
+                           onClick={() => handleDownloadReport(inspection)}
+                           className="bg-white"
+                         >
+                           <Download className="w-4 h-4 mr-2" />
+                           Report
+                         </Button>
+                         <Button
+                           onClick={() => handleCreateEstimate(inspection)}
+                           className="bg-green-600 hover:bg-green-700"
+                         >
+                           <DollarSign className="w-4 h-4 mr-2" />
+                           Create Estimate
+                         </Button>
+                       </div>
+                     </div>
+                   </div>
+
+                  {inspection.notes && (
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <p className="text-sm font-medium text-gray-700 mb-1">Inspector Notes:</p>
+                      <p className="text-sm text-gray-600">{inspection.notes}</p>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(inspection.id)}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+
+        {inspections.length === 0 && (
+          <Card className="bg-gradient-to-br from-blue-50 to-purple-50 border-2 border-dashed border-blue-300">
+            <CardContent className="p-12 text-center">
+              <Camera className="w-16 h-16 mx-auto mb-4 text-blue-400" />
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">No Drone Inspections Yet</h3>
+              <p className="text-gray-600 mb-4">
+                Upload drone or inspection photos to detect storm damage with AI
+              </p>
+              <Button
+                onClick={() => setShowDialog(true)}
+                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Start First Analysis
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}

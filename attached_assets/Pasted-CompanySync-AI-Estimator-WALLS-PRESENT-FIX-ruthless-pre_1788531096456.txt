@@ -1,0 +1,67 @@
+CompanySync AI Estimator — WALLS / PRESENT FIX (ruthless, preview only)
+
+CONTEXT
+Roof via Google Solar is good (Malec ~42 sq vs Hover ~44). Walls/3D are failing: blank walls, no punched openings, “material unconfirmed”, Grade D, nonsense garage-door counts, while UI claims “8 photos + satellite.” Fix walls + Present honesty. Do NOT redesign chrome.
+
+HARD RULES
+1) Preview only. Do NOT Publish.
+2) Do NOT touch YICN CRM, Twilio, staff, or live customer records. Test on Wizard Test Co / a dummy job only (Malec address OK on dummy).
+3) Do NOT call Hover/EagleView APIs. Do NOT invent roof/wall squares with an LLM.
+4) Do NOT create a second photo-capture wizard. Keep existing “Upload All Photos — AI Auto-Classifies.” Delete any duplicate 8-slot tap wizard if present.
+5) One measurement engine: same numbers for Build + Present + Aerial. Never a second takeoff for leads.
+6) Chrome lock: navy sidebar, existing pills (incl. Aerial roof), light rounded panel, orange assumption (Build), soft Present disclaimer. No white PDF redesign.
+7) List every file changed when done.
+
+PRODUCT RULE — WHAT “RIGHT” MEANS
+- Roof = Google Solar (Satellite takeoff). KEEP. Do not break.
+- Walls HERO number = photo-based takeoff (calibrated wall planes / photo_calibration anchors + openings deducted). 
+- footprint × wallHt × stories (or roof_eave perimeter × height) = SANITY CHECK ONLY — never the number shown as primary Wall Area when ≥1 classified house photos exist.
+- Present/Customer view must NEVER show a blank extruded box with “photos used” in the banner.
+
+FIX 1 — STOP LYING ABOUT PHOTOS
+- If wall area was computed from satellite footprint / eave perimeter × stories × wallHt ONLY, label source `footprint_extrusion` (not “photos + satellite”).
+- Banner may say “📷 photos + satellite” ONLY when wall mesh/planes actually used photo calibration AND openings were deducted from geometry or from measured net wall area derived from photo planes.
+- If photos uploaded but walls still extrusion-only → banner: “Photos uploaded — openings counted; wall AREA still satellite extrusion — Present blocked until photo walls applied.”
+
+FIX 2 — OPENINGS MUST APPEAR ON THE 3D
+- Window/door/garage counts from photo analysis must be PUNCHED into the wall mesh (or decaled as openings) in Customer view + Presentation render + facade views.
+- If you cannot punch openings this pass: hide Customer/Presentation 3D and show Build-only + measurement table — do NOT show blank walls to leads.
+- Garage doors: hard rules — attached 2-car ≤2 gd unless user override; never 5 garage doors on a typical 2-car house without explicit override chip. Prefer “assemblies” vs counting panels as separate doors.
+
+FIX 3 — MATERIALS ON MESH
+- Apply vinyl/stone/stucco/etc from photo material classification onto wall faces.
+- If material confidence low: neutral warm gray + chip “Material unconfirmed” — but still show openings if known.
+- Never leave a facade flat pure blue or an untextured white wing.
+
+FIX 4 — PRESENT GATE
+- Customer view / Presentation render allowed only if ALL true:
+  a) Roof from Solar OK (or explicit override)
+  b) Wall source is photo_calibration OR user explicitly accepted extrusion with big warning
+  c) Openings punched OR Present 3D hidden
+  d) Estimate quality for walls ≥ B OR user clicked “Show anyway (Build accuracy)”
+- Grade D / ±20%+ → default block Present; show Build + “Add/fix photos.”
+
+FIX 5 — NUMBERS / SANITY (Malec-style check, not hardcoded)
+- Keep editable chips: stories, wallHt, openings, waste.
+- When photos exist, primary Wall Area from photo path; show sanity line: “Satellite extrusion sanity: X ft² (diff Y%).”
+- If |photo − extrusion| > 25%, force SANITY-REVIEW and do not auto-Present.
+- Waste +10% / +15% / +18% are quote helpers only.
+- LLM labels materials/openings only — never invent total squares.
+
+FIX 6 — AERIAL
+- Aerial roof pill = true top-down Solar facets (keep). Not the side 3D.
+
+FIX 7 — PRESENT POLISH (only after honesty gates)
+- Hide 2D elevation blueprints in Customer/Presentation.
+- Hero camera, soft shadow, shingle + siding textures.
+- Soft line: “Estimate measurements — verify on site.”
+
+DONE WHEN
+- With 8 house photos on a test job: wall hero number is photo-based (or Present blocked with clear reason).
+- 3D shows punched openings OR Present is blocked — no blank-wall Customer view.
+- Garage door count sane with override.
+- Roof Solar path unchanged and still works.
+- Reply: files changed + exact click-test path + before/after on wall source label.
+
+OUT OF SCOPE THIS PASS
+Full COLMAP/OpenSfM rebuild only if already easy; do not spend the whole pass on new photogrammetry stack if openings-punch + source honesty + Present gate get us honest UX first. If you start mesh work, it must not break Solar roof.

@@ -1,0 +1,222 @@
+	Active	Fav	Code	Description	Long Description	Source	Price	Unit	Category	Actions
+			
+RR_ROOF_VENT...
+R&R Roof vent - turtle type - Metal
+—
+Xactimate New	$79.44	EA	Roofing	
+			
+2647_ROOFER_...
+2,647. Roofer - per hour
+—
+Xactimate New	$162.80	HR	Roofing	
+			
+RR_MODIFIED_...
+R&R Modified bitumen roof
+—
+Xactimate New	$486.25	SQ	Roofing	
+			
+TEAR_OFF_HAU...
+Tear off, haul and dispose of modified bitumen roofing
+—
+Xactimate New	$70.03	SQ	Roofing	
+			
+ROOFER__PER_...
+Roofer - per hour
+—
+Xactimate New	$162.80	HR	Roofing	
+			
+ROOFING__LAB...
+Roofing - Labor Minimum
+—
+Xactimate New	$651.20	EA	Roofing	
+			
+RR_VALLEY_W_...
+R&R Valley "W" flashing for metal roofing
+—
+Xactimate New	$9.75	LF	Roofing	
+			
+ROOF_SHEATHI...
+Roof sheathing patch / plug - up to 12" x 12"
+—
+Xactimate New	$41.10	EA	Roofing	
+			
+RR_SHEATHING...
+R&R Sheathing - plywood - 1/2" CDX - per ind. material source
+—
+Xactimate New	$1.87	SF	Other	
+			
+RR_SKYLIGHT_...
+R&R Skylight flashing kit - dome
+—
+Xactimate New	$138.59	EA	Other	
+			
+RR_COUNTERFL...
+R&R Counterflashing - Apron flashing
+—
+Xactimate New	$12.73	LF	Other	
+			
+RR_ROOF_MOUN...
+R&R Roof mount power attic vent - Large
+—
+Xactimate New	$331.46	EA	Roofing	
+			
+RR_ROOF_VENT...
+R&R Roof vent - turbine type
+—
+Xactimate New	$190.09	EA	Roofing	
+			
+3_TAB__25_YR...
+3 tab - 25 yr. - composition shingle roofing (per SHINGLE)
+—
+Xactimate New	$20.51	EA	Roofing	
+			
+REMOVE_3_TAB...
+Remove 3 tab - 25 yr. - composition shingle roofing - incl. felt
+—
+Xactimate New	$76.31	SQ	Roofing	
+			
+REMOVE_3_TAB...
+Remove 3 tab - 25 yr. - composition shingle roofing (per SHINGLE)
+—
+Xactimate New	$8.93	EA	Roofing	
+			
+3_TAB__25_YR...
+3 tab - 25 yr. - composition shingle roofing - incl. felt
+—
+Xactimate New	$312.25	SQ	Roofing	
+			
+REMOVE_3_TAB...
+Remove 3 tab - 25 yr. - comp. shingle roofing - w/out felt
+—
+Xactimate New	$76.31	SQ	Roofing	
+			
+3_TAB__25_YR...
+3 tab - 25 yr. - comp. shingle roofing - w/out felt
+—
+Xactimate New	$273.36	SQ	Roofing	
+			
+ASPHALT_STAR...
+Asphalt starter - universal starter course
+—
+Xactimate New	$2.18	LF	Other	
+			
+TEAR_OFF_MOD...
+Tear off modified bitumen roofing (no haul off)
+—
+Xactimate New	$49.45	SQ	Roofing	
+			
+ROOFING_FELT...
+Roofing felt - 15 lb.
+—
+Xactimate New	$41.18	SQ	Roofing	
+			
+ROOFING_FELT...
+Roofing felt - 30 lb.
+—
+Xactimate New	$47.58	SQ	Roofing	
+			
+RR_CHIMNEY_F...
+R&R Chimney flashing - small (24" x 24")
+—
+Xactimate New	$406.99	EA	Other	
+			
+RR_CHIMNEY_F...
+R&R Chimney flashing - average (32" x 36") - copper
+—
+Xactimate New	$839.36	EA	Other	
+			
+RR_CHIMNEY_F...
+R&R Chimney flashing - large (32" x 60")
+—
+Xactimate New	$685.74	EA	Other	
+			
+RR_FLASHING_...
+R&R Flashing, 14" wide
+—
+Xactimate New	$5.52	LF	Other	
+			
+RR_CHIMNEY_F...
+R&R Chimney flashing - average (32" x 36")
+—
+Xactimate New	$517.33	EA	Other	
+			
+ROOFING_FELT...
+Roofing felt - synthetic underlayment - Standard grade
+—
+Xactimate New	$45.48	SQ	Roofing	
+			
+RR_FLASHING_...
+R&R Flashing - pipe jack
+—
+Xactimate New	$59.37	EA	Other	
+			
+RR_FLASHING_...
+R&R Flashing - pipe jack - lead
+—
+Xactimate New	$93.03	EA	Other	
+			
+RR_FLASHING_...
+R&R Flashing - rain diverter
+—
+Xactimate New	$53.39	EA	Other	
+			
+ROOFING__GEN...
+Roofing - General Laborer - per hour
+—
+Xactimate New	$54.00	HR	Roofing	
+			
+ICE__WATER_B...
+Ice & water barrier
+—
+Xactimate New	$2.02	SF	Other	
+			
+RR_METAL_ROO...
+R&R Metal roofing - High grade
+—
+Xactimate New	$13.27	SF	Roofing	
+			
+RR_SHEATHING...
+R&R Sheathing - plywood - 5/8" CDX - per ind. material source
+—
+Xactimate New	$1.87	SF	Other	
+			
+RR_SHEATHING...
+R&R Sheathing - OSB - 1/2" - per independent material source
+—
+Xactimate New	$1.87	SF	Other	
+			
+RENAILING_OF...
+Re-nailing of roof sheathing - complete re-nail
+—
+Xactimate New	$0.30	SF	Roofing	
+			
+REMOVE_ROLL_...
+Remove Roll roofing
+—
+Xactimate New	$59.40	SQ	Roofing	
+			
+ROLL_ROOFING
+Roll roofing
+—
+Xactimate New	$143.37	SQ	Roofing	
+			
+RR_RIDGE_CAP...
+R&R Ridge cap - venting ridge cap shingles
+—
+Xactimate New	$12.59	LF	Roofing	
+			
+CONTINUOUS_R...
+Continuous ridge vent - Detach & reset
+—
+Xactimate New	$10.22	LF	Other	
+			
+ROOF_VENT__D...
+Roof vent - Detach & reset
+—
+Xactimate New	$105.46	EA	Roofing	
+			
+RR_ROOF_VENT...
+R&R Roof vent - turtle type - Plastic
+—
+Xactimate New	$69.14	EA	Roofing	
+Showing 1-44 of 44 items

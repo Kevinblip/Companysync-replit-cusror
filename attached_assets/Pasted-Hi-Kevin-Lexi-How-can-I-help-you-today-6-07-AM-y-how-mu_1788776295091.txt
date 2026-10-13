@@ -1,0 +1,107 @@
+Hi Kevin! Lexi, How can I help you today?
+
+6:07 AM
+y
+how much did we earn this month?
+6:07 AM
+Lexi
+This month, we've issued 2 invoices totaling $41,468.01 and collected $22,850.35 in payments.
+
+6:07 AM
+y
+what about last month?
+6:07 AM
+Lexi
+I couldn’t complete that request. Please try again.
+
+6:07 AM
+y
+how much did we earn last month?
+6:07 AM
+Lexi
+Last month, we issued 2 invoices totaling $41,468.01 and collected $22,850.35 in payments.
+
+6:07 AM
+y
+August 2026, how much did we earn?
+6:07 AM
+Lexi
+In August 2026, we issued 16 invoices totaling $259,319.74 and collected $178,183.90 in payments.
+
+6:07 AM
+y
+how much in payments did we collect in July 2026
+6:07 AM
+Lexi
+I couldn’t complete that request. Please try again.
+
+6:07 AM
+y
+how much in payments did we collect in July 2026 6:0
+6:07 AM
+Lexi
+In July 2026, we collected $206,276.83 in payments.
+
+6:07 AM
+Lexi
+Hi Kevin! Lexi, How can I help you today?
+
+6:09 AM
+y
+how much did we earn this month?
+6:09 AM
+Lexi
+This month, we've issued 2 invoices totaling $41,468.01 and collected $22,850.35 in payments.
+
+6:10 AM
+y
+what about last month?
+6:10 AM
+Lexi
+I couldn’t complete that request. Please try again.
+
+6:10 AM
+y
+how much did we earn last month?
+6:10 AM
+Lexi
+Last month, we issued 2 invoices totaling $41,468.01 and collected $22,850.35 in payments.
+
+6:10 AM
+y
+August 2026, how much did we earn?
+6:10 AM
+Lexi
+In August 2026, we issued 16 invoices totaling $259,319.74 and collected $178,183.90 in payments.
+
+6:10 AM
+y
+how much in payments did we collect in July 2026
+6:10 AM
+Lexi
+I couldn’t complete that request. Please try again.
+
+6:10 AM
+y
+how much in payments did we collect in July 2026 6:0
+6:10 AM
+Lexi
+In July 2026, we collected $206,276.83 in payments.
+
+6:10 AM
+y
+how much did we earn in june 2026
+6:10 AM
+Lexi
+In June 2026, we issued 19 invoices totaling $390,996.19 and collected $360,819.07 in payments.
+
+6:10 AM
+y
+where are you collecting your information from?
+6:10 AM
+Lexi
+I'm collecting this information directly from the YICN Roofing CRM, specifically using the get_financial_summary tool to pull the details on invoices and payments for the requested periods.
+
+6:10 AM
+
+Ask a question...

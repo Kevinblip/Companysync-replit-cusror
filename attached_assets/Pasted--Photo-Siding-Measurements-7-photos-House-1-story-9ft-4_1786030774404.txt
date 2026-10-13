@@ -1,0 +1,190 @@
+📸 Photo Siding Measurements
+
+7 photos | House | 1 story × 9ft | 4w + 0d + 2gd deducted | footprint=solar | SANITY-CORRECTED
+
+Grade C
+82% · ±15%
+
+Net Wall Area
+
+22.68 SQ
+
+2,268 sqft net
+
+✏️ Correct any number below, then tap Rebuild Estimate
+
+Perimeter (LF)
+
+Solar API
+
+255
+Stories
+
+1
+Wall Ht (ft)
+
+total
+
+9
+Windows
+
+4
+Doors
+
+0
+Garage Doors
+
+2
+Gable Rise (ft)
+
+0 = none
+
+7
+Measurement Summary
+Siding
+2,268 ft²
+Block excluded
+−188 ft² (8%)
+Windows
+4
+Doors
+0
+Garage Doors
+2
+Shutters
+4
+Fascia
+185 ft
+Soffit
+278 ft²
+Trim
+10 ft²
+Roof Perimeter
+255 ft
+Material
+vinyl
+Condition
+good
+Deductions
+
+🪟 4 windows
+
+🪪 4 shutters
+
+🚪 0 doors
+
+🏠 2 garage doors
+
+−272 sqft openings
+
+🧱 8% block −188 sqft
+
+Material / Condition
+
+🎨 vinyl
+
+📊 good cond.
+
+📐 moderate complexity
+
+🛰️ Satellite dims
+
+Per-Photo Breakdown
+
+Front
+
+story
+
+2w 0d
+
+90% conf
+
+Right Side
+
+story
+
+2w 0d
+
+95% conf
+
+Back
+
+story
+
+1w 0d
+
+90% conf
+
+BR Corner
+
+story
+
+1w 0d
+
+95% conf
+
+Left Side
+
+story
+
+2w 0d
+
+95% conf
+
+Detail 1
+
+story
+
+1w 0d
+
+90% conf
+
+Detail 2
+
+story
+
+2w 0d
+
+90% conf
+
+Build Siding Estimate
+
+AI Damage Observations
+LOW RISK
+🌧️ Gutters & Fascia
+
+• 312 LF eave — full perimeter gutter replacement in scope. Large run; include all downspouts and end caps.
+
+• Hip roof — gutters wrap entire perimeter. Verify adjuster captured all four sides.
+
+• Inspect fascia board for rot/hail damage before gutter install — often supplemented.
+
+🔩 Soft Metals & Flashing
+
+• 96 LF valley metal — include in scope. W-metal or ice-and-water underlap required.
+
+• 29 LF step flashing — walls/dormers present. Verify each run matches adjuster scope.
+
+• 12 LF apron/kickout flashing — critical for water intrusion claims.
+
+• 32 LF rake — include drip edge on all rake edges per code.
+
+• 312 LF eave drip edge — required along all eaves per IRC R905.
+
+🏠 Roofing
+
+• Standard complex hip roof — 15% waste. Normal scope expected.
+
+• 115 LF hip + 96 LF valley — cap/valley metal both in scope; measure cut-and-cobble waste separately.
+
+🪟 Windows & Flashing
+
+• Step flashing present — check adjacent window head flashing and J-channel integration.
+
+🚗 Garage Doors
+
+• Larger building footprint — likely has attached garage. Inspect door panel faces for hail dents and check weatherstripping.
+
+• Property size suggests garage or outbuilding. Document all overhead doors and springs in photo evidence.
+
+42.7 SQ roof · AI-derived scope — verify field measurements before claim submission

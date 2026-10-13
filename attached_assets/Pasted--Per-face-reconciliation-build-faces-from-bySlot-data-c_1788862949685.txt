@@ -1,0 +1,60 @@
+// ── Per-face reconciliation: build faces[] from bySlot data ─────────────
+    const FACE_CANONICAL: Record<string, string> = {
+      front: 'front', back: 'back', rear: 'back',
+      left: 'left', left_side: 'left',
+      right: 'right', right_side: 'right',
+    };
+    const facesMap: Record<string, any> = {};
+    
+    for (const slotPhotos of Object.values(bySlot)) {
+      const best = slotPhotos.reduce((b: any, r: any) =>
+        ((r.openings?.length || 0) > (b?.openings?.length || 0) ? r : b), slotPhotos[0]);
+      if (!best) continue;
+      
+      const rawFace = (best.wall_face || best.view_label || '').toLowerCase().replace(/\s+/g, '_');
+      
+      let canonFace = 'unknown';
+      for (const [k, v] of Object.entries(FACE_CANONICAL)) {
+        if (rawFace.includes(k)) { canonFace = v; break; }
+      }
+      
+      // FIX 1: Relaxed matching for corner labels so they actually map to the main elevations
+      if (canonFace === 'unknown') {
+        if (rawFace.startsWith('br_') || rawFace.includes('br_corner') || rawFace.includes('back_right')) canonFace = 'back';
+        else if (rawFace.startsWith('bl_') || rawFace.includes('bl_corner') || rawFace.includes('back_left')) canonFace = 'back';
+        else if (rawFace.startsWith('fr_') || rawFace.includes('fr_corner') || rawFace.includes('front_right')) canonFace = 'front';
+        else if (rawFace.startsWith('fl_') || rawFace.includes('fl_corner') || rawFace.includes('front_left')) canonFace = 'front';
+      }
+
+      // FIX 2: Merge openings from all photos that share a face
+      if (!facesMap[canonFace]) {
+        facesMap[canonFace] = {
+          face:           canonFace,
+          photo_label:    best.view_label || canonFace,
+          wall_width_ft:  Number(best.wall_width_ft)  || 0,
+          wall_height_ft: Number(best.wall_height_ft || best.eave_height_ft) || 0,
+          story_count:    Number(best.story_count)    || 1,
+          openings:       [],
+          siding_material: best.siding_material || null,
+          has_mixed_materials: !!best.has_mixed_materials,
+          confidence:     Number(best.confidence)     || 70,
+        };
+      } else {
+        // Keep the widest width reading for the canonical face so area doesn't shrink
+        if ((best.wall_width_ft || 0) > facesMap[canonFace].wall_width_ft) {
+          facesMap[canonFace].wall_width_ft = Number(best.wall_width_ft);
+          facesMap[canonFace].photo_label = best.view_label || facesMap[canonFace].photo_label;
+        }
+      }
+
+      // Accumulate all windows from this photo into the canonical face instead of deleting them
+      if (best.openings && best.openings.length > 0) {
+        const mappedOpenings = best.openings.map((o: any) => ({ 
+          ...o, 
+          wall_face: canonFace,
+          source_label: best.view_label 
+        }));
+        facesMap[canonFace].openings.push(...mappedOpenings);
+      }
+    }
+    const faces = Object.values(facesMap).filter((f: any) => f.face !== 'unknown');

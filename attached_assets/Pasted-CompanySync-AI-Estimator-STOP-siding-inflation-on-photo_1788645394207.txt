@@ -1,0 +1,41 @@
+CompanySync AI Estimator — STOP siding inflation on photo planes (CRITICAL, preview only)
+
+BUG (5688 Gemini Ct)
+Hover Siding 2018. Extrusion path ~2607. “Photo wall planes” path ~3584 Grade D WORSE.
+UI shows: 2 stories × 22ft | wallHt=22ft photo_calibration | Siding 3584.
+22ft is already ~full building wall height — must NOT also multiply by 2 stories.
+Effective Hover height ≈ 2018/perimeter ≈ 9–10ft — current math is roughly 1.5–2× high.
+
+HARD RULES
+Preview only. No Publish. No YICN/Twilio. No Hover APIs. No LLM squares. Keep Solar roof. List files changed.
+
+FIX 1 — HEIGHT vs STORIES (no double count)
+- photo_calibration wallHt = measured FULL elevation height (ground to eave/top of that plane).
+- When applying wallHt from photo planes, set storiesMultiplier = 1 for those planes (height already includes stories).
+- ONLY use stories chip as a multiplier for footprint_extrusion path (perimeter × storyHeight × stories).
+- Never display “2 stories × 22ft” when 22ft is full-height — show “wallHt=22ft (full plane)” or “2 × 9ft story height”.
+- Clamp residential wallHt: if photo_calibration > 28ft or < 7ft → reject anchor, SANITY-REVIEW.
+- If 2+ anchors disagree >15%, don’t average blindly into 22ft — prefer median, flag outlier (you already reject 1; still landed too high).
+
+FIX 2 — SIDING vs TOTAL WALL
+- Label hero number Siding sqft only.
+- Subtract brick/stone wainscot bands from sidingSqft when materialMap sees them.
+- Gable triangles: count once, don’t also multiply by stories.
+
+FIX 3 — 4 ELEVATIONS SUM
+- When summing BL/Back/BR/Left/Front/Right planes: each plane area = width × height_of_THAT_plane − openings on that plane.
+- Do not apply global × stories after summing full-height elevations.
+- Deduplicate overlapping corner width (don’t double-count shared corners).
+
+FIX 4 — GRADE
+- If |sidingSqft − footprint_extrusion_sanity| > 25%, force Grade C/D and SANITY-REVIEW (Gemini photo 3584 vs prior extrusion 2607 should have tripped this harder).
+- Grade B only if within ±15% of sanity after fixes OR user confirms chips.
+
+FIX 5 — OPENINGS
+- Prefer assembly counts; Gemini Hover windows 14 vs app 22–27 — merge units in same opening.
+
+DONE WHEN
+- Re-run Gemini (or dummy with same photos): siding lands nearer ~2000±15% with honest chips — not 3500+.
+- UI cannot show 2× full-height wallHt.
+- Explain in reply the before/after formula with numbers.
+- Files changed + click-test.
