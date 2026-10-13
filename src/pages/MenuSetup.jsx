@@ -4,9 +4,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch"; // This import is not used in the updated code, but preserving as it was in original
-import { Save, RotateCcw, Eye, EyeOff } from "lucide-react";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+import { GripVertical, Save, RotateCcw, Eye, EyeOff } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { applyEditorToLegacyMenu, applySavedMenuToEditor, buildSidebarEditorTree } from "@/lib/sidebarNav";
+import { applyEditorToLegacyMenu, applySavedMenuToEditor, buildSidebarEditorTree, captureSidebarOrder } from "@/lib/sidebarNav";
 
 export default function MenuSetup() {
   const [user, setUser] = useState(null);
@@ -255,7 +256,11 @@ export default function MenuSetup() {
   ], []);
 
   useEffect(() => {
-    setMenuItems(applySavedMenuToEditor(buildSidebarEditorTree(), currentSettings?.menu_items));
+    setMenuItems(applySavedMenuToEditor(
+      buildSidebarEditorTree(),
+      currentSettings?.menu_items,
+      currentSettings?.sidebar_order
+    ));
   }, [currentSettings]);
 
   const saveMenuMutation = useMutation({
@@ -264,14 +269,16 @@ export default function MenuSetup() {
         throw new Error('No company found for user');
       }
 
+      const payload = {
+        menu_items: items.menu_items,
+        sidebar_order: items.sidebar_order,
+      };
       if (currentSettings) {
-        return base44.entities.MenuSettings.update(currentSettings.id, {
-          menu_items: items
-        });
+        return base44.entities.MenuSettings.update(currentSettings.id, payload);
       } else {
         return base44.entities.MenuSettings.create({
           company_id: myCompany.id,
-          menu_items: items
+          ...payload,
         });
       }
     },
@@ -310,6 +317,37 @@ export default function MenuSetup() {
     setHasChanges(true);
   };
 
+  const reorderList = (list, startIndex, endIndex) => {
+    const next = Array.from(list);
+    const [moved] = next.splice(startIndex, 1);
+    next.splice(endIndex, 0, moved);
+    return next;
+  };
+
+  const reorderTree = (nodes, droppableId, startIndex, endIndex) => {
+    if (droppableId === "root") return reorderList(nodes, startIndex, endIndex);
+    return nodes.map((node) => {
+      if (!node.items) return node;
+      if (`children:${node.id}` === droppableId) {
+        return { ...node, items: reorderList(node.items, startIndex, endIndex) };
+      }
+      return { ...node, items: reorderTree(node.items, droppableId, startIndex, endIndex) };
+    });
+  };
+
+  const handleDragEnd = (result) => {
+    if (!result.destination) return;
+    if (result.source.droppableId !== result.destination.droppableId) return;
+    if (result.source.index === result.destination.index) return;
+    setMenuItems((current) => reorderTree(
+      current,
+      result.source.droppableId,
+      result.source.index,
+      result.destination.index
+    ));
+    setHasChanges(true);
+  };
+
   const handleSave = () => {
     const legacyItems = applyEditorToLegacyMenu(defaultMenuItems, menuItems);
     const itemsToSave = legacyItems.map((item) => {
@@ -331,7 +369,10 @@ export default function MenuSetup() {
       }
       return savedItem;
     });
-    saveMenuMutation.mutate(itemsToSave);
+    saveMenuMutation.mutate({
+      menu_items: itemsToSave,
+      sidebar_order: captureSidebarOrder(menuItems),
+    });
   };
 
   const handleReset = () => {
@@ -341,38 +382,63 @@ export default function MenuSetup() {
     }
   };
 
-  const renderMenuNodes = (nodes, depth = 0) => nodes.map((node) => (
-    <div key={node.id} className={depth === 0 ? "border-b last:border-b-0" : ""}>
-      <div className={`flex items-center gap-3 py-3 pr-4 hover:bg-gray-50 ${depth === 0 ? "px-4" : ""}`} style={{ paddingLeft: depth === 0 ? undefined : 24 + depth * 20 }}>
-        <div className="flex-1">
-          <div className={depth === 0 ? "font-medium text-gray-900" : "text-sm text-gray-700"}>
-            {node.title}
-          </div>
-          {node.items && (
-            <div className="text-xs text-gray-500 mt-0.5">{node.items.length} items</div>
-          )}
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => toggleItem(node.id)}
-          className="text-gray-600 hover:text-gray-900"
-          aria-label={node.enabled === false ? `Show ${node.title}` : `Hide ${node.title}`}
-        >
-          {node.enabled === false ? (
-            <EyeOff className="w-4 h-4 text-red-500" />
-          ) : (
-            <Eye className="w-4 h-4" />
-          )}
-        </Button>
-      </div>
-      {node.items && (
-        <div className="bg-gray-50 border-t border-gray-100">
-          {renderMenuNodes(node.items, depth + 1)}
+  const renderMenuNodes = (nodes, droppableId, depth = 0) => (
+    <Droppable droppableId={droppableId} type={droppableId}>
+      {(provided) => (
+        <div ref={provided.innerRef} {...provided.droppableProps}>
+          {nodes.map((node, index) => (
+            <Draggable key={node.id} draggableId={String(node.id)} index={index}>
+              {(dragProvided, snapshot) => (
+                <div
+                  ref={dragProvided.innerRef}
+                  {...dragProvided.draggableProps}
+                  className={`${depth === 0 ? "border-b last:border-b-0" : ""} ${snapshot.isDragging ? "bg-blue-50 shadow-lg" : "bg-white"}`}
+                >
+                  <div className={`flex items-center gap-3 py-3 pr-4 hover:bg-gray-50 ${depth === 0 ? "pl-2" : ""}`} style={{ paddingLeft: depth === 0 ? undefined : 12 + depth * 20 }}>
+                    <div
+                      className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-700 p-1 rounded hover:bg-gray-100"
+                      title="Drag to move"
+                      {...dragProvided.dragHandleProps}
+                      aria-label={`Move ${node.title}`}
+                    >
+                      <GripVertical className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <div className={depth === 0 ? "font-medium text-gray-900" : "text-sm text-gray-700"}>
+                        {node.title}
+                      </div>
+                      {node.items && (
+                        <div className="text-xs text-gray-500 mt-0.5">{node.items.length} items</div>
+                      )}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => toggleItem(node.id)}
+                      className="text-gray-600 hover:text-gray-900"
+                      aria-label={node.enabled === false ? `Show ${node.title}` : `Hide ${node.title}`}
+                    >
+                      {node.enabled === false ? (
+                        <EyeOff className="w-4 h-4 text-red-500" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
+                  {node.items && (
+                    <div className="bg-gray-50 border-t border-gray-100">
+                      {renderMenuNodes(node.items, `children:${node.id}`, depth + 1)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </Draggable>
+          ))}
+          {provided.placeholder}
         </div>
       )}
-    </div>
-  ));
+    </Droppable>
+  );
 
   if (!user) {
     return (
@@ -402,7 +468,7 @@ export default function MenuSetup() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Menu Setup</h1>
           <p className="text-gray-500 mt-1">
-            This is the sidebar: Home, Leads & Storms, Customers & Jobs, and the rest of the job menu. Use the eye to show or hide a page.
+            Drag the grip on the left to move a section or a page. Use the eye to show or hide it. Save to update the sidebar.
           </p>
         </div>
         <div className="flex gap-2">
@@ -438,7 +504,9 @@ export default function MenuSetup() {
           <CardTitle>Menu Items</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          {renderMenuNodes(menuItems)}
+          <DragDropContext onDragEnd={handleDragEnd}>
+            {renderMenuNodes(menuItems, "root")}
+          </DragDropContext>
         </CardContent>
       </Card>
 
@@ -446,10 +514,10 @@ export default function MenuSetup() {
         <AlertDescription className="text-blue-900 text-sm">
           <strong>How it works:</strong>
           <ul className="mt-2 space-y-1 ml-4 list-disc">
-            <li>Sections match the sidebar, starting with Home</li>
-            <li>Click Home in the sidebar to open the dashboard</li>
+            <li>Drag the grip handle to move a section or a page</li>
+            <li>A section takes its pages with it</li>
             <li>Click the eye to show or hide a page</li>
-            <li>Save, then go back to the sidebar to see the change</li>
+            <li>Save, then the sidebar uses this order</li>
           </ul>
         </AlertDescription>
       </Alert>

@@ -1275,8 +1275,13 @@ export default function Layout({ children, currentPageName }) {
     (isDataStillLoading && cachedSidebar?.userEmail === user?.email && (cachedSidebar?.isAdmin || cachedSidebar?.isSuperAdmin || cachedSidebar?.company?.created_by === user?.email))
   );
   const sidebarModel = useMemo(
-    () => buildSidebarModel({ visibleSources, canOpenSettings, isPlatformStaff }),
-    [visibleSources, canOpenSettings, isPlatformStaff]
+    () => buildSidebarModel({
+      visibleSources,
+      canOpenSettings,
+      isPlatformStaff,
+      sidebarOrder: currentMenuSettings?.sidebar_order,
+    }),
+    [visibleSources, canOpenSettings, isPlatformStaff, currentMenuSettings]
   );
 
   const handleBack = () => {
@@ -1623,6 +1628,7 @@ export default function Layout({ children, currentPageName }) {
               visibleSources={visibleSources}
               canOpenSettings={canOpenSettings}
               isPlatformStaff={isPlatformStaff}
+              sidebarOrder={currentMenuSettings?.sidebar_order}
               userEmail={user?.email}
               pathname={location.pathname}
               search={location.search}

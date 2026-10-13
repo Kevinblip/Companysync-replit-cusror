@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEditorToLegacyMenu, applySavedMenuToEditor, buildSidebarEditorTree, buildSidebarModel, collectVisibleSources } from "@/lib/sidebarNav";
+import { applyEditorToLegacyMenu, applyNodeOrder, applySavedMenuToEditor, buildSidebarEditorTree, buildSidebarModel, captureSidebarOrder, collectVisibleSources } from "@/lib/sidebarNav";
 
 function fullNavigation() {
   return [
@@ -288,6 +288,25 @@ describe("sidebar model", () => {
     );
     expect(legacy[0].submenuItems.find((item) => item.id === "storm-tracking").enabled).toBe(false);
     expect(legacy[0].submenuItems.find((item) => item.id === "all-leads").enabled).toBe(true);
+  });
+
+  it("reorders sidebar sections from the menu editor handles", () => {
+    const tree = buildSidebarEditorTree();
+    const moved = applyNodeOrder(tree, [
+      { id: "leads" },
+      { id: "home" },
+    ]);
+    expect(moved.slice(0, 2).map((section) => section.id)).toEqual(["leads", "home"]);
+    const saved = applySavedMenuToEditor(buildSidebarEditorTree(), [], captureSidebarOrder(moved));
+    expect(saved[0].id).toBe("leads");
+    const model = buildSidebarModel({
+      visibleSources: sources,
+      canOpenSettings: true,
+      isPlatformStaff: true,
+      sidebarOrder: captureSidebarOrder(moved),
+    });
+    expect(model.sections[0].id).toBe("leads");
+    expect(model.sections[1].id).toBe("home");
   });
 
   it("indexes old names in search text", () => {

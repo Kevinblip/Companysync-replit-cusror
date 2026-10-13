@@ -1015,8 +1015,40 @@ export function sourceEnabled(source, savedItems) {
   return savedSub.enabled !== false;
 }
 
-export function applySavedMenuToEditor(tree, savedItems) {
-  return tree.map((node) => {
+function nodeOrderKey(node) {
+  return node.source || node.id;
+}
+
+export function captureSidebarOrder(nodes) {
+  return (nodes || []).map((node) => ({
+    id: node.id,
+    children: node.items ? captureSidebarOrder(node.items) : undefined,
+  }));
+}
+
+export function applyNodeOrder(nodes, order) {
+  const list = nodes || [];
+  if (!order?.length) {
+    return list.map((node) => (node.items ? { ...node, items: applyNodeOrder(node.items) } : node));
+  }
+  const rank = new Map(order.map((entry, index) => [entry.id, index]));
+  const sorted = list
+    .map((node, index) => ({ node, index }))
+    .sort((a, b) => {
+      const aRank = rank.has(nodeOrderKey(a.node)) ? rank.get(nodeOrderKey(a.node)) : 10000 + a.index;
+      const bRank = rank.has(nodeOrderKey(b.node)) ? rank.get(nodeOrderKey(b.node)) : 10000 + b.index;
+      return aRank - bRank;
+    })
+    .map(({ node }) => node);
+  return sorted.map((node) => {
+    const spec = order.find((entry) => entry.id === nodeOrderKey(node));
+    if (!node.items) return node;
+    return { ...node, items: applyNodeOrder(node.items, spec?.children) };
+  });
+}
+
+export function applySavedMenuToEditor(tree, savedItems, sidebarOrder) {
+  const withFlags = tree.map((node) => {
     if (node.items) {
       const items = applySavedMenuToEditor(node.items, savedItems);
       const leaves = [];
@@ -1026,6 +1058,7 @@ export function applySavedMenuToEditor(tree, savedItems) {
     }
     return { ...node, enabled: sourceEnabled(node.source, savedItems) };
   });
+  return applyNodeOrder(withFlags, sidebarOrder);
 }
 
 export function applyEditorToLegacyMenu(legacyItems, editorTree) {
@@ -1066,10 +1099,24 @@ function flattenPages(nodes, sectionLabel, bucket) {
   }
 }
 
-export function buildSidebarModel({ visibleSources, canOpenSettings = false, isPlatformStaff = false }) {
+const FOOTER_IDS = new Set(FOOTER.map((section) => section.id));
+
+function splitPinnedFooter(ordered) {
+  let splitAt = ordered.length;
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    if (FOOTER_IDS.has(ordered[index].id)) splitAt = index;
+    else break;
+  }
+  return { sections: ordered.slice(0, splitAt), footer: ordered.slice(splitAt) };
+}
+
+export function buildSidebarModel({ visibleSources, canOpenSettings = false, isPlatformStaff = false, sidebarOrder } = {}) {
   const ctx = { visibleSources, canOpenSettings, isPlatformStaff };
-  const sections = attachUrls(filterTree(NAV_SECTIONS, ctx));
-  const footer = attachUrls(filterTree(FOOTER, ctx));
+  const ordered = applyNodeOrder(
+    [...attachUrls(filterTree(NAV_SECTIONS, ctx)), ...attachUrls(filterTree(FOOTER, ctx))],
+    sidebarOrder
+  );
+  const { sections, footer } = splitPinnedFooter(ordered);
   const settingsGroups = attachUrls(filterTree(SETTINGS_GROUPS, ctx));
   const account = attachUrls(filterTree(ACCOUNT_ITEMS, ctx));
   const pages = [];
