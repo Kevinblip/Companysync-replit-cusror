@@ -67,7 +67,10 @@ export default function KnowledgeBase() {
   const [user, setUser] = useState(null);
   const [myCompany, setMyCompany] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [selectedCategory, setSelectedCategory] = useState(() => {
+    if (typeof window === "undefined") return "all";
+    return new URLSearchParams(window.location.search).get("category") || "all";
+  });
   const [showDialog, setShowDialog] = useState(false);
   const [editingArticle, setEditingArticle] = useState(null);
   const [uploadedFiles, setUploadedFiles] = useState([]);

@@ -3,7 +3,7 @@ import { useOfflineStatus } from "@/hooks/useOfflineStatus";
 import { useImpersonation } from "@/lib/ImpersonationContext";
 import { PLATFORM_COMPANY_ID } from "@/lib/constants";
 import { isPlatformAdminCheck } from "@/hooks/usePlatformAdmin";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
   LayoutDashboard,
@@ -53,7 +53,6 @@ import {
   Camera,
   Zap,
   X,
-  ChevronRight,
   ChevronLeft,
   Building2,
   Percent,
@@ -72,12 +71,6 @@ import {
 } from "lucide-react";
 import {
   Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarHeader,
   SidebarProvider,
   SidebarTrigger,
@@ -100,12 +93,9 @@ import ProductTour from "@/components/tour/ProductTour";
 import TourTrigger from "@/components/tour/TourTrigger";
 import HelpWidget from "@/components/help/HelpWidget";
 import { HelpCircle } from "lucide-react";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { base44 } from "@/api/base44Client";
+import AppSidebarNav, { NavCommandPalette } from "@/components/sidebar/AppSidebarNav";
+import { buildSidebarModel, collectVisibleSources } from "@/lib/sidebarNav";
 import { useAuth } from "@/lib/AuthContext";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
@@ -163,7 +153,6 @@ export default function Layout({ children, currentPageName }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const SIDEBAR_CACHE_KEY = 'companysync_sidebar_cache';
-  const [openMenu, setOpenMenu] = useState(null);
   const [showDialer, setShowDialer] = useState(false);
   const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [showSMSDialog, setShowSMSDialog] = useState(false);
@@ -177,6 +166,8 @@ export default function Layout({ children, currentPageName }) {
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const closeMobileSidebarRef = useRef(() => {});
 
   const queryClient = useQueryClient();
   const { restrictedFeature, setRestrictedFeature, checkFeatureAccess } = useFeatureRestriction();
@@ -580,9 +571,9 @@ export default function Layout({ children, currentPageName }) {
   const routingMode = myStaffProfile?.call_routing_mode || 'sarah_answers';
 
   const routingLabels = {
-    sarah_answers: 'Sarah Answers',
+    sarah_answers: 'Alex Answers',
     forward_to_cell: 'Forward to Cell',
-    sarah_then_transfer: 'Sarah Then Transfer',
+    sarah_then_transfer: 'Alex Then Transfer',
   };
 
   const handleOpenStatusPopover = (open) => {
@@ -1271,28 +1262,22 @@ export default function Layout({ children, currentPageName }) {
       .sort((a, b) => a.order - b.order);
   }, [currentMenuSettings, platformRestrictions, defaultNavigationItems, myStaffProfile, userRole, myCompany?.subscription_plan]);
 
-  useEffect(() => {
-    const currentMenuItem = displayNavigationItems.find(item => {
-      if (item.url === location.pathname) return true;
-      if (item.submenu) {
-        return item.submenu.some(sub => 
-          sub.url === location.pathname || 
-          sub.url === location.pathname + location.search
-        );
-      }
-      return false;
-    });
-
-    if (currentMenuItem && currentMenuItem.submenu) {
-      setOpenMenu(currentMenuItem.title);
-    } else {
-      setOpenMenu(null);
-    }
-  }, [location.pathname, location.search, displayNavigationItems]);
-
-  const toggleMenu = (title) => {
-    setOpenMenu(prev => prev === title ? null : title);
-  };
+  const visibleSources = useMemo(
+    () => collectVisibleSources(displayNavigationItems, settingsMenuItems),
+    [displayNavigationItems, settingsMenuItems]
+  );
+  const isPlatformStaff = settingsMenuItems.some((item) => item.id === 'saas-admin');
+  const canOpenSettings = !!(
+    myCompany?.created_by === user?.email ||
+    user?.platform_role === 'super_admin' ||
+    myStaffProfile?.is_super_admin ||
+    myStaffProfile?.is_administrator ||
+    (isDataStillLoading && cachedSidebar?.userEmail === user?.email && (cachedSidebar?.isAdmin || cachedSidebar?.isSuperAdmin || cachedSidebar?.company?.created_by === user?.email))
+  );
+  const sidebarModel = useMemo(
+    () => buildSidebarModel({ visibleSources, canOpenSettings, isPlatformStaff }),
+    [visibleSources, canOpenSettings, isPlatformStaff]
+  );
 
   const handleBack = () => {
     if (location.key !== "default") {
@@ -1301,12 +1286,6 @@ export default function Layout({ children, currentPageName }) {
       navigate(createPageUrl("Dashboard"));
     }
   };
-
-  const handleMobileMenuClick = () => {
-    setSidebarOpen(prev => !prev);
-  };
-
-
 
   const isPlatformOwner = isPlatformAdminCheck(user, myCompany, myStaffProfile);
   const subscriptionPlan = myCompany?.subscription_plan || 'trial';
@@ -1320,19 +1299,40 @@ export default function Layout({ children, currentPageName }) {
   );
   const currentPlanLevel = (isPlatformOwner || isYICNOrInternal) ? 999 : (planHierarchy[subscriptionPlan] !== undefined ? planHierarchy[subscriptionPlan] : 0);
 
-  const handleNavigationClick = (e, url, featureId) => {
-    e.preventDefault();
-    e.stopPropagation();
-
+  const goTo = useCallback((url, featureId) => {
     if (featureId && !checkFeatureAccess(featureId, currentPlanLevel, isPlatformOwner, user?.email)) {
       return;
     }
-
-    setOpenMenu(null);
     setShowSettingsMenu(false);
+    setCommandOpen(false);
     if (typeof window !== 'undefined' && window.innerWidth < 1024) setSidebarOpen(false);
+    closeMobileSidebarRef.current();
     navigate(url);
+  }, [checkFeatureAccess, currentPlanLevel, isPlatformOwner, user?.email, navigate]);
+
+  const handleSidebarActivate = (e, item) => {
+    if (item?.openSettings) {
+      e?.preventDefault?.();
+      setShowSettingsMenu(true);
+      return;
+    }
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    goTo(item.url, item.featureId);
   };
+
+  useEffect(() => {
+    const onKey = (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     if (isMobile) {
@@ -1382,7 +1382,7 @@ export default function Layout({ children, currentPageName }) {
   // Removed cloned/staging badge logic
 
   return (
-    <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
+    <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen} style={{ "--sidebar-width": "18.5rem" }}>
       <Toaster richColors position="top-right" />
       <ConflictAlertListener user={user} notifications={notifications} />
       <ImpersonationBanner />
@@ -1416,10 +1416,9 @@ export default function Layout({ children, currentPageName }) {
           flex: 1;
           min-height: 0;
           height: 0;
-          overflow-y: auto;
-          overflow-x: hidden;
-          -webkit-overflow-scrolling: touch;
-          overscroll-behavior: contain;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
         }
         
         @media (max-width: 768px) {
@@ -1439,7 +1438,7 @@ export default function Layout({ children, currentPageName }) {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Settings className="w-6 h-6 text-white" />
-                  <h2 className="font-bold text-white text-lg">Setup</h2>
+                  <h2 className="font-bold text-white text-lg">Settings</h2>
                 </div>
                 <button 
                   onClick={() => setShowSettingsMenu(false)} 
@@ -1620,122 +1619,18 @@ export default function Layout({ children, currentPageName }) {
           )}
 
           <div className="sidebar-content-wrapper">
-              <SidebarContent className="p-3 pb-8">
-
-
-              <SidebarGroup>
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                    {!showSettingsMenu ? (
-                      <>
-                        {displayNavigationItems.map((item) => (
-                          <SidebarMenuItem key={item.id} id={`menu-item-${item.id}`}>
-                            {item.submenu ? (
-                              <Collapsible open={openMenu === item.title} onOpenChange={() => {
-                                toggleMenu(item.title);
-                                // Auto-close on mobile when opening submenu
-                                if (typeof window !== 'undefined') {
-                                  const narrow = window.matchMedia('(max-width: 1024px)').matches;
-                                  if (narrow && openMenu !== item.title) {
-                                    // Closing submenu on mobile - close sidebar
-                                    setTimeout(() => setSidebarOpen(false), 300);
-                                  }
-                                }
-                              }}>
-                                <CollapsibleTrigger asChild>
-                                  <SidebarMenuButton
-                                    className="hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 w-full justify-between min-h-[44px]"
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      {item.icon && <item.icon className="w-5 h-5" />}
-                                      <span className="font-medium">{item.title}</span>
-                                    </div>
-                                    <ChevronDown className={`w-4 h-4 transition-transform ${openMenu === item.title ? 'rotate-180' : ''}`} />
-                                  </SidebarMenuButton>
-                                </CollapsibleTrigger>
-                                <CollapsibleContent className="ml-8 mt-1 space-y-1">
-                                  {item.submenu.map((subitem) => (
-                                    <SidebarMenuButton
-                                      key={subitem.id}
-                                      id={`menu-item-${subitem.id}`}
-                                      asChild
-                                      className={`hover:bg-white/10 text-white text-sm transition-all duration-200 rounded-lg min-h-[44px] ${
-                                        location.pathname + location.search === subitem.url ? 'bg-white/20' : ''
-                                      }`}
-                                    >
-                                      <Link 
-                                        to={subitem.url} 
-                                        className="flex items-center gap-3 px-3 py-2" 
-                                        onClick={(e) => handleNavigationClick(e, subitem.url, subitem.id)}
-                                      >
-                                        <span>{subitem.title}</span>
-                                      </Link>
-                                    </SidebarMenuButton>
-                                  ))}
-                                </CollapsibleContent>
-                              </Collapsible>
-                            ) : (
-                              <SidebarMenuButton
-                                asChild
-                                className={`hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 min-h-[44px] ${
-                                  location.pathname === item.url ? 'bg-white/20 shadow-lg' : ''
-                                }`}
-                              >
-                                <Link 
-                                  to={item.url} 
-                                  className="flex items-center gap-3 px-3 py-3" 
-                                  onClick={(e) => handleNavigationClick(e, item.url)}
-                                >
-                                  {item.icon && <item.icon className="w-5 h-5" />}
-                                  <span className="font-medium">{item.title}</span>
-                                </Link>
-                              </SidebarMenuButton>
-                            )}
-                          </SidebarMenuItem>
-                        ))}
-
-                        {(myCompany?.created_by === user?.email || user?.platform_role === 'super_admin' || myStaffProfile?.is_super_admin || myStaffProfile?.is_administrator || (isDataStillLoading && cachedSidebar?.userEmail === user?.email && (cachedSidebar?.isAdmin || cachedSidebar?.isSuperAdmin || cachedSidebar?.company?.created_by === user?.email))) && (
-                          <SidebarMenuItem>
-                            <SidebarMenuButton
-                              onClick={() => setShowSettingsMenu(true)}
-                              className="hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 min-h-[44px] w-full justify-between bg-gradient-to-r from-purple-600/30 to-blue-600/30"
-                            >
-                              <div className="flex items-center gap-3">
-                                <Settings className="w-5 h-5" />
-                                <span className="font-medium">Settings</span>
-                              </div>
-                              <ChevronRight className="w-4 h-4" />
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        {settingsMenuItems.map(item => (
-                          <SidebarMenuItem key={item.id}>
-                            <SidebarMenuButton
-                              asChild
-                              className={`hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 min-h-[44px] ${
-                                location.pathname === item.url ? 'bg-white/20 shadow-lg' : ''
-                              }`}
-                            >
-                              <Link 
-                                to={item.url} 
-                                className="flex items-center gap-3 px-3 py-3"
-                                onClick={(e) => handleNavigationClick(e, item.url, item.id)}
-                              >
-                                <item.icon className="w-5 h-5" />
-                                <span className="font-medium">{item.title}</span>
-                              </Link>
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                        ))}
-                      </>
-                    )}
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </SidebarGroup>
-            </SidebarContent>
+            <AppSidebarNav
+              visibleSources={visibleSources}
+              canOpenSettings={canOpenSettings}
+              isPlatformStaff={isPlatformStaff}
+              userEmail={user?.email}
+              pathname={location.pathname}
+              search={location.search}
+              showSettings={showSettingsMenu}
+              onNavigate={handleSidebarActivate}
+              onOpenSearch={() => setCommandOpen(true)}
+              registerCloseMobile={(fn) => { closeMobileSidebarRef.current = fn; }}
+            />
           </div>
         </Sidebar>
 
@@ -1856,18 +1751,18 @@ export default function Layout({ children, currentPageName }) {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="forward_to_cell">📲 Forward to Cell Phone</SelectItem>
-                              <SelectItem value="sarah_answers">🤖 Sarah Answers All</SelectItem>
-                              <SelectItem value="sarah_then_transfer">🔀 Sarah Then Transfer</SelectItem>
+                              <SelectItem value="sarah_answers">🤖 Alex Answers All</SelectItem>
+                              <SelectItem value="sarah_then_transfer">🔀 Alex Then Transfer</SelectItem>
                             </SelectContent>
                           </Select>
                           {routingMode === 'forward_to_cell' && (
-                            <p className="text-xs text-muted-foreground">Your cell rings first (~4 rings). If you don't answer, Sarah takes over.</p>
+                            <p className="text-xs text-muted-foreground">Your cell rings first (~4 rings). If you don't answer, Alex takes over.</p>
                           )}
                           {routingMode === 'sarah_answers' && (
-                            <p className="text-xs text-muted-foreground">Sarah handles all calls. You'll get a notification after.</p>
+                            <p className="text-xs text-muted-foreground">Alex handles all calls. You'll get a notification after.</p>
                           )}
                           {routingMode === 'sarah_then_transfer' && (
-                            <p className="text-xs text-muted-foreground">Sarah answers, gathers info, then transfers to you.</p>
+                            <p className="text-xs text-muted-foreground">Alex answers, gathers info, then transfers to you.</p>
                           )}
                         </div>
 
@@ -1993,7 +1888,20 @@ export default function Layout({ children, currentPageName }) {
                       <ChevronDown className="w-4 h-4 hidden md:block" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuContent align="end" className="w-56">
+                    {sidebarModel.account.some((item) => item.source === 'subscription') && (
+                      <DropdownMenuItem onClick={() => navigate(createPageUrl('Pricing'))}>
+                        <CreditCard className="w-4 h-4 mr-2" />
+                        Plan & Billing
+                      </DropdownMenuItem>
+                    )}
+                    {sidebarModel.account.some((item) => item.source === 'feature-comparison') && (
+                      <DropdownMenuItem onClick={() => navigate(createPageUrl('FeatureComparison'))}>
+                        <Layers className="w-4 h-4 mr-2" />
+                        Compare Plans
+                      </DropdownMenuItem>
+                    )}
+                    {sidebarModel.account.length > 0 && <DropdownMenuSeparator />}
 
                     <DropdownMenuItem 
                       onClick={(e) => {
@@ -2044,7 +1952,13 @@ export default function Layout({ children, currentPageName }) {
               <div className="flex-1 overflow-auto overflow-x-hidden relative pb-24 z-[1]">
                 {children}
               </div>
-              <MobileNav allNavItems={displayNavigationItems} user={user} company={myCompany} />
+              <MobileNav
+                allNavItems={displayNavigationItems}
+                sections={[...sidebarModel.sections, ...sidebarModel.footer]}
+                user={user}
+                company={myCompany}
+                onOpenSettings={() => setShowSettingsMenu(true)}
+              />
               <FloatingActionButton />
             </>
           )}
@@ -2083,6 +1997,13 @@ export default function Layout({ children, currentPageName }) {
       <FeatureRestrictedModal 
         restrictedFeature={restrictedFeature} 
         onClose={() => setRestrictedFeature(null)} 
+      />
+
+      <NavCommandPalette
+        open={commandOpen}
+        onOpenChange={setCommandOpen}
+        pages={sidebarModel.pages}
+        onSelect={(item) => handleSidebarActivate(null, item)}
       />
 
 
