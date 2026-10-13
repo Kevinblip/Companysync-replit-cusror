@@ -243,6 +243,7 @@ export default function AppSidebarNav({
   visibleSources,
   canOpenSettings,
   isPlatformStaff,
+  sidebarOrder,
   userEmail,
   pathname,
   search,
@@ -253,8 +254,8 @@ export default function AppSidebarNav({
 }) {
   const { isMobile, setOpenMobile } = useSidebar();
   const model = useMemo(
-    () => buildSidebarModel({ visibleSources, canOpenSettings, isPlatformStaff }),
-    [visibleSources, canOpenSettings, isPlatformStaff]
+    () => buildSidebarModel({ visibleSources, canOpenSettings, isPlatformStaff, sidebarOrder }),
+    [visibleSources, canOpenSettings, isPlatformStaff, sidebarOrder]
   );
   const [prefs, setPrefs] = useNavPrefs(userEmail);
   const [settingsQuery, setSettingsQuery] = useState("");
@@ -397,26 +398,8 @@ export default function AppSidebarNav({
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-4">
-        {model.sections.map((section) => (
-          <NavGroup
-            key={section.id}
-            node={section}
-            depth={0}
-            openMap={prefs.open}
-            toggle={toggle}
-            pathname={pathname}
-            search={search}
-            pins={prefs.pins}
-            onTogglePin={togglePin}
-            onNavigate={onNavigate}
-            showSubtitle={isMobile}
-          />
-        ))}
-      </div>
-
-      <div className="shrink-0 border-t border-white/15 px-2 py-2 bg-black/10">
-        {model.footer.map((section) => (
+      <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3" data-testid="sidebar-menu">
+        {[...model.sections, ...model.footer].map((section) => (
           <NavGroup
             key={section.id}
             node={section}
@@ -437,7 +420,7 @@ export default function AppSidebarNav({
             data-testid="nav-settings"
             onClick={() => onNavigate(null, { openSettings: true })}
             title="Company, team, phone, payments, and integrations"
-            className="hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 w-full flex items-center justify-between gap-2 min-h-[44px] px-3 py-2 bg-gradient-to-r from-purple-600/30 to-blue-600/30"
+            className="hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 w-full flex items-center justify-between gap-2 min-h-[44px] px-3 py-2"
           >
             <span className="flex items-center gap-3">
               <Settings className="w-5 h-5" />
