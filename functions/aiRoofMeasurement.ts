@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { suggestRoofWaste, orderQuantity } from './wasteFactor.js';
 
 Deno.serve(async (req) => {
   const debugLogs = [];
@@ -228,11 +229,18 @@ Deno.serve(async (req) => {
     const baseConf = hasGoodData ? 85 : 70;
     const overallConf = Math.min(98, Math.round(baseConf * (typeConfidence / 100)));
 
-    let wastePercent = 10, wasteReason = 'Simple Gable';
-    if (pitchVal >= 10 || numSegments > 10) { wastePercent = 15; wasteReason = pitchVal >= 10 ? 'Steep Pitch (10/12+)' : 'Complex Roof (>10 Facets)'; }
-    else if ((pitchVal >= 7 && pitchVal <= 9) || hipLf > 0 || (valleyLf > 0 && pitchVal !== 4)) { wastePercent = 12; wasteReason = hipLf > 0 ? 'Hip/Valley Present' : 'Standard Pitch (7-9/12)'; }
-    const wasteFactor = 1 + (wastePercent / 100);
-    const finalOrderQty = Number((roofAreaSquares * wasteFactor).toFixed(2));
+    const roofWaste = suggestRoofWaste({
+      roof_type: roofType,
+      pitch: pitchStr,
+      num_segments: numSegments,
+      hip_lf: hipLf,
+      valley_lf: valleyLf,
+      roof_area_sqft: totalAreaSqFt,
+      roof_area_sq: roofAreaSquares,
+    });
+    const wastePercent = roofWaste.percent;
+    const wasteReason = roofWaste.reason;
+    const finalOrderQty = orderQuantity(roofAreaSquares, wastePercent);
 
     debugLogs.push(`Area: ${totalAreaSqFt.toFixed(0)} sqft (${areaMethod}), Pitch: ${pitchStr}, Type: ${roofType}`);
     debugLogs.push(`Waste: ${wastePercent}% (${wasteReason}), Order: ${finalOrderQty} SQ`);

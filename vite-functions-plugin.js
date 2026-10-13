@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import crypto from 'crypto';
 import { createRequire } from 'node:module';
 import { createStripeHandlers } from './vite-stripe-plugin.js';
+import { suggestRoofWaste, suggestSidingWaste, orderQuantity } from './functions/wasteFactor.js';
 
 const __require = createRequire(import.meta.url);
 
@@ -2828,13 +2829,18 @@ ${baseJson}`;
     const baseConf = hasGoodData ? 85 : 70;
     const overallConf = Math.min(98, Math.round(baseConf * (typeConfidence / 100) + (calibrationApplied ? 8 : 0)));
 
-    let wastePercent = 10, wasteReason = 'Simple Gable';
-    if (pitchVal >= 10 || numSegments >= 13) { wastePercent = 17; wasteReason = pitchVal >= 10 ? 'Steep Pitch (10/12+)' : `Very Complex Roof (${numSegments} segments)`; }
-    else if (numSegments >= 7) { wastePercent = 15; wasteReason = `Complex Roof (${numSegments} segments) — multiple hips/valleys`; }
-    else if (numSegments >= 5 || hipLf > 0 || (valleyLf > 0 && pitchVal !== 4)) { wastePercent = 12; wasteReason = hipLf > 0 ? 'Hip/Valley Present' : (numSegments >= 5 ? `${numSegments} segments` : 'Standard Pitch (7-9/12)'); }
-    else if (pitchVal >= 7 && pitchVal <= 9) { wastePercent = 12; wasteReason = 'Standard Pitch (7-9/12)'; }
-    const wasteFactor = 1 + (wastePercent / 100);
-    const finalOrderQty = Number((roofAreaSquares * wasteFactor).toFixed(2));
+    const roofWaste = suggestRoofWaste({
+      roof_type: roofType,
+      pitch: pitchStr,
+      num_segments: numSegments,
+      hip_lf: hipLf,
+      valley_lf: valleyLf,
+      roof_area_sqft: totalAreaSqFt,
+      roof_area_sq: roofAreaSquares,
+    });
+    const wastePercent = roofWaste.percent;
+    const wasteReason = roofWaste.reason;
+    const finalOrderQty = orderQuantity(roofAreaSquares, wastePercent);
 
     debugLogs.push(`Area: ${totalAreaSqFt.toFixed(0)} sqft (${areaMethod}), Pitch: ${pitchStr}, Type: ${roofType}`);
     debugLogs.push(`Waste: ${wastePercent}% (${wasteReason}), Order: ${finalOrderQty} SQ`);
@@ -3065,24 +3071,15 @@ ${baseJson}`;
     const grade = confidence >= 82 ? 'B' : confidence >= 70 ? 'C' : confidence >= 55 ? 'D' : 'F';
     const tolerancePct = confidence >= 82 ? 10 : confidence >= 70 ? 15 : confidence >= 55 ? 20 : 25;
 
-    // Smart waste recommendation based on building complexity
-    let recommendedWastePct = 10;
-    let wasteReason = '';
-    if (isGable && numSegs <= 4 && outsideCornersCount <= 4) {
-      recommendedWastePct = 8;
-      wasteReason = `Simple gable roof with ${numSegs} segments — straightforward cuts`;
-    } else if (!isGable && numSegs <= 6) {
-      recommendedWastePct = 10;
-      wasteReason = `Hip roof with ${numSegs} segments — moderate cut complexity`;
-    } else if (numSegs > 6 && numSegs <= 10) {
-      recommendedWastePct = 12;
-      wasteReason = `Complex roofline with ${numSegs} segments and ${outsideCornersCount} corners — more cuts needed`;
-    } else if (numSegs > 10) {
-      recommendedWastePct = 15;
-      wasteReason = `Very complex building with ${numSegs} roof segments — high cut waste expected`;
-    } else {
-      wasteReason = `${roofType} roof with ${numSegs} segments`;
-    }
+    const sidingWaste = suggestSidingWaste({
+      roof_type: roofType,
+      opening_deduction_pct: openDeduct,
+      outside_corners_count: outsideCornersCount,
+      gable_area_sqft: gableAreaSqFt,
+      wall_area_sqft: netWallAreaSqFt,
+    });
+    const recommendedWastePct = sidingWaste.percent;
+    let wasteReason = sidingWaste.reason;
     if (dimensionCapped) wasteReason += ' (note: building shape uncertain from satellite)';
 
     // Hover-style derived measurements
@@ -3806,16 +3803,18 @@ Identify and count roofing features. Return JSON with these exact fields:
       } catch (e) { debugLogs.push(`Vision analysis failed (using Solar only): ${e.message}`); }
     } else { debugLogs.push(`Vision analysis skipped: ${!apiKey ? 'no API key' : 'no image'}`); }
 
-    let wastePercent = 10, wasteReason = 'Simple Gable';
-    if (pitchVal >= 10 || numSeg > 10) { wastePercent = 15; wasteReason = pitchVal >= 10 ? 'Steep Pitch (10/12+)' : 'Complex Roof (>10 Facets)'; }
-    else if ((pitchVal >= 7 && pitchVal <= 9) || finalHipLf > 0 || (finalValleyLf > 0 && pitchVal !== 4)) { wastePercent = 12; wasteReason = (pitchVal >= 7 && pitchVal <= 9) ? 'Standard Pitch (7/12-9/12)' : 'Hip/Valley Present'; }
-    else if ((pitchVal <= 6 && finalHipLf === 0) || (pitchVal <= 6 && finalValleyLf === 0) || address.toLowerCase().includes('5420 mardale')) {
-      wastePercent = 10;
-      wasteReason = address.toLowerCase().includes('5420 mardale') ? 'Manual Override (10% Tier)' : finalValleyLf > 0 ? 'Minor Complexity (Low Pitch + Small Valleys)' : finalHipLf > 0 ? 'Simple Hip (<=6/12, No Valleys)' : 'Simple Gable (<=6/12)';
-    }
-    if (address.toLowerCase().includes('2184 east 37th')) { wastePercent = Math.max(wastePercent, 12); wasteReason = 'Obstruction Buffer Applied'; }
-    const wasteFactor = 1 + (wastePercent / 100);
-    const finalOrderQuantitySq = Number((roofAreaSquares * wasteFactor).toFixed(2));
+    const geminiWaste = suggestRoofWaste({
+      roof_type: roofType,
+      pitch: finalPitch,
+      num_segments: numSeg,
+      hip_lf: finalHipLf,
+      valley_lf: finalValleyLf,
+      roof_area_sqft: roofAreaSqFt,
+      roof_area_sq: roofAreaSquares,
+    });
+    const wastePercent = geminiWaste.percent;
+    const wasteReason = geminiWaste.reason;
+    const finalOrderQuantitySq = orderQuantity(roofAreaSquares, wastePercent);
 
     const isSimpleGable = pitchVal <= 6 && finalHipLf === 0;
     const isSteepForConf = pitchVal >= 12;

@@ -18,6 +18,7 @@ export default function EstimatorDialogs({ ctx }) {
   const {
     showConfig, setShowConfig,
     config, setConfig,
+    applyWastePercent,
     isInsuranceJob, setIsInsuranceJob,
     setPricingSource, setMessages,
     formats,
@@ -137,7 +138,13 @@ export default function EstimatorDialogs({ ctx }) {
                   </div>
                   <div>
                     <Label className="text-xs">Waste Factor</Label>
-                    <Select value={config.sidingWastePct ?? '10'} onValueChange={(v) => setConfig({...config, sidingWastePct: v})}>
+                    <Select
+                      value={String(config.sidingWastePct ?? '10')}
+                      onValueChange={(v) => {
+                        if (applyWastePercent) applyWastePercent(Number(v), { trade: 'siding', source: 'settings' });
+                        else setConfig({ ...config, sidingWastePct: v });
+                      }}
+                    >
                       <SelectTrigger data-testid="select-siding-waste" className="h-9">
                         <SelectValue />
                       </SelectTrigger>
@@ -148,6 +155,9 @@ export default function EstimatorDialogs({ ctx }) {
                         <SelectItem value="10">10% (typical)</SelectItem>
                         <SelectItem value="12">12%</SelectItem>
                         <SelectItem value="15">15%</SelectItem>
+                        {!['0', '5', '8', '10', '12', '15'].includes(String(config.sidingWastePct ?? '10')) && (
+                          <SelectItem value={String(config.sidingWastePct)}>{config.sidingWastePct}% (current)</SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
