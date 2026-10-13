@@ -42,7 +42,35 @@ import { useOfflineStatus } from "@/hooks/useOfflineStatus";
 import useTranslation from "@/hooks/useTranslation";
 import { motion, AnimatePresence } from "framer-motion";
 
-export default function MobileNav({ allNavItems, user, company, myAssignmentsBadgeCount = 0, myOpenTasksCount = 0, myStaffProfile }) {
+function MobileSectionList({ nodes, depth, onOpen }) {
+  return (
+    <div className={depth ? "ml-3 border-l border-gray-100 pl-2" : ""}>
+      {nodes.map((node) =>
+        node.items ? (
+          <div key={node.id} className="mb-3">
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1 px-1">{node.label}</h3>
+            {node.tooltip && depth === 0 && (
+              <p className="text-[11px] text-gray-400 px-1 mb-1">{node.tooltip}</p>
+            )}
+            <MobileSectionList nodes={node.items} depth={depth + 1} onOpen={onOpen} />
+          </div>
+        ) : (
+          <button
+            key={node.source || node.id}
+            type="button"
+            onClick={() => onOpen(node.url)}
+            className="flex flex-col items-start w-full text-left px-2 py-2 rounded-lg hover:bg-gray-50 active:bg-gray-100"
+          >
+            <span className="text-sm font-medium text-gray-800">{node.label}</span>
+            {node.tooltip && <span className="text-[11px] text-gray-500 leading-snug">{node.tooltip}</span>}
+          </button>
+        )
+      )}
+    </div>
+  );
+}
+
+export default function MobileNav({ allNavItems, sections, onOpenSettings, user, company, myAssignmentsBadgeCount = 0, myOpenTasksCount = 0, myStaffProfile }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -386,10 +414,16 @@ export default function MobileNav({ allNavItems, user, company, myAssignmentsBad
 
               {/* Scrollable content */}
               <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-                {renderGridSection(m.fieldWork, fieldWorkItems)}
-                {renderGridSection(m.office, officeItems)}
-                {renderGridSection(m.communication, communicationItems)}
-                {renderGridSection(m.tools, aiToolItems)}
+                {sections?.length ? (
+                  <MobileSectionList nodes={sections} depth={0} onOpen={handleLinkClick} />
+                ) : (
+                  <>
+                    {renderGridSection(m.fieldWork, fieldWorkItems)}
+                    {renderGridSection(m.office, officeItems)}
+                    {renderGridSection(m.communication, communicationItems)}
+                    {renderGridSection(m.tools, aiToolItems)}
+                  </>
+                )}
 
                 <div className="border-t border-gray-100 mt-2 pt-3 space-y-1">
                   {myStaffProfile && user?.email && (
@@ -416,7 +450,11 @@ export default function MobileNav({ allNavItems, user, company, myAssignmentsBad
                   </button>
                   <button
                     data-testid="mobile-nav-settings"
-                    onClick={() => handleLinkClick(createPageUrl("GeneralSettings"))}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (onOpenSettings) onOpenSettings();
+                      else handleLinkClick(createPageUrl("GeneralSettings"));
+                    }}
                     className="flex items-center w-full p-3 rounded-xl text-gray-700 font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors"
                     style={{ WebkitTapHighlightColor: 'transparent' }}
                   >

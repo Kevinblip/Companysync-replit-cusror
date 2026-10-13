@@ -131,6 +131,8 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { base44 } from "@/api/base44Client";
+import AppSidebarNav, { NavCommandPalette } from "@/components/sidebar/AppSidebarNav";
+import { buildSidebarModel, collectVisibleSources } from "@/lib/sidebarNav";
 import { useAuth } from "@/lib/AuthContext";
 import { getLastUsedCompanyId, getPreferredCompanyId, hasCrossTenantCompanyAccess, resolveActiveCompanyId, setLastUsedCompanyId } from "@/lib/activeCompanySelection";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
@@ -211,6 +213,8 @@ export default function Layout({ children, currentPageName }) {
   const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [showSMSDialog, setShowSMSDialog] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const closeMobileSidebarRef = useRef(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
@@ -1661,6 +1665,33 @@ export default function Layout({ children, currentPageName }) {
       .sort((a, b) => a.order - b.order);
   }, [currentMenuSettings, platformRestrictions, defaultNavigationItems, myStaffProfile, userRole, myCompany?.subscription_plan]);
 
+  const visibleSources = useMemo(
+    () => collectVisibleSources(displayNavigationItems, settingsMenuItems),
+    [displayNavigationItems, settingsMenuItems]
+  );
+  const isPlatformStaff = settingsMenuItems.some((item) => item.id === 'saas-admin');
+  const canOpenSettings = !!(
+    String(myCompany?.created_by || '').trim().toLowerCase() === String(user?.email || '').trim().toLowerCase() ||
+    user?.platform_role === 'super_admin' ||
+    myStaffProfile?.is_super_admin ||
+    myStaffProfile?.is_administrator ||
+    ((isDataStillLoading || hasSidebarDataError || !myCompany) &&
+      String(cachedSidebar?.userEmail || '').trim().toLowerCase() === String(user?.email || '').trim().toLowerCase() &&
+      (cachedSidebar?.isAdmin ||
+        cachedSidebar?.isSuperAdmin ||
+        cachedSidebar?.isAdministrator ||
+        String(cachedSidebar?.company?.created_by || '').trim().toLowerCase() === String(user?.email || '').trim().toLowerCase()))
+  );
+  const sidebarModel = useMemo(
+    () => buildSidebarModel({
+      visibleSources,
+      canOpenSettings,
+      isPlatformStaff,
+      sidebarOrder: currentMenuSettings?.sidebar_order,
+    }),
+    [visibleSources, canOpenSettings, isPlatformStaff, currentMenuSettings]
+  );
+
   // Keep a ref so the route-change effect can read nav items without re-running when badges update
   const displayNavItemsRef = useRef(displayNavigationItems);
   displayNavItemsRef.current = displayNavigationItems;
@@ -1728,6 +1759,43 @@ export default function Layout({ children, currentPageName }) {
     if (isMobile) setSidebarOpen(false);
     navigate(url);
   };
+
+  const goTo = useCallback((url, featureId) => {
+    if (featureId && !checkFeatureAccess(featureId, currentPlanLevel, isPlatformOwner, user?.email)) {
+      return;
+    }
+    userClickedNavRef.current = true;
+    setOpenMenu(null);
+    setShowSettingsMenu(false);
+    setCommandOpen(false);
+    if (isMobile) setSidebarOpen(false);
+    closeMobileSidebarRef.current?.();
+    navigate(url);
+  }, [checkFeatureAccess, currentPlanLevel, isPlatformOwner, user?.email, isMobile, navigate]);
+
+  const handleSidebarActivate = (e, item) => {
+    if (item?.openSettings) {
+      e?.preventDefault?.();
+      setShowSettingsMenu(true);
+      return;
+    }
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    goTo(item.url, item.featureId);
+  };
+
+  useEffect(() => {
+    const onKey = (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     if (isMobile) setSidebarOpen(false);
@@ -2068,146 +2136,19 @@ export default function Layout({ children, currentPageName }) {
           )}
 
           <div className="sidebar-content-wrapper">
-              <SidebarContent className="p-3 pb-8">
-
-
-              <SidebarGroup>
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                    {!showSettingsMenu ? (
-                      <>
-                        {displayNavigationItems.map((item) => (
-                          <SidebarMenuItem key={item.id} id={`menu-item-${item.id}`}>
-                            {item.submenu ? (
-                              <Collapsible open={openMenu === item.title} onOpenChange={() => {
-                                toggleMenu(item.title);
-                              }}>
-                                <CollapsibleTrigger asChild>
-                                  <SidebarMenuButton
-                                    className="hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 w-full justify-between min-h-[44px]"
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      {item.icon && <item.icon className="w-5 h-5" />}
-                                      <span className="font-medium">{item.title}</span>
-                                    </div>
-                                    <ChevronDown className={`w-4 h-4 transition-transform ${openMenu === item.title ? 'rotate-180' : ''}`} />
-                                  </SidebarMenuButton>
-                                </CollapsibleTrigger>
-                                <CollapsibleContent className="ml-8 mt-1 space-y-1">
-                                  {item.submenu.map((subitem) => (
-                                    <SidebarMenuButton
-                                      key={subitem.id}
-                                      id={`menu-item-${subitem.id}`}
-                                      asChild
-                                      className={`hover:bg-white/10 text-white text-sm transition-all duration-200 rounded-lg min-h-[44px] ${
-                                        location.pathname + location.search === subitem.url ? 'bg-white/20' : ''
-                                      }`}
-                                    >
-                                      <Link 
-                                        to={subitem.url} 
-                                        className="flex items-center gap-3 px-3 py-2" 
-                                        onClick={(e) => handleNavigationClick(e, subitem.url, subitem.id)}
-                                      >
-                                        <span className="flex-1 min-w-0">
-                                          <span className="block">{subitem.title}</span>
-                                          {subitem.subtitle && (
-                                            <span className="block text-[10px] text-white/50 font-normal leading-none mt-0.5">{subitem.subtitle}</span>
-                                          )}
-                                        </span>
-                                        {subitem.badge && (
-                                          <span className="bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
-                                            {subitem.badge > 99 ? '99+' : subitem.badge}
-                                          </span>
-                                        )}
-                                      </Link>
-                                    </SidebarMenuButton>
-                                  ))}
-                                </CollapsibleContent>
-                              </Collapsible>
-                            ) : (
-                              <SidebarMenuButton
-                                asChild
-                                className={`hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 min-h-[44px] ${
-                                  location.pathname === item.url ? 'bg-white/20 shadow-lg' : ''
-                                }`}
-                              >
-                                <Link 
-                                  to={item.url} 
-                                  className="flex items-center gap-3 px-3 py-3" 
-                                  onClick={(e) => handleNavigationClick(e, item.url)}
-                                >
-                                  {item.icon && <item.icon className="w-5 h-5" />}
-                                  <span className="font-medium flex-1">{item.title}</span>
-                                  {item.badge ? (
-                                    <span className="bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1" data-testid="my-assignments-badge">
-                                      {item.badge > 99 ? '99+' : item.badge}
-                                    </span>
-                                  ) : null}
-                                </Link>
-                              </SidebarMenuButton>
-                            )}
-                          </SidebarMenuItem>
-                        ))}
-
-                        {(String(myCompany?.created_by || '').trim().toLowerCase() === String(user?.email || '').trim().toLowerCase() ||
-                          user?.platform_role === 'super_admin' ||
-                          myStaffProfile?.is_super_admin ||
-                          myStaffProfile?.is_administrator ||
-                          ((isDataStillLoading || hasSidebarDataError || !myCompany) &&
-                            String(cachedSidebar?.userEmail || '').trim().toLowerCase() === String(user?.email || '').trim().toLowerCase() &&
-                            (cachedSidebar?.isAdmin ||
-                              cachedSidebar?.isSuperAdmin ||
-                              cachedSidebar?.isAdministrator ||
-                              String(cachedSidebar?.company?.created_by || '').trim().toLowerCase() === String(user?.email || '').trim().toLowerCase()))) && (
-                          <SidebarMenuItem>
-                            <SidebarMenuButton
-                              onClick={() => setShowSettingsMenu(true)}
-                              className="hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 min-h-[44px] w-full justify-between bg-gradient-to-r from-purple-600/30 to-blue-600/30"
-                            >
-                              <div className="flex items-center gap-3">
-                                <Settings className="w-5 h-5" />
-                                <span className="font-medium">Settings</span>
-                              </div>
-                              <ChevronRight className="w-4 h-4" />
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        {settingsMenuItems.map(item => (
-                          <SidebarMenuItem key={item.id}>
-                            <SidebarMenuButton
-                              asChild
-                              className={`hover:bg-white/10 text-white transition-all duration-200 rounded-lg mb-1 min-h-[44px] ${
-                                location.pathname === item.url ? 'bg-white/20 shadow-lg' : ''
-                              }`}
-                            >
-                              <Link 
-                                to={item.url} 
-                                className="flex items-center gap-3 px-3 py-3"
-                                onClick={(e) => handleNavigationClick(e, item.url, item.id)}
-                              >
-                                <item.icon className="w-5 h-5" />
-                                <span className="font-medium">{item.title}</span>
-                              </Link>
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                        ))}
-                      </>
-                    )}
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </SidebarGroup>
-
-              {/* Who's Online presence widget */}
-              {myCompany?.id && (
-                <OnlineUsersWidget
-                  companyId={myCompany.id}
-                  currentUserEmail={user?.email}
-                />
-              )}
-            </SidebarContent>
+            <AppSidebarNav
+              visibleSources={visibleSources}
+              canOpenSettings={canOpenSettings}
+              isPlatformStaff={isPlatformStaff}
+              sidebarOrder={currentMenuSettings?.sidebar_order}
+              userEmail={user?.email}
+              pathname={location.pathname}
+              search={location.search}
+              showSettings={showSettingsMenu}
+              onNavigate={handleSidebarActivate}
+              onOpenSearch={() => setCommandOpen(true)}
+              registerCloseMobile={(fn) => { closeMobileSidebarRef.current = fn; }}
+            />
           </div>
         </Sidebar>
 
@@ -2749,7 +2690,7 @@ export default function Layout({ children, currentPageName }) {
               >
                 {children}
               </div>
-              <MobileNav allNavItems={displayNavigationItems} user={user} company={myCompany} myAssignmentsBadgeCount={myAssignmentsBadgeCount} myOpenTasksCount={myOpenTasksCount} myStaffProfile={myStaffProfile} />
+              <MobileNav allNavItems={displayNavigationItems} sections={[...sidebarModel.sections, ...sidebarModel.footer]} onOpenSettings={() => { setShowSettingsMenu(true); setSidebarOpen(true); }} user={user} company={myCompany} myAssignmentsBadgeCount={myAssignmentsBadgeCount} myOpenTasksCount={myOpenTasksCount} myStaffProfile={myStaffProfile} />
               <FloatingActionButton company={myCompany} />
               <PwaInstallBanner />
             </>
@@ -2804,6 +2745,13 @@ export default function Layout({ children, currentPageName }) {
       <FeatureRestrictedModal 
         restrictedFeature={restrictedFeature} 
         onClose={() => setRestrictedFeature(null)} 
+      />
+
+      <NavCommandPalette
+        open={commandOpen}
+        onOpenChange={setCommandOpen}
+        pages={sidebarModel.pages}
+        onSelect={(item) => handleSidebarActivate(null, item)}
       />
 
       </SidebarProvider>

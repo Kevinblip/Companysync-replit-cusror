@@ -4,9 +4,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch"; // This import is not used in the updated code, but preserving as it was in original
-import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { GripVertical, Save, RotateCcw, Eye, EyeOff, ArrowUpRight } from "lucide-react";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+import { GripVertical, Save, RotateCcw, Eye, EyeOff } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { applyEditorToLegacyMenu, applySavedMenuToEditor, buildSidebarEditorTree, captureSidebarOrder } from "@/lib/sidebarNav";
 
 export default function MenuSetup() {
   const [user, setUser] = useState(null);
@@ -252,51 +253,12 @@ export default function MenuSetup() {
   ], []);
 
   useEffect(() => {
-    if (currentSettings?.menu_items) {
-      // Merge saved settings with default structure
-      // Start with defaults and overlay saved settings to preserve enabled states
-      const mergedItems = defaultMenuItems.map(defaultItem => {
-        const savedItem = currentSettings.menu_items.find(s => s.id === defaultItem.id);
-        
-        if (!savedItem) {
-          // New item not in saved settings - use default
-          return defaultItem;
-        }
-        
-        if (defaultItem.hasSubmenu) {
-          // For items with submenus, merge submenu enabled states
-          const savedSubmenu = savedItem.submenuItems || savedItem.submenu || [];
-          const mergedSubmenu = defaultItem.submenuItems.map(defaultSub => {
-            const savedSub = savedSubmenu.find(s => s.id === defaultSub.id);
-            return {
-              ...defaultSub,
-              enabled: savedSub ? savedSub.enabled : defaultSub.enabled
-            };
-          });
-          
-          return {
-            ...defaultItem,
-            enabled: savedItem.enabled !== undefined ? savedItem.enabled : defaultItem.enabled,
-            order: savedItem.order !== undefined ? savedItem.order : defaultItem.order,
-            submenuItems: mergedSubmenu
-          };
-        }
-        
-        // Simple item - use saved enabled state
-        return {
-          ...defaultItem,
-          enabled: savedItem.enabled !== undefined ? savedItem.enabled : defaultItem.enabled,
-          order: savedItem.order !== undefined ? savedItem.order : defaultItem.order
-        };
-      });
-      
-      // Sort by saved order
-      mergedItems.sort((a, b) => (a.order || 0) - (b.order || 0));
-      setMenuItems(mergedItems);
-    } else {
-      setMenuItems(defaultMenuItems);
-    }
-  }, [currentSettings, defaultMenuItems]);
+    setMenuItems(applySavedMenuToEditor(
+      buildSidebarEditorTree(),
+      currentSettings?.menu_items,
+      currentSettings?.sidebar_order
+    ));
+  }, [currentSettings]);
 
   const saveMenuMutation = useMutation({
     mutationFn: async (items) => {
@@ -304,14 +266,16 @@ export default function MenuSetup() {
         throw new Error('No company found for user');
       }
 
+      const payload = {
+        menu_items: items.menu_items,
+        sidebar_order: items.sidebar_order,
+      };
       if (currentSettings) {
-        return base44.entities.MenuSettings.update(currentSettings.id, {
-          menu_items: items
-        });
+        return base44.entities.MenuSettings.update(currentSettings.id, payload);
       } else {
         return base44.entities.MenuSettings.create({
           company_id: myCompany.id,
-          menu_items: items
+          ...payload,
         });
       }
     },
@@ -327,107 +291,63 @@ export default function MenuSetup() {
     },
   });
 
+  const toggleNode = (nodes, id) => nodes.map((node) => {
+    if (node.id === id) {
+      const enabled = node.enabled === false;
+      const setAll = (entry) => entry.items
+        ? { ...entry, enabled, items: entry.items.map(setAll) }
+        : { ...entry, enabled };
+      return setAll({ ...node, enabled });
+    }
+    if (node.items) {
+      const items = toggleNode(node.items, id);
+      const leaves = [];
+      const collect = (entries) => entries.forEach((entry) => (entry.items ? collect(entry.items) : leaves.push(entry)));
+      collect(items);
+      return { ...node, items, enabled: leaves.some((leaf) => leaf.enabled !== false) };
+    }
+    return node;
+  });
+
+  const toggleItem = (itemId) => {
+    setMenuItems((current) => toggleNode(current, itemId));
+    setHasChanges(true);
+  };
+
+  const reorderList = (list, startIndex, endIndex) => {
+    const next = Array.from(list);
+    const [moved] = next.splice(startIndex, 1);
+    next.splice(endIndex, 0, moved);
+    return next;
+  };
+
+  const reorderTree = (nodes, droppableId, startIndex, endIndex) => {
+    if (droppableId === "root") return reorderList(nodes, startIndex, endIndex);
+    return nodes.map((node) => {
+      if (!node.items) return node;
+      if (`children:${node.id}` === droppableId) {
+        return { ...node, items: reorderList(node.items, startIndex, endIndex) };
+      }
+      return { ...node, items: reorderTree(node.items, droppableId, startIndex, endIndex) };
+    });
+  };
+
   const handleDragEnd = (result) => {
     if (!result.destination) return;
-
-    const items = Array.from(menuItems);
-    const [reorderedItem] = items.splice(result.source.index, 1);
-    items.splice(result.destination.index, 0, reorderedItem);
-
-    const reordered = items.map((item, index) => ({
-      ...item,
-      order: index
-    }));
-
-    setMenuItems(reordered);
-    setHasChanges(true);
-  };
-
-  const toggleItem = (itemId, submenuId = null) => {
-    const updated = menuItems.map(item => {
-      if (item.id === itemId) {
-        if (submenuId && item.hasSubmenu && item.submenuItems) {
-          return {
-            ...item,
-            submenuItems: item.submenuItems.map(sub => 
-              sub.id === submenuId ? { ...sub, enabled: !sub.enabled } : sub
-            )
-          };
-        } else {
-          // If a parent item is toggled, also toggle all its submenu items to match
-          const newEnabledState = !item.enabled;
-          return { 
-            ...item, 
-            enabled: newEnabledState,
-            submenuItems: item.submenuItems ? item.submenuItems.map(sub => ({ ...sub, enabled: newEnabledState })) : undefined
-          };
-        }
-      }
-      return item;
-    });
-    setMenuItems(updated);
-    setHasChanges(true);
-  };
-
-  const promoteToStandalone = (parentId, subItemId) => {
-    const updated = [...menuItems];
-    
-    // Find parent and submenu item
-    const parentItem = updated.find(item => item.id === parentId);
-    const subItem = parentItem?.submenuItems?.find(sub => sub.id === subItemId);
-    
-    if (!subItem) return;
-
-    // Remove from parent's submenu
-    if (parentItem) {
-      parentItem.submenuItems = parentItem.submenuItems.filter(sub => sub.id !== subItemId);
-    }
-
-    // Get max order to place new item at the end
-    const maxOrder = Math.max(...updated.map(item => item.order || 0), 0);
-    
-    // Find matching item from Layout to get the correct URL
-    const layoutMatches = {
-      'customers': '/customers',
-      'sales-dashboard': '/sales-dashboard',
-      'estimates': '/estimates',
-      'proposals': '/proposals',
-      'invoices': '/invoices',
-      'payments': '/payments',
-      'items': '/items',
-      'commissions': '/commission-report',
-      'all-leads': '/leads',
-      'lead-finder': '/lead-finder',
-      'lead-inspections': '/lead-inspections',
-      'storm-tracking': '/storm-tracking',
-      'property-importer': '/property-data-importer',
-      'crewcam-dashboard': '/inspections-dashboard',
-      'new-crewcam': '/new-inspection',
-      'crewcam-capture': '/inspection-capture',
-      'ai-damage': '/drone-inspections',
-      'tasks': '/tasks',
-      'projects': '/projects',
-      'activity': '/activity',
-    };
-    
-    const newStandaloneItem = {
-      id: subItem.id,
-      title: subItem.title,
-      url: layoutMatches[subItem.id] || `/${subItem.id}`,
-      enabled: subItem.enabled !== false,
-      order: maxOrder + 1,
-      hasSubmenu: false
-    };
-    
-    updated.push(newStandaloneItem);
-
-    setMenuItems(updated);
+    if (result.source.droppableId !== result.destination.droppableId) return;
+    if (result.source.index === result.destination.index) return;
+    setMenuItems((current) => reorderTree(
+      current,
+      result.source.droppableId,
+      result.source.index,
+      result.destination.index
+    ));
     setHasChanges(true);
   };
 
   const handleSave = () => {
-    // Ensure submenuItems are saved correctly for Layout to read
-    const itemsToSave = menuItems.map(item => {
+    const legacyItems = applyEditorToLegacyMenu(defaultMenuItems, menuItems);
+    const itemsToSave = legacyItems.map((item) => {
       const savedItem = {
         id: item.id,
         title: item.title,
@@ -435,31 +355,87 @@ export default function MenuSetup() {
         order: item.order,
         hasSubmenu: item.hasSubmenu || false,
       };
-      
-      // Save submenu items for parent menus
-      // CRITICAL: Save BOTH submenuItems AND submenu for backwards compatibility
       if (item.hasSubmenu && item.submenuItems && item.submenuItems.length > 0) {
-        const subItems = item.submenuItems.map(sub => ({
+        const subItems = item.submenuItems.map((sub) => ({
           id: sub.id,
           title: sub.title,
-          enabled: sub.enabled !== false // Default to true if undefined
+          enabled: sub.enabled !== false,
         }));
         savedItem.submenuItems = subItems;
-        savedItem.submenu = subItems; // Entity schema uses 'submenu' field
+        savedItem.submenu = subItems;
       }
-      
       return savedItem;
     });
-    console.log('Saving menu items:', JSON.stringify(itemsToSave, null, 2));
-    saveMenuMutation.mutate(itemsToSave);
+    saveMenuMutation.mutate({
+      menu_items: itemsToSave,
+      sidebar_order: captureSidebarOrder(menuItems),
+    });
   };
 
   const handleReset = () => {
     if (window.confirm('Reset to default menu settings? This cannot be undone.')) {
-      setMenuItems(defaultMenuItems);
+      setMenuItems(buildSidebarEditorTree());
       setHasChanges(true);
     }
   };
+
+  const renderMenuNodes = (nodes, droppableId, depth = 0) => (
+    <Droppable droppableId={droppableId} type={droppableId}>
+      {(provided) => (
+        <div ref={provided.innerRef} {...provided.droppableProps}>
+          {nodes.map((node, index) => (
+            <Draggable key={node.id} draggableId={String(node.id)} index={index}>
+              {(dragProvided, snapshot) => (
+                <div
+                  ref={dragProvided.innerRef}
+                  {...dragProvided.draggableProps}
+                  className={`${depth === 0 ? "border-b last:border-b-0" : ""} ${snapshot.isDragging ? "bg-blue-50 shadow-lg" : "bg-white"}`}
+                >
+                  <div className={`flex items-center gap-3 py-3 pr-4 hover:bg-gray-50 ${depth === 0 ? "pl-2" : ""}`} style={{ paddingLeft: depth === 0 ? undefined : 12 + depth * 20 }}>
+                    <div
+                      className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-700 p-1 rounded hover:bg-gray-100"
+                      title="Drag to move"
+                      {...dragProvided.dragHandleProps}
+                      aria-label={`Move ${node.title}`}
+                    >
+                      <GripVertical className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <div className={depth === 0 ? "font-medium text-gray-900" : "text-sm text-gray-700"}>
+                        {node.title}
+                      </div>
+                      {node.items && (
+                        <div className="text-xs text-gray-500 mt-0.5">{node.items.length} items</div>
+                      )}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => toggleItem(node.id)}
+                      className="text-gray-600 hover:text-gray-900"
+                      aria-label={node.enabled === false ? `Show ${node.title}` : `Hide ${node.title}`}
+                    >
+                      {node.enabled === false ? (
+                        <EyeOff className="w-4 h-4 text-red-500" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
+                  {node.items && (
+                    <div className="bg-gray-50 border-t border-gray-100">
+                      {renderMenuNodes(node.items, `children:${node.id}`, depth + 1)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </Draggable>
+          ))}
+          {provided.placeholder}
+        </div>
+      )}
+    </Droppable>
+  );
 
   if (!user) {
     return (
@@ -489,7 +465,7 @@ export default function MenuSetup() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Menu Setup</h1>
           <p className="text-gray-500 mt-1">
-            Drag parent items to reorder. All submenu items move together.
+            Drag the grip on the left to move a section or a page. Use the eye to show or hide it. Save to update the sidebar.
           </p>
         </div>
         <div className="flex gap-2">
@@ -532,117 +508,19 @@ export default function MenuSetup() {
         </CardHeader>
         <CardContent className="p-0">
           <DragDropContext onDragEnd={handleDragEnd}>
-            <Droppable droppableId="menu-items">
-              {(provided) => (
-                <div
-                  {...provided.droppableProps}
-                  ref={provided.innerRef}
-                >
-                  {menuItems.map((item, index) => (
-                    <Draggable key={item.id} draggableId={item.id} index={index}>
-                      {(provided, snapshot) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          className={`border-b last:border-b-0 ${
-                            snapshot.isDragging ? 'bg-blue-50 shadow-lg' : 'bg-white'
-                          }`}
-                        >
-                          {/* Parent Item */}
-                          <div className="flex items-center gap-3 p-4 hover:bg-gray-50">
-                            <div {...provided.dragHandleProps} className="cursor-move">
-                              <GripVertical className="w-5 h-5 text-gray-400" />
-                            </div>
-                            
-                            <div className="flex-1">
-                              <div className="font-medium text-gray-900">
-                                {item.hasSubmenu && '▸ '}
-                                {item.title}
-                              </div>
-                              {item.hasSubmenu && (
-                                <div className="text-xs text-gray-500 mt-0.5">
-                                  {item.submenuItems?.length || 0} submenu items
-                                </div>
-                              )}
-                            </div>
-
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => toggleItem(item.id)}
-                              className="text-gray-600 hover:text-gray-900"
-                            >
-                              {item.enabled ? (
-                                <Eye className="w-4 h-4" />
-                              ) : (
-                                <EyeOff className="w-4 h-4 text-red-500" />
-                              )}
-                            </Button>
-                          </div>
-
-                          {/* Submenu Items - Indented Group */}
-                          {item.hasSubmenu && item.submenuItems && (
-                            <div className="bg-gray-50 border-t border-gray-200">
-                              {item.submenuItems.map((subItem, subIndex) => (
-                                <div
-                                  key={subItem.id}
-                                  className={`flex items-center gap-3 py-2.5 px-4 pl-16 hover:bg-gray-100 ${
-                                    subIndex !== item.submenuItems.length - 1 ? 'border-b border-gray-200' : ''
-                                  }`}
-                                >
-                                  <div className="w-1 h-1 rounded-full bg-gray-400" />
-
-                                  <div className="flex-1 text-sm text-gray-700">
-                                    {subItem.title}
-                                  </div>
-
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => promoteToStandalone(item.id, subItem.id)}
-                                    className="text-blue-500 hover:text-blue-700 hover:bg-blue-50"
-                                    title="Make standalone menu item"
-                                  >
-                                    <ArrowUpRight className="w-4 h-4" />
-                                  </Button>
-
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => toggleItem(item.id, subItem.id)}
-                                    className="text-gray-500 hover:text-gray-900"
-                                  >
-                                    {subItem.enabled ? (
-                                      <Eye className="w-4 h-4" />
-                                    ) : (
-                                      <EyeOff className="w-4 h-4 text-red-500" />
-                                    )}
-                                  </Button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </Draggable>
-                  ))}
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
+            {renderMenuNodes(menuItems, "root")}
           </DragDropContext>
         </CardContent>
       </Card>
 
       <Alert className="bg-blue-50 border-blue-200">
         <AlertDescription className="text-blue-900 text-sm">
-          <strong>💡 How it works:</strong>
+          <strong>How it works:</strong>
           <ul className="mt-2 space-y-1 ml-4 list-disc">
-            <li>Drag the <strong>≡</strong> handle to reorder menu items</li>
-            <li>Items with <strong>▸</strong> are parent menus with submenu items</li>
-            <li>When you move a parent, all its submenu items move together</li>
-            <li>Click the <strong>↗</strong> icon on submenu items to make them standalone</li>
-            <li>Click the <strong>👁</strong> icon to show/hide items</li>
+            <li>Drag the grip handle to move a section or a page</li>
+            <li>A section takes its pages with it</li>
+            <li>Click the eye to show or hide a page</li>
+            <li>Save, then the sidebar uses this order</li>
           </ul>
         </AlertDescription>
       </Alert>
