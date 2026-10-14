@@ -18,6 +18,11 @@ const {
 // The assistant is always "Alex"; stale AssistantSettings rows still say
 // "sarah"/"lexi" and must not win. Logic is shared with prod-server.cjs.
 const { ASSISTANT_NAME, resolveAssistantName } = __require('./lib/assistantName.cjs');
+const {
+  deriveSpokenBrandName,
+  applySpokenCompanyName,
+  rewriteVoiceText,
+} = __require('./lib/spokenBrandName.cjs');
 const { toolDedupeKey, createToolCallCache } = __require('./lib/toolDedupe.cjs');
 const { authorizeTwilioTenant, assertTwilioIdentityAvailable } = __require('./lib/twilioTenantGuard.cjs');
 const {
@@ -62,29 +67,10 @@ const SETTINGS_FILE = path.resolve('.sarah-voice-settings.json');
 
 // ============================================================
 // AI RECEPTIONIST ENHANCEMENTS — shared dev/prod logic.
-// The SAME three helpers exist verbatim in prod-server.cjs.
-// Keep them in LOCKSTEP across both files.
+// deriveSpokenBrandName lives once in lib/spokenBrandName.cjs.
+// The transcript helpers below stay verbatim in prod-server.cjs.
+// Keep those two in LOCKSTEP across both files.
 // ============================================================
-
-// Spell out acronym-style company-name tokens so the voice says "Y-I-C-N".
-// An explicit per-company override (settings.spoken_name) always wins.
-// Returns '' when no change is needed (caller can skip injecting it).
-function deriveSpokenBrandName(spokenNameSetting, companyName) {
-  const override = (spokenNameSetting || '').toString().trim();
-  if (override) return override === (companyName || '').trim() ? '' : override;
-  const name = (companyName || '').trim();
-  if (!name) return '';
-  const spellToken = (raw) => {
-    const letters = raw.replace(/[^A-Za-z]/g, '');
-    if (letters.length < 2 || letters.length > 5) return raw;
-    if (letters !== letters.toUpperCase()) return raw; // mixed-case → real word, leave it
-    // Any all-caps 2-5 letter token is an acronym — spell it out letter by letter.
-    // (Vowel check removed: YICN, IKEA, NASA etc. all have vowels but must be spelled.)
-    return letters.split('').join('-');
-  };
-  const spoken = name.split(/\s+/).map(spellToken).join(' ');
-  return spoken === name ? '' : spoken;
-}
 
 // Merge consecutive same-role conversation fragments into clean turns,
 // then render a readable transcript string. Gemini's live transcription
@@ -2559,9 +2545,6 @@ CRM TOOLS — use these automatically as info comes in:
             }
 
             let sysPrompt = buildSystemPrompt(companyName, assistantName);
-            if (spokenBrandName && spokenBrandName !== companyName) {
-              sysPrompt += `\n\nPRONUNCIATION: When you say the company name "${companyName}" out loud, pronounce it as "${spokenBrandName}" — say it exactly that way (letter by letter where shown with hyphens). This applies to your greeting and any time you mention the company name.`;
-            }
             // Universal voice/behavior rules — appended AFTER every prompt branch
             // (default, forwarded, outbound, AND custom subscriber prompts) so the
             // live-phone conversational style is guaranteed regardless of prompt source.
@@ -2637,7 +2620,7 @@ Keep responses brief, conversational, and in the caller's language.`;
                   }
                 },
                 system_instruction: {
-                  parts: [{ text: sysPrompt }]
+                  parts: [{ text: applySpokenCompanyName(sysPrompt, companyName, spokenBrandName) }]
                 },
                 tools: [{
                   // Staff callers get Lexi's full CRM tool set + the PIN gate;
@@ -2834,7 +2817,7 @@ Keep responses brief, conversational, and in the caller's language.`;
                   client_content: {
                     turns: [{
                       role: "user",
-                      parts: [{ text: greetingText }]
+                      parts: [{ text: rewriteVoiceText(greetingText, companyName, spokenBrandName) }]
                     }],
                     turn_complete: true
                   }

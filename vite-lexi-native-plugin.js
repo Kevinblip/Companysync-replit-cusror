@@ -13,6 +13,7 @@ const { assertBuildDate, buildDayRange } = nodeRequire('./lib/buildScheduleTime.
 const { calendarBuildRouteGuard, manageEntityBuildRouteGuard } = nodeRequire('./lib/lexiBuildIntent.cjs');
 const { buildScheduleConfirmationGuard, isBuildSchedulingMutation } = nodeRequire('./lib/lexiBuildConfirmation.cjs');
 const { groundingRulesBlock: lexiGroundingRules, annotateToolResult: groundToolResult } = nodeRequire('./lib/lexiGrounding.cjs');
+const { deriveSpokenBrandName, applySpokenCompanyName } = nodeRequire('./lib/spokenBrandName.cjs');
 const { isVoiceGroundingSensitive, auditVoiceTurn } = nodeRequire('./lib/lexiVoiceGrounding.cjs');
 
 function generateLexiId(prefix = 'lexi') {
@@ -517,7 +518,7 @@ function toStorageUtc(isoString, tzOffset) {
   return isNaN(d.getTime()) ? isoString : d.toISOString();
 }
 
-function buildLexiSystemPrompt(companyName, userName, timezone, knowledgeBase, customerList, staffList, preferredLanguage, recentSessionContext) {
+function buildLexiSystemPrompt(companyName, userName, timezone, knowledgeBase, customerList, staffList, preferredLanguage, recentSessionContext, spokenNameSetting) {
   const now = new Date();
   const currentDateString = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: timezone });
   const currentTimeString = now.toLocaleString('en-US', { timeZone: timezone });
@@ -534,7 +535,7 @@ function buildLexiSystemPrompt(companyName, userName, timezone, knowledgeBase, c
     ? `\nLANGUAGE: You MUST respond exclusively in Spanish (Español) at all times. Greet in Spanish. All responses must be in Spanish unless the user explicitly switches to English.`
     : '';
 
-  return `You are Lexi, a friendly and professional AI assistant for ${companyName}. You are speaking directly to ${userName} via native voice.${languageInstruction}
+  const prompt = `You are Lexi, a friendly and professional AI assistant for ${companyName}. You are speaking directly to ${userName} via native voice.${languageInstruction}
 
 CRITICAL: Do NOT output any internal thinking, reasoning, or planning text. Do NOT use markdown formatting. Only speak naturally. Every text output you produce will be spoken aloud.
 
@@ -607,6 +608,7 @@ VOICE & BEHAVIOR RULES (always apply):
 4. HANDLING INTERRUPTIONS: If the user cuts in or speaks over you, stop immediately and address what they just said.
 5. INTENT: Be fast, direct, and action-oriented. Confirm what you did in one short sentence.
 ${lexiGroundingRules({ compact: true })}`;
+  return applySpokenCompanyName(prompt, companyName, deriveSpokenBrandName(spokenNameSetting, companyName));
 }
 
 async function getLocalSettings(companyId, userEmail) {
@@ -618,6 +620,7 @@ async function getLocalSettings(companyId, userEmail) {
   let staffList = [];
   let voiceName = 'Kore';
   let preferredLanguage = 'en';
+  let spokenName = '';
 
   try {
     const compRes = await db.query('SELECT name, data, settings, preferred_language FROM companies WHERE id = $1', [companyId]);
@@ -637,9 +640,27 @@ async function getLocalSettings(companyId, userEmail) {
       else if (parsedSettings.lexi_voice) voiceName = parsedSettings.lexi_voice;
       else if (parsed.voice_id) voiceName = parsed.voice_id;
       else if (parsedSettings.voice_id) voiceName = parsedSettings.voice_id;
+      if (parsed.spoken_name || parsedSettings.spoken_name) {
+        spokenName = parsed.spoken_name || parsedSettings.spoken_name;
+      }
     }
   } catch (e) {
     console.warn('[Lexi Native] Could not load company settings:', e.message);
+  }
+
+  try {
+    const spokenRes = await db.query(
+      `SELECT data->>'spoken_name' AS spoken_name
+         FROM generic_entities
+        WHERE entity_type = 'AssistantSettings' AND company_id = $1
+          AND COALESCE(data->>'spoken_name', '') <> ''
+        ORDER BY updated_date DESC NULLS LAST
+        LIMIT 1`,
+      [companyId]
+    );
+    if (spokenRes.rows[0]?.spoken_name) spokenName = spokenRes.rows[0].spoken_name;
+  } catch (e) {
+    console.warn('[Lexi Native] Could not load spoken company name:', e.message);
   }
 
   try {
@@ -660,7 +681,7 @@ async function getLocalSettings(companyId, userEmail) {
   // Do not preload customer or staff lists into a voice prompt. Those lists
   // are company-wide and must be returned only by a policy-scoped tool call.
 
-  return { companyName, timezone, knowledgeBase, customerList, staffList, voiceName, preferredLanguage };
+  return { companyName, timezone, knowledgeBase, customerList, staffList, voiceName, preferredLanguage, spokenName };
 }
 
 async function getGmailTokenForCompany_native(db, companyId) {
@@ -2070,6 +2091,7 @@ export default function lexiNativePlugin() {
           let customerList = '';
           let staffList = [];
           let preferredLanguage = 'en';
+          let spokenName = '';
 
           let recentSessionContext = null;
           if (companyId) {
@@ -2081,6 +2103,7 @@ export default function lexiNativePlugin() {
               customerList = settings.customerList;
               staffList = settings.staffList;
               preferredLanguage = settings.preferredLanguage || 'en';
+              spokenName = settings.spokenName || '';
               if (settings.voiceName && !url.searchParams.has('voice')) voiceName = settings.voiceName;
             } catch (e) {
               console.warn('[Lexi Native] Could not load local settings:', e.message);
@@ -2131,7 +2154,7 @@ export default function lexiNativePlugin() {
           geminiWs.on('open', () => {
             console.log('[Lexi Native] Connected to Gemini, sending setup...');
 
-            const systemPrompt = buildLexiSystemPrompt(companyName, userName, timezone, knowledgeBase, customerList, staffList, preferredLanguage, recentSessionContext);
+            const systemPrompt = buildLexiSystemPrompt(companyName, userName, timezone, knowledgeBase, customerList, staffList, preferredLanguage, recentSessionContext, spokenName);
 
             const setupMsg = {
               setup: {

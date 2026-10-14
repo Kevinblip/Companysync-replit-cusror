@@ -18,6 +18,11 @@ const {
 // The assistant is always "Alex"; stale AssistantSettings rows still say
 // "sarah"/"lexi" and must not win. Logic is shared with vite-twilio-ws-plugin.js.
 const { ASSISTANT_NAME, resolveAssistantName } = require('./lib/assistantName.cjs');
+const {
+  deriveSpokenBrandName,
+  applySpokenCompanyName,
+  rewriteVoiceText,
+} = require('./lib/spokenBrandName.cjs');
 const { groundingRulesBlock: lexiGroundingRules, annotateToolResult: groundToolResult } = require('./lib/lexiGrounding.cjs');
 const { isVoiceGroundingSensitive, auditVoiceTurn } = require('./lib/lexiVoiceGrounding.cjs');
 const { getVerifiedLexiChannels, canonicalPhone } = require('./lib/insuranceClaimWelcome.cjs');
@@ -81,29 +86,10 @@ async function sendPaymentAlertSms({ to, message, companyId, context = 'PaymentA
 
 // ============================================================
 // AI RECEPTIONIST ENHANCEMENTS — shared dev/prod logic.
-// The SAME three helpers exist verbatim in vite-twilio-ws-plugin.js.
-// Keep them in LOCKSTEP across both files.
+// deriveSpokenBrandName lives once in lib/spokenBrandName.cjs.
+// The transcript helpers below stay verbatim in vite-twilio-ws-plugin.js.
+// Keep those two in LOCKSTEP across both files.
 // ============================================================
-
-// Spell out acronym-style company-name tokens so the voice says "Y-I-C-N".
-// An explicit per-company override (settings.spoken_name) always wins.
-// Returns '' when no change is needed (caller can skip injecting it).
-function deriveSpokenBrandName(spokenNameSetting, companyName) {
-  const override = (spokenNameSetting || '').toString().trim();
-  if (override) return override === (companyName || '').trim() ? '' : override;
-  const name = (companyName || '').trim();
-  if (!name) return '';
-  const spellToken = (raw) => {
-    const letters = raw.replace(/[^A-Za-z]/g, '');
-    if (letters.length < 2 || letters.length > 5) return raw;
-    if (letters !== letters.toUpperCase()) return raw; // mixed-case → real word, leave it
-    // Any all-caps 2-5 letter token is an acronym — spell it out letter by letter.
-    // (Vowel check removed: YICN, IKEA, NASA etc. all have vowels but must be spelled.)
-    return letters.split('').join('-');
-  };
-  const spoken = name.split(/\s+/).map(spellToken).join(' ');
-  return spoken === name ? '' : spoken;
-}
 
 // Merge consecutive same-role conversation fragments into clean turns,
 // then render a readable transcript string. Gemini's live transcription
@@ -4348,7 +4334,7 @@ async function handleLexiToolCall(functionCall, companyId, userEmail, companyTim
   }
 }
 
-function buildLexiSystemPrompt(companyName, userName, timezone, knowledgeBase, customerList, staffList, preferredLanguage, recentSessionContext) {
+function buildLexiSystemPrompt(companyName, userName, timezone, knowledgeBase, customerList, staffList, preferredLanguage, recentSessionContext, spokenNameSetting) {
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: timezone });
   const timeStr = now.toLocaleString('en-US', { timeZone: timezone });
@@ -4369,7 +4355,7 @@ function buildLexiSystemPrompt(companyName, userName, timezone, knowledgeBase, c
   const languageInstruction = isSpanish
     ? `\nLANGUAGE: You MUST respond exclusively in Spanish (Español) at all times. Greet in Spanish. All responses must be in Spanish unless the user explicitly switches to English.`
     : '';
-  return `You are Lexi, a helpful AI assistant for ${companyName}. Speaking with ${userName}.${languageInstruction}
+  const prompt = `You are Lexi, a helpful AI assistant for ${companyName}. Speaking with ${userName}.${languageInstruction}
 
 CRITICAL: No internal thinking text. No markdown. Speak naturally. Keep under 30 words.
 
@@ -4413,6 +4399,7 @@ VOICE & BEHAVIOR RULES (always apply):
 4. HANDLING INTERRUPTIONS: If the user cuts in or speaks over you, stop and address what they just said. If the request is unclear or incomplete, ask one concise clarification instead of ending the conversation.
 5. INTENT: Be fast, direct, and action-oriented. Confirm what you did in one short sentence.
 ${lexiGroundingRules({ compact: true })}${recentSessionContext ? `\n\nRECENT CONVERSATION CONTEXT (earlier in this same conversation — continue naturally, do NOT re-introduce yourself or re-greet):\n${recentSessionContext}` : ''}`;
+  return applySpokenCompanyName(prompt, companyName, deriveSpokenBrandName(spokenNameSetting, companyName));
 }
 
 function setSecurityHeaders(res) {
@@ -11331,9 +11318,6 @@ twilioWss.on('connection', async (twilioWs, req) => {
 
       const forwardedInfo = isForwardedCall ? { isForwarded: true, repName: forwardedRepName, repEmail: forwardedRepEmail, repPhone: forwardedRepPhone } : null;
       let prompt = buildSystemPrompt(companyName, assistantName, isOutboundCall, outboundLeadName, outboundLeadService, subscriberSystemPrompt, companyDescription, companyKnowledge, forwardedInfo, callRoutingMode, wsScenario, callTransferInstructions, callScreeningEnabled, callScreeningInstructions);
-      if (spokenBrand && spokenBrand !== companyName) {
-        prompt += `\n\nPRONUNCIATION: When you say the company name "${companyName}" out loud, pronounce it as "${spokenBrand}" — say it exactly that way (letter by letter where shown with hyphens). This applies to your greeting and any time you mention the company name.`;
-      }
       // Universal voice/behavior rules — appended AFTER every prompt branch
       // (default, forwarded, outbound, AND custom subscriber prompts) so the
       // live-phone conversational style is guaranteed regardless of prompt source.
@@ -11401,7 +11385,7 @@ Keep responses brief, conversational, and in the caller's language.`;
               silence_duration_ms: vad.silenceMs
             }
           },
-          system_instruction: { parts: [{ text: prompt }] },
+          system_instruction: { parts: [{ text: applySpokenCompanyName(prompt, companyName, spokenBrand) }] },
           // Staff callers get Lexi's full CRM tool set + the PIN gate;
           // execution stays LOCKED server-side until the PIN verifies.
           tools: [{ function_declarations: staffCandidate
@@ -11598,7 +11582,7 @@ Keep responses brief, conversational, and in the caller's language.`;
             }, 10000);
             console.log(`[${assistantName}] Outbound gate: blocking caller mic until Gemini starts speaking`);
           }
-          geminiWs.send(JSON.stringify({ client_content: { turns: [{ role: "user", parts: [{ text: greetingText }] }], turn_complete: true } }));
+          geminiWs.send(JSON.stringify({ client_content: { turns: [{ role: "user", parts: [{ text: rewriteVoiceText(greetingText, companyName, spokenBrand) }] }], turn_complete: true } }));
           markLatency('greeting_request_sent');
 
           // Late-arriving caller history: append it silently (turn_complete:false)
@@ -12361,6 +12345,7 @@ lexiWss.on('connection', async (clientWs, req) => {
     let customerList = '';
     let staffList = [];
     let preferredLanguage = 'en';
+    let spokenName = '';
     if (companyId) {
       try {
         let s = null;
@@ -12383,6 +12368,7 @@ lexiWss.on('connection', async (clientWs, req) => {
           if (s.customerList) customerList = s.customerList;
           if (s.staffList) staffList = s.staffList;
           if (s.preferredLanguage) preferredLanguage = s.preferredLanguage;
+          if (s.settings?.spoken_name) spokenName = s.settings.spoken_name;
         }
       } catch (e) { console.warn('[Lexi Native] Could not load settings:', e.message); }
     }
@@ -12439,7 +12425,7 @@ lexiWss.on('connection', async (clientWs, req) => {
             }
           },
           system_instruction: { parts: [
-            { text: buildLexiSystemPrompt(companyName, userName, timezone, knowledgeBase, customerList, staffList, preferredLanguage, recentSessionContext) },
+            { text: buildLexiSystemPrompt(companyName, userName, timezone, knowledgeBase, customerList, staffList, preferredLanguage, recentSessionContext, spokenName) },
             { text: 'If the user explicitly says stop, stop talking, or asks you to be quiet, stop the current response immediately and wait silently for their next request. Do not continue or repeat the interrupted answer.' },
             { text: 'For roof supplement math, call calculate_roof_supplement with the original and revised roofing squares. Ask for missing inputs. Speak the returned formatted USD amount at the fixed $324.69 per square shingles-and-felt rate. This is arithmetic only, not company revenue or a saved estimate; do not claim that it saved or changed a record.' }
           ] },

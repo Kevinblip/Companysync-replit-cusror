@@ -5,9 +5,8 @@ import { createPageUrl } from "@/utils";
  * `source` is the legacy menu id (group/item or top-level) used by plan,
  * permission, and Menu Customization filters. Routes are unchanged.
  *
- * Pages in the approved review with no route in this repo are omitted:
- * My Assignments, Route Planner, Marketing Videos, Insurance Claim Audit.
- * Training Videos deep-links into Knowledge Base, where those videos already live.
+ * Reports and Help & Training stay in this same list. Settings follows them.
+ * Every page that the live menu already linked is included here.
  */
 
 const page = (name, query = "") => createPageUrl(name) + query;
@@ -45,6 +44,13 @@ const NAV_SECTIONS = [
         synonyms: ["Dashboard"],
       },
       {
+        source: "my-assignments",
+        label: "My Assignments",
+        page: "MyAssignments",
+        tooltip: "Leads, jobs, and tasks assigned to you.",
+        synonyms: ["My Assignments", "Assignments"],
+      },
+      {
         source: "calendar",
         label: "Calendar",
         page: "Calendar",
@@ -59,7 +65,14 @@ const NAV_SECTIONS = [
         synonyms: ["Tasks"],
       },
       {
-        source: "operations/reminders",
+        source: "operations/action-items",
+        label: "Action Items",
+        page: "ActionItems",
+        tooltip: "Follow-ups that need a decision or a next step.",
+        synonyms: ["Action Items"],
+      },
+      {
+        source: "reminders",
         label: "Reminders",
         page: "Reminders",
         tooltip: "Follow-up nudges so no homeowner falls through the cracks.",
@@ -133,6 +146,13 @@ const NAV_SECTIONS = [
             page: "TerritoryManager",
             tooltip: "Draw rep zones and assign neighborhoods.",
             synonyms: ["Territory Manager"],
+          },
+          {
+            source: "field-operations/inspection-routing",
+            label: "Route Planner",
+            page: "InspectionRouting",
+            tooltip: "Plan inspection stops and the drive between them.",
+            synonyms: ["Route Planner", "Inspection Routing"],
           },
         ],
       },
@@ -288,6 +308,20 @@ const NAV_SECTIONS = [
         synonyms: ["Subcontractors"],
       },
       {
+        source: "operations/subcontractor-work-orders",
+        label: "Work Orders",
+        page: "SubcontractorWorkOrders",
+        tooltip: "Approve crew work orders and payouts.",
+        synonyms: ["Work Orders", "Subcontractor Work Orders"],
+      },
+      {
+        source: "operations/labor-rates",
+        label: "Labor Rates",
+        page: "LaborRates",
+        tooltip: "Standard crew payout rates.",
+        synonyms: ["Labor Rates"],
+      },
+      {
         source: "ai-tools/permit-assistant",
         label: "Permit Assistant",
         page: "PermitAssistant",
@@ -336,6 +370,13 @@ const NAV_SECTIONS = [
         page: "FamilyCommissions",
         tooltip: "Commission shares paid to family members (auto-pay via Wise).",
         synonyms: ["Family Commissions"],
+      },
+      {
+        source: "sales/rep-performance",
+        label: "Rep Performance",
+        page: "RepPerformance",
+        tooltip: "How each rep is doing on leads, appointments, and sales.",
+        synonyms: ["Rep Performance"],
       },
       {
         id: "bookkeeping",
@@ -472,11 +513,25 @@ const NAV_SECTIONS = [
         synonyms: ["Messages"],
       },
       {
+        source: "communication/team-chat",
+        label: "Team Chat",
+        page: "TeamChat",
+        tooltip: "Chat with your team inside CompanySync.",
+        synonyms: ["Team Chat"],
+      },
+      {
         source: "communication/zoom",
         label: "Video Meetings",
         page: "ZoomMeeting",
         tooltip: "Start or join a Zoom call with a homeowner or adjuster.",
         synonyms: ["Zoom Meeting", "Zoom"],
+      },
+      {
+        source: "communication/google-meet",
+        label: "Google Meet",
+        page: "GoogleMeet",
+        tooltip: "Start or join a Google Meet with a homeowner or adjuster.",
+        synonyms: ["Google Meet"],
       },
       {
         source: "communication/campaigns",
@@ -576,6 +631,13 @@ const FOOTER = [
         synonyms: ["Sales Dashboard"],
       },
       {
+        source: "operations/leaderboard",
+        label: "Leaderboard",
+        page: "Leaderboard",
+        tooltip: "Team rankings for appointments, inspections, and sales.",
+        synonyms: ["Leaderboard"],
+      },
+      {
         source: "reports/sales-reports",
         label: "Sales Reports",
         page: "Reports",
@@ -599,12 +661,10 @@ const FOOTER = [
     icon: "HelpCircle",
     items: [
       {
-        id: "training-videos",
-        visibleIf: "knowledge-base",
+        source: "training-videos",
         label: "Training Videos",
-        page: "KnowledgeBase",
-        query: "?category=Training%20Videos",
-        tooltip: "Short how-to videos. They live in Help Articles under Training Videos.",
+        page: "TrainingVideos",
+        tooltip: "Short how-to videos for each screen.",
         synonyms: ["Training Videos"],
       },
       {
@@ -677,6 +737,20 @@ const SETTINGS_GROUPS = [
         page: "PDFBranding",
         tooltip: "Logo, colors, and how PDFs look.",
         synonyms: ["PDF Branding"],
+      },
+      {
+        source: "settings:marketing-videos",
+        label: "Marketing Videos",
+        page: "MarketingVideos",
+        tooltip: "Promotional videos you can download and share.",
+        synonyms: ["Marketing Videos"],
+      },
+      {
+        source: "settings:claims-audit",
+        label: "Claims Audit",
+        page: "ClaimsAudit",
+        tooltip: "Check the insurance-claim claims your company makes.",
+        synonyms: ["Claims Audit", "Insurance Claim Audit"],
       },
     ],
   },
@@ -841,18 +915,26 @@ const SETTINGS_GROUPS = [
         synonyms: ["API Keys"],
       },
       {
-        source: "settings:google-chat",
+        source: "communication/google-chat",
         label: "Google Chat",
         page: "GoogleChatSettings",
         tooltip: "Google Chat notifications.",
         synonyms: ["Google Chat"],
       },
       {
-        source: "settings:slack",
+        source: "communication/slack",
         label: "Slack",
         page: "SlackSettings",
         tooltip: "Slack notifications.",
         synonyms: ["Slack"],
+      },
+      {
+        source: "settings:integrations-accounting",
+        label: "Integrations & Accounting",
+        page: "Settings",
+        query: "?tab=integrations",
+        tooltip: "Accounting and other app connections.",
+        synonyms: ["Integrations & Accounting", "Integrations"],
       },
     ],
   },
