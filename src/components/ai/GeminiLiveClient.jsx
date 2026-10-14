@@ -6,6 +6,24 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { base44 } from "@/api/base44Client";
 import { Mic, MicOff, Play, Square, Sparkles } from "lucide-react";
 
+const ALLOWED_LIVE_MODELS = new Set([
+  "gemini-3.8-live",
+  "gemini-3.1-flash-live-preview",
+]);
+
+function resolveGeminiLiveModel(explicit) {
+  const candidates = [
+    explicit,
+    import.meta.env.VITE_GEMINI_LIVE_MODEL,
+    import.meta.env.VITE_GEMINI_NATIVE_AUDIO_MODEL,
+  ];
+  for (const candidate of candidates) {
+    const id = String(candidate || "").trim().replace(/^models\//, "");
+    if (ALLOWED_LIVE_MODELS.has(id)) return `models/${id}`;
+  }
+  return "models/gemini-3.8-live";
+}
+
 const GEMINI_VOICES = [
   { id: "Aoede",  label: "Aoede — Warm, Clear ♀" },
   { id: "Kore",   label: "Kore — Bright, Energetic ♀" },
@@ -374,7 +392,7 @@ WHAT YOU KNOW:
                     // Gemini Live API - configure with voice at setup root
                      const setupMsg = {
                          setup: {
-                             model: "models/gemini-2.5-flash-native-audio-latest",
+                             model: resolveGeminiLiveModel(propModel),
                              generation_config: {
                                  response_modalities: ["AUDIO"],
                                  speech_config: {

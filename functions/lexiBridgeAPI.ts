@@ -117,6 +117,33 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: 'Missing required field: action' }, 400);
     }
 
+    // The bearer secret authenticates the integration. It does not authorize
+    // an arbitrary companyId. The named user must belong to that company.
+    const sessionEmail = authenticatedUser?.email ? String(authenticatedUser.email).toLowerCase() : '';
+    const claimedEmail = userEmail ? String(userEmail).toLowerCase() : '';
+    if (sessionEmail && claimedEmail && sessionEmail !== claimedEmail) {
+      return jsonResponse({ error: 'User email does not match the signed-in session' }, 403);
+    }
+    const actorEmail = sessionEmail || claimedEmail;
+    if (!companyId || !actorEmail) {
+      return jsonResponse({ error: 'This bridge requires the company this request belongs to' }, 403);
+    }
+    const bridgeCompanies = await base44.asServiceRole.entities.Company.filter({ id: companyId });
+    const bridgeCompany = bridgeCompanies?.[0];
+    const bridgeOwner = String(bridgeCompany?.created_by || '').toLowerCase() === actorEmail;
+    let bridgeMember = false;
+    try {
+      const bridgeProfiles = await base44.asServiceRole.entities.StaffProfile.filter({ company_id: companyId });
+      bridgeMember = (bridgeProfiles || []).some((staff: any) =>
+        [staff.user_email, staff.email].some((value) => String(value || '').toLowerCase() === actorEmail)
+      );
+    } catch (membershipErr: any) {
+      console.warn('[lexiBridgeAPI] company membership lookup failed:', membershipErr.message);
+    }
+    if (!bridgeOwner && !bridgeMember) {
+      return jsonResponse({ error: 'This bridge can only read data for your company' }, 403);
+    }
+
     switch (action) {
       case 'getSettings': {
         if (!companyId) {

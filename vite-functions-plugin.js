@@ -1860,6 +1860,7 @@ function trialEmailShell(title, bodyHtml, accent = '#7c3aed') {
       <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
         ${bodyHtml}
         <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 24px;">CompanySync • Smart Business Management for Roofing Contractors</p>
+        <p style="color: #9ca3af; font-size: 12px; text-align: center;"><a href="{{UNSUBSCRIBE_URL}}" style="color:#6b7280;">Unsubscribe</a> from these emails</p>
       </div>
     </div>`;
 }
@@ -2137,7 +2138,9 @@ async function sendTrialDayTouch(company, day, ctx, recipients) {
   let succeeded = 0;
   const tpl = getTrialEmailTemplate(day, company.company_name || 'there', ctx);
   if (tpl && recipients.emails.length > 0) {
+    const emailUnsubscribe = nodeRequire('./lib/emailUnsubscribe.cjs');
     for (const to of recipients.emails) {
+      if (await emailUnsubscribe.isUnsubscribed(getPool(), to)) continue;
       attempted++;
       try {
          await sendPlatformSubscriberEmail({
@@ -2145,7 +2148,7 @@ async function sendTrialDayTouch(company, day, ctx, recipients) {
            replyTo: PLATFORM_EMAIL_REPLY_TO,
            to,
            subject: tpl.subject,
-           html: tpl.html,
+           html: emailUnsubscribe.stampUnsubscribeLink(tpl.html, TRIAL_APP_URL(), to),
            context: { source: 'trial-lifecycle', companyId: company.id },
          });
         succeeded++;
@@ -2213,34 +2216,12 @@ const SMTP_AUTO_DETECT_MAP = {
   'verizon.net': { host: 'smtp.verizon.net', port: 465, encryption: 'SSL/TLS' },
 };
 
-function getEncryptionKey() {
-  const keyHex = process.env.ENCRYPTION_KEY;
-  if (!keyHex) throw new Error('ENCRYPTION_KEY environment variable not set');
-  return Buffer.from(keyHex, 'hex');
-}
-
 function encryptApiKey(rawKey) {
-  if (!rawKey) return null;
-  const key = getEncryptionKey();
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  let encrypted = cipher.update(rawKey, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  const authTag = cipher.getAuthTag().toString('hex');
-  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+  return nodeRequire('./lib/encryption.cjs').encryptApiKey(rawKey);
 }
 
 function decryptApiKey(encrypted) {
-  if (!encrypted) return null;
-  const parts = encrypted.split(':');
-  if (parts.length !== 3) throw new Error('Invalid encrypted key format');
-  const [ivHex, authTagHex, ciphertext] = parts;
-  const key = getEncryptionKey();
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
-  decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
-  let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
+  return nodeRequire('./lib/encryption.cjs').decryptApiKey(encrypted);
 }
 
 function maskApiKey(raw) {
@@ -2408,7 +2389,7 @@ async function getUserFromRequest(req) {
         // users.company_id is authoritative; staff_profiles.company_id is a fallback for
         // staff accounts that only exist as a StaffProfile row (no matching users row field).
         const company_id = userRow?.company_id || staffRow?.company_id || null;
-        const is_super_admin = staffRow?.is_super_admin === true || platform_role === 'super_admin' || company_id === 'companysync_master_001';
+        const is_super_admin = staffRow?.is_super_admin === true || platform_role === 'super_admin';
         return { email, platform_role, company_id, is_super_admin, is_administrator: staffRow?.is_administrator === true };
       }
     }
@@ -5919,7 +5900,7 @@ ${sourceName ? `SOURCE NAME: ${sourceName}\n` : ''}${sourceText ? `SOURCE (docum
       if (signupEventClaimed) (async () => {
         try {
           const adminEmail = process.env.ADMIN_EMAIL || 'io.companysync@gmail.com';
-          const adminPhone = process.env.ADMIN_PHONE || null;
+          const adminPhone = nodeRequire('./lib/phoneE164.cjs').toE164(process.env.ADMIN_PHONE);
           const compName = updated.company_name || updated.name || companyId;
           const ownerEmail = updated.created_by || updated.email || caller.email || 'unknown';
           // Skip alert for automated smoke-test accounts (@example.com is RFC-reserved for testing)
@@ -15416,10 +15397,12 @@ ${categoryXml}
     return { success: true, available: true, imageUrl, address, heading: Math.round(heading) };
   },
 
-  async getGoogleMapsApiKey() {
-    const key = process.env.GOOGLE_MAPS_API_KEY || "AIzaSyD-TEST-KEY-FOR-TRIALS";
-    console.log(`[Functions] getGoogleMapsApiKey: ${key ? 'Key found' : 'NOT configured'}`);
-    return { apiKey: key, api_key: key };
+  async getGoogleMapsApiKey(_params, _apiKey, req) {
+    const user = req ? await getUserFromRequest(req) : null;
+    if (!user?.email) return { error: 'Authentication required' };
+    const browserKey = process.env.GOOGLE_MAPS_BROWSER_KEY;
+    if (!browserKey) return { error: 'Google Maps browser key is not configured' };
+    return { apiKey: browserKey, api_key: browserKey };
   },
 
   async transcribeVoiceNote(params, apiKey, req) {
@@ -15488,6 +15471,16 @@ ${categoryXml}
     if (!smsGuard.ok) {
       console.warn(`[sendSMS] Skipped recipient ${recipientId || leadId || 'unknown'}: ${smsGuard.reason}`);
       return { success: false, skipped: true, reason: smsGuard.reason };
+    }
+    try {
+      const smsOptOut = nodeRequire('./lib/smsOptOut.cjs');
+      const optStatus = await smsOptOut.optOutStatus(getPool(), to, params.companyId || params.company_id);
+      if (optStatus === 'out') {
+        console.warn(`[sendSMS] Skipped opted-out recipient`);
+        return { success: false, skipped: true, reason: 'opted_out' };
+      }
+    } catch (optErr) {
+      console.warn('[sendSMS] opt-out lookup failed:', optErr.message);
     }
     const normalizedTo = smsGuard.normalizedPhone;
 
@@ -21432,9 +21425,10 @@ Return JSON:
     if (!staffEmail || !companyId) return { success: false, error: 'staffEmail and companyId required' };
     const user = req ? await getUserFromRequest(req) : null;
     if (!user?.email) return { success: false, error: 'Not authenticated' };
-    // Validate caller is owner or admin
+    // Validate caller is owner or admin of THIS company, and only update that company.
     const callerResult = await pool.query(
-      'SELECT is_administrator FROM staff_profiles WHERE (user_email = $1 OR email = $1) LIMIT 1', [user.email]
+      'SELECT is_administrator FROM staff_profiles WHERE (user_email = $1 OR email = $1) AND company_id = $2 LIMIT 1',
+      [user.email, companyId]
     );
     const companyResult = await pool.query(
       `SELECT data->>'created_by' as created_by FROM generic_entities WHERE entity_type = 'Company' AND id = $1 LIMIT 1`, [companyId]
@@ -21445,14 +21439,14 @@ Return JSON:
     const adminVal = isAdmin ? true : false;
     // Update staff_profiles (what auth reads)
     await pool.query(
-      `UPDATE staff_profiles SET is_administrator = $1, updated_at = NOW() WHERE (user_email = $2 OR email = $2)`,
-      [adminVal, staffEmail]
+      `UPDATE staff_profiles SET is_administrator = $1, updated_at = NOW() WHERE (user_email = $2 OR email = $2) AND company_id = $3`,
+      [adminVal, staffEmail, companyId]
     );
     // Sync to generic_entities (what UI reads)
     await pool.query(
       `UPDATE generic_entities SET data = jsonb_set(data, '{is_administrator}', $1::jsonb), updated_date = NOW()
-       WHERE entity_type = 'StaffProfile' AND (data->>'user_email' = $2 OR data->>'email' = $2)`,
-      [JSON.stringify(adminVal), staffEmail]
+       WHERE entity_type = 'StaffProfile' AND company_id = $3 AND (data->>'user_email' = $2 OR data->>'email' = $2)`,
+      [JSON.stringify(adminVal), staffEmail, companyId]
     );
     console.log(`[grantStaffAdminAccess] ${adminVal ? 'Granted' : 'Revoked'} admin for ${staffEmail} by ${user.email}`);
     return { success: true };
@@ -21461,12 +21455,10 @@ Return JSON:
   async fixInvoiceStatuses(params) {
     const pool = getPool();
     const { companyId } = params || {};
+    if (!companyId) return { success: false, error: 'company_id is required' };
     console.log('[Functions] fixInvoiceStatuses: Starting bulk recalculation...');
     try {
-      const query = companyId
-        ? `SELECT * FROM invoices WHERE company_id = $1`
-        : `SELECT * FROM invoices`;
-      const invoicesRes = await pool.query(query, companyId ? [companyId] : []);
+      const invoicesRes = await pool.query(`SELECT * FROM invoices WHERE company_id = $1`, [companyId]);
       const invoices = invoicesRes.rows;
       let fixed = 0;
       for (const invoice of invoices) {
@@ -21813,9 +21805,11 @@ Return JSON:
     const pool = getPool();
     try {
       // Find invoice linked to this estimate
+      const companyId = params.company_id || params.companyId;
+      if (!companyId) return { success: false, error: 'company_id is required' };
       const invRes = await pool.query(
-        `SELECT id, total_amount, amount_paid, items, data FROM invoices WHERE data->>'estimate_id' = $1 ORDER BY created_at DESC LIMIT 1`,
-        [estimate_id]
+        `SELECT id, total_amount, amount_paid, items, data FROM invoices WHERE data->>'estimate_id' = $1 AND company_id = $2 ORDER BY created_at DESC LIMIT 1`,
+        [estimate_id, companyId]
       );
       if (invRes.rows.length === 0) {
         return { success: false, skipped: true, reason: 'No linked invoice found' };
@@ -25621,10 +25615,17 @@ Return JSON:
     }
     const toE164 = `+1${normalized}`;
 
-    // 2) Honor STOP / opt-out. Best-effort lookup of the customer's own inbound
-    // STOP message; never blocks the send if the lookup itself fails.
+    // 2) Honor STOP / opt-out. A durable opt-out wins. An explicit START
+    // overrides older STOP history. If neither is recorded, fall back to
+    // inbound message history so older stops still hold.
     try {
       const p = getPool();
+      const smsOptOut = nodeRequire('./lib/smsOptOut.cjs');
+      const durable = await smsOptOut.optOutStatus(p, toE164, companyId);
+      if (durable === 'out') return { success: false, skipped: 'opted_out' };
+      if (durable === 'in') {
+        // explicit resume
+      } else {
       const opt = await p.query(
         `SELECT 1 FROM generic_entities
            WHERE entity_type = 'Communication' AND company_id = $1
@@ -25644,6 +25645,7 @@ Return JSON:
         [companyId, normalized]
       );
       if (dedicatedOpt.rows.length > 0) return { success: false, skipped: 'opted_out' };
+      }
     } catch (_) { /* non-fatal */ }
 
     // 3) Respect business hours unless a human explicitly approved this send.
@@ -29994,21 +29996,23 @@ Return JSON:
                 ]
               );
             }
+            const emailUnsubscribe = nodeRequire('./lib/emailUnsubscribe.cjs');
             for (const to of emails) {
+              if (await emailUnsubscribe.isUnsubscribed(pool, to)) continue;
               try {
                  await sendPlatformSubscriberEmail({
                    from: PLATFORM_EMAIL_FROM,
                    replyTo: PLATFORM_EMAIL_REPLY_TO,
                    to,
                   subject: `⚠️ ${company.company_name} - Your Trial Has Expired`,
-                  html: trialEmailShell('🚫 Your Trial Has Expired', `
+                  html: emailUnsubscribe.stampUnsubscribeLink(trialEmailShell('🚫 Your Trial Has Expired', `
                     <p style="color:#374151;font-size:16px;line-height:1.6;">Hi ${company.company_name} team,</p>
                     <p style="color:#374151;font-size:16px;line-height:1.6;">Your free trial ended on <strong>${fmtTrialDate(trialEnd)}</strong>. Your data is safe, but access to features will be limited until you subscribe.</p>
                     <div style="background:#fef3c7;border:2px solid #fbbf24;border-radius:8px;padding:16px;margin:20px 0;text-align:center;">
                       <p style="color:#92400e;font-weight:bold;font-size:18px;margin:0 0 8px 0;">🎁 ${OFFER}</p>
                     </div>
                     ${trialCtaButton(`${APP_URL}/Pricing`, 'Subscribe Now & Get 7 Free Days →', '#dc2626')}
-                  `, '#dc2626'),
+                  `, '#dc2626'), APP_URL, to),
                 });
               } catch (e) {
                 console.error(`[Cron:processTrialLifecycle] expiration email to ${to} failed:`, e.message);
@@ -30036,7 +30040,7 @@ Return JSON:
             if (claim.rowCount === 0) { /* another runner won the race */ }
             else {
             const adminEmail = process.env.ADMIN_EMAIL || 'io.companysync@gmail.com';
-            const adminPhone = process.env.ADMIN_PHONE || null;
+            const adminPhone = nodeRequire('./lib/phoneE164.cjs').toE164(process.env.ADMIN_PHONE);
             const ownerEmail = company.created_by || company.email || emails[0] || 'unknown';
             let warnDelivered = false;
             if (!String(ownerEmail).endsWith('@example.com')) {
@@ -38076,8 +38080,8 @@ functionHandlers.runLaunchTest = async (params, apiKey, req) => {
   };
 
   const stripeCheck = async (live, requireConnect) => {
-    const secret = process.env.STRIPE_SECRET_KEY;
-    if (!secret) return { passed: false, error: 'STRIPE_SECRET_KEY is not configured on the server' };
+    const secret = nodeRequire('./lib/stripeEnv.cjs').resolveStripeApiKey();
+    if (!secret) return { passed: false, error: 'Stripe API key is not configured (set STRIPE_API_KEY to an sk_ key)' };
     if (requireConnect && !company.stripe_account_id) return { passed: false, error: 'Stripe Connect account not set up for this company' };
     if (!live) return { passed: true };
     try {
@@ -38660,7 +38664,24 @@ export default function viteFunctionsPlugin() {
   return {
     name: 'vite-functions-plugin',
     configureServer(server) {
+      try {
+        nodeRequire('./lib/startupSecrets.cjs').assertStartupSecrets();
+      } catch (err) {
+        console.error('[startup] secret check failed:', err.message);
+      }
       server.middlewares.use(async (req, res, next) => {
+        const earlyUrl = new URL(req.url || '/', 'http://localhost');
+        if (earlyUrl.pathname === '/api/email/unsubscribe' && req.method === 'GET') {
+          const { checkRateLimit, getClientIp } = nodeRequire('./lib/rateLimit.cjs');
+          const limit = checkRateLimit(`email-unsub:${getClientIp(req)}`, { max: 30, windowMs: 15 * 60 * 1000 });
+          if (!limit.allowed) {
+            res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+            res.end('Too many requests.');
+            return;
+          }
+          await nodeRequire('./lib/emailUnsubscribe.cjs').handleUnsubscribeRequest(req, res, getPool());
+          return;
+        }
         const inspectionReportUrl = new URL(req.url || '/', 'http://localhost');
         if (inspectionReportUrl.pathname === '/api/inspection-reports/upload') {
           if (req.method !== 'POST') {
@@ -40959,7 +40980,8 @@ export default function viteFunctionsPlugin() {
             // Internal RPC dispatcher — some handlers (analyzePhoto, etc.) legitimately
             // receive base64 images, so cap at 30 MB rather than the 1 MB default.
             const body = await parseBody(req, 30 * 1024 * 1024);
-            const { functionName, params } = body;
+            const functionName = body?.functionName;
+            let params = body?.params;
             
             if (!functionName) {
               res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -40974,6 +40996,23 @@ export default function viteFunctionsPlugin() {
             if (typeof functionName === 'string' && functionName.startsWith('_')) {
               res.writeHead(403, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Not a callable function', functionName }));
+              return;
+            }
+            if (!params || typeof params !== 'object' || Array.isArray(params)) params = {};
+            const invokeAuth = nodeRequire('./lib/functionInvokeAuth.cjs');
+            const invokeDecision = await invokeAuth.authorizeFunctionInvoke({
+              req,
+              functionName,
+              params,
+              pool: getPool(),
+              resolveContext: tenantGuard.resolveRequestContext,
+            });
+            if (!invokeDecision.ok) {
+              res.writeHead(invokeDecision.status || 401, {
+                'Content-Type': 'application/json',
+                ...(invokeDecision.retryAfterMs ? { 'Retry-After': String(Math.ceil(invokeDecision.retryAfterMs / 1000)) } : {}),
+              });
+              res.end(JSON.stringify({ error: invokeDecision.error }));
               return;
             }
             const handler = functionHandlers[functionName];

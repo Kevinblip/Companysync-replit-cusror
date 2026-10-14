@@ -185,9 +185,10 @@ async function cleanup() {
     env: {
       ...process.env,
       PORT:                  String(TEST_PORT),
+      STRIPE_API_KEY:        stripeKey,
       STRIPE_WEBHOOK_SECRET: TEST_WEBHOOK_SECRET,
-      // Silence noisy startup logs so test output is readable
       NODE_ENV:              'test',
+      REPLIT_DEPLOYMENT:     '',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -257,6 +258,7 @@ async function cleanup() {
     let rowA = await getCompanyRow(COMPANY_A);
     ok('stripe_subscription_amount = 299', Number(rowA.stripe_subscription_amount) === 299, rowA.stripe_subscription_amount);
     ok('stripe_subscription_status = active', rowA.stripe_subscription_status === 'active', rowA.stripe_subscription_status);
+    ok('subscription_status = active', rowA.subscription_status === 'active', rowA.subscription_status);
     ok('stripe_subscription_id preserved', rowA.stripe_subscription_id === SUB_ID_A, rowA.stripe_subscription_id);
 
     // ────────────────────────────────────────────────────────────────────────
@@ -290,6 +292,7 @@ async function cleanup() {
     const rowB = await getCompanyRow(COMPANY_B);
     ok('company B stripe_subscription_amount = 99', Number(rowB.stripe_subscription_amount) === 99, rowB.stripe_subscription_amount);
     ok('company B stripe_subscription_status = trialing', rowB.stripe_subscription_status === 'trialing', rowB.stripe_subscription_status);
+    ok('company B subscription_status = trial', rowB.subscription_status === 'trial', rowB.subscription_status);
 
     // ────────────────────────────────────────────────────────────────────────
     // Step 4: subscription.deleted → status MUST be 'canceled' regardless of
@@ -304,6 +307,7 @@ async function cleanup() {
 
     rowA = await getCompanyRow(COMPANY_A);
     ok('stripe_subscription_status is canceled (not sub.status=active)', rowA.stripe_subscription_status === 'canceled', rowA.stripe_subscription_status);
+    ok('subscription_status is cancelled', rowA.subscription_status === 'cancelled', rowA.subscription_status);
     ok('stripe_subscription_amount still written on deletion', Number(rowA.stripe_subscription_amount) === 499, rowA.stripe_subscription_amount);
 
     // ────────────────────────────────────────────────────────────────────────
@@ -314,6 +318,29 @@ async function cleanup() {
       makeSubEvent('customer.subscription.updated', 'sub_unknown_xyz', 'cus_unknown_xyz', 'active', 9900, null)
     );
     ok(`unknown-company event returns 200 (got ${r5.status})`, r5.status === 200);
+
+    console.log('\n[stripe-webhook] Step 6: checkout.session.completed subscription mode');
+    const checkoutBody = JSON.stringify({
+      id: `evt_${crypto.randomBytes(8).toString('hex')}`,
+      object: 'event',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: 'cs_smoke_subscription',
+          object: 'checkout.session',
+          mode: 'subscription',
+          payment_status: 'paid',
+          customer: CUST_ID_A,
+          metadata: { company_id: COMPANY_A },
+          subscription: 'sub_checkout_smoke',
+        },
+      },
+    });
+    const r6 = await postWebhook(checkoutBody);
+    ok(`checkout webhook returns 200 (got ${r6.status})`, r6.status === 200);
+    rowA = await getCompanyRow(COMPANY_A);
+    ok('checkout sets subscription_status = active', rowA.subscription_status === 'active', rowA.subscription_status);
+    ok('checkout does not replace an existing stripe subscription id', rowA.stripe_subscription_id === SUB_ID_A, rowA.stripe_subscription_id);
 
   } catch (e) {
     console.error('[stripe-webhook] UNEXPECTED ERROR:', e);

@@ -2534,15 +2534,10 @@ CRM TOOLS — use these automatically as info comes in:
               typingSoundsEnabled = rawInterimAudio === 'typing' && rawResponseSpeed === 'normal';
               console.log(`[${assistantName}] Typing sounds: ${typingSoundsEnabled} (interim_audio=${rawInterimAudio}, response_speed=${rawResponseSpeed})`);
               // Wire the AI Engine setting into the call model (only native-audio models are valid here)
-              const VALID_NATIVE_AUDIO_MODELS = [
-                'gemini-2.5-flash-native-audio-latest',
-                'gemini-2.5-flash-native-audio-preview-12-2025',
-                'gemini-2.5-flash-native-audio-preview-09-2025',
-                'gemini-3.1-flash-live-preview',
-              ];
+              const { geminiLiveModel, isAllowedGeminiLiveEngine } = __require('./lib/geminiLiveModel.cjs');
               const rawEngine = crmSettings.settings?.engine || currentSettings.engine || '';
-              if (rawEngine && VALID_NATIVE_AUDIO_MODELS.includes(rawEngine)) {
-                subscriberGeminiModel = `models/${rawEngine}`;
+              if (rawEngine && isAllowedGeminiLiveEngine(rawEngine)) {
+                subscriberGeminiModel = geminiLiveModel(rawEngine);
                 console.log(`[${assistantName}] Engine override: ${subscriberGeminiModel}`);
               }
             } catch (e) {
@@ -2661,10 +2656,9 @@ Keep responses brief, conversational, and in the caller's language.`;
 
             const setupMsg = {
               setup: {
-                // Default verified against live ListModels + a real Live-API setup
-                // handshake (3.1-flash-live-preview supersedes the 2.5 native-audio
-                // line with better turn-taking/latency). Env var overrides for rollback.
-                model: subscriberGeminiModel || process.env.GEMINI_NATIVE_AUDIO_MODEL || "models/gemini-3.1-flash-live-preview",
+                // Gemini 3.8 Live is the default. GEMINI_LIVE_MODEL can select
+                // another allowed Live model. Saved 2.5 engines are ignored.
+                model: subscriberGeminiModel || __require('./lib/geminiLiveModel.cjs').geminiLiveModel(),
                 generation_config: {
                   response_modalities: ["AUDIO"],
                   speech_config: {
@@ -4996,6 +4990,21 @@ Keep responses brief, conversational, and in the caller's language.`;
                 resolvedCompanyId = cached.companyId;
                 console.log(`[Sarah] SMS cache hit: ${e164To} -> ${resolvedCompanyId}`);
               }
+            }
+
+            try {
+              const smsOptOut = __require('./lib/smsOptOut.cjs');
+              const keyword = smsOptOut.classifyInboundSms(messageBody);
+              if (keyword) {
+                const { getPool } = await import('./db/schema.js');
+                await smsOptOut.setOptOut(getPool(), cleanFrom, resolvedCompanyId, keyword === 'stop');
+                const reply = smsOptOut.optOutReply(keyword);
+                res.setHeader('Content-Type', 'text/xml');
+                res.end(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${reply}</Message></Response>`);
+                return;
+              }
+            } catch (optErr) {
+              console.warn('[SMS] opt-out handling failed:', optErr.message);
             }
 
             if (!resolvedCompanyId) {

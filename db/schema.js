@@ -853,10 +853,6 @@ export async function initDatabase() {
   `);
 
   await p.query(`
-    UPDATE staff_profiles SET preferred_language = NULL WHERE preferred_language = 'en';
-  `);
-
-  await p.query(`
     ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS commission_notify_email BOOLEAN DEFAULT true;
     ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS commission_notify_sms BOOLEAN DEFAULT true;
     ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS commission_notify_bell BOOLEAN DEFAULT true;
@@ -1035,14 +1031,16 @@ export async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_chat_receipts_company ON chat_read_receipts(company_id, conversation_id);
   `);
 
-  // #6 — Backfill any orphaned NULL company_id rows to the platform company.
-  // NOTE: We intentionally keep company_id nullable so that the Replit deployment
-  // auto-migration does NOT generate a SET NOT NULL statement against production
-  // (production may still have pre-backfill NULL rows that would fail the constraint).
-  // The backfill below is sufficient — all runtime code filters by company_id already.
-  await p.query(`
-    UPDATE generic_entities SET company_id = 'companysync_master_001' WHERE company_id IS NULL;
-  `);
+  // #6 — company_id stays nullable so a deploy cannot emit SET NOT NULL against
+  // rows that were never assigned. Orphans are left untouched; they are not
+  // swept onto the platform company.
+  const orphanCount = await p.query(
+    `SELECT COUNT(*)::int AS n FROM generic_entities WHERE company_id IS NULL`
+  );
+  const orphanTotal = orphanCount.rows[0]?.n || 0;
+  if (orphanTotal > 0) {
+    console.warn(`[DB] ${orphanTotal} generic_entities rows have no company_id; left untouched`);
+  }
   // Ensure dev DB stays nullable so schema diff matches production (prevents broken migrations).
   await p.query(`
     ALTER TABLE generic_entities ALTER COLUMN company_id DROP NOT NULL;
@@ -1145,19 +1143,12 @@ export async function initDatabase() {
   }
 
 
-  // Always ensure platform admin user account exists (runs on every boot, idempotent)
+  // Seed a platform super-admin only when none exists. Password comes from
+  // SUPER_ADMIN_PASSWORD and an existing account is never overwritten.
   try {
-    const userExists = await p.query("SELECT id FROM users WHERE email = 'io.companysync@gmail.com' LIMIT 1");
-    if (userExists.rows.length === 0) {
-      console.log('[Init] Seeding platform admin user account...');
-      await p.query(
-        `INSERT INTO users (id, email, first_name, last_name, password_hash, is_local_auth, must_change_password, company_id, platform_role, created_at, updated_at)
-         VALUES ('user_companysync_admin_001', 'io.companysync@gmail.com', 'Kevin', 'Stone', $1, true, false, 'companysync_master_001', 'super_admin', NOW(), NOW())
-         ON CONFLICT (id) DO NOTHING`,
-        ['$2b$10$/v1Vwd20gPDixxPSrYBizuAT748OibaKQqeQnwYA4UWvp.LQ8mlMq']
-      );
-      console.log('[Init] Platform admin user seeded');
-    }
+    const { createRequire } = await import('node:module');
+    const { ensureSuperAdmin } = createRequire(import.meta.url)('../lib/superAdminSeed.cjs');
+    await ensureSuperAdmin(p);
   } catch (err) {
     console.error('[Init] Error seeding admin user:', err.message);
   }

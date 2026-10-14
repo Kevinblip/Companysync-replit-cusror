@@ -327,7 +327,12 @@ VOICE RULES (non-negotiable):
                 console.log('[SarahVoiceBridge] Connected to Gemini');
                 const setupMsg = {
                     setup: {
-                        model: "models/gemini-2.5-flash-native-audio-latest",
+                        model: (() => {
+                            const requested = Deno.env.get('GEMINI_LIVE_MODEL') || Deno.env.get('GEMINI_NATIVE_AUDIO_MODEL') || '';
+                            const id = requested.replace(/^models\//, '');
+                            const allowed = new Set(['gemini-3.8-live', 'gemini-3.1-flash-live-preview']);
+                            return allowed.has(id) ? `models/${id}` : 'models/gemini-3.8-live';
+                        })(),
                         generation_config: {
                             response_modalities: ["AUDIO"],
                             speech_config: {

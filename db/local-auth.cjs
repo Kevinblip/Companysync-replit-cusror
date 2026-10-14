@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { PLATFORM_EMAIL_FROM, PLATFORM_EMAIL_REPLY_TO } = require('../lib/platformEmailConfig.cjs');
+const { hashResetToken, resetTokenExpiresAt } = require('../lib/passwordResetToken.cjs');
 
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
@@ -1009,11 +1010,11 @@ async function handleForgotPassword(req, res, pool) {
     // Create reset token
     const token = generateToken();
     const tokenId = generateId();
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    const expiresAt = resetTokenExpiresAt();
 
     await pool.query(
       `INSERT INTO password_reset_tokens (id, email, token, expires_at) VALUES ($1, $2, $3, $4)`,
-      [tokenId, emailLower, token, expiresAt]
+      [tokenId, emailLower, hashResetToken(token), expiresAt]
     );
 
     const appUrl = getAppUrl(req).replace(/\/+$/, '');
@@ -1035,7 +1036,7 @@ async function handleForgotPassword(req, res, pool) {
             ${isStaffInvite ? 'Set Up My Password' : 'Reset My Password'}
           </a>
         </div>
-        <p style="color: #64748b; font-size: 13px;">This link expires in 1 hour. If you did not request this, you can safely ignore this email.</p>
+        <p style="color: #64748b; font-size: 13px;">This link expires in 30 minutes. If you did not request this, you can safely ignore this email.</p>
         <p style="color: #94a3b8; font-size: 12px; word-break: break-all;">Or copy this link: ${resetUrl}</p>
         <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
         <p style="color: #94a3b8; font-size: 12px;">&copy; ${new Date().getFullYear()} CompanySync — Roofing Business Management</p>
@@ -1091,8 +1092,9 @@ async function handleResetPassword(req, res, pool) {
 
     // Find and validate token
     const tokenResult = await pool.query(
-      'SELECT * FROM password_reset_tokens WHERE token = $1 AND used_at IS NULL AND expires_at > NOW()',
-      [token]
+      `SELECT * FROM password_reset_tokens
+       WHERE (token = $1 OR token = $2) AND used_at IS NULL AND expires_at > NOW()`,
+      [hashResetToken(token), token]
     );
 
     if (tokenResult.rows.length === 0) {

@@ -1084,7 +1084,7 @@ export default function SarahWorkspace() {
   const [form, setForm] = useState({
     assistant_name: "sarah",
     avatar_url: "",
-    engine: "gemini-3.1-flash-live-preview",
+    engine: "gemini-3.8-live",
     live_mode: false,
     voice_enabled: false,
     voice_id: "Puck",
@@ -1463,7 +1463,7 @@ export default function SarahWorkspace() {
         setForm({
           assistant_name: rec.assistant_name || "sarah",
           avatar_url: rec.avatar_url || "",
-          engine: rec.engine || "gemini-3.1-flash-live-preview",
+          engine: ["gemini-3.8-live", "gemini-3.1-flash-live-preview"].includes(rec.engine) ? rec.engine : "gemini-3.8-live",
           live_mode: !!rec.live_mode,
           voice_enabled: !!rec.voice_enabled,
           // Keep a saved voice. Only an empty or retired id falls back, and that
@@ -2776,13 +2776,12 @@ export default function SarahWorkspace() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="gemini-3.1-flash-live-preview">Gemini 3.1 Flash Live (Recommended)</SelectItem>
-                    <SelectItem value="gemini-2.5-flash-native-audio-latest">Gemini 2.5 Flash Native Audio (Latest)</SelectItem>
-                    <SelectItem value="gemini-2.5-flash-native-audio-preview-12-2025">Gemini 2.5 Flash Native Audio (Dec 2025)</SelectItem>
+                    <SelectItem value="gemini-3.8-live">Gemini 3.8 Live (Recommended)</SelectItem>
+                    <SelectItem value="gemini-3.1-flash-live-preview">Gemini 3.1 Flash Live</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-gray-500 mt-2">
-                  Selects the Gemini model used for live phone calls. "Latest" always uses the newest stable native-audio version.
+                  Selects the Gemini Live model used for phone calls. Gemini 3.8 Live is the current default.
                 </p>
               </div>
             </CardContent>
