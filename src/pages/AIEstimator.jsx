@@ -252,13 +252,17 @@ const describePitchDetection = (analysis) => {
   }
   const facets = Array.isArray(analysis.segment_pitches) ? analysis.segment_pitches : [];
   const distinct = [...new Set(facets.map(f => f.pitch))];
+  const pitchAreas = Array.isArray(analysis.pitch_areas) ? analysis.pitch_areas : [];
+  const areaNote = pitchAreas.length
+    ? ` Areas by pitch: ${pitchAreas.slice(0, 4).map((row) => `${row.pitch} ${row.area_sqft} sqft`).join(', ')}.`
+    : '';
   if (facets.length >= 2 && distinct.length > 1) {
-    return ` (averaged across ${facets.length} roof sections: ${distinct.slice(0, 4).join(', ')})`;
+    return ` (averaged across ${facets.length} roof sections: ${distinct.slice(0, 4).join(', ')})${areaNote}`;
   }
   if (facets.length >= 2) {
-    return ` (measured across ${facets.length} roof sections)`;
+    return ` (measured across ${facets.length} roof sections)${areaNote}`;
   }
-  return ' (measured from 1 roof section)';
+  return ` (measured from 1 roof section)${areaNote}`;
 };
 import {
   smartDescriptionMatch,
