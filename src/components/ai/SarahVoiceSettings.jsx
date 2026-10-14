@@ -19,7 +19,7 @@ const VOICE_OPTIONS = [
 ];
 
 export default function SarahVoiceSettings() {
-  const [currentVoice, setCurrentVoice] = useState('Kore');
+  const [currentVoice, setCurrentVoice] = useState('Puck');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);

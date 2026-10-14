@@ -98,7 +98,7 @@ export default function OpenAILiveClient({ systemPrompt }) {
                         type: "session.update",
                         session: {
                             modalities: ["text", "audio"],
-                            instructions: systemPrompt || "You are a helpful, witty, and professional AI assistant named Sarah. Speak naturally.",
+                            instructions: systemPrompt || "You are a helpful, witty, and professional AI assistant named Alex. Speak naturally.",
                             voice: "shimmer", // 'alloy', 'echo', 'shimmer'
                             input_audio_format: "pcm16",
                             output_audio_format: "pcm16",
@@ -303,7 +303,7 @@ export default function OpenAILiveClient({ systemPrompt }) {
     <Card className="max-w-xl mx-auto border-0 shadow-none bg-transparent">
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-white">
-          <Sparkles className="w-5 h-5 text-yellow-300" /> Sarah Live (GPT-4o)
+          <Sparkles className="w-5 h-5 text-yellow-300" /> Alex Live (GPT-4o)
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -335,7 +335,7 @@ export default function OpenAILiveClient({ systemPrompt }) {
                 {status === 'idle' && "Ready to Connect"}
                 {status === 'connecting' && "Connecting..."}
                 {status === 'authenticating' && "Authenticating..."}
-                {status === 'live' && (isSpeaking ? "Sarah is speaking..." : "Listening...")}
+                {status === 'live' && (isSpeaking ? "Alex is speaking..." : "Listening...")}
                 {/* Debug Info for User */}
                 {!appIdRef.current && status === 'idle' && <p className="text-xs text-gray-400 mt-1">Loading App Configuration...</p>}
             </div>
