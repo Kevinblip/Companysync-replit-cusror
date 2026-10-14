@@ -166,11 +166,12 @@ function AudioVolumeMeter({ analyserRef, isActive }) {
   );
 }
 
-// Standard Listening mode warns after 45s without speech and closes the mic
-// and socket at 60s. These match lib/lexiSessionEnd.cjs. Hands-free and
-// Drive Mode do not use this short timer.
+// Standard Listening mode warns after 45s without speech. The server closes
+// the Gemini socket at 60s (lib/lexiSessionEnd.cjs). This backup is a few
+// seconds later so a missed server message still releases the mic, and it
+// does not close the billing session before the server does.
 const LEXI_IDLE_WARN_MS = 45000;
-const LEXI_IDLE_CLOSE_MS = 60000;
+const LEXI_IDLE_CLOSE_MS = 65000;
 const LEXI_GOODBYE_DRAIN_MS = 4000;
 
 // driveMode: force the continuous hands-free session on (used by the dedicated
@@ -225,6 +226,7 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
   const endReasonRef = React.useRef('');
   const pendingStopRef = React.useRef(false);
   const drainTimerRef = React.useRef(null);
+  const goodbyeFallbackRef = React.useRef(null);
   const intentionalStopRef = React.useRef(false);
   const [idleWarning, setIdleWarning] = React.useState(false);
   const [closingNote, setClosingNote] = React.useState('');
@@ -1065,6 +1067,7 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
     idleWarningRef.current = false;
     setIdleWarning(false);
     stopMicTracks();
+    if (goodbyeFallbackRef.current) { clearTimeout(goodbyeFallbackRef.current); goodbyeFallbackRef.current = null; }
     if (reason === 'goodbye') setClosingNote('Lexi is saying goodbye…');
     const started = Date.now();
     const finish = () => {
@@ -1433,8 +1436,20 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
           }
 
           if (msg.type === 'session_ending') {
-            if (msg.cancelled) setClosingNote('');
-            else setClosingNote('Lexi is saying goodbye…');
+            if (msg.cancelled) {
+              setClosingNote('');
+              if (goodbyeFallbackRef.current) { clearTimeout(goodbyeFallbackRef.current); goodbyeFallbackRef.current = null; }
+            } else {
+              setClosingNote('Lexi is saying goodbye…');
+              // The server closes after the goodbye. If that message never
+              // arrives, stop locally so the mic and socket cannot linger.
+              if (goodbyeFallbackRef.current) clearTimeout(goodbyeFallbackRef.current);
+              goodbyeFallbackRef.current = setTimeout(() => {
+                goodbyeFallbackRef.current = null;
+                console.log('[Lexi Native] Goodbye was not followed by a server close — stopping locally');
+                drainThenStop('goodbye');
+              }, 12000);
+            }
           }
 
           if (msg.type === 'session_end') {
@@ -1644,6 +1659,7 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
     reconnectAttemptsRef.current = 0;
     if (autoStopTimerRef.current) { clearInterval(autoStopTimerRef.current); autoStopTimerRef.current = null; }
     if (drainTimerRef.current) { clearTimeout(drainTimerRef.current); drainTimerRef.current = null; }
+    if (goodbyeFallbackRef.current) { clearTimeout(goodbyeFallbackRef.current); goodbyeFallbackRef.current = null; }
     clearClientIdle();
     idleWarningRef.current = false;
     setIdleWarning(false);
@@ -1655,6 +1671,12 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
     releaseNativeVoiceOwner();
     setStatus("idle");
     setVoiceActivity('idle');
+    console.log('[Lexi Native] Local session stopped', {
+      reason: endReasonRef.current || 'button',
+      ui: 'idle',
+      mic: 'released',
+      playback: 'stopped',
+    });
   };
 
   React.useEffect(() => {

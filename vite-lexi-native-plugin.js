@@ -2065,6 +2065,31 @@ export default function lexiNativePlugin() {
         const markActivity = () => { lastActivityAt = Date.now(); };
         let idleTimer = null;
         let closerStarted = false;
+        let stopLogged = false;
+        function stopVoiceSession(code, reason) {
+          if (stopLogged) return;
+          stopLogged = true;
+          clientClosed = true;
+          const durationSec = Math.round((Date.now() - sessionStartTime) / 1000);
+          try { geminiWs?.close(); } catch (e) {}
+          saveSessionOnce();
+          try { sessionCloser?.dispose(); } catch (e) {}
+          if (idleTimer) clearInterval(idleTimer);
+          if (setupWatchdog) { clearTimeout(setupWatchdog); setupWatchdog = null; }
+          console.log('[Lexi Native] Session fully stopped', {
+            reason,
+            closeCode: code,
+            durationSec,
+            geminiSocket: 'closed',
+            billing: 'saved',
+          });
+          try {
+            if (clientWs.readyState === WebSocket.OPEN || clientWs.readyState === WebSocket.CONNECTING) {
+              if (code === 4002) clientWs.close(4002, reason);
+              else clientWs.close(code, reason);
+            }
+          } catch (e) {}
+        }
         // Standard Listening mode also closes after about a minute of silence
         // (warning at 45s). Hands-free / Drive Mode keeps only this billing cap
         // so a driving pause is not treated as a hang-up. Farewells end both.
@@ -2081,28 +2106,18 @@ export default function lexiNativePlugin() {
             sock.send(JSON.stringify(payload));
             return true;
           },
-          closeAll: (code, reason) => {
-            clientClosed = true;
-            try { geminiWs?.close(); } catch (e) {}
-            saveSessionOnce();
-            if (idleTimer) clearInterval(idleTimer);
-            try { clientWs.close(code, reason); } catch (e) {}
-          },
+          closeAll: (code, reason) => stopVoiceSession(code, reason),
         });
         idleTimer = setInterval(() => {
-          if (sessionCloser.isEnding()) return;
+          if (stopLogged || sessionCloser.isEnding()) return;
           if (Date.now() - lastActivityAt < MAX_IDLE_MS) return;
           console.log('[Lexi Native] Session idle past cap — ending to stop billing', {
             handsFree,
             durationSec: Math.round((Date.now() - sessionStartTime) / 1000),
             idleForSec: Math.round((Date.now() - lastActivityAt) / 1000),
           });
-          sessionCloser.dispose();
-          clientClosed = true;
           try { clientWs.send(JSON.stringify({ type: 'status', status: 'disconnected', reason: 'idle' })); } catch (e) {}
-          try { geminiWs?.close(); } catch (e) {}
-          saveSessionOnce();
-          try { clientWs.close(4002, 'idle'); } catch (e) {}
+          stopVoiceSession(4002, 'idle-cap');
         }, 30000);
 
         const geminiApiKey = process.env.GOOGLE_GEMINI_API_KEY;
@@ -2604,14 +2619,7 @@ export default function lexiNativePlugin() {
           });
           // Set BEFORE closing the upstream socket so its close handler treats
           // this as an intentional stop and does not schedule a reconnect.
-          clientClosed = true;
-          saveSessionOnce();
-          sessionCloser.dispose();
-          if (idleTimer) clearInterval(idleTimer);
-          if (setupWatchdog) { clearTimeout(setupWatchdog); setupWatchdog = null; }
-          if (geminiWs && (geminiWs.readyState === WebSocket.OPEN || geminiWs.readyState === WebSocket.CONNECTING)) {
-            geminiWs.close();
-          }
+          stopVoiceSession(code || 1000, 'browser');
         });
       });
     }

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 const {
   IDLE_WARN_MS,
   IDLE_CLOSE_MS,
+  GOODBYE_FORCE_CLOSE_MS,
   isSessionEndUtterance,
   createLexiSessionCloser,
   GOODBYE_CLOSE_CODE,
@@ -65,7 +66,7 @@ function prompts(gemini) {
 
 describe('isSessionEndUtterance', () => {
   it('matches a lone farewell and rejects stop inside a sentence', () => {
-    for (const phrase of ['bye', 'Bye!', 'goodbye', 'good bye', 'hang up', 'hangup', "that's all", 'that is all', "that's it", "I'm done", 'all done', 'stop', 'stop please', 'thanks bye', 'ok, bye']) {
+    for (const phrase of ['bye', 'Bye!', 'goodbye', 'good bye', 'hang up', 'hangup', "that's all", 'that is all', "that's it", "I'm done", 'all done', 'stop', 'stop please', 'thanks bye', 'ok, bye', 'bye bye bye']) {
       expect(isSessionEndUtterance(phrase), phrase).toBe(true);
     }
     for (const phrase of ['stop the estimate', 'stop talking', 'stop by the store', 'please stop the estimate', 'can you stop estimating', 'I have to go to the store', 'goodbye to the old shingles', '']) {
@@ -130,6 +131,25 @@ describe('Lexi session closer', () => {
     expect(closed).toEqual([]);
     expect(closer.onTurnComplete()).toBe('closed');
     expect(closed).toEqual([{ code: GOODBYE_CLOSE_CODE, reason: 'goodbye' }]);
+  });
+
+  it('closes even when the goodbye turn never completes', () => {
+    const { clock, closed, closer } = createHarness();
+    closer.noteUserSpeech('bye');
+    clock.advance(1200);
+    expect(closed).toEqual([]);
+    clock.advance(GOODBYE_FORCE_CLOSE_MS);
+    expect(closed).toEqual([{ code: GOODBYE_CLOSE_CODE, reason: 'goodbye' }]);
+  });
+
+  it('does not force-close after a mid-sentence stop cancels the goodbye', () => {
+    const { clock, closed, closer } = createHarness();
+    closer.noteUserSpeech('stop');
+    clock.advance(1200);
+    closer.noteUserSpeech('the estimate');
+    clock.advance(GOODBYE_FORCE_CLOSE_MS);
+    expect(closed).toEqual([]);
+    expect(closer.onTurnComplete()).toBe('continue');
   });
 
   it('lets end_session close on the next turn without a second goodbye prompt', () => {
