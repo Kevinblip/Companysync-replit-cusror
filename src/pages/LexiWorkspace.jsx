@@ -150,6 +150,7 @@ export default function LexiWorkspace() {
   const voiceModeRef = useRef(false);
   const legacyVoiceOwnerRef = useRef(null);
   const legacyVoiceHeartbeatRef = useRef(null);
+  const silenceTimeoutRef = useRef(null);
 
   const wakeEnrollmentStorageKey = `companysync:lexi-wake-enrollment:${user?.email || "anonymous"}`;
 

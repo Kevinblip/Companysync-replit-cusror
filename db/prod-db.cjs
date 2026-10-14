@@ -776,19 +776,11 @@ async function initDatabase() {
     console.warn('[DB] staff_score_events table skipped:', err.message);
   }
 
-  // Always ensure platform admin user account exists (runs on every boot, idempotent)
+  // Seed a platform super-admin only when none exists. Password comes from
+  // SUPER_ADMIN_PASSWORD and an existing account is never overwritten.
   try {
-    const userExists = await p.query("SELECT id FROM users WHERE email = 'io.companysync@gmail.com' LIMIT 1");
-    if (userExists.rows.length === 0) {
-      console.log('[Init] Seeding platform admin user account...');
-      await p.query(
-        `INSERT INTO users (id, email, first_name, last_name, password_hash, is_local_auth, must_change_password, company_id, platform_role, created_at, updated_at)
-         VALUES ('user_companysync_admin_001', 'io.companysync@gmail.com', 'Kevin', 'Stone', $1, true, false, 'companysync_master_001', 'super_admin', NOW(), NOW())
-         ON CONFLICT (id) DO NOTHING`,
-        ['$2b$10$/v1Vwd20gPDixxPSrYBizuAT748OibaKQqeQnwYA4UWvp.LQ8mlMq']
-      );
-      console.log('[Init] Platform admin user seeded');
-    }
+    const { ensureSuperAdmin } = require('../lib/superAdminSeed.cjs');
+    await ensureSuperAdmin(p);
   } catch (err) {
     console.error('[Init] Error seeding admin user:', err.message);
   }
@@ -1480,9 +1472,7 @@ const SMTP_AUTO_DETECT_MAP = {
 };
 
 function getEncryptionKey() {
-  const keyHex = process.env.ENCRYPTION_KEY;
-  if (!keyHex) throw new Error('ENCRYPTION_KEY environment variable not set');
-  return Buffer.from(keyHex, 'hex');
+  return require('../lib/startupSecrets.cjs').requireEncryptionKey();
 }
 
 function encryptApiKey(rawKey) {
@@ -2466,18 +2456,12 @@ async function handleLocalDbRoute(req, res, pathname, url) {
 
     if (pathname === '/api/local/admin/seed-admin-user' && req.method === 'POST') {
       const p = getPool();
-      const userExists = await p.query("SELECT id FROM users WHERE email = 'io.companysync@gmail.com' LIMIT 1");
-      if (userExists.rows.length > 0) {
-        return sendJson({ success: true, message: 'Admin user already exists' });
+      const { ensureSuperAdmin } = require('../lib/superAdminSeed.cjs');
+      const result = await ensureSuperAdmin(p);
+      if (!result.seeded && result.reason === 'missing-env') {
+        return sendJson({ success: false, error: 'Set SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD (12+ characters) before seeding a super-admin.' }, 400);
       }
-      await p.query(
-        `INSERT INTO users (id, email, first_name, last_name, password_hash, is_local_auth, must_change_password, company_id, platform_role, created_at, updated_at)
-         VALUES ('user_companysync_admin_001', 'io.companysync@gmail.com', 'Kevin', 'Stone', $1, true, false, 'companysync_master_001', 'super_admin', NOW(), NOW())
-         ON CONFLICT (id) DO NOTHING`,
-        ['$2b$10$/v1Vwd20gPDixxPSrYBizuAT748OibaKQqeQnwYA4UWvp.LQ8mlMq']
-      );
-      console.log('[Admin] Platform admin user created via endpoint');
-      return sendJson({ success: true, message: 'Admin user created' });
+      return sendJson({ success: true, seeded: !!result.seeded, reason: result.reason });
     }
 
     if (pathname === '/api/local/admin/fix-assignments' && req.method === 'POST') {

@@ -1391,13 +1391,29 @@ async function recordStaffComposeEmail(audit, status, outcome = {}) {
 async function handleFunctionInvoke(req, res) {
   try {
     const body = await readJsonBody(req);
-    const { functionName, params } = body;
+    const functionName = body?.functionName;
+    let params = body?.params;
     if (!functionName) { sendJson(res, { error: 'functionName is required' }, 400); return; }
     // Internal `_xxxImpl` helpers are implementation details of a public handler
     // (which does the auth/checkAIUsage gating) — never reachable directly by name,
     // or the gate is trivially bypassed via this unauthenticated RPC endpoint.
     if (typeof functionName === 'string' && functionName.startsWith('_')) {
       sendJson(res, { error: 'Not a callable function', functionName }, 403);
+      return;
+    }
+    if (!params || typeof params !== 'object' || Array.isArray(params)) params = {};
+    const invokeAuth = require('../lib/functionInvokeAuth.cjs');
+    const tenantGuard = require('../lib/tenantGuard.cjs');
+    const prodDb = require('./prod-db.cjs');
+    const invokeDecision = await invokeAuth.authorizeFunctionInvoke({
+      req,
+      functionName,
+      params,
+      pool: prodDb.getPool(),
+      resolveContext: tenantGuard.resolveRequestContext,
+    });
+    if (!invokeDecision.ok) {
+      sendJson(res, { error: invokeDecision.error }, invokeDecision.status || 401);
       return;
     }
     console.log(`[Functions] Invoke: ${functionName}`);
@@ -1533,9 +1549,11 @@ async function handleFunctionInvoke(req, res) {
         if (!estimate_id) { sendJson(res, { data: { success: false, error: 'estimate_id required' } }); return; }
         const prodDb = require('./prod-db.cjs');
         const pool = prodDb.getPool();
+        const companyId = params.company_id || params.companyId;
+        if (!companyId) { sendJson(res, { data: { success: false, error: 'company_id is required' } }); return; }
         const invRes = await pool.query(
-          `SELECT id, total_amount, amount_paid, items, data FROM invoices WHERE data->>'estimate_id' = $1 ORDER BY created_at DESC LIMIT 1`,
-          [estimate_id]
+          `SELECT id, total_amount, amount_paid, items, data FROM invoices WHERE data->>'estimate_id' = $1 AND company_id = $2 ORDER BY created_at DESC LIMIT 1`,
+          [estimate_id, companyId]
         );
         if (invRes.rows.length === 0) {
           sendJson(res, { data: { success: false, skipped: true, reason: 'No linked invoice found' } });
@@ -1926,8 +1944,12 @@ async function handleFunctionInvoke(req, res) {
     }
 
     if (functionName === 'getGoogleMapsApiKey') {
-      const key = process.env.GOOGLE_MAPS_API_KEY || "AIzaSyD-TEST-KEY-FOR-TRIALS";
-      sendJson(res, { data: { key, apiKey: key, api_key: key } });
+      const browserKey = process.env.GOOGLE_MAPS_BROWSER_KEY;
+      if (!browserKey) {
+        sendJson(res, { data: { error: 'Google Maps browser key is not configured' } });
+        return;
+      }
+      sendJson(res, { data: { apiKey: browserKey, api_key: browserKey } });
       return;
     }
 
@@ -2254,14 +2276,14 @@ async function handleFunctionInvoke(req, res) {
       if (!staffEmail || !companyId) { sendJson(res, { data: { success: false, error: 'staffEmail and companyId required' } }); return; }
       try {
         // Validate caller is owner or admin
-        const callerRes = await pool.query('SELECT is_administrator FROM staff_profiles WHERE (user_email = $1 OR email = $1) LIMIT 1', [callerEmail]);
+        const callerRes = await pool.query('SELECT is_administrator FROM staff_profiles WHERE (user_email = $1 OR email = $1) AND company_id = $2 LIMIT 1', [callerEmail, companyId]);
         const companyRes = await pool.query(`SELECT data->>'created_by' as created_by FROM generic_entities WHERE entity_type = 'Company' AND id = $1 LIMIT 1`, [companyId]);
         const isOwner = companyRes.rows[0]?.created_by === callerEmail;
         const isCallerAdmin = callerRes.rows[0]?.is_administrator === true;
         if (!isOwner && !isCallerAdmin) { sendJson(res, { data: { success: false, error: 'Only owners or admins can grant admin access' } }); return; }
         const adminVal = isAdmin ? true : false;
-        await pool.query(`UPDATE staff_profiles SET is_administrator = $1, updated_at = NOW() WHERE (user_email = $2 OR email = $2)`, [adminVal, staffEmail]);
-        await pool.query(`UPDATE generic_entities SET data = jsonb_set(data, '{is_administrator}', $1::jsonb), updated_date = NOW() WHERE entity_type = 'StaffProfile' AND (data->>'user_email' = $2 OR data->>'email' = $2)`, [JSON.stringify(adminVal), staffEmail]);
+        await pool.query(`UPDATE staff_profiles SET is_administrator = $1, updated_at = NOW() WHERE (user_email = $2 OR email = $2) AND company_id = $3`, [adminVal, staffEmail, companyId]);
+        await pool.query(`UPDATE generic_entities SET data = jsonb_set(data, '{is_administrator}', $1::jsonb), updated_date = NOW() WHERE entity_type = 'StaffProfile' AND company_id = $3 AND (data->>'user_email' = $2 OR data->>'email' = $2)`, [JSON.stringify(adminVal), staffEmail, companyId]);
         console.log(`[grantStaffAdminAccess] ${adminVal ? 'Granted' : 'Revoked'} admin for ${staffEmail} by ${callerEmail}`);
         sendJson(res, { data: { success: true } });
       } catch (err) {

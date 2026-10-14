@@ -38,6 +38,8 @@ const {
   loadManagedStripeWebhookSecret,
   persistManagedStripeWebhookSecret,
 } = require('./lib/stripeWebhookSecret.cjs');
+const { resolveStripeApiKey, resolveStripeWebhookSecret, mapAppSubscriptionStatus } = require('./lib/stripeEnv.cjs');
+const { geminiLiveModel, isAllowedGeminiLiveEngine } = require('./lib/geminiLiveModel.cjs');
 const { authenticateLexiWs } = require('./lib/lexiWsAuth.cjs');
 const { confirmScheduleAndCreate } = require('./lib/lexiScheduleConfirmation.cjs');
 const { assertBuildDate, buildDayRange } = require('./lib/buildScheduleTime.cjs');
@@ -418,10 +420,9 @@ async function registerStripeWebhook() {
     // Resolve the actual Stripe API key. Historically STRIPE_SECRET_KEY was
     // incorrectly set to a whsec_* signing secret; STRIPE_API_KEY holds the
     // real sk_* key in that case, so we check both and pick the sk_ one.
-    const stripeSecretKey = [process.env.STRIPE_SECRET_KEY, process.env.STRIPE_API_KEY]
-      .find(k => k?.startsWith('sk_')) || process.env.STRIPE_SECRET_KEY || process.env.STRIPE_API_KEY;
+    const stripeSecretKey = resolveStripeApiKey();
     if (!stripeSecretKey) {
-      console.warn('[Stripe] Webhook registration skipped: no Stripe API key found (set STRIPE_SECRET_KEY or STRIPE_API_KEY)');
+      console.warn('[Stripe] Webhook registration skipped: no sk_ API key found (set STRIPE_API_KEY)');
       return;
     }
 
@@ -947,22 +948,11 @@ const RATE_LIMITS = {
   reset:  { window: 60_000, max: 5 },
 };
 function getClientIps(req) {
-  // Return BOTH the XFF-derived IP and the raw socket IP. Rate-limiting checks
-  // against both so an attacker spoofing X-Forwarded-For cannot bypass the
-  // per-socket bucket. (XFF is set by the Replit proxy in production but is
-  // ultimately client-controllable since we don't enforce a trusted-proxy IP
-  // allow-list yet — defence in depth.)
-  const ips = new Set();
-  const xff = req.headers['x-forwarded-for'];
-  if (xff) {
-    // First (leftmost) entry is the original client per RFC 7239 convention.
-    const first = String(xff).split(',')[0].trim();
-    if (first) ips.add(first);
-  }
-  const socketIp = req.socket?.remoteAddress;
-  if (socketIp) ips.add(socketIp);
-  if (ips.size === 0) ips.add('unknown');
-  return [...ips];
+  // The leftmost X-Forwarded-For hop is client-supplied. When a proxy is
+  // trusted, rate-limit the rightmost hop it appended and ignore the shared
+  // proxy socket so one client cannot fill the bucket for everyone.
+  const { getClientIp } = require('./lib/rateLimit.cjs');
+  return [getClientIp(req)];
 }
 function checkRateLimit(req, res, kind) {
   const cfg = RATE_LIMITS[kind];
@@ -1074,8 +1064,7 @@ async function getAuthenticatedProdUser(req) {
     platform_role: userRow?.platform_role || null,
     company_id,
     is_super_admin: staffRow?.is_super_admin === true
-      || userRow?.platform_role === 'super_admin'
-      || company_id === 'companysync_master_001',
+      || userRow?.platform_role === 'super_admin',
     is_administrator: staffRow?.is_administrator === true,
   };
 }
@@ -6500,6 +6489,22 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ==========================================
+  // MARKETING / TRIAL EMAIL UNSUBSCRIBE
+  // ==========================================
+  if (pathname === '/api/email/unsubscribe' && req.method === 'GET') {
+    const { checkRateLimit, getClientIp } = require('./lib/rateLimit.cjs');
+    const ip = getClientIp(req);
+    const limit = checkRateLimit(`email-unsub:${ip}`, { max: 30, windowMs: 15 * 60 * 1000 });
+    if (!limit.allowed) {
+      res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end('Too many requests.');
+      return;
+    }
+    await require('./lib/emailUnsubscribe.cjs').handleUnsubscribeRequest(req, res, prodDb.getPool());
+    return;
+  }
+
+  // ==========================================
   // STRIPE WEBHOOK — invoice payment recording
   // ==========================================
   if (pathname === '/api/stripe/webhook' && req.method === 'POST') {
@@ -6512,9 +6517,8 @@ const server = http.createServer(async (req, res) => {
         const signature = req.headers['stripe-signature'];
         // Resolve the actual Stripe API key — STRIPE_SECRET_KEY may have been
         // incorrectly set to a whsec_* signing secret; fall back to STRIPE_API_KEY.
-        const stripeSecretKey = [process.env.STRIPE_SECRET_KEY, process.env.STRIPE_API_KEY]
-          .find(k => k?.startsWith('sk_')) || process.env.STRIPE_SECRET_KEY || process.env.STRIPE_API_KEY;
-        const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+        const stripeSecretKey = resolveStripeApiKey();
+        const webhookSecret = resolveStripeWebhookSecret();
         let event;
 
         // SECURITY: never fall back to trusting an unsigned/unverified payload.
@@ -6568,10 +6572,58 @@ const server = http.createServer(async (req, res) => {
           }
         }
 
+        async function writeCompanySubscriptionStatus(targetCompanyId, appStatus) {
+          if (!targetCompanyId || !appStatus) return;
+          await pool.query(
+            `UPDATE companies
+             SET subscription_status = $2,
+                 data = (CASE WHEN jsonb_typeof(data) = 'object' THEN data ELSE '{}'::jsonb END)
+                        || jsonb_build_object('subscription_status', $3::text),
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [targetCompanyId, appStatus, appStatus]
+          );
+        }
+
         if (event?.type === 'checkout.session.completed') {
           const session = event.data.object;
           const companyId = session.metadata?.company_id;
           const purchaseType = session.metadata?.purchase_type;
+
+          if (session.mode === 'subscription') {
+            try {
+              let subCompanyId = companyId || null;
+              const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id || null;
+              if (!subCompanyId && customerId) {
+                const byCust = await pool.query(
+                  `SELECT id FROM companies WHERE stripe_customer_id = $1 AND NOT is_deleted LIMIT 1`,
+                  [customerId]
+                );
+                subCompanyId = byCust.rows[0]?.id || null;
+              }
+              if (subCompanyId) {
+                const subObj = session.subscription && typeof session.subscription === 'object' ? session.subscription : null;
+                const appStatus = subObj?.status
+                  ? mapAppSubscriptionStatus(subObj.status)
+                  : (session.payment_status === 'paid' ? 'active' : 'trial');
+                await writeCompanySubscriptionStatus(subCompanyId, appStatus);
+                const subId = typeof session.subscription === 'string' ? session.subscription : subObj?.id || null;
+                if (subId || customerId) {
+                  await pool.query(
+                    `UPDATE companies
+                     SET stripe_subscription_id = COALESCE(stripe_subscription_id, $2),
+                         stripe_customer_id = COALESCE(stripe_customer_id, $3),
+                         updated_at = NOW()
+                     WHERE id = $1`,
+                    [subCompanyId, subId, customerId]
+                  );
+                }
+                console.log(`[StripeWebhook] checkout subscription: company ${subCompanyId} → ${appStatus}`);
+              }
+            } catch (checkoutSubErr) {
+              console.error('[StripeWebhook] checkout subscription status error:', checkoutSubErr.message);
+            }
+          }
 
           // Helper: notify admins in-app + email + SMS
           async function notifyAndEmailAdmins(companyId, title, message, type, extraEmailBody, dedupeKey = null) {
@@ -7034,7 +7086,11 @@ const server = http.createServer(async (req, res) => {
                  WHERE id = $4`,
                 [amountDollars, stripeStatus, sub.id, companyId]
               );
-              console.log(`[StripeWebhook] ${event.type}: company ${companyId} → $${amountDollars}/mo (${stripeStatus})`);
+              const appStatus = mapAppSubscriptionStatus(stripeStatus, {
+                deleted: event.type === 'customer.subscription.deleted',
+              });
+              await writeCompanySubscriptionStatus(companyId, appStatus);
+              console.log(`[StripeWebhook] ${event.type}: company ${companyId} → $${amountDollars}/mo (${stripeStatus}, app ${appStatus})`);
             } else {
               console.warn(`[StripeWebhook] ${event.type}: no matching company for sub ${sub.id} / customer ${sub.customer}`);
             }
@@ -8169,6 +8225,19 @@ const server = http.createServer(async (req, res) => {
           const lookup = await callBase44API('lookupByPhone', null, { phone_number: e164To });
           if (lookup?.success && lookup.company_id) resolvedCompanyId = lookup.company_id;
         } catch (e) {}
+      }
+      try {
+        const smsOptOut = require('./lib/smsOptOut.cjs');
+        const keyword = smsOptOut.classifyInboundSms(messageBody);
+        if (keyword) {
+          await smsOptOut.setOptOut(pool, cleanFrom, resolvedCompanyId, keyword === 'stop');
+          const reply = smsOptOut.optOutReply(keyword);
+          res.writeHead(200, { 'Content-Type': 'text/xml' });
+          res.end(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${reply}</Message></Response>`);
+          return;
+        }
+      } catch (optErr) {
+        console.warn('[SMS] opt-out handling failed:', optErr.message);
       }
       if (!resolvedCompanyId) { res.writeHead(200, { 'Content-Type': 'text/xml' }); res.end('<?xml version="1.0" encoding="UTF-8"?><Response></Response>'); return; }
 
@@ -10233,7 +10302,7 @@ const server = http.createServer(async (req, res) => {
           [email]
         );
         const staffRow = staffResult.rows[0];
-        const is_super_admin = staffRow?.is_super_admin === true || platform_role === 'super_admin' || userRow?.company_id === 'companysync_master_001';
+        const is_super_admin = staffRow?.is_super_admin === true || platform_role === 'super_admin';
         return { email, platform_role, is_super_admin, is_administrator: staffRow?.is_administrator === true };
       } catch (e) {
         console.error('[PortalAPI] getUserFromRequest error:', e.message);
@@ -11339,15 +11408,9 @@ twilioWss.on('connection', async (twilioWs, req) => {
         typingSoundsEnabled = rawInterimAudio === 'typing' && rawResponseSpeed === 'normal';
         console.log(`[Sarah] Typing sounds: ${typingSoundsEnabled} (interim_audio=${rawInterimAudio}, response_speed=${rawResponseSpeed})`);
         // Wire the AI Engine setting into the call model (only native-audio models are valid here)
-        const VALID_NATIVE_AUDIO_MODELS = [
-          'gemini-2.5-flash-native-audio-latest',
-          'gemini-2.5-flash-native-audio-preview-12-2025',
-          'gemini-2.5-flash-native-audio-preview-09-2025',
-          'gemini-3.1-flash-live-preview',
-        ];
         const rawEngine = crm.settings?.engine || currentSettings.engine || '';
-        if (rawEngine && VALID_NATIVE_AUDIO_MODELS.includes(rawEngine)) {
-          subscriberGeminiModel = `models/${rawEngine}`;
+        if (rawEngine && isAllowedGeminiLiveEngine(rawEngine)) {
+          subscriberGeminiModel = geminiLiveModel(rawEngine);
           console.log(`[Sarah] Engine override: ${subscriberGeminiModel}`);
         }
       } catch (e) { console.warn('[Sarah] CRM load failed:', e.message); }
@@ -11452,10 +11515,8 @@ Keep responses brief, conversational, and in the caller's language.`;
 
       thisWs.send(JSON.stringify({
         setup: applyTwilioLineProfile({
-          // Default verified against live ListModels + a real Live-API setup
-          // handshake (3.1-flash-live-preview supersedes the 2.5 native-audio
-          // line with better turn-taking/latency). Env var overrides for rollback.
-          model: subscriberGeminiModel || process.env.GEMINI_NATIVE_AUDIO_MODEL || "models/gemini-3.1-flash-live-preview",
+          // Gemini 3.8 Live is the default. A saved allowed engine wins.
+          model: subscriberGeminiModel || geminiLiveModel(),
           generation_config: { response_modalities: ["AUDIO"], speech_config: { voice_config: { prebuilt_voice_config: { voice_name: voiceName } } } },
           input_audio_transcription: {},
           output_audio_transcription: {},
@@ -13405,7 +13466,9 @@ async function fireGeminiApiHealthAlert(errorReason, closeCode) {
     // so the production path is identical to the unit-tested helper.
     // No LIMIT — must reach every super-admin regardless of org size.
     const { rows: adminRows } = await pool.query(
-      `SELECT user_email, email FROM staff_profiles WHERE (is_super_admin = true OR company_id = 'companysync_master_001') AND is_active = true`
+      `SELECT user_email, email FROM staff_profiles WHERE is_super_admin = true AND is_active = true
+       UNION
+       SELECT email AS user_email, email FROM users WHERE platform_role = 'super_admin'`
     );
     const adminEmails = normalizeRecipientEmails(adminRows);
     // Always include ADMIN_PHONE owner email if set in the environment
@@ -13475,6 +13538,8 @@ setInterval(async () => {
     console.error('[Cron:geminiLiveProbe] Unexpected error:', err.message);
   }
 }, 2 * 60 * 60 * 1000);
+
+require('./lib/startupSecrets.cjs').assertStartupSecrets();
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[Production] Server running on port ${PORT}`);

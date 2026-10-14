@@ -315,8 +315,14 @@ async function handleGetUser(req, res, pool) {
     }
 
     if (userRow) {
+      const {
+        password_hash: _passwordHash,
+        gmail_access_token: _gmailAccess,
+        gmail_refresh_token: _gmailRefresh,
+        ...safeUser
+      } = userRow;
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ...userRow, is_administrator }));
+      res.end(JSON.stringify({ ...safeUser, is_administrator }));
       return;
     }
 
