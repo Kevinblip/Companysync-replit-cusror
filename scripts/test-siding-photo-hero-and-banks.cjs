@@ -4,10 +4,10 @@
  *
  * Guards three contracts introduced with the "Grade B siding + PhotoPresent" work:
  *
- *   1. PHOTO WALL PRISM. Photo-measured wall planes may replace the footprint
- *      extrusion as the hero wall area ONLY when they are corroborated. Four
- *      planes describe a box, so an unguarded prism silently deletes wings and
- *      re-prices the job. Every gate is tested from the failing side.
+ *   1. PHOTO WALL PRISM. Four photographed elevations are the measurement and
+ *      override the footprint, even when the box and the traced perimeter
+ *      disagree. That override is flagged. Fewer than four faces, or a poor
+ *      elevation, stay estimated instead of being guessed.
  *
  *   2. MULLION BANKS ARE COUNTING-ONLY. Banking adjacent windows changes
  *      window_assemblies and nothing else — opening groups, components, the
@@ -111,37 +111,61 @@ function check(name, cond, extra) {
       t.gross_wall_area_source === 'photo_wall_planes', t.photo_measured_perimeter_coverage);
   }
   {
-    // Wings: the traced footprint is far longer than the four photo planes.
+    // Wings: four elevations still bill the photo prism and flag the mismatch.
     const t = run(ALL_FOUR, { grossWallAreaSqft: 160 * HT, perimeterFt: 160 }).totals;
-    check('a footprint longer than the photo planes blocks the prism (wings)',
-      t.gross_wall_area_source === 'footprint_extrusion', t);
+    check('four elevations override a longer footprint and flag the override',
+      t.gross_wall_area_source === 'photo_wall_planes'
+        && t.photo_overrides_footprint === true
+        && t.wall_total_quality === 'measured'
+        && t.sanity_review_required === true,
+      t);
   }
   {
-    // Prism materially larger than the extrusion => the FOOTPRINT is wrong.
+    // Prism materially larger than the extrusion. Photos still win; the delta is flagged.
     const t = run(ALL_FOUR, { grossWallAreaSqft: 80 * HT, perimeterFt: 80 }).totals;
-    check('the prism may never inflate the extrusion',
-      t.gross_wall_area_source === 'footprint_extrusion', t);
+    check('four elevations override an undersized footprint and flag the override',
+      t.gross_wall_area_source === 'photo_wall_planes'
+        && t.photo_overrides_footprint === true
+        && t.wall_total_quality === 'measured',
+      t);
   }
   {
     const t = run(ALL_FOUR, { grossWallAreaSqft: 70 * HT, perimeterFt: 70 }).totals;
     check('photo-vs-extrusion siding mismatch above 25% requires SANITY-REVIEW',
       t.sanity_review_required === true
         && t.sanity_delta_pct > 25
-        && t.gross_wall_area_source === 'footprint_extrusion',
+        && t.gross_wall_area_source === 'photo_wall_planes'
+        && t.wall_total_quality === 'measured',
       t);
   }
   {
-    // No footprint perimeter at all => nothing can verify the prism.
+    // No footprint perimeter. Four elevations are still the measurement.
     const t = run(ALL_FOUR, { perimeterFt: 0 }).totals;
-    check('a missing footprint perimeter fails closed',
-      t.gross_wall_area_source === 'footprint_extrusion', t);
+    check('four elevations measure the wall when the footprint perimeter is missing',
+      t.gross_wall_area_source === 'photo_wall_planes'
+        && t.wall_total_quality === 'measured',
+      t);
+  }
+  {
+    const t = run([
+      face('front', 30, win(4)),
+      face('back', 30, win(4)),
+      face('left_side', 20, win(3)),
+      face('right_side', 20, win(3), { elevation_poor: true, occluded: true }),
+    ]).totals;
+    check('a poor elevation is flagged and the wall total stays estimated',
+      t.wall_total_quality === 'estimated'
+        && Array.isArray(t.poor_faces)
+        && t.poor_faces.includes('right_side')
+        && t.gross_wall_area_source === 'footprint_extrusion',
+      t);
   }
   {
     const t = run(ALL_FOUR).totals;
     check('sanity delta is reported when the two derivations are independent',
       typeof t.sanity_delta_pct === 'number', t);
     const e = run(ALL_FOUR, { perimeterFt: 0 }).totals;
-    check('sanity delta still cross-checks a rejected photo candidate',
+    check('sanity delta still cross-checks the photo total against the extrusion',
       e.sanity_delta_pct === 0 && e.within_sanity_band === true, e);
   }
   {
@@ -242,7 +266,10 @@ function check(name, cond, extra) {
 
     const photoGraph = run(ALL_FOUR);
     const photoJob = { measurement_graph: photoGraph, wall_area_sqft: 1500, confidence_grade: 'B', tolerance_pct: 15 };
-    const extrusionJob = { measurement_graph: run(ALL_FOUR, { perimeterFt: 0 }), wall_area_sqft: 1500 };
+    const extrusionJob = {
+      measurement_graph: run([face('front', 30, win(4)), face('back', 30, win(4))]),
+      wall_area_sqft: 1500,
+    };
 
     const p1 = describeWallAreaProvenance(photoJob);
     const p2 = describeWallAreaProvenance(extrusionJob);

@@ -27,29 +27,8 @@ import {
 } from './sidingDerivedQuantities.js';
 import { renderElevationSet } from './elevationDrawings.js';
 import { resolveCanonicalSidingContract } from './sidingReportNormalization.js';
-
-// Count convex (outside) corners in a polygon by checking the sign of the
-// cross product at each vertex. Works for both CW and CCW windings.
-function countOutsideCorners(poly) {
-  if (!poly || poly.length < 3) return 4;
-  let winding = 0;
-  for (let i = 0; i < poly.length; i++) {
-    const [ax, az]  = poly[i];
-    const [bx, bz]  = poly[(i + 1) % poly.length];
-    const [cx, cz]  = poly[(i + 2) % poly.length];
-    winding += (bx - ax) * (cz - az) - (bz - az) * (cx - ax);
-  }
-  const sign = winding > 0 ? 1 : -1;
-  let count = 0;
-  for (let i = 0; i < poly.length; i++) {
-    const [ax, az] = poly[i];
-    const [bx, bz] = poly[(i + 1) % poly.length];
-    const [cx, cz] = poly[(i + 2) % poly.length];
-    const cross = (bx - ax) * (cz - bz) - (bz - az) * (cx - bx);
-    if (cross * sign > 0) count++;
-  }
-  return count || 4;
-}
+import { countFootprintCorners } from './footprintCorners.js';
+import { calculateSidingWaste } from './sidingWaste.js';
 
 function esc(s) {
   if (s == null) return '';
@@ -239,9 +218,15 @@ export function generateSidingReportHTML({
         : calibrateRoofArea(W * D, P));
   const roofSqft = roofSQ * 100;
 
-  // Outside corners: count convex polygon vertices; LF = qty × full wall height.
-  const outsideCornersQty = countOutsideCorners(poly);
-  const outsideCornersLf  = Math.round(outsideCornersQty * H);
+  // Corners come from the same count the API saved. The polygon is only
+  // the fallback when that count was never computed.
+  const polyCorners = countFootprintCorners(poly, H);
+  const apiOutside = Number(sd.outside_corners_count ?? sd.trim_totals?.outside_corners_count);
+  const apiInside = Number(sd.inside_corners_count ?? sd.trim_totals?.inside_corners_count);
+  const outsideCornersQty = Number.isFinite(apiOutside) && apiOutside > 0 ? apiOutside : polyCorners.outside_count;
+  const insideCornersQty = Number.isFinite(apiInside) && apiInside >= 0 ? apiInside : polyCorners.inside_count;
+  const outsideCornersLf = Number(sd.outside_corners_lf ?? sd.trim_totals?.outside_corner_lf) || Math.round(outsideCornersQty * H);
+  const insideCornersLf = Number(sd.inside_corners_lf ?? sd.trim_totals?.inside_corner_lf) || Math.round(insideCornersQty * H);
 
   // ── Derived exterior quantities (fascia / soffit / trim / roof perimeter) ──
   // Computed from measured roof-edge LF (eave+rake) when the roof analysis
@@ -249,6 +234,7 @@ export function generateSidingReportHTML({
   const derivedQ = computeDerivedExteriorQuantities({
     eaveLf: measuredEaveLf || Number(sd.eave_lf) || 0,
     rakeLf: measuredRakeLf || Number(sd.rake_lf) || 0,
+    edgesMeasured: resolvedSidingEdges.source === 'roof_facets',
     perimeterLf,
     // Analyzer's story_height_ft is already TOTAL wall height (stories × per-story);
     // using storyCt*storyH here would double-count on multi-story homes.
@@ -266,10 +252,38 @@ export function generateSidingReportHTML({
   // Coverage honesty: elevations with no photo are estimated, not measured.
   const cov = sd.coverage || sd.measurement_graph?.coverage || null;
   const missingFaces = Array.isArray(cov?.missing_faces) ? cov.missing_faces : [];
+  const poorFaces = Array.isArray(sd.poor_faces)
+    ? sd.poor_faces
+    : (Array.isArray(sd.measurement_graph?.totals?.poor_faces) ? sd.measurement_graph.totals.poor_faces : []);
+  const wallQuality = sd.wall_total_quality || sd.measurement_graph?.totals?.wall_total_quality || 'estimated';
+  const soffitMeasured = sd.soffit_depth_source === 'measured';
 
-  // Waste-adjusted order quantities (SQ already; just apply multiplier).
-  const sidingWith10Pct = Number((netSidingSQ * 1.10).toFixed(2));
-  const roofWith15Pct   = Number((roofSQ     * 1.15).toFixed(2));
+  const openingCountForWaste = (Number(sd.window_units_count) || Number(sd.windows_count) || 0)
+    + (Number(sd.doors_count) || 0)
+    + (Number(sd.garage_door_count) || 0);
+  const computedWaste = calculateSidingWaste({
+    openingCount: openingCountForWaste,
+    outsideCorners: outsideCornersQty,
+    insideCorners: insideCornersQty,
+    gableAreaSqft: Number(sd.gable_area_sqft) || 0,
+    overridePct: sd.siding_waste_override_pct,
+  });
+  const sidingWasteApplied = sd.siding_waste_percentage != null
+    ? Math.max(10, Number(sd.siding_waste_percentage) || 10)
+    : computedWaste.applied_pct;
+  const sidingWasteRecommended = sd.siding_waste_recommended_pct != null
+    ? Math.max(10, Number(sd.siding_waste_recommended_pct) || 10)
+    : computedWaste.recommended_pct;
+  const sidingWasteReason = sd.siding_waste_reason || computedWaste.reason;
+  const sidingWasteOverride = sd.siding_waste_override_pct == null || sd.siding_waste_override_pct === ''
+    ? null
+    : Math.max(10, Number(sd.siding_waste_override_pct));
+  const sidingOrderSq = Number((netSidingSQ * (1 + sidingWasteApplied / 100)).toFixed(2));
+  const roofWastePct = Math.max(10, Number(sa.waste_percentage) || Number(sa.waste_recommended_pct) || 10);
+  const roofOrderSq = Number((roofSQ * (1 + roofWastePct / 100)).toFixed(2));
+  const jChannelLf = Number(sd.trim_totals?.j_channel_lf ?? sd.j_channel_lf) || 0;
+  const starterLf = Number(sd.trim_totals?.starter_strip_lf ?? sd.starter_strip_lf) || 0;
+  const lfText = (n) => `${Math.round(Number(n) || 0)} LF`;
 
   // ── AccessoryDetector results from photo analysis ─────────────────────────
   // processShutters / processAwnings ran server-side; results stored in sd.
@@ -300,7 +314,7 @@ export function generateSidingReportHTML({
   const finalShutterSqft   = shutterSqft   || (_shutterFallback?.shutter_total_sqft  ?? 0);
 
   const matRows = [
-    { l: 'Total Exterior Wall Area', v: `~${ft(grossSidingSqft)} sqft`,                    hi: false },
+    { l: `Total Exterior Wall Area${wallQuality === 'measured' ? ' (measured)' : ' (estimated)'}`, v: `~${ft(grossSidingSqft)} sqft`, hi: wallQuality !== 'measured' },
     mappedSidingSqft > 0
       ? { l: 'Siding (lap + vertical)', v: `~${ft(mappedSidingSqft)} sqft`,                 hi: false }
       : null,
@@ -332,7 +346,7 @@ export function generateSidingReportHTML({
         v: `−${ft(openingSidingSqft)} sqft${(masonryDeductSqft > 0 && openingTotalSqft > openingSidingSqft + 1) ? '' : ` · ${windowCalc.total_individual_units} unit${windowCalc.total_individual_units===1?'':'s'}`}`,
         hi: false },
     { l: 'Net Siding Area',        v: `~${(netSidingSqft/100).toFixed(2)} SQ`,             hi: true  },
-    { l: '+ 10 % Waste (order)',   v: `~${sidingWith10Pct} SQ`,                            hi: false },
+    { l: `+ ${sidingWasteApplied}% Waste (order)`, v: `~${sidingOrderSq} SQ${sidingWasteReason ? ` — ${sidingWasteReason}` : ''}${sidingWasteOverride != null ? ` · rep override ${sidingWasteOverride}% (recommended ${sidingWasteRecommended}%)` : ''}`, hi: false },
     stoneVeneerSqft > 0
       ? { l: 'Stone Veneer',       v: `~${ft(stoneVeneerSqft)} sqft`,                     hi: false }
       : null,
@@ -346,12 +360,15 @@ export function generateSidingReportHTML({
       ? { l: 'Awnings',            v: `${awningCount} · ~${ft(awningSqft)} sqft`,          hi: false }
       : null,
     { l: 'Outside Corners',        v: `${outsideCornersQty} corners · ${outsideCornersLf} LF`, hi: false },
+    { l: 'Inside Corners',         v: `${insideCornersQty} corners · ${insideCornersLf} LF`, hi: false },
+    { l: 'J-Channel',              v: lfText(jChannelLf), hi: false },
+    { l: 'Starter Strip',          v: lfText(starterLf), hi: false },
     { l: 'Wall Perimeter',         v: `${ft(perimeterLf)} LF`,                             hi: false },
     { l: `Roof Perimeter${derivedQ.edgeSource === 'estimated' ? ' (est.)' : ''}`,
                                    v: `${ft(derivedQ.roofPerimeterLf)} LF (eaves+rakes)`,  hi: false },
     { l: `Fascia${derivedQ.edgeSource === 'estimated' ? ' (est.)' : ''}`,
                                    v: `${ft(derivedQ.fasciaLf)} LF`,                       hi: false },
-    { l: `Soffit (${derivedQ.overhangFt} ft overhang)`,
+    { l: `Soffit (${sd.soffit_level_depth_ft || derivedQ.overhangFt} ft depth${soffitMeasured ? '' : ', est.'})`,
                                    v: `~${ft(derivedQ.soffitSqft)} sqft`,                  hi: false },
     { l: 'Trim (fascia bd + corners + casing)',
                                    v: `~${ft(derivedQ.trimSqft)} sqft`,                    hi: false },
@@ -359,9 +376,13 @@ export function generateSidingReportHTML({
       ? { l: '⚠️ Not photographed — estimated',
                                    v: missingFaces.map(f => String(f).replace(/_/g, ' ')).join(', '), hi: true }
       : null,
+    poorFaces.length > 0
+      ? { l: '⚠️ Poor elevation — not used',
+                                   v: poorFaces.map(f => String(f).replace(/_/g, ' ')).join(', '), hi: true }
+      : null,
     { l: fusedRoof?.was_recalibrated ? '🔄 Fused Roof Area' : 'Roof Area',
                                    v: `~${roofSQ.toFixed(2)} SQ${fusedRoof?.was_recalibrated ? ` (${fusedRoof.detected_pitch})` : ''}`, hi: false },
-    { l: '+ 15 % Waste (order)',   v: `~${roofWith15Pct} SQ`,                             hi: false },
+    { l: `+ ${roofWastePct}% Waste (order)`, v: `~${roofOrderSq} SQ${sa.waste_reason ? ` — ${sa.waste_reason}` : ''}${sa.waste_override_pct != null && sa.waste_override_pct !== '' ? ` · rep override ${sa.waste_override_pct}%` : ''}`, hi: false },
     { l: 'Pitch · Roof Type',      v: `${pitchStr} · ${isHip ? 'Hip' : 'Gable'}`,         hi: false },
     { l: 'Stories · Eave Ht',      v: `${storyCt} stor${storyCt===1?'y':'ies'} · ${storyH} ft`, hi: false },
   ].filter(Boolean);

@@ -454,6 +454,7 @@ function edgesAdjacent(e1, e2) {
 /** Linear-feet totals by classified edge type (shared edges counted once). */
 export function computeEdgeTotals(facets) {
   const totals = { eave: 0, ridge: 0, hip: 0, valley: 0, rake: 0 };
+  const counts = { eave: 0, ridge: 0, hip: 0, valley: 0, rake: 0 };
   const seen = new Set();
   for (const f of facets || []) {
     for (const e of f.edges || []) {
@@ -462,10 +463,14 @@ export function computeEdgeTotals(facets) {
         if (seen.has(key)) continue;
         seen.add(key);
       }
-      if (totals[e.type] != null) totals[e.type] += e.length_ft;
+      if (totals[e.type] != null) {
+        totals[e.type] += e.length_ft;
+        counts[e.type] += 1;
+      }
     }
   }
   for (const k of Object.keys(totals)) totals[k] = round(totals[k], 1);
+  totals.counts = counts;
   return totals;
 }
 

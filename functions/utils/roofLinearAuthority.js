@@ -81,10 +81,30 @@ export function reconcileRoofLinearsWithFacetEdges(headlineLinears, facetEdgeTot
     }
   }
 
+  let linears = hasUsableTrace ? traced : heuristic;
+  let source = hasUsableTrace ? 'roof_facet_edges' : 'roof_type_heuristic';
+
+  // A hip (or any) formula that reports rake 0 must not erase a rake the
+  // facet edges still measured. When at least two facets produced that rake,
+  // bill the edge lengths even if the topology gate did not certify the
+  // whole trace. One facet is not enough to override the headline set.
+  const facetCount = Array.isArray(facets) ? facets.length : 0;
+  if (!hasUsableTrace && facetCount >= 2 && traced.rake_lf > 0 && heuristic.rake_lf === 0) {
+    linears = {
+      ridge_lf: traced.ridge_lf > 0 ? traced.ridge_lf : heuristic.ridge_lf,
+      hip_lf: traced.hip_lf,
+      valley_lf: traced.valley_lf > 0 ? traced.valley_lf : heuristic.valley_lf,
+      rake_lf: traced.rake_lf,
+      eave_lf: traced.eave_lf > 0 ? traced.eave_lf : heuristic.eave_lf,
+    };
+    source = 'roof_facet_edges_rake_kept';
+  }
+
   return {
-    linears: hasUsableTrace ? traced : heuristic,
-    source: hasUsableTrace ? 'roof_facet_edges' : 'roof_type_heuristic',
+    linears,
+    source,
     trace_quality: traceQuality,
-    differences: hasUsableTrace ? differences : {},
+    differences: (hasUsableTrace || source === 'roof_facet_edges_rake_kept') ? differences : {},
+    counts: facetEdgeTotals?.counts || null,
   };
 }

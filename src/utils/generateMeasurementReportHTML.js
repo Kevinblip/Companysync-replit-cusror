@@ -94,7 +94,12 @@ export function generateMeasurementReportHTML({
 
   const roofSq   = Number(sa.roof_area_sq) || 0;
   const roofSqFt = Number(sa.roof_area_sqft) || Math.round(roofSq * 100);
-  const wastePct = Number(sa.waste_percentage) || 12;
+  const wastePct = Math.max(10, Number(sa.waste_percentage) || 10);
+  const wasteRecommended = Math.max(10, Number(sa.waste_recommended_pct) || wastePct);
+  const wasteOverride = sa.waste_override_pct == null || sa.waste_override_pct === ''
+    ? null
+    : Math.max(10, Number(sa.waste_override_pct));
+  const wasteReason = sa.waste_reason || '';
   const orderSq  = Number(sa.final_order_quantity_sq) > 0
     ? Number(sa.final_order_quantity_sq)
     : Math.round(roofSq * (1 + wastePct / 100) * 100) / 100;
@@ -110,6 +115,15 @@ export function generateMeasurementReportHTML({
   const valleyLf = Number(sa.valley_lf) || 0;
   const rakeLf   = Number(sa.rake_lf) || 0;
   const eaveLf   = Number(sa.eave_lf) || 0;
+  const ridgeCount = Number(sa.ridge_count) || 0;
+  const hipCount = Number(sa.hip_count) || 0;
+  const valleyCount = Number(sa.valley_count) || 0;
+  const rakeCount = Number(sa.rake_count) || 0;
+  const eaveCount = Number(sa.eave_count) || 0;
+  const linearText = (lf, count) => `${Number(lf).toFixed(1)} LF${count > 0 ? ` (${count})` : ''}`;
+  const wasteNote = wasteOverride != null
+    ? `Recommended ${wasteRecommended}% (${esc(wasteReason)}). Rep override ${wasteOverride}%.`
+    : `Recommended ${wasteRecommended}% (${esc(wasteReason)}).`;
   const stepLf   = Number(sa.step_flashing_lf) || 0;
   const apronLf  = Number(sa.apron_flashing_lf) || 0;
 
@@ -396,6 +410,7 @@ export function generateMeasurementReportHTML({
         <div class="info-row"><span class="info-label">Net Squares</span><span class="info-value">${roofSq.toFixed(2)} SQ</span></div>
         <div class="info-row"><span class="info-label">Net Area</span><span class="info-value">${roofSqFt.toLocaleString()} sqft</span></div>
         <div class="info-row"><span class="info-label">Squares @ ${wastePct}% Waste</span><span class="info-value">${orderSq.toFixed(2)} SQ</span></div>
+        <div class="info-row"><span class="info-label">Waste</span><span class="info-value">${wasteNote}</span></div>
         <div class="info-row"><span class="info-label">Measurement Source</span><span class="info-value">Google Solar API</span></div>
         <div class="info-row"><span class="info-label">Confidence</span><span class="info-value"><span class="grade-badge">${confGrade}</span> ${conf}%</span></div>
       </div>
@@ -403,15 +418,15 @@ export function generateMeasurementReportHTML({
       <div class="info-box">
         <h3>Measurement Breakdown (Linear Feet)</h3>
         ${[
-          ['Ridge',          ridgeLf ],
-          ['Hip',            hipLf   ],
-          ['Valley',         valleyLf],
-          ['Rake',           rakeLf  ],
-          ['Eave',           eaveLf  ],
+          ['Ridge',          ridgeLf, ridgeCount ],
+          ['Hip',            hipLf, hipCount ],
+          ['Valley',         valleyLf, valleyCount ],
+          ['Rake',           rakeLf, rakeCount ],
+          ['Eave',           eaveLf, eaveCount ],
           ['Sidewall Flashing', stepLf],
           ['Headwall / Apron',  apronLf],
-        ].map(([label, val]) => val > 0 ? `
-        <div class="info-row"><span class="info-label">${esc(label)}</span><span class="info-value">${Number(val).toFixed(1)} LF</span></div>` : '').join('')}
+        ].map(([label, val, count]) => val > 0 ? `
+        <div class="info-row"><span class="info-label">${esc(label)}</span><span class="info-value">${count > 0 ? linearText(val, count) : Number(val).toFixed(1) + ' LF'}</span></div>` : '').join('')}
         ${[ridgeLf, hipLf, valleyLf, rakeLf, eaveLf].every(v => v === 0) ? '<div style="color:#9ca3af;font-size:12px;padding:8px 0">No linear measurements available</div>' : ''}
         <div style="margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0">
           <div class="info-row"><span class="info-label">Total Perimeter (Eave+Rake)</span><span class="info-value">${(eaveLf + rakeLf).toFixed(0)} LF</span></div>
@@ -522,17 +537,17 @@ export function generateMeasurementReportHTML({
         </thead>
         <tbody>
           ${[
-            ['Ridge',          ridgeLf,  sa.ridge_confidence ],
-            ['Hip',            hipLf,    sa.hip_confidence   ],
-            ['Valley',         valleyLf, sa.valley_confidence],
-            ['Rake',           rakeLf,   sa.rake_confidence  ],
-            ['Eave',           eaveLf,   sa.eave_confidence  ],
-            ['Sidewall Flash.',stepLf,   sa.step_flashing_confidence],
-            ['Headwall / Apron', apronLf, null               ],
-          ].map(([lbl, val, c], i) => `
+            ['Ridge',          ridgeLf,  ridgeCount,  sa.ridge_confidence ],
+            ['Hip',            hipLf,    hipCount,    sa.hip_confidence   ],
+            ['Valley',         valleyLf, valleyCount, sa.valley_confidence],
+            ['Rake',           rakeLf,   rakeCount,   sa.rake_confidence  ],
+            ['Eave',           eaveLf,   eaveCount,   sa.eave_confidence  ],
+            ['Sidewall Flash.',stepLf,   0,           sa.step_flashing_confidence],
+            ['Headwall / Apron', apronLf, 0,          null               ],
+          ].map(([lbl, val, count, c], i) => `
           <tr style="background:${i%2===0?'#f9fafb':'#fff'}">
             <td style="padding:7px 10px;border-bottom:1px solid #e5e7eb">${esc(lbl)}</td>
-            <td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:${Number(val)>0?'700':'400'}">${Number(val)>0?Number(val).toFixed(1)+' LF':'—'}</td>
+            <td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:${Number(val)>0?'700':'400'}">${Number(val)>0?linearText(val, count):'—'}</td>
             <td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;text-align:center;color:#6b7280">${c?c+'%':'—'}</td>
           </tr>`).join('')}
         </tbody>
