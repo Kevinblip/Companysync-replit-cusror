@@ -53,8 +53,8 @@ fi
 
 # A synthetic git pre-push stdin payload:
 #   <local-ref> <local-sha1> <remote-ref> <remote-sha1>
-# The null SHA signals a new branch; the hook would try to diff against an
-# empty tree, but the bash guard fires first so no git calls are made.
+# The null SHA signals a new branch. The bash guard fires first, so no git
+# calls are made when this hook is invoked by a non-bash sh.
 SYNTHETIC_STDIN="refs/heads/test-branch 0000000000000000000000000000000000000001 refs/heads/test-branch 0000000000000000000000000000000000000000"
 
 # ── Test 1: exit code is 0 when run under sh ─────────────────────────────────
