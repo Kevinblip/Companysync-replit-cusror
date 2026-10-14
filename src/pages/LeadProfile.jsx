@@ -84,6 +84,8 @@ import Dialer from "@/components/communication/Dialer";
 import EmailDialog from "@/components/communication/EmailDialog";
 import SMSDialog from "@/components/communication/SMSDialog";
 import useRoleBasedData from "@/components/hooks/useRoleBasedData";
+import CallerMemoryCard from "@/components/ai/CallerMemoryCard";
+import { setViewingContact } from "@/utils/viewingContact";
 import ColorVisualizerPanel from "@/components/visualizer/ColorVisualizerPanel";
 import { HIDDEN_FEATURES } from "@/config/hiddenFeatures";
 import { cleanLookupValue } from "@/utils/lookupValue";
@@ -163,6 +165,16 @@ export default function LeadProfile() {
     },
     enabled: !!leadId,
   });
+
+  useEffect(() => {
+    if (!lead?.id || !myCompany?.id) return;
+    setViewingContact({
+      phone: lead.phone || lead.mobile_phone || lead.cell_phone || '',
+      leadId: lead.id,
+      name: lead.full_name || lead.name || '',
+      companyId: myCompany.id,
+    });
+  }, [lead?.id, lead?.phone, lead?.mobile_phone, lead?.cell_phone, lead?.full_name, lead?.name, myCompany?.id]);
 
   const { data: contractTemplates = [] } = useQuery({
     queryKey: ['contract-templates', myCompany?.id],
@@ -1649,6 +1661,12 @@ export default function LeadProfile() {
                 </div>
               );
             })()}
+
+            <CallerMemoryCard
+              companyId={myCompany?.id}
+              phone={lead?.phone || lead?.mobile_phone || lead?.cell_phone}
+              leadId={lead?.id}
+            />
 
             {/* Communications */}
             <Card id="communications-section">

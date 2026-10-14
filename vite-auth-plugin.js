@@ -6,7 +6,10 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import memoize from "memoizee";
 import pkg from "pg";
+import { createRequire } from "module";
 const { Pool } = pkg;
+const require = createRequire(import.meta.url);
+const { stripUserSecrets } = require("./lib/stripUserSecrets.cjs");
 
 function getPool() {
   if (!getPool._pool) {
@@ -281,8 +284,8 @@ export default function authPlugin() {
 
           if (url === '/api/login') {
             if (!config) {
-              res.writeHead(503, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ error: 'Replit login is not configured' }));
+              res.writeHead(302, { Location: '/login' });
+              res.end();
               return;
             }
             const domain = req.headers.host;
@@ -369,14 +372,8 @@ export default function authPlugin() {
                   console.error('[Auth] Staff profile lookup error:', e.message);
                 }
                 if (userRow) {
-                  const {
-                    password_hash: _passwordHash,
-                    gmail_access_token: _gmailAccess,
-                    gmail_refresh_token: _gmailRefresh,
-                    ...safeUser
-                  } = userRow;
                   res.writeHead(200, { 'Content-Type': 'application/json' });
-                  res.end(JSON.stringify({ ...safeUser, is_administrator }));
+                  res.end(JSON.stringify(stripUserSecrets({ ...userRow, is_administrator })));
                 } else {
                   res.writeHead(200, { 'Content-Type': 'application/json' });
                   res.end(JSON.stringify({

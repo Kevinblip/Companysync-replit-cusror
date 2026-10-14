@@ -404,7 +404,7 @@ export default function SarahSettings() {
       isDirty.current = false;
       queryClient.invalidateQueries({ queryKey: ["assistant-settings-sarah", company?.id] });
       setForm(f => ({ ...f, assistant_name: 'sarah' }));
-      alert(`✅ Sarah settings saved`);
+      alert(`✅ Alex settings saved`);
     },
   });
 
@@ -478,19 +478,19 @@ export default function SarahSettings() {
         <h1 className="text-2xl font-bold">Alex Settings</h1>
       </div>
 
-      {/* Test Sarah Conversation */}
+      {/* Test Alex Conversation */}
       <Card className="p-5 bg-purple-50 border-purple-200 mb-6">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
             <Bug className="w-5 h-5 text-purple-600" />
-            <h3 className="font-semibold text-purple-900">Test Sarah Conversation</h3>
+            <h3 className="font-semibold text-purple-900">Test Alex Conversation</h3>
           </div>
           <Button variant="ghost" size="sm" onClick={clearTestConversation} className="text-purple-600">
             <Trash2 className="w-4 h-4 mr-1" /> Clear
           </Button>
         </div>
         <p className="text-sm text-gray-600 mb-4">
-          Simulate a customer SMS conversation to test Sarah's responses and see debug info.
+          Simulate a customer SMS conversation to test Alex's responses and see debug info.
         </p>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -606,7 +606,7 @@ export default function SarahSettings() {
           <h3 className="font-semibold text-blue-900">Reset Conversation Cap</h3>
         </div>
         <p className="text-sm text-gray-600 mb-4">
-          If Sarah stopped responding due to hitting the conversation limit, enter the customer's phone number below to reset and allow her to respond again.
+          If Alex stopped responding due to hitting the conversation limit, enter the customer's phone number below to reset and allow Alex to respond again.
         </p>
         <div className="flex gap-3">
           <Input 
@@ -633,7 +633,7 @@ export default function SarahSettings() {
             <Users className="w-5 h-5 text-amber-600" />
             <div>
               <h3 className="font-semibold text-amber-900">Paused Threads</h3>
-              <p className="text-xs text-amber-700 mt-0.5">Contacts where a rep sent the last message and Sarah is silenced</p>
+              <p className="text-xs text-amber-700 mt-0.5">Contacts where a rep sent the last message and Alex is silenced</p>
             </div>
           </div>
           {pausedThreads.length > 0 && (
@@ -645,7 +645,7 @@ export default function SarahSettings() {
               disabled={isReturningAll}
             >
               {isReturningAll ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RotateCcw className="w-4 h-4 mr-2" />}
-              Return all to Sarah
+              Return all to Alex
             </Button>
           )}
         </div>
@@ -655,7 +655,7 @@ export default function SarahSettings() {
           </div>
         ) : pausedThreads.length === 0 ? (
           <div className="text-center py-6 text-gray-500 text-sm">
-            No paused threads — Sarah is handling all conversations.
+            No paused threads — Alex is handling all conversations.
           </div>
         ) : (
           <div className="space-y-2">
@@ -695,7 +695,7 @@ export default function SarahSettings() {
             <Label>Avatar</Label>
             <div className="mt-2 flex items-center gap-3">
               {form.avatar_url ? (
-                <img src={form.avatar_url} alt="Sarah Avatar" className="w-20 h-20 rounded-lg object-cover border" />
+                <img src={form.avatar_url} alt="Alex Avatar" className="w-20 h-20 rounded-lg object-cover border" />
               ) : (
                 <div className="w-20 h-20 rounded-lg border flex items-center justify-center text-gray-400">
                   <ImageIcon className="w-6 h-6" />
@@ -738,7 +738,7 @@ export default function SarahSettings() {
             </div>
             <div className="mt-3">
               <Label>Voice Selection</Label>
-              <Select value={VALID_GEMINI_VOICES.includes(form.voice_id) ? form.voice_id : 'Kore'} onValueChange={(v) => onChange("voice_id", v)}>
+              <Select value={VALID_GEMINI_VOICES.includes(form.voice_id) ? form.voice_id : 'Puck'} onValueChange={(v) => onChange("voice_id", v)}>
                 <SelectTrigger className="mt-2">
                   <SelectValue placeholder="Choose a voice..." />
                 </SelectTrigger>
@@ -904,7 +904,7 @@ export default function SarahSettings() {
               <CardTitle className="text-base">Call Direction Settings</CardTitle>
             </div>
             <CardDescription className="text-xs">
-              Control whether Sarah handles incoming calls, makes outgoing calls to new leads, or both.
+              Control whether Alex handles incoming calls, makes outgoing calls to new leads, or both.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -921,7 +921,7 @@ export default function SarahSettings() {
                     data-testid="switch-inbound-calls"
                   />
                 </div>
-                <p className="text-xs text-muted-foreground">Sarah answers calls from customers calling your business number.</p>
+                <p className="text-xs text-muted-foreground">Alex answers calls from customers calling your business number.</p>
               </div>
 
               <div className="space-y-4">
@@ -936,7 +936,7 @@ export default function SarahSettings() {
                     data-testid="switch-outbound-calls"
                   />
                 </div>
-                <p className="text-xs text-muted-foreground">Sarah proactively calls new leads to qualify them and book inspections.</p>
+                <p className="text-xs text-muted-foreground">Alex proactively calls new leads to qualify them and book inspections.</p>
               </div>
             </div>
 
@@ -951,21 +951,21 @@ export default function SarahSettings() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="sarah_answers">Sarah Answers — AI handles the call, saves lead, notifies rep</SelectItem>
-                  <SelectItem value="sarah_then_transfer">Sarah Then Transfers — collects info, then connects caller to rep's cell</SelectItem>
-                  <SelectItem value="sarah_only">Sarah Handles Everything — no transfer, no human handoff (great for after-hours)</SelectItem>
+                  <SelectItem value="sarah_answers">Alex Answers — AI handles the call, saves lead, notifies rep</SelectItem>
+                  <SelectItem value="sarah_then_transfer">Alex Then Transfers — collects info, then connects caller to rep's cell</SelectItem>
+                  <SelectItem value="sarah_only">Alex Handles Everything — no transfer, no human handoff (great for after-hours)</SelectItem>
                 </SelectContent>
               </Select>
               {form.routing_mode === 'sarah_only' && (
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-                  In this mode, Sarah will never attempt to transfer a call to a human. She handles everything herself — saves leads, books inspections, takes messages, and sends confirmations. Transfer is fully disabled.
+                  In this mode, Alex will never attempt to transfer a call to a human. Alex handles everything — saves leads, books inspections, takes messages, and sends confirmations. Transfer is fully disabled.
                 </p>
               )}
               {(!form.routing_mode || form.routing_mode === 'sarah_answers') && (
-                <p className="text-xs text-muted-foreground">Sarah handles the call from start to finish. After capturing caller info, she notifies the assigned rep by SMS.</p>
+                <p className="text-xs text-muted-foreground">Alex handles the call from start to finish. After capturing caller info, Alex notifies the assigned rep by SMS.</p>
               )}
               {form.routing_mode === 'sarah_then_transfer' && (
-                <p className="text-xs text-muted-foreground">Sarah greets the caller, collects their name, callback number, and reason — then transfers them to the rep's cell phone.</p>
+                <p className="text-xs text-muted-foreground">Alex greets the caller, collects their name, callback number, and reason — then transfers them to the rep's cell phone.</p>
               )}
             </div>
 
@@ -1008,7 +1008,7 @@ export default function SarahSettings() {
                         <SelectItem value="30">30 minutes</SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground">How long to wait after a lead is created before Sarah calls.</p>
+                    <p className="text-xs text-muted-foreground">How long to wait after a lead is created before Alex calls.</p>
                   </div>
                 </div>
 
@@ -1033,7 +1033,7 @@ export default function SarahSettings() {
                     placeholder="Leave blank for default. Example: Hi, this is {agent} from {brand}. I'm reaching out because you recently inquired about roofing services..."
                     data-testid="input-outbound-greeting"
                   />
-                  <p className="text-xs text-muted-foreground">{"Supports {agent}, {brand} placeholders. If blank, Sarah uses her built-in outbound script."}</p>
+                  <p className="text-xs text-muted-foreground">{"Supports {agent}, {brand} placeholders. If blank, Alex uses the built-in outbound script."}</p>
                 </div>
               </div>
             )}
@@ -1047,10 +1047,10 @@ export default function SarahSettings() {
               <div className="flex-1 mr-4">
                 <div className="flex items-center gap-2 mb-1">
                   <CalendarIcon className="w-4 h-4 text-blue-600" />
-                  <Label className="text-sm font-medium">Allow Sarah to Book Appointments Directly</Label>
+                  <Label className="text-sm font-medium">Allow Alex to Book Appointments Directly</Label>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  When off, Sarah collects the customer's name, phone, and preferred time, then tells them your team will follow up to confirm. You receive a bell notification with their details so you can call back and lock it in.
+                  When off, Alex collects the customer's name, phone, and preferred time, then tells them your team will follow up to confirm. You receive a bell notification with their details so you can call back and lock it in.
                 </p>
               </div>
               <Switch
@@ -1071,7 +1071,7 @@ export default function SarahSettings() {
             placeholder={`Leave blank for default. Example: Hi, this is {agent}, an AI assistant for {brand}. I'm here to help with your roofing needs. Who am I speaking with?`}
             data-testid="input-inbound-greeting"
           />
-          <p className="text-xs text-muted-foreground">{"Customizes Sarah's opening line for inbound calls. Supports {agent}, {brand} placeholders. Sarah will always identify as AI."}</p>
+          <p className="text-xs text-muted-foreground">{"Customizes Alex's opening line for inbound calls. Supports {agent}, {brand} placeholders. Alex will always identify as AI."}</p>
         </div>
 
         <div className="mt-6">
@@ -1164,7 +1164,7 @@ export default function SarahSettings() {
             <h3 className="font-semibold text-amber-900">Knowledge Base</h3>
           </div>
           <p className="text-sm text-amber-800 mb-4">
-            Teach Sarah about your specific company. You can type directly or import content from your website and documents (PDFs, etc).
+            Teach Alex about your specific company. You can type directly or import content from your website and documents (PDFs, etc).
           </p>
 
           <div className="flex flex-col md:flex-row gap-4 mb-4">
@@ -1293,7 +1293,7 @@ export default function SarahSettings() {
               </>
             )}
           </div>
-          <p className="text-xs text-gray-500 mt-1">Sarah will send this link when customers ask to schedule appointments</p>
+          <p className="text-xs text-gray-500 mt-1">Alex will send this link when customers ask to schedule appointments</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">

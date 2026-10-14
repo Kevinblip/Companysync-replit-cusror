@@ -37,8 +37,8 @@ export default function CompetitorAnalysis() {
   ];
 
   const ourCurrentFeatures = [
-    { feature: "24/7 AI call answering", has: true, status: "production", details: "Sarah AI handles incoming calls via Twilio" },
-    { feature: "24/7 SMS handling", has: true, status: "production", details: "Sarah responds to text messages automatically" },
+    { feature: "24/7 AI call answering", has: true, status: "production", details: "Alex handles incoming calls via Twilio" },
+    { feature: "24/7 SMS handling", has: true, status: "production", details: "Alex responds to text messages automatically" },
     { feature: "Answer questions", has: true, status: "production", details: "AI trained on company data, website, knowledge base" },
     { feature: "Schedule appointments", has: true, status: "production", details: "Books into Google Calendar automatically" },
     { feature: "Create leads", has: true, status: "production", details: "Auto-creates leads from conversations" },
@@ -148,7 +148,7 @@ export default function CompetitorAnalysis() {
     },
     {
       advantage: "Customizable AI Personas",
-      description: "Lexi (internal) and Sarah (customer-facing) with different personalities and capabilities. Competitors have one AI.",
+      description: "Lexi (internal) and Alex (customer-facing) with different personalities and capabilities. Competitors have one AI.",
       icon: "🤖"
     },
     {
@@ -280,7 +280,7 @@ export default function CompetitorAnalysis() {
                 <div className="text-sm space-y-2">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-purple-600" />
-                    <span>24/7 AI call & SMS (Sarah AI)</span>
+                    <span>24/7 AI call & SMS (Alex)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-purple-600" />
@@ -470,7 +470,7 @@ export default function CompetitorAnalysis() {
               </div>
               <div className="flex items-center gap-2">
                 <ArrowRight className="w-4 h-4" />
-                <span>Emergency keyword detection - add to Sarah's prompt</span>
+                <span>Emergency keyword detection - add to Alex's prompt</span>
               </div>
               <div className="flex items-center gap-2">
                 <ArrowRight className="w-4 h-4" />

@@ -42,6 +42,7 @@ import { Label } from "@/components/ui/label";
 import { Mic, Send, Loader2, Paperclip, Volume2, AlertCircle, Save, MessageSquare, Plus, Trash2, Upload, CheckCircle2, Edit, Star, TrendingUp, Brain, Lightbulb, Sparkles, Settings as SettingsIcon, Square, Camera } from "lucide-react";
 import { format } from "date-fns";
 import { claimLexiDailyGreeting } from "@/utils/lexiGreeting";
+import { viewingContactPayload } from "@/utils/viewingContact";
 import { trackEvent } from "@/utils/analytics";
 import {
   acquireLexiVoiceOwner,
@@ -1261,6 +1262,7 @@ export default function LexiWorkspace() {
         sessionId: currentSessionId,
         file_urls: uploadedFiles.length > 0 ? uploadedFiles : undefined,
         confirmation_token: buildConfirmationToken,
+        viewingContact: viewingContactPayload(myCompany?.id),
       });
 
       console.log('📥 Lexi response:', response.data);

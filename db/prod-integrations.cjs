@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const stormFunctions = require('./storm-functions.cjs');
 const objStorage = require('./object-storage.cjs');
 const { buildLexiSystemPrompt, getLexiTools } = require('../lib/lexiSystemPrompt.cjs');
+const callerMemory = require('../lib/callerMemory.cjs');
 const { buildLexiToolFallback } = require('../lib/lexiToolFallback.cjs');
 const { requiredReadTool } = require('../lib/lexiReadIntent.cjs');
 const { invalidateCallerCache, invalidateCallerCacheForCompany, lookupCallerByCrmPhone } = require('../lib/lookupCallerByCrmPhone.cjs');
@@ -2623,7 +2624,8 @@ async function handleFunctionInvoke(req, res) {
       // See the matching comment in vite-functions-plugin.js: external calls are
       // marked so email handlers can fail closed when a request never reaches them.
       const result = await handlers[functionName]({ ...(params || {}), __externalCall: true }, process.env.GOOGLE_GEMINI_API_KEY, req);
-      sendJson(res, { data: result });
+      const { redactUserSecrets } = require('../lib/stripUserSecrets.cjs');
+      sendJson(res, { data: redactUserSecrets(result) });
       return;
     }
 
@@ -3371,7 +3373,7 @@ async function handleLexiChat(params, req) {
     const todayISO = now.toISOString().split('T')[0];
     const currentTime = now.toLocaleString('en-US', { timeZone: userTimeZone });
 
-    const systemPrompt = buildLexiSystemPrompt({
+    let systemPrompt = buildLexiSystemPrompt({
       companyName: company?.company_name || 'the company',
       effectiveName,
       effectiveEmail,
@@ -3385,6 +3387,20 @@ async function handleLexiChat(params, req) {
       tzOffset,
       todayISO,
     });
+    try {
+      const viewing = params.viewingContact || params.viewing_contact || null;
+      if (viewing && (viewing.phone || viewing.customerId || viewing.customer_id || viewing.leadId || viewing.lead_id)) {
+        const memory = await callerMemory.loadCallerMemory(pool, {
+          companyId: actualCompanyId,
+          phone: viewing.phone,
+          customerId: viewing.customerId || viewing.customer_id,
+          leadId: viewing.leadId || viewing.lead_id,
+        });
+        systemPrompt += callerMemory.instructionBlock(memory);
+      }
+    } catch (memErr) {
+      console.warn('[Lexi] caller memory unavailable:', memErr.message);
+    }
 
     const tools = getLexiTools();
 
@@ -4471,6 +4487,19 @@ async function handleLexiChat(params, req) {
                 toolResult = { success: true, payment_number: rpPmtNum, customer: rpCustomerName, invoice: rpInvoiceNumber, amount: Number(rpAmt), method: methodLabel, date: rpDate, message: msg };
                 actionsExecuted.push({ tool_name: 'record_payment', result: `Payment $${Number(rpAmt).toFixed(2)} recorded for ${rpCustomerName || 'customer'}` });
               }
+            }
+          } else if (fname === 'lookup_customer') {
+            try {
+              const detail = await callerMemory.lookupCustomerDetail(pool, {
+                companyId: actualCompanyId,
+                phone: args.phone || '',
+                customerId: args.customer_id || args.customerId || '',
+                leadId: args.lead_id || args.leadId || '',
+              });
+              toolResult = detail;
+              actionsExecuted.push({ tool_name: 'lookup_customer', result: detail.found ? 'Caller memory found' : 'No caller memory' });
+            } catch (lookupErr) {
+              toolResult = { error: `Lookup failed: ${lookupErr.message}` };
             }
           } else if (fname === 'lookup_customer_by_phone') {
             const rawPhone = String(args.phone || '').replace(/[^\d+]/g, '');

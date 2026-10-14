@@ -18,6 +18,7 @@ const {
 // The assistant is always "Alex"; stale AssistantSettings rows still say
 // "sarah"/"lexi" and must not win. Logic is shared with prod-server.cjs.
 const { ASSISTANT_NAME, resolveAssistantName } = __require('./lib/assistantName.cjs');
+const callerMemory = __require('./lib/callerMemory.cjs');
 const {
   deriveSpokenBrandName,
   applySpokenCompanyName,
@@ -334,7 +335,7 @@ function loadSettings() {
     }
   } catch (e) {}
   return {
-    voice: 'Kore',
+    voice: 'Puck',
     response_speed: 'normal',
     background_audio: 'none',
     interim_audio: 'typing',
@@ -390,7 +391,10 @@ async function localGetSettings(companyId) {
 
       const companyName = settings.brand_short_name || company.name || company.data?.company_name || 'our company';
       const companyTimezone = company.data?.timezone || 'America/New_York';
-      const assistantDisplayName = resolveAssistantName(settings.assistant_name);
+      const assistantDisplayName = resolveAssistantName(
+        settings.intent_templates?._assistant_display_name,
+        settings.assistant_name
+      );
 
       // Staff list so Sarah knows team members by name
       let staffContext = '';
@@ -1338,7 +1342,7 @@ async function callBase44API(action, companyId, data = null) {
       const { rows: companyRows } = await pool.query(`SELECT id FROM companies WHERE id = $1 OR base44_id = $1 LIMIT 1`, [companyId]);
       const localId = companyRows[0]?.id || companyId;
       await notifyAdmins(localId, {
-        title: data?.title || (action === 'notifyRep' ? 'New lead from Sarah' : 'Sarah Alert'),
+        title: data?.title || (action === 'notifyRep' ? 'New lead from Alex' : 'Alex Alert'),
         message: data?.message || data?.body || '',
         type: action === 'notifyRep' ? 'lead_created' : 'alert',
         linkUrl: '/SarahWorkspace'
@@ -1518,7 +1522,8 @@ const CRM_TOOLS = [
       },
       required: ["to", "message"]
     }
-  }
+  },
+  callerMemory.LOOKUP_CUSTOMER_TOOL
 ];
 
 const CUSTOMER_LEXI_VOICE_TOOLS = [
@@ -1899,6 +1904,22 @@ async function handleToolCall(functionCall, companyId, context = {}) {
       }
     }
 
+    case 'lookup_customer': {
+      if (!companyId) return { found: false, error: 'company_id is required' };
+      if (context.customerLexiVoiceEnabled) return { found: false, error: 'Caller memory is not available on the homeowner line.' };
+      try {
+        return await callerMemory.lookupCustomerDetail(getSharedPool(), {
+          companyId,
+          phone: parsedArgs.phone || context.callerPhone || '',
+          customerId: parsedArgs.customer_id || '',
+          leadId: parsedArgs.lead_id || '',
+        });
+      } catch (lookupErr) {
+        console.warn('[Sarah CRM] lookup_customer failed:', lookupErr.message);
+        return { found: false, error: 'Lookup failed' };
+      }
+    }
+
     default:
       console.warn(`[Sarah CRM] Unhandled tool call: ${name}`, parsedArgs);
       return { success: false, message: `I wasn't able to complete that action. Please let me know how else I can help.` };
@@ -2052,6 +2073,23 @@ export default function twilioWsPlugin() {
                 console.log(`[${assistantName}] Call synopsis saved for ${savedCommId}`);
               } catch (e) {
                 console.warn(`[${assistantName}] Synopsis generation failed:`, e.message);
+              }
+            })();
+          }
+
+          if (transcript && callerPhone && callCompanyId && !staffCandidate) {
+            (async () => {
+              try {
+                const memPool = getSharedPool();
+                await callerMemory.rememberCall(memPool, {
+                  companyId: callCompanyId,
+                  phone: callerPhone,
+                  transcript,
+                  apiKey: geminiApiKey,
+                  sourceCallId: savedCommId,
+                });
+              } catch (e) {
+                console.warn(`[${assistantName}] Caller memory failed:`, e.message);
               }
             })();
           }
@@ -2378,7 +2416,7 @@ CRM TOOLS — use these automatically as info comes in:
 
         async function connectGemini(isReconnect = false) {
           const currentSettings = loadSettings();
-          let voiceName = currentSettings.voice || 'Kore';
+          let voiceName = currentSettings.voice || 'Puck';
 
           const VALID_GEMINI_VOICES = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr'];
           let inboundGreeting = '';
@@ -2387,8 +2425,21 @@ CRM TOOLS — use these automatically as info comes in:
           // Gemini WebSocket handshake IN PARALLEL. Previously each step waited for
           // the one before it (settings → socket → setup → history → greeting),
           // and every millisecond of that chain was dead air for the caller.
+          let callerMemoryInjected = false;
           const historyPromise = (!isReconnect && callerPhone && callCompanyId)
-            ? callBase44API('getLeadHistory', callCompanyId, { phone: callerPhone }).catch(() => null)
+            ? (async () => {
+                const [lead, memory] = await Promise.all([
+                  callBase44API('getLeadHistory', callCompanyId, { phone: callerPhone }).catch(() => null),
+                  callerMemory.loadCallerMemory(getSharedPool(), {
+                    companyId: callCompanyId,
+                    phone: callerPhone,
+                  }).catch((memErr) => {
+                    console.warn(`[${assistantName}] Caller memory lookup failed:`, memErr.message);
+                    return null;
+                  }),
+                ]);
+                return { ...(lead || {}), memory };
+              })()
             : Promise.resolve(null);
 
           const settingsApplied = (async () => {
@@ -2442,8 +2493,8 @@ CRM TOOLS — use these automatically as info comes in:
                 console.log(`[${assistantName}] Using CRM voice: ${voiceName}`);
               }
               if (!VALID_GEMINI_VOICES.includes(voiceName)) {
-                console.warn(`[${assistantName}] Voice "${voiceName}" is not valid for Gemini. Falling back to Kore. Valid voices: ${VALID_GEMINI_VOICES.join(', ')}`);
-                voiceName = 'Kore';
+                console.warn(`[${assistantName}] Voice "${voiceName}" is not valid for Gemini. Falling back to Puck. Valid voices: ${VALID_GEMINI_VOICES.join(', ')}`);
+                voiceName = 'Puck';
               }
               if (crmSettings.customSystemPrompt) {
                 subscriberSystemPrompt = crmSettings.customSystemPrompt;
@@ -2573,6 +2624,20 @@ Keep responses brief, conversational, and in the caller's language.`;
             // customer data). Keep IDENTICAL semantics in prod-server.cjs.
             if (staffCandidate) {
               sysPrompt = buildStaffPhonePrompt(companyName, assistantName, staffCandidate.fullName, staffCandidate.timezone);
+            }
+
+            if (!staffCandidate && !customerLexiVoiceEnabled && callerPhone && callCompanyId) {
+              const racedMemory = await Promise.race([
+                historyPromise.then((h) => h?.memory || null),
+                new Promise((resolve) => setTimeout(() => resolve('__PENDING__'), 400)),
+              ]);
+              if (racedMemory && racedMemory !== '__PENDING__') {
+                const block = callerMemory.instructionBlock(racedMemory);
+                if (block) {
+                  sysPrompt += block;
+                  callerMemoryInjected = true;
+                }
+              }
             }
 
             // Turn-taking speed follows the subscriber's response_speed setting.
@@ -2707,6 +2772,10 @@ Keep responses brief, conversational, and in the caller's language.`;
                     returningLeadContext = buildReturningLeadContext(raced) + `Greet them by name and reference your prior conversation. Don't ask for info you already have.`;
                     console.log(`[${assistantName}] Returning lead detected: ${raced.leadName}`);
                   }
+                  if (raced && raced !== '__HISTORY_PENDING__' && !callerMemoryInjected && raced.memory && !staffCandidate && !customerLexiVoiceEnabled) {
+                    returningLeadContext += callerMemory.instructionBlock(raced.memory);
+                    callerMemoryInjected = true;
+                  }
                 }
 
                 let greetingText;
@@ -2821,18 +2890,20 @@ Keep responses brief, conversational, and in the caller's language.`;
                 // Late-arriving caller history: append it silently (turn_complete:false
                 // adds context WITHOUT triggering a new spoken response) so the assistant
                 // knows who it's talking to from its next turn onward.
-          if (historyStillPending && !customerLexiVoiceEnabled) {
+          if (historyStillPending && !customerLexiVoiceEnabled && !staffCandidate) {
                   const lateWs = geminiWs;
                   historyPromise.then((priorComms) => {
-                    const ctx = buildReturningLeadContext(priorComms);
-                    if (!ctx) return;
                     if (callTerminated || lateWs !== geminiWs || lateWs.readyState !== WebSocket.OPEN) return;
-                    console.log(`[${assistantName}] Late caller history arrived — injecting context for ${priorComms.leadName}`);
+                    const ctx = buildReturningLeadContext(priorComms);
+                    const mem = !callerMemoryInjected && priorComms?.memory ? callerMemory.instructionBlock(priorComms.memory) : '';
+                    if (!ctx && !mem) return;
+                    if (mem) callerMemoryInjected = true;
+                    console.log(`[${assistantName}] Late caller history arrived — injecting context for ${priorComms?.leadName || 'caller'}`);
                     lateWs.send(JSON.stringify({
                       client_content: {
                         turns: [{
                           role: "user",
-                          parts: [{ text: `[System context — do not read aloud or respond to this directly: ${ctx.trim()} Use their name naturally from now on and don't ask for info you already have.]` }]
+                          parts: [{ text: `[System context — do not read aloud or respond to this directly: ${`${ctx} ${mem}`.trim()} Use their name naturally from now on and don't ask for info you already have.]` }]
                         }],
                         turn_complete: false
                       }
@@ -3626,7 +3697,7 @@ Keep responses brief, conversational, and in the caller's language.`;
         req.on('end', async () => {
           try {
             const { voice, text } = JSON.parse(body);
-            const voiceName = voice || 'Kore';
+            const voiceName = voice || 'Puck';
             const previewText = text || "Say in a friendly, professional tone: Hi there! This is your AI assistant calling from the roofing company. How can I help you today?";
             const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
             if (!apiKey) {

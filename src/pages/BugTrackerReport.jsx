@@ -78,47 +78,47 @@ export default function BugTrackerReport() {
       },
       {
         id: 'BUG-013',
-        title: 'Sarah - Twilio Inbound Calls Not Working',
+        title: 'Alex - Twilio Inbound Calls Not Working',
         category: 'AI / Voice',
         severity: 'CRITICAL',
         status: 'open',
-        description: 'Sarah does not answer inbound phone calls via Twilio. Calls may ring but no AI response.',
+        description: 'Alex does not answer inbound phone calls via Twilio. Calls may ring but no AI response.',
         technical: 'sarahVoiceCallHandler uses Twilio TwiML with Polly.Joanna voice. Issue could be: 1) Twilio webhook URL not configured correctly, 2) Function not deployed, 3) TwiML response format issues, 4) Twilio credentials misconfigured.',
         files: ['functions/sarahVoiceCallHandler', 'functions/incomingCall'],
         steps: [
           'Call the Twilio phone number',
-          'Expect Sarah to answer',
+          'Expect Alex to answer',
           'No response or call fails'
         ],
         workaround: 'None - feature non-functional.'
       },
       {
         id: 'BUG-014',
-        title: 'Sarah - SMS Responses Not Working',
+        title: 'Alex - SMS Responses Not Working',
         category: 'AI / Voice',
         severity: 'CRITICAL',
         status: 'open',
-        description: 'Sarah does not respond to incoming SMS messages from customers.',
+        description: 'Alex does not respond to incoming SMS messages from customers.',
         technical: 'incomingSMS function handles SMS but may not be triggering correctly. Possible issues: 1) Twilio SMS webhook not pointing to correct endpoint, 2) Function errors preventing response, 3) Company/settings lookup failing.',
         files: ['functions/incomingSMS', 'functions/incomingSMSWebhook', 'pages/SarahSettings'],
         steps: [
           'Send SMS to Twilio number',
-          'Expect Sarah to reply',
+          'Expect Alex to reply',
           'No response received'
         ],
         workaround: 'None - feature non-functional.'
       },
       {
         id: 'BUG-015',
-        title: 'Sarah - Gemini Live Voice Mode Not Working',
+        title: 'Alex - Gemini Live Voice Mode Not Working',
         category: 'AI / Voice',
         severity: 'CRITICAL',
         status: 'open',
-        description: 'Sarah\'s real-time Gemini voice mode (similar to Lexi Live) is completely non-functional.',
-        technical: 'Same architectural issues as Lexi Live Voice - WebSocket instability, AudioContext problems, interruption not working. The \'Live Mode\' toggle in Sarah Settings enables this but it doesn\'t function.',
+        description: 'Alex\'s real-time Gemini voice mode (similar to Lexi Live) is completely non-functional.',
+        technical: 'Same architectural issues as Lexi Live Voice - WebSocket instability, AudioContext problems, interruption not working. The \'Live Mode\' toggle in Alex Settings enables this but it doesn\'t function.',
         files: ['pages/SarahSettings', 'components/ai/GeminiLiveClient'],
         steps: [
-          'Enable Live Mode in Sarah Settings',
+          'Enable Live Mode in Alex Settings',
           'Attempt real-time voice conversation',
           'Feature doesn\'t work'
         ],

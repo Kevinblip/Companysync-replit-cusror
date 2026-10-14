@@ -8,6 +8,8 @@ import { Bot, Briefcase, MessageSquare, Phone, Mail, FileText, ArrowRight } from
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import useTranslation from "@/hooks/useTranslation";
+import { pickCanonicalSettings } from "@/utils/assistantSettingsRecord";
+import { resolveAssistantName } from "@/utils/assistantDisplayName";
 
 export default function AIStaff() {
   const navigate = useNavigate();
@@ -34,16 +36,25 @@ export default function AIStaff() {
     queryKey: ["sarah-settings-name", company?.id],
     queryFn: async () => {
       if (!company?.id) return null;
-      const rows = await base44.entities.AssistantSettings.filter({ company_id: company.id, assistant_name: { $exists: true } });
-      // Find the sales assistant (was "sarah" by default)
-      return rows.find(r => r.assistant_name) || null;
+      const rows = await base44.entities.AssistantSettings.filter({ company_id: company.id });
+      // The phone receptionist row is stored as assistant_name "sarah".
+      // That value is an internal key, not the name customers hear.
+      const canonical = pickCanonicalSettings(rows);
+      if (canonical) return canonical;
+      // No default row: keep a custom receptionist name if that is all they saved.
+      return (rows || []).find((row) => {
+        const name = String(row?.assistant_name || "").trim().toLowerCase();
+        return name && name !== "lexi" && name !== "marcus";
+      }) || null;
     },
     enabled: !!company?.id,
   });
 
   const salesAssistantName = React.useMemo(() => {
-    const name = sarahSettings?.assistant_name || "sarah";
-    return name.charAt(0).toUpperCase() + name.slice(1);
+    return resolveAssistantName(
+      sarahSettings?.intent_templates?._assistant_display_name,
+      sarahSettings?.assistant_name
+    );
   }, [sarahSettings]);
 
   const aiStaff = [

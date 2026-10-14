@@ -44,8 +44,10 @@ const { handleWorkOrderRoute } = nodeRequire('./lib/workOrders.cjs');
 const crewPhotoSharing = nodeRequire('./lib/crewPhotoSharing.cjs');
 const { handleEmailDeliveryWebhook } = nodeRequire('./lib/emailDeliveryWebhook.cjs');
 const { canonicalizeGenericEntityType, normalizeGenericEntityData } = nodeRequire('./lib/expenseNormalize.cjs');
+const { resolveAssistantName } = nodeRequire('./lib/assistantName.cjs');
 const { buildMaterialList, materialListLineItems } = nodeRequire('./lib/materialList.cjs');
 const { buildLexiSystemPrompt, getLexiTools } = nodeRequire('./lib/lexiSystemPrompt.cjs');
+const callerMemory = nodeRequire('./lib/callerMemory.cjs');
 const { confirmScheduleAndCreate } = nodeRequire('./lib/lexiScheduleConfirmation.cjs');
 const { expandFinancialFollowup } = nodeRequire('./lib/lexiFollowupContext.cjs');
 const { buildLexiToolFallback } = nodeRequire('./lib/lexiToolFallback.cjs');
@@ -16219,7 +16221,7 @@ ${categoryXml}
           [company_id]
         );
         const sd = settingsRes.rows[0]?.data || {};
-        if (sd.assistant_name) assistantName = sd.assistant_name.charAt(0).toUpperCase() + sd.assistant_name.slice(1);
+        assistantName = resolveAssistantName(sd.intent_templates?._assistant_display_name, sd.assistant_name);
         if (sd.brand_short_name) companyName = sd.brand_short_name;
         if (sd.knowledge_base) knowledgeBase = sd.knowledge_base;
         if (sd.custom_system_prompt) customSystemPrompt = sd.custom_system_prompt;
@@ -22915,6 +22917,34 @@ Return JSON:
     return { success: true, file_url: fileUrl, document_id: docId };
   },
 
+  async getCallerMemory(params, _apiKey, req) {
+    const pool = getPool();
+    const companyId = params?.companyId || params?.company_id;
+    const authz = await functionHandlers._authorizeJobNimbusCompany(pool, req, companyId);
+    if (!authz.ok) return { found: false, error: authz.error };
+    try {
+      const memory = await callerMemory.loadCallerMemory(pool, {
+        companyId,
+        phone: params?.phone,
+        customerId: params?.customerId || params?.customer_id,
+        leadId: params?.leadId || params?.lead_id,
+      });
+      if (!memory || memory.company_id !== companyId) return { found: false, company_id: companyId };
+      return {
+        found: true,
+        company_id: memory.company_id,
+        contact_name: memory.contact_name,
+        summary: memory.summary,
+        facts: memory.facts,
+        older_summary: memory.older_summary,
+        updated_at: memory.updated_at,
+        word_count: memory.word_count,
+      };
+    } catch (err) {
+      return { found: false, error: err.message };
+    }
+  },
+
   async lexiChat(params, apiKey, req) {
     if (!apiKey) throw new Error('GOOGLE_GEMINI_API_KEY not configured');
     const { message, conversationHistory = [], companyId, userEmail, userName, file_urls } = params;
@@ -23098,7 +23128,7 @@ Return JSON:
       const todayISO = now.toISOString().split('T')[0];
       const currentTime = now.toLocaleString('en-US', { timeZone: userTimeZone });
 
-      const systemPrompt = buildLexiSystemPrompt({
+      let systemPrompt = buildLexiSystemPrompt({
         companyName: company?.company_name || 'the company',
         effectiveName,
         effectiveEmail,
@@ -23112,6 +23142,20 @@ Return JSON:
         tzOffset,
         todayISO,
       });
+      try {
+        const viewing = params.viewingContact || params.viewing_contact || null;
+        if (viewing && (viewing.phone || viewing.customerId || viewing.customer_id || viewing.leadId || viewing.lead_id)) {
+          const memory = await callerMemory.loadCallerMemory(pool, {
+            companyId: actualCompanyId,
+            phone: viewing.phone,
+            customerId: viewing.customerId || viewing.customer_id,
+            leadId: viewing.leadId || viewing.lead_id,
+          });
+          systemPrompt += callerMemory.instructionBlock(memory);
+        }
+      } catch (memErr) {
+        console.warn('[Lexi] caller memory unavailable:', memErr.message);
+      }
 
       const tools = getLexiTools();
 
@@ -24701,6 +24745,19 @@ Return JSON:
                   } catch (gmErr) { toolResult = { error: `Gmail error: ${gmErr.message}` }; }
                 }
               }
+            } else if (fname === 'lookup_customer') {
+              try {
+                const detail = await callerMemory.lookupCustomerDetail(pool, {
+                  companyId: actualCompanyId,
+                  phone: args.phone || '',
+                  customerId: args.customer_id || args.customerId || '',
+                  leadId: args.lead_id || args.leadId || '',
+                });
+                toolResult = detail;
+                actionsExecuted.push({ tool_name: 'lookup_customer', result: detail.found ? 'Caller memory found' : 'No caller memory' });
+              } catch (lookupErr) {
+                toolResult = { error: `Lookup failed: ${lookupErr.message}` };
+              }
             } else if (fname === 'lookup_customer_by_phone') {
               // Full caller snapshot: identity + project + build schedule + tasks + balance
               const rawPhone = String(args.phone || '').replace(/[^\d+]/g, '');
@@ -25114,10 +25171,12 @@ Return JSON:
           return null;
         }
       };
-      // Build the AI-identification prefix ("This is Sarah, Acme's AI assistant.")
+      // Build the AI-identification prefix ("This is Alex, Acme's AI assistant.")
       const buildAiLine = (assistant, companyName) => {
-        const rawName = assistant?.assistant_name || 'Alex';
-        const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+        const displayName = resolveAssistantName(
+          assistant?.intent_templates?._assistant_display_name,
+          assistant?.assistant_name
+        );
         const tmpl = assistant?.ai_identification_line || "This is {assistant}, {company}'s AI assistant.";
         return tmpl
           .replace(/\{assistant\}/g, displayName)
