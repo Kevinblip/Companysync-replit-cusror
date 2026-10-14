@@ -3,6 +3,7 @@ import {
   clearActiveCompanySession,
   getLastUsedCompanyId,
 } from '@/lib/activeCompanySelection';
+import { logoutFromApp, redirectToLogin } from '@/lib/native/navigation';
 
 const API_BASE = '/api/local/entity';
 const ENTITIES_SKIP_COMPANY_ID = new Set(['Company', 'StaffProfile', 'StormEvent', 'PlatformMenuSettings', 'SubscriptionUsage']);
@@ -250,15 +251,15 @@ const localAuth = {
     return null;
   },
   currentUser: null,
-  login: () => { window.location.href = '/api/login'; },
+  login: () => { redirectToLogin(); },
   logout: () => {
     clearActiveCompanySession();
     localStorage.removeItem('selected_company_id');
     localStorage.removeItem('cachedSidebar');
-    window.location.href = '/api/logout';
+    logoutFromApp();
   },
-  signup: () => { window.location.href = '/api/login'; },
-  redirectToLogin: () => { window.location.href = '/api/login'; },
+  signup: () => { redirectToLogin(); },
+  redirectToLogin: () => { redirectToLogin(); },
 };
 
 async function invokeLocalFunction(name, params, opts) {

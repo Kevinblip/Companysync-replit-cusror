@@ -5,6 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Building2, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Link } from "react-router-dom";
+import { isNativeApp } from "@/lib/native/platform";
+import NativeBillingNotice from "@/components/native/NativeBillingNotice";
 
 export default function SignupPage() {
   const [email, setEmail] = useState("");
@@ -70,6 +72,14 @@ export default function SignupPage() {
       setIsSubmitting(false);
     }
   };
+
+  if (isNativeApp()) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 bg-white" data-testid="signup-page">
+        <NativeBillingNotice variant="signup" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex" data-testid="signup-page">

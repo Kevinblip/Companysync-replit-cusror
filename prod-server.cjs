@@ -38,6 +38,8 @@ const {
   loadManagedStripeWebhookSecret,
   persistManagedStripeWebhookSecret,
 } = require('./lib/stripeWebhookSecret.cjs');
+const { installNativeCookieRewrite, isCapacitorOrigin } = require('./lib/nativeSessionCookie.cjs');
+const { handleDeleteOwnAccount, handleAppLogout } = require('./lib/accountDeletion.cjs');
 const { resolveStripeApiKey, resolveStripeWebhookSecret, mapAppSubscriptionStatus } = require('./lib/stripeEnv.cjs');
 const { geminiLiveModel, isAllowedGeminiLiveEngine } = require('./lib/geminiLiveModel.cjs');
 const { authenticateLexiWs } = require('./lib/lexiWsAuth.cjs');
@@ -922,6 +924,10 @@ function getAllowedOrigins() {
     'https://company-sync-crm-bf62df1e.base44.app',
     'https://companysync.io',
     'https://www.companysync.io',
+    'https://localhost',
+    'http://localhost',
+    'capacitor://localhost',
+    'ionic://localhost',
   ];
   if (BASE44_MARKETING_DOMAIN) {
     const domain = BASE44_MARKETING_DOMAIN.replace(/\/+$/, '');
@@ -998,7 +1004,8 @@ function setCorsHeaders(res, req) {
   const origin = req?.headers?.origin || '';
   const allowed = getAllowedOrigins();
   const isAllowed = origin && (
-    allowed.some(a => origin === a || origin.startsWith(a)) ||
+    isCapacitorOrigin(origin) ||
+    allowed.some(a => origin === a || (!isCapacitorOrigin(a) && origin.startsWith(a))) ||
     origin.endsWith('.replit.app') ||
     origin.endsWith('.replit.dev')
   );
@@ -1010,7 +1017,7 @@ function setCorsHeaders(res, req) {
   // deny the cross-origin read by default instead of us explicitly allowing '*'.
   // Same-origin requests (the normal app UI) never rely on this header at all.
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CompanySync-Native');
 }
 
 function loadSettings() {
@@ -4411,6 +4418,7 @@ function setSecurityHeaders(res) {
 
 const server = http.createServer(async (req, res) => {
   try {
+  installNativeCookieRewrite(req, res);
   setSecurityHeaders(res);
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
@@ -7503,6 +7511,29 @@ const server = http.createServer(async (req, res) => {
     setCorsHeaders(res, req);
     const pool = prodDb.getPool();
     await localAuth.handleLoginLocal(req, res, pool);
+    return;
+  }
+
+  if (pathname === '/api/account/delete') {
+    setCorsHeaders(res, req);
+    const pool = prodDb.getPool();
+    const session = await prodAuth.getSessionFromRequest(req, pool);
+    const sessionEmail = session?.data?.passport?.user?.claims?.email || '';
+    const isImpersonating = !!(session?.data?.impersonating_company_id || req._impersonationCtx?.isImpersonating);
+    await handleDeleteOwnAccount(req, res, { pool, sessionEmail, isImpersonating });
+    return;
+  }
+
+  if (pathname === '/api/logout-app' && req.method === 'POST') {
+    setCorsHeaders(res, req);
+    const pool = prodDb.getPool();
+    await handleAppLogout(req, res, {
+      pool,
+      getSession: prodAuth.getSessionFromRequest,
+      destroySession: async (activePool, sid) => {
+        await activePool.query('DELETE FROM sessions WHERE sid = $1', [sid]);
+      },
+    });
     return;
   }
 

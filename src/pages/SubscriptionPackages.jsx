@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, AlertCircle, Zap } from "lucide-react";
 import { createPageUrl } from "@/utils";
+import { isNativeApp } from "@/lib/native/platform";
+import NativeBillingNotice from "@/components/native/NativeBillingNotice";
 
 export default function SubscriptionPackages() {
   const [selectedPlan, setSelectedPlan] = useState(null);
@@ -48,6 +50,7 @@ export default function SubscriptionPackages() {
   const currentPlan = currentUsage?.[0];
 
   const handleUpgrade = async (planName) => {
+    if (isNativeApp()) return;
     if (!myCompany?.id) return;
     try {
       const response = await base44.functions.invoke('upgradePlan', { 
@@ -62,6 +65,8 @@ export default function SubscriptionPackages() {
       alert('❌ Upgrade failed: ' + error.message);
     }
   };
+
+  if (isNativeApp()) return <NativeBillingNotice />;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 p-6">

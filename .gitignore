@@ -2,6 +2,25 @@
 .env
 .env.*
 
+# Capacitor local build output and signing material.
+# The synced web bundle is rebuilt by scripts/build-mobile.sh. Do not commit
+# a second and third copy of dist into the native projects.
+dist-mobile/
+android/app/src/main/assets/public/
+ios/App/App/public/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/google-services.json
+ios/App/Pods/
+ios/App/build/
+ios/App/App/GoogleService-Info.plist
+*.jks
+*.keystore
+*.mobileprovision
+*.p8
+
 # User-uploaded files — kept on disk / object storage, not in git
 public/uploads/
 # UUID-named uploads written by the dev server (homeowner photos, etc.)

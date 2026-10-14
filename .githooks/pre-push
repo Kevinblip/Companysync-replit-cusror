@@ -128,7 +128,21 @@ trap 'rm -f "$CHANGED_FILES_TMP"' EXIT
 
 while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
   if [ "$remote_sha" = "$NULL_SHA" ]; then
-    BASE=$(git hash-object -t tree /dev/null)
+    # A brand-new branch has no remote tip. Diff against the merge base with
+    # the default branch. Diffing the empty tree marks every file in the repo
+    # as changed and runs unrelated database tests.
+    BASE=""
+    for candidate in origin/replit-live replit-live origin/main main; do
+      if git rev-parse --verify "$candidate" >/dev/null 2>&1; then
+        BASE=$(git merge-base "$local_sha" "$candidate" 2>/dev/null || true)
+        if [ -n "$BASE" ]; then
+          break
+        fi
+      fi
+    done
+    if [ -z "$BASE" ]; then
+      BASE=$(git hash-object -t tree /dev/null)
+    fi
   else
     BASE="$remote_sha"
   fi

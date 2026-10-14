@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { motion, AnimatePresence } from "framer-motion";
+import { isNativeApp } from "@/lib/native/platform";
+import NativeBillingNotice from "@/components/native/NativeBillingNotice";
 
 const STEPS = [
   { id: 'company', title: 'Company Info', icon: Building2 },
@@ -152,6 +154,14 @@ export default function OnboardingWizard() {
   const handleBackToWebsite = () => {
     window.location.href = 'https://companysync.io';
   };
+
+  if (isNativeApp()) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <NativeBillingNotice variant="signup" />
+      </div>
+    );
+  }
 
   if (isComplete) {
     return (

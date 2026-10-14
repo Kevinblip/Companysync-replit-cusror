@@ -14,6 +14,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useNavigate } from "react-router-dom";
+import { isNativeApp } from "@/lib/native/platform";
+import NativeBillingNotice from "@/components/native/NativeBillingNotice";
 
 // Upsell Component
 function SmartGlassesUpsell({ myCompany, user }) {
@@ -100,9 +102,11 @@ function SmartGlassesUpsell({ myCompany, user }) {
             </DialogContent>
           </Dialog>
           
+          {isNativeApp() ? <NativeBillingNotice /> : (
           <Button size="lg" variant="outline" className="text-lg px-8 h-12 rounded-full" onClick={() => navigate(createPageUrl('Pricing'))}>
              Upgrade Plan
           </Button>
+          )}
         </div>
       </div>
 
@@ -142,9 +146,11 @@ function SmartGlassesUpsell({ myCompany, user }) {
         <Lock className="w-5 h-5 text-yellow-400" />
         <AlertDescription className="ml-2 flex items-center justify-between w-full">
           <span>This feature is available on <strong>Business</strong> and <strong>Enterprise</strong> plans.</span>
+          {isNativeApp() ? <NativeBillingNotice /> : (
           <Button variant="link" className="text-yellow-400 hover:text-yellow-300 p-0 h-auto" onClick={() => navigate(createPageUrl('Pricing'))}>
             Upgrade to Unlock <ArrowRight className="w-4 h-4 ml-1" />
           </Button>
+          )}
         </AlertDescription>
       </Alert>
     </div>

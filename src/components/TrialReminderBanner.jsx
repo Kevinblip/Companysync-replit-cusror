@@ -5,11 +5,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CreditCard, Gift, X, Calendar, Loader2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
+import { isNativeApp } from '@/lib/native/platform';
+import NativeBillingNotice from '@/components/native/NativeBillingNotice';
 
 export default function TrialReminderBanner({ user, myCompany }) {
-  const navigate = useNavigate();
   const [dismissed, setDismissed] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -39,6 +38,7 @@ export default function TrialReminderBanner({ user, myCompany }) {
   if (daysRemaining > 10 && !isExpired) return null;
 
   const handleAddCard = async () => {
+    if (isNativeApp()) return;
     // Map plan names to Stripe price IDs — 'trial'/null both fall back to basic
     const priceMap = {
       basic:      'price_1T5NV8CAqGydUaCs2iO0R9yl',
@@ -123,6 +123,7 @@ export default function TrialReminderBanner({ user, myCompany }) {
           </AlertDescription>
 
           <div className="flex gap-3">
+            {isNativeApp() ? <NativeBillingNotice /> : (
             <Button 
               onClick={handleAddCard}
               disabled={loading}
@@ -135,6 +136,7 @@ export default function TrialReminderBanner({ user, myCompany }) {
                 : <CreditCard className="w-4 h-4 mr-2" />}
               {loading ? 'Opening checkout…' : isExpired ? 'Subscribe Now & Get 7 Free Days' : 'Add Payment & Get 7 Free Days'}
             </Button>
+            )}
             {!isExpired && (
               <Button 
                 variant="outline"

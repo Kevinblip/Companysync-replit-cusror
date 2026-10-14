@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { localToday } from "@/utils/localDate";
+import { isNativeApp } from "@/lib/native/platform";
+import NativeBillingNotice from "@/components/native/NativeBillingNotice";
 
 export default function Subscriptions() {
   const [selectedPlan, setSelectedPlan] = useState(null);
@@ -52,6 +54,7 @@ export default function Subscriptions() {
   });
 
   const handleSelectPlan = (plan) => {
+    if (isNativeApp()) return;
     if (window.confirm(`Switch to ${plan.plan_name} plan?`)) {
       const subscriptionData = {
         company_name: "My Company",
@@ -84,6 +87,8 @@ export default function Subscriptions() {
     };
     return colors[status] || colors.trial;
   };
+
+  if (isNativeApp()) return <NativeBillingNotice />;
 
   return (
     <div className="p-3 sm:p-6 space-y-6">

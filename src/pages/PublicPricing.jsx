@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Check, Sparkles, Zap, Crown } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import { isNativeApp } from "@/lib/native/platform";
+import NativeBillingNotice from "@/components/native/NativeBillingNotice";
 
 export default function PublicPricing() {
   const navigate = useNavigate();
@@ -153,6 +155,8 @@ export default function PublicPricing() {
     };
     return colors[color] || colors.blue;
   };
+
+  if (isNativeApp()) return <NativeBillingNotice />;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600">

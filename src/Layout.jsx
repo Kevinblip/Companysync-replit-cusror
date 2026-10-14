@@ -23,6 +23,8 @@ import { isPlatformAdminCheck } from "@/hooks/usePlatformAdmin";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { DEFAULT_SHORTCUT_IDS, SHORTCUT_MAP } from "@/config/quickCreateShortcuts";
+import { isNativeApp } from "@/lib/native/platform";
+import DeleteAccountDialog from "@/components/account/DeleteAccountDialog";
 import useHiddenFeatures from "@/hooks/useHiddenFeatures";
 import {
   LayoutDashboard,
@@ -243,7 +245,6 @@ export default function Layout({ children, currentPageName }) {
   const [statusSaving, setStatusSaving] = useState(false);
 
   const [showDeleteAccountDialog, setShowDeleteAccountDialog] = useState(false);
-  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
@@ -945,19 +946,6 @@ export default function Layout({ children, currentPageName }) {
     }
   };
 
-  const handleDeleteAccount = async () => {
-    setIsDeletingAccount(true);
-    try {
-      await base44.functions.invoke('deleteUserAccount', { email: user.email });
-      base44.auth.logout();
-    } catch (error) {
-      console.error("Failed to delete account:", error);
-      alert("Failed to delete account. Please try again.");
-      setIsDeletingAccount(false);
-      setShowDeleteAccountDialog(false);
-    }
-  };
-
   const _scheduleData = myStaffProfile?.data || {};
   const _withinBusinessHours = (() => {
     if (!_scheduleData.after_hours_enabled) return true;
@@ -1251,8 +1239,10 @@ export default function Layout({ children, currentPageName }) {
     { id: 'map', title: s.map, url: createPageUrl("Map"), icon: MapIcon, order: 9 },
     { id: 'knowledge-base', title: s.knowledgeBase, url: createPageUrl("KnowledgeBase"), icon: BookOpen, order: 10 },
     { id: 'training-videos', title: 'Training Videos', url: createPageUrl("TrainingVideos"), icon: PlayCircle, order: 10.5 },
-    { id: 'subscription', title: s.subscription, url: createPageUrl("Pricing"), icon: CreditCard, order: 11 },
-    { id: 'feature-comparison', title: s.featureComparison, url: createPageUrl("FeatureComparison"), icon: Layers, order: 11.5 },
+    ...(isNativeApp() ? [] : [
+      { id: 'subscription', title: s.subscription, url: createPageUrl("Pricing"), icon: CreditCard, order: 11 },
+      { id: 'feature-comparison', title: s.featureComparison, url: createPageUrl("FeatureComparison"), icon: Layers, order: 11.5 },
+    ]),
     { id: 'coming-soon', title: s.comingSoon, url: createPageUrl("ComingSoon"), icon: Sparkles, order: 12 },
     ], [s, myAssignmentsBadgeCount, canAccessWorkflows, myCompany?.created_by, user?.email, myStaffProfile?.is_super_admin, myStaffProfile?.is_administrator, userRole, rolePermissions, HIDDEN_FEATURES.PERMIT_ASSISTANT]);
 
@@ -2637,7 +2627,7 @@ export default function Layout({ children, currentPageName }) {
                       </>
                     )}
 
-                    {sidebarModel.account.some((item) => item.source === 'subscription') && (
+                    {!isNativeApp() && sidebarModel.account.some((item) => item.source === 'subscription') && (
                       <DropdownMenuItem
                         data-testid="menu-item-plan-billing"
                         onClick={() => navigate(createPageUrl('Pricing'))}
@@ -2646,7 +2636,7 @@ export default function Layout({ children, currentPageName }) {
                         Plan & Billing
                       </DropdownMenuItem>
                     )}
-                    {sidebarModel.account.some((item) => item.source === 'feature-comparison') && (
+                    {!isNativeApp() && sidebarModel.account.some((item) => item.source === 'feature-comparison') && (
                       <DropdownMenuItem
                         data-testid="menu-item-compare-plans"
                         onClick={() => navigate(createPageUrl('FeatureComparison'))}
@@ -2657,6 +2647,13 @@ export default function Layout({ children, currentPageName }) {
                     )}
                     {sidebarModel.account.length > 0 && <DropdownMenuSeparator />}
 
+                    <DropdownMenuItem
+                      data-testid="menu-item-delete-account"
+                      onClick={() => setShowDeleteAccountDialog(true)}
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Account
+                    </DropdownMenuItem>
                     <DropdownMenuItem 
                       onClick={(e) => {
                         e.preventDefault();
@@ -2765,6 +2762,12 @@ export default function Layout({ children, currentPageName }) {
       <FeatureRestrictedModal 
         restrictedFeature={restrictedFeature} 
         onClose={() => setRestrictedFeature(null)} 
+      />
+
+      <DeleteAccountDialog
+        open={showDeleteAccountDialog}
+        onOpenChange={setShowDeleteAccountDialog}
+        email={user?.email}
       />
 
       <NavCommandPalette
