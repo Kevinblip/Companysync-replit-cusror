@@ -6,7 +6,10 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import memoize from "memoizee";
 import pkg from "pg";
+import { createRequire } from "module";
 const { Pool } = pkg;
+const require = createRequire(import.meta.url);
+const { stripUserSecrets } = require("./lib/stripUserSecrets.cjs");
 
 function getPool() {
   if (!getPool._pool) {
@@ -340,7 +343,7 @@ export default function authPlugin() {
                 }
                 if (userRow) {
                   res.writeHead(200, { 'Content-Type': 'application/json' });
-                  res.end(JSON.stringify({ ...userRow, is_administrator }));
+                  res.end(JSON.stringify(stripUserSecrets({ ...userRow, is_administrator })));
                 } else {
                   res.writeHead(200, { 'Content-Type': 'application/json' });
                   res.end(JSON.stringify({
