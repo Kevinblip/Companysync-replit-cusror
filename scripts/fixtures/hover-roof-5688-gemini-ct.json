@@ -21,11 +21,11 @@
   "shipped_baseline": {
     "roof_area_sqft": 2371.493942532,
     "pitch": "5/12",
-    "ridge_hip_lf": 86.5,
-    "valley_lf": 16.8,
-    "rake_lf": 128.1,
-    "eave_lf": 109.9,
-    "perimeter_lf": 238
+    "ridge_hip_lf": 57.5,
+    "valley_lf": 0,
+    "rake_lf": 121.9,
+    "eave_lf": 162.3,
+    "perimeter_lf": 284.2
   },
   "tolerances": {
     "roof_area_sqft": { "percent": 5 },

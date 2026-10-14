@@ -10379,17 +10379,16 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       ? `Automatic measurement was stopped because the Solar roof model appears incomplete. ${sourceQualityFlags.join(' ')} Use Manual Drawing, enter verified dimensions, or upload a trusted measurement report before generating the estimate.`
       : (sourceQualityFlags.length ? sourceQualityFlags.join(' ') : null);
 
-    const roofWaste = resolveRoofWaste({
+    let roofWaste = resolveRoofWaste({
       pitchVal,
       numSegments,
       hipLf,
       valleyLf,
       overridePct: params.waste_override_pct,
     });
-    const wastePercent = roofWaste.waste_percentage;
-    const wasteReason = roofWaste.waste_reason;
-    const wasteFactor = 1 + (wastePercent / 100);
-    const finalOrderQty = Number((roofAreaSquares * wasteFactor).toFixed(2));
+    let wastePercent = roofWaste.waste_percentage;
+    let wasteReason = roofWaste.waste_reason;
+    let finalOrderQty = Number((roofAreaSquares * (1 + wastePercent / 100)).toFixed(2));
 
     debugLogs.push(`Area: ${totalAreaSqFt.toFixed(0)} sqft (${areaMethod}), Pitch: ${pitchStr}, Type: ${roofType}`);
     debugLogs.push(`Waste: ${wastePercent}% (${wasteReason}; recommended ${roofWaste.waste_recommended_pct}%), Order: ${finalOrderQty} SQ`);
@@ -10593,6 +10592,18 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       valleyLf = reconciliation.linears.valley_lf;
       rakeLf = reconciliation.linears.rake_lf;
       eaveLf = reconciliation.linears.eave_lf;
+      // Waste follows the linears we bill. A hip formula that the trace replaced
+      // must not keep a "Hip/Valley Present" reason after those lengths are zero.
+      roofWaste = resolveRoofWaste({
+        pitchVal,
+        numSegments,
+        hipLf,
+        valleyLf,
+        overridePct: params.waste_override_pct,
+      });
+      wastePercent = roofWaste.waste_percentage;
+      wasteReason = roofWaste.waste_reason;
+      finalOrderQty = Number((roofAreaSquares * (1 + wastePercent / 100)).toFixed(2));
       debugLogs.push(`Roof linear authority: ${roofLinearSource}`);
       if (Object.keys(roofLinearDifferences).length > 0) {
         debugLogs.push(`Roof linear differences reconciled: ${JSON.stringify(roofLinearDifferences)}`);
@@ -10859,8 +10870,10 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     // instead, which extrudes real edges and punches actual window/door holes.
     let footprintPolygonXY = null;
     let footprintGeometry = 'rectangle_estimate';
+    let tracedFacets = [];
     try {
       const facetsForTrace = buildRoofFacetsFromSolarSegments(roofSegments);
+      tracedFacets = Array.isArray(facetsForTrace) ? facetsForTrace : [];
       if (Array.isArray(facetsForTrace) && facetsForTrace.length > 0) {
         const fp = buildFootprintFromFacets(facetsForTrace, {
           overhangFt: DEFAULT_EAVE_OVERHANG_FT,
@@ -10972,11 +10985,52 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     }
     if (dimensionCapped) wasteReason += ' (note: building shape uncertain from satellite)';
 
-    // Hover-style derived measurements
-    // Fascia: runs along eave edges. Gable → 2 long sides; Hip → full perimeter
-    const fasciaLf = isGable ? Math.round(2 * buildingLengthFt) : Math.round(perimeterFt);
-    // Soffit: horizontal ceiling under eaves. Standard overhang = 18" (1.5ft)
-    const soffitSqFt = Math.round(fasciaLf * 1.5);
+    // No elevation photo on this path, so soffit depth stays the 2.0/1.5 estimate.
+    const roofEdgeTotals = computeRoofEdgeTotals(tracedFacets);
+    const hasFacetEdges = roofEdgeTotals.eave > 0;
+    const eaveLfRaw = hasFacetEdges ? roofEdgeTotals.eave : (isGable ? 2 * buildingLengthFt : perimeterFt);
+    const rakeLfRaw = hasFacetEdges ? roofEdgeTotals.rake : 0;
+    const fasciaLf = Math.round(hasFacetEdges ? (eaveLfRaw + rakeLfRaw) : (isGable ? 2 * buildingLengthFt : perimeterFt));
+    const soffitLevelDepthFt = hasFacetEdges ? 2.0 : 1.5;
+    const soffitSlopedDepthFt = hasFacetEdges ? 1.5 : 1.5;
+    const soffitLevelSqft = Math.round(eaveLfRaw * soffitLevelDepthFt);
+    const soffitSlopedSqft = Math.round(rakeLfRaw * soffitSlopedDepthFt);
+    const soffitSqFt = soffitLevelSqft + soffitSlopedSqft;
+    const sidingWaste = calculateSidingWaste({
+      openingCount: 0,
+      outsideCorners: outsideCornersCount,
+      insideCorners: footprintCorners.inside_count,
+      gableAreaSqft: gableAreaSqFt,
+    });
+    let trimTotals = {
+      j_channel_lf: 0,
+      starter_strip_lf: Math.round(perimeterFt * 100) / 100,
+      outside_corner_lf: Math.round(outsideCornersLf),
+      inside_corner_lf: footprintCorners.inside_lf,
+      outside_corners_count: outsideCornersCount,
+      inside_corners_count: footprintCorners.inside_count,
+    };
+    try {
+      const trimGraph = buildSidingMeasurementGraph({
+        perPhotoResults: [],
+        perimeterFt,
+        storyCount: stories,
+        wallHeightFt: totalWallHeightFt,
+        grossWallAreaSqft: grossWallAreaSqFt,
+        buildingWidthFt,
+        buildingLengthFt,
+        footprintSource: osmUsed ? 'osm' : 'solar',
+        roofFacets: tracedFacets,
+        openingDeductMinSqft: 20,
+      });
+      trimTotals = {
+        ...trimTotals,
+        j_channel_lf: trimGraph.totals.j_channel_lf,
+        starter_strip_lf: trimGraph.totals.starter_strip_lf,
+      };
+    } catch (trimErr) {
+      debugLogs.push(`Trim graph skipped: ${trimErr.message}`);
+    }
     // Trim: estimated from typical residential window/door count (use % deduction to back-calculate)
     const typicalWindows = Math.round(flatFootprintSqFt / 120); // ~1 window per 120 sqft footprint
     const typicalDoors = stories <= 1 ? 2 : 3;
@@ -10999,7 +11053,6 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       inside_corners_lf: footprintCorners.inside_lf,
       corner_source: footprintCorners.source,
       wall_total_quality: 'estimated',
-      soffit_depth_source: 'estimated',
       building_length_ft: Math.round(buildingLengthFt),
       building_width_ft: Math.round(buildingWidthFt),
       perimeter_ft: Math.round(perimeterFt),
@@ -11020,7 +11073,20 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       waste_reason: wasteReason,
       analysis_notes: `${osmUsed ? '📍 OSM footprint' : '📡 Solar-derived'} perimeter: ${Math.round(perimeterFt)}ft. ${roofSegments.length} roof segments. ~${Math.round(buildingLengthFt)}ft × ${Math.round(buildingWidthFt)}ft ${roofType} building. ${stories} stor${stories === 1 ? 'y' : 'ies'} × ${storyHt}ft. ${openDeduct}% opening deduction.`,
       fascia_lf: fasciaLf,
+      eave_lf: Math.round(eaveLfRaw * 10) / 10,
+      rake_lf: Math.round(rakeLfRaw * 10) / 10,
       soffit_sqft: soffitSqFt,
+      soffit_level_sqft: soffitLevelSqft,
+      soffit_sloped_sqft: soffitSlopedSqft,
+      soffit_level_depth_ft: soffitLevelDepthFt,
+      soffit_sloped_depth_ft: soffitSlopedDepthFt,
+      soffit_depth_source: 'estimated',
+      siding_waste_percentage: sidingWaste.applied_pct,
+      siding_waste_recommended_pct: sidingWaste.recommended_pct,
+      siding_waste_reason: sidingWaste.reason,
+      siding_waste_override_pct: sidingWaste.override_pct,
+      opening_deduct_min_sqft: 20,
+      trim_totals: trimTotals,
       trim_sqft: trimSqFt,
       estimated_windows: typicalWindows,
       estimated_doors: typicalDoors,

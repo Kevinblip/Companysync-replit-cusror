@@ -247,6 +247,11 @@ export function classifyFacetEdges(facets) {
       // ── Perpendicular-ish neighbors: hip/valley junction diagonal ─────────
       if (azd < 30 || azd > 150) continue;
       if (rectGapFt(facets[i], facets[j]) > 6) continue;
+      // Nearby corners are not a junction. A cross roof can sit a few feet
+      // from the main eave with zero footprint overlap; a diagonal there
+      // invents a valley and deletes the perimeter edges beside it. A hip or
+      // valley requires the rectangles to actually cover the same ground.
+      if (convexOverlapArea(facets[i].polygon, facets[j].polygon) < 4) continue;
 
       // Junction line: low point = closest pair of eave-level corners,
       // high point = closest pair of high corners.
@@ -340,6 +345,13 @@ export function classifyFacetEdges(facets) {
     }
     delete f._clips;
   }
+
+  // A cross-roof side often runs in plan along the main gutter. The rectangle
+  // axis labels that side a rake, which under-counts the eave and over-counts
+  // the rake. When the footprints do not overlap (this is not a hip cut) and
+  // the side tracks an eave, count the length as eave. role stays 'side' so a
+  // real slope still closes a gable wall.
+  absorbGutterLineRakes(facets);
   return facets;
 }
 
@@ -449,25 +461,113 @@ function edgesAdjacent(e1, e2) {
   return ratio > 0.35;
 }
 
+function pointToSegmentDist(px, py, e) {
+  const ox = e.x2 - e.x1;
+  const oy = e.y2 - e.y1;
+  const ol2 = ox * ox + oy * oy || 1;
+  const t = Math.max(0, Math.min(1, ((px - e.x1) * ox + (py - e.y1) * oy) / ol2));
+  return Math.hypot(px - (e.x1 + ox * t), py - (e.y1 + oy * t));
+}
+
+function fractionAlong(edge, other, tol) {
+  const steps = 16;
+  let near = 0;
+  for (let k = 0; k <= steps; k++) {
+    const t = k / steps;
+    const px = edge.x1 + (edge.x2 - edge.x1) * t;
+    const py = edge.y1 + (edge.y2 - edge.y1) * t;
+    if (pointToSegmentDist(px, py, other) <= tol) near++;
+  }
+  return near / (steps + 1);
+}
+
+function signedArea(poly) {
+  let area = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    area += p.x * q.y - q.x * p.y;
+  }
+  return area / 2;
+}
+
+/** Plan-view overlap of two convex facet polygons, in sqft. */
+function convexOverlapArea(polyA, polyB) {
+  if (!polyA || !polyB || polyA.length < 3 || polyB.length < 3) return 0;
+  const keep = signedArea(polyB) >= 0 ? 1 : -1;
+  let poly = polyA.map(p => ({ x: p.x, y: p.y, h: p.h || 0 }));
+  for (let i = 0; i < polyB.length && poly.length >= 3; i++) {
+    const a = polyB[i];
+    const b = polyB[(i + 1) % polyB.length];
+    poly = clipPolyHalfPlane(poly, a, b, keep);
+  }
+  return poly.length >= 3 ? polyPlanArea(poly) : 0;
+}
+
+function absorbGutterLineRakes(facets) {
+  for (const facet of facets) {
+    for (const edge of facet.edges) {
+      if (edge.role !== 'side' || edge.type !== 'rake' || edge.length_ft < 2) continue;
+      let best = 0;
+      for (const other of facets) {
+        if (other.id === facet.id) continue;
+        if (convexOverlapArea(facet.polygon, other.polygon) >= 4) continue;
+        for (const eave of other.edges) {
+          if (eave.role !== 'eave' && eave.type !== 'eave') continue;
+          const [d1x, d1y] = edgeDir(edge);
+          const [d2x, d2y] = edgeDir(eave);
+          if (Math.abs(d1x * d2x + d1y * d2y) < 0.92) continue;
+          best = Math.max(best, fractionAlong(edge, eave, 3.5));
+        }
+      }
+      if (best >= 0.7) edge.type = 'eave';
+    }
+  }
+}
+
+function sameSharedLine(a, b) {
+  const [d1x, d1y] = edgeDir(a);
+  const [d2x, d2y] = edgeDir(b);
+  if (Math.abs(d1x * d2x + d1y * d2y) < 0.8) return false;
+  const [m1x, m1y] = edgeMid(a);
+  const [m2x, m2y] = edgeMid(b);
+  if (Math.hypot(m1x - m2x, m1y - m2y) <= 6) return true;
+  const perp = (pointToSegmentDist(a.x1, a.y1, b) + pointToSegmentDist(a.x2, a.y2, b)) / 2;
+  return perp <= 4 && fractionAlong(a, b, 4) > 0.35;
+}
+
 // ── Aggregates / helpers for consumers ────────────────────────────────────────
 
-/** Linear-feet totals by classified edge type (shared edges counted once). */
+/**
+ * Linear-feet totals by classified edge type (shared edges counted once).
+ * The two copies of one ridge can sit a foot or two apart after the rectangles
+ * are solved independently. A 1 ft midpoint grid counts both. Group by the
+ * facet pair and keep the longer copy when the copies lie on the same line.
+ */
 export function computeEdgeTotals(facets) {
   const totals = { eave: 0, ridge: 0, hip: 0, valley: 0, rake: 0 };
   const counts = { eave: 0, ridge: 0, hip: 0, valley: 0, rake: 0 };
-  const seen = new Set();
+  const sharedGroups = [];
   for (const f of facets || []) {
     for (const e of f.edges || []) {
+      if (!e || totals[e.type] == null) continue;
       if (e.shared_with) {
-        const key = [f.id, e.shared_with].sort().join('|') + '|' + e.type + '|' + Math.round((e.x1 + e.x2) / 2) + ',' + Math.round((e.y1 + e.y2) / 2);
-        if (seen.has(key)) continue;
-        seen.add(key);
+        const ids = [f.id, e.shared_with].sort().join('|');
+        const match = sharedGroups.find(group => group.ids === ids && group.type === e.type && sameSharedLine(group.edge, e));
+        if (match) {
+          if (e.length_ft > match.edge.length_ft) match.edge = e;
+          continue;
+        }
+        sharedGroups.push({ ids, type: e.type, edge: e });
+        continue;
       }
-      if (totals[e.type] != null) {
-        totals[e.type] += e.length_ft;
-        counts[e.type] += 1;
-      }
+      totals[e.type] += e.length_ft;
+      counts[e.type] += 1;
     }
+  }
+  for (const group of sharedGroups) {
+    totals[group.type] += group.edge.length_ft;
+    counts[group.type] += 1;
   }
   for (const k of Object.keys(totals)) totals[k] = round(totals[k], 1);
   totals.counts = counts;

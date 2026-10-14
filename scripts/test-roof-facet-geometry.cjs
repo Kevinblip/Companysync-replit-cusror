@@ -297,6 +297,28 @@ function seg(eastFt, northFt, azimuth, pitchDeg, A, B, areaM2, planeHeightAtCent
     check('graph facets keep pitch/azimuth', Number.isFinite(gf.pitch_degrees) && Number.isFinite(gf.azimuth_degrees));
   }
 
+  console.log('\n— 5688 Gemini Ct Solar segments —');
+  {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const recorded = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'hover-roof-5688-gemini-ct.json'), 'utf8'));
+    const facets = buildRoofFacetsFromSolarSegments(recorded.solar.solarPotential.roofSegmentStats);
+    const totals = computeEdgeTotals(facets);
+    const hover = recorded.hover_reference;
+    const withinBand = (actual, expected) => Math.abs(actual - expected) <= Math.max(5, Math.abs(expected) * 0.1);
+    check('5688 eave within 10% or 5 ft of Hover', withinBand(totals.eave, hover.eave_lf), totals.eave);
+    check('5688 rake within 10% or 5 ft of Hover', withinBand(totals.rake, hover.rake_lf), totals.rake);
+    check('5688 valley within 5 ft of Hover', Math.abs(totals.valley - hover.valley_lf) <= 5, totals.valley);
+    const drip = totals.eave + totals.rake;
+    const hoverDrip = hover.eave_lf + hover.rake_lf;
+    check('5688 eave+rake within 8% of Hover drip edge', Math.abs(drip - hoverDrip) <= hoverDrip * 0.08, { drip, hoverDrip });
+    // Solar publishes 4 segments against Hover's 7 facets. Once each shared
+    // ridge is counted a single time, the remainder is short of Hover's
+    // ridge+hip and is not filled in with an invented hip.
+    check('5688 shared ridges are counted once', totals.counts.ridge === 2 && totals.ridge > 50 && totals.ridge < 70, totals);
+    check('5688 does not invent a hip or valley', totals.hip === 0 && totals.valley === 0, totals);
+  }
+
   console.log('\n— degenerate input —');
   {
     check('empty input → []', buildRoofFacetsFromSolarSegments([]).length === 0);

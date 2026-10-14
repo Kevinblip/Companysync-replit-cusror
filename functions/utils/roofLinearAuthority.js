@@ -1,5 +1,16 @@
 const LINEAR_KEYS = ['ridge', 'hip', 'valley', 'rake', 'eave'];
 
+function facetsWithinFeet(a, b, tol) {
+  const pa = a?.polygon || [];
+  const pb = b?.polygon || [];
+  for (const p of pa) {
+    for (const q of pb) {
+      if (Math.hypot(p.x - q.x, p.y - q.y) <= tol) return true;
+    }
+  }
+  return false;
+}
+
 const roundLf = (value) => Math.round((Number(value) || 0) * 10) / 10;
 
 export function assessRoofFacetTraceQuality(facets) {
@@ -30,6 +41,20 @@ export function assessRoofFacetTraceQuality(facets) {
         adjacency.get(edge.shared_with).add(facet.id);
       } else if (edge.role === 'up' || edge.type === 'ridge') {
         unresolvedUphillEdges++;
+      }
+    }
+  }
+
+  // Rectangles of one roof can miss each other by a few feet without sharing
+  // an edge. That gap is not a second building, and it is not a valley.
+  for (let i = 0; i < facets.length; i++) {
+    for (let j = i + 1; j < facets.length; j++) {
+      const left = facets[i].id;
+      const right = facets[j].id;
+      if (adjacency.get(left).has(right)) continue;
+      if (facetsWithinFeet(facets[i], facets[j], 6)) {
+        adjacency.get(left).add(right);
+        adjacency.get(right).add(left);
       }
     }
   }

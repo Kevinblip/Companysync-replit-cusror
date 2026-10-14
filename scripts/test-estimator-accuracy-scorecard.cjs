@@ -67,6 +67,7 @@ function row(name, actual, expected, rule) {
   };
 
   let roof;
+  let siding;
   try {
     const { functionHandlers } = await import('../vite-functions-plugin.js');
     roof = await functionHandlers._aiRoofMeasurementImpl({
@@ -74,6 +75,11 @@ function row(name, actual, expected, rule) {
       longitude: fixture.coordinates.longitude,
       address: fixture.recorded_for,
     }, 'unused', null);
+    siding = await functionHandlers.analyzeSidingMeasurement({
+      latitude: fixture.coordinates.latitude,
+      longitude: fixture.coordinates.longitude,
+      address: fixture.recorded_for,
+    }, 'unused');
   } finally {
     globalThis.fetch = originalFetch;
     if (originalGoogleKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
@@ -116,6 +122,51 @@ function row(name, actual, expected, rule) {
     waste_percentage: roof?.waste_percentage,
     waste_reason: roof?.waste_reason,
   })}`);
+  console.log('  Ridge+hip stays short of Hover: Solar has 4 segments and Hover has 7 facets. The shared ridges are counted once and no hip is invented.');
+
+  console.log('\n── Photo-free siding: 5688 Gemini Ct footprint ──');
+  const { calculateSidingWaste } = await import('../src/utils/sidingWaste.js');
+  const { generateSidingReportHTML } = await import('../src/utils/generateSidingReportHTML.js');
+  gate('photo-free siding handler succeeded', siding?.success === true, siding?.error);
+  const corners = {
+    outside: siding?.outside_corners_count,
+    outside_lf: siding?.outside_corners_lf,
+    inside: siding?.inside_corners_count,
+    inside_lf: siding?.inside_corners_lf,
+    source: siding?.corner_source,
+  };
+  console.log(`  Footprint corners (${corners.source}, wall height ${siding?.story_height_ft} ft × ${siding?.story_count} story): outside ${corners.outside} / ${corners.outside_lf} ft, inside ${corners.inside} / ${corners.inside_lf} ft`);
+  console.log('  Hover siding reference (not a pass/fail — no elevation photos): outside 6 / 56 ft, inside 2 / 13 ft. Facade 2018 sqft includes openings.');
+  console.log(`  Soffit depth source: ${siding?.soffit_depth_source} (no elevation photo). Level ${siding?.soffit_level_sqft} sqft = ${siding?.eave_lf} ft × ${siding?.soffit_level_depth_ft} ft. Sloped ${siding?.soffit_sloped_sqft} sqft = ${siding?.rake_lf} ft × ${siding?.soffit_sloped_depth_ft} ft. Total ${siding?.soffit_sqft} sqft.`);
+  console.log('  Hover frieze reference: level 158 ft 5 in × 2 ft = 373 sqft, sloped 107 ft 11 in × 1 ft 6 in = 165 sqft.');
+  console.log(`  Opening cutoff on this measurement: ${siding?.opening_deduct_min_sqft} sq ft. The visible choice is 20 or 33; 33 applies only when the control is set to 33. Photo-free walls still use the ${siding?.opening_deduction_pct}% allowance because no openings were itemized.`);
+  console.log(`  J-channel ${siding?.trim_totals?.j_channel_lf} ft (no photographed openings). Starter ${siding?.trim_totals?.starter_strip_lf} ft (wall perimeter ${siding?.perimeter_ft} ft).`);
+  const overrideWaste = calculateSidingWaste({
+    openingCount: 0,
+    outsideCorners: siding?.outside_corners_count,
+    insideCorners: siding?.inside_corners_count,
+    gableAreaSqft: siding?.gable_area_sqft,
+    overridePct: 12,
+  });
+  console.log(`  Siding waste: ${siding?.siding_waste_percentage}% — ${siding?.siding_waste_reason}. Override example: ${overrideWaste.applied_pct}% (recommended stays ${overrideWaste.recommended_pct}%).`);
+  gate('siding waste floor stays at 10%', Number(siding?.siding_waste_percentage) >= 10);
+  gate('opening cutoff default is 20 sq ft', siding?.opening_deduct_min_sqft === 20);
+  const sidingPdf = generateSidingReportHTML({
+    sidingMeasurements: {
+      ...siding,
+      siding_waste_override_pct: 12,
+      siding_waste_percentage: overrideWaste.applied_pct,
+    },
+    satelliteAnalysis: roof,
+    satelliteAddress: { address: fixture.recorded_for },
+    companyName: 'Test',
+  });
+  gate('5688 PDF prints J-channel, starter, estimated soffit, and the waste override',
+    sidingPdf.includes('J-Channel')
+      && sidingPdf.includes('Starter Strip')
+      && sidingPdf.includes(`${Math.round(siding?.trim_totals?.starter_strip_lf || 0)} LF`)
+      && sidingPdf.includes('est.')
+      && sidingPdf.includes('rep override 12%'));
 
   console.log('\n── Photo path: fixtures on disk ──');
   const photoNames = ['5688', 'gemini', 'centuryway', '20638'];
@@ -147,8 +198,6 @@ function row(name, actual, expected, rule) {
   const { buildSidingMeasurementGraph } = await import('../functions/utils/sidingMeasurementGraph.js');
   const { cornersFromElevationPhotos } = await import('../src/utils/footprintCorners.js');
   const { resolveRoofWaste } = await import('../src/utils/roofWaste.js');
-  const { calculateSidingWaste } = await import('../src/utils/sidingWaste.js');
-  const { generateSidingReportHTML } = await import('../src/utils/generateSidingReportHTML.js');
 
   const HT = 18;
   const face = (wall_face, wall_width_ft, extra = {}) => ({

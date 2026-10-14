@@ -95,6 +95,19 @@ function seg(eastFt, northFt, azimuth, A = 12, B = 30) {
     assert.deepEqual(unresolvedResult.linears, heuristic);
   }
 
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const recorded = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'hover-roof-5688-gemini-ct.json'), 'utf8'));
+  const gemini = buildRoofFacetsFromSolarSegments(recorded.solar.solarPotential.roofSegmentStats);
+  const geminiTotals = computeEdgeTotals(gemini);
+  const geminiResult = reconcileRoofLinearsWithFacetEdges({
+    ridge_lf: 20, hip_lf: 80, valley_lf: 0, rake_lf: 0, eave_lf: 197,
+  }, geminiTotals, gemini);
+  assert.equal(geminiResult.trace_quality.usable, true);
+  assert.equal(geminiResult.source, 'roof_facet_edges');
+  assert.equal(geminiResult.linears.valley_lf, 0);
+  assert.ok(Math.abs((geminiResult.linears.eave_lf + geminiResult.linears.rake_lf) - 284.2) < 0.2);
+
   console.log('roof linear authority: all assertions passed');
 })().catch(error => {
   console.error(error);
