@@ -4714,8 +4714,7 @@ const server = http.createServer(async (req, res) => {
       const tokenResp = await fetch('https://hover.to/oauth/token', { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: `${appUrl}/api/hover-callback`, client_id: process.env.HOVER_CLIENT_ID || '', client_secret: process.env.HOVER_CLIENT_SECRET || '' }) });
       const tokens = await tokenResp.json();
       if (!tokenResp.ok || !tokens.access_token || !tokens.refresh_token) throw new Error('HOVER authorization failed');
-      const encrypt = (raw) => { const key = Buffer.from(process.env.ENCRYPTION_KEY || '', 'hex'); const iv = crypto.randomBytes(12); const cipher = crypto.createCipheriv('aes-256-gcm', key, iv); const body = Buffer.concat([cipher.update(raw, 'utf8'), cipher.final()]); return `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${body.toString('hex')}`; };
-      const data = { access_token_enc: encrypt(tokens.access_token), refresh_token_enc: encrypt(tokens.refresh_token), token_expires_at: new Date(Date.now() + Number(tokens.expires_in || 3600) * 1000).toISOString(), connected_by: inner.user_email, connected_at: new Date().toISOString(), status: 'connected', is_connected: true };
+      const data = { access_token_enc: prodDb.encryptApiKey(tokens.access_token), refresh_token_enc: prodDb.encryptApiKey(tokens.refresh_token), token_expires_at: new Date(Date.now() + Number(tokens.expires_in || 3600) * 1000).toISOString(), connected_by: inner.user_email, connected_at: new Date().toISOString(), status: 'connected', is_connected: true };
       const found = await pool.query(`SELECT id FROM generic_entities WHERE entity_type='HoverOAuthConnection' AND company_id=$1 LIMIT 1`, [inner.company_id]);
       if (found.rows[0]) await pool.query(`UPDATE generic_entities SET data=$1, updated_date=NOW() WHERE id=$2`, [JSON.stringify(data), found.rows[0].id]);
       else await pool.query(`INSERT INTO generic_entities (id,company_id,entity_type,data,created_date,updated_date) VALUES ($1,$2,'HoverOAuthConnection',$3,NOW(),NOW())`, [`hover_oauth_${inner.company_id}`, inner.company_id, JSON.stringify(data)]);
@@ -12951,6 +12950,12 @@ lexiWss.on('connection', async (clientWs, req) => {
 
 prodDb.initDatabase().then(async () => {
   console.log('[Production] Local database ready');
+  try {
+    const { reencryptStoredSecrets } = require('./lib/reencryptSecrets.cjs');
+    await reencryptStoredSecrets(prodDb.getPool());
+  } catch (e) {
+    console.warn('[reencrypt] skipped:', e.message);
+  }
   try {
     const pool = prodDb.getPool();
     const { rows } = await pool.query(

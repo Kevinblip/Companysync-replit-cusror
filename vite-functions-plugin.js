@@ -2216,32 +2216,12 @@ const SMTP_AUTO_DETECT_MAP = {
   'verizon.net': { host: 'smtp.verizon.net', port: 465, encryption: 'SSL/TLS' },
 };
 
-function getEncryptionKey() {
-  return nodeRequire('./lib/startupSecrets.cjs').requireEncryptionKey();
-}
-
 function encryptApiKey(rawKey) {
-  if (!rawKey) return null;
-  const key = getEncryptionKey();
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  let encrypted = cipher.update(rawKey, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  const authTag = cipher.getAuthTag().toString('hex');
-  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+  return nodeRequire('./lib/encryption.cjs').encryptApiKey(rawKey);
 }
 
 function decryptApiKey(encrypted) {
-  if (!encrypted) return null;
-  const parts = encrypted.split(':');
-  if (parts.length !== 3) throw new Error('Invalid encrypted key format');
-  const [ivHex, authTagHex, ciphertext] = parts;
-  const key = getEncryptionKey();
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
-  decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
-  let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
+  return nodeRequire('./lib/encryption.cjs').decryptApiKey(encrypted);
 }
 
 function maskApiKey(raw) {

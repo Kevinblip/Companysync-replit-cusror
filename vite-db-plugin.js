@@ -1567,6 +1567,9 @@ export default function dbPlugin() {
           dbReady = true;
           databaseInitAttempts = 0;
           console.log('[DB Plugin] Database ready');
+          nodeRequire('./lib/reencryptSecrets.cjs').reencryptStoredSecrets(getPool()).catch((error) => {
+            console.warn('[reencrypt] skipped:', error.message);
+          });
 
           (async () => {
             try {
