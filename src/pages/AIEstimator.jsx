@@ -1147,8 +1147,11 @@ export default function AIEstimator() {
   const [showTrainingLibrary, setShowTrainingLibrary] = useState(false);
   // UX: roof card detail collapse (primary metrics always visible; linears/validation/notes behind toggle)
   const [showRoofDetails, setShowRoofDetails] = useState(false);
-  // UX: customer & claim info accordion (auto-collapses when an existing contact is selected)
-  const [showCustomerInfo, setShowCustomerInfo] = useState(true);
+  // Customer fields start closed. Picking a saved contact fills them and keeps them closed.
+  const [showCustomerInfo, setShowCustomerInfo] = useState(false);
+  const [showSidingSetup, setShowSidingSetup] = useState(false);
+  const [showMeasureHelp, setShowMeasureHelp] = useState(false);
+  const [showQuickAddons, setShowQuickAddons] = useState(false);
   const [isMerging, setIsMerging] = useState(false);
 
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -10657,7 +10660,7 @@ ${insuranceSettlementPrompt}`,
                 <Sparkles className="w-8 h-8 text-purple-600" />
                 {t.sidebar.aiEstimator}
               </h1>
-              <p className="text-gray-500 mt-1">Upload any report or use satellite measurements to generate estimates</p>
+              <p className="text-sm text-gray-500 mt-1">Start from a report you already have, or measure the property from satellite.</p>
             </div>
             <div className="flex gap-2 flex-wrap justify-end items-center">
               {estimateHistory.length > 0 && (
@@ -10696,90 +10699,103 @@ ${insuranceSettlementPrompt}`,
             </div>
           </div>
 
-          <Card className="mt-4 bg-gradient-to-r from-blue-50 to-purple-50">
-            <CardContent className="p-4">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                <div className="flex items-center gap-2 flex-1">
-                  <span className="text-sm font-semibold text-gray-700">{t.estimates.customer}:</span>
-                  <Select value={selectedFormatId || ''} onValueChange={handleFormatChange}>
-                    <SelectTrigger className="w-full sm:w-64">
-                      <SelectValue placeholder="Auto (based on pricing)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">None (Default)</SelectItem>
-                      {formats.map(format => (
-                        <SelectItem key={format.id} value={format.id}>
-                          {format.format_name} {format.insurance_company ? `(${format.insurance_company})` : ''}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-gray-700">{t.common.amount}:</span>
-                  <Select value={pricingSource} onValueChange={handlePricingSourceChange}>
-                    <SelectTrigger className="w-full sm:w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="xactimate_new">Xactimate</SelectItem>
-                      <SelectItem value="symbility">Symbility</SelectItem>
-                      <SelectItem value="custom">Custom</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <label className="mt-3 flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700">
-                Siding material:
-                <select
-                  aria-label="Confirm siding material"
-                  value={confirmedSidingMaterial}
-                  onChange={e => {
-                    setConfirmedSidingMaterial(e.target.value);
-                    setManualSidingForm(prev => ({ ...prev, siding_material: e.target.value }));
-                  }}
-                  className="rounded-md border border-gray-300 bg-white px-3 py-2"
-                >
-                  <option value="">Use identified material / select if unknown</option>
-                  <option value="vinyl">Vinyl</option>
-                  <option value="aluminum">Aluminum</option>
-                </select>
-                <span className="text-xs font-normal text-gray-500">Used when building siding items; changing this does not overwrite existing prices.</span>
-              </label>
-              {lineItems.some(item => item.pricing_scope === 'siding') && (
-                <Button type="button" variant="outline" size="sm"
-                  onClick={handleApplySidingCatalogPrices}
-                  disabled={!confirmedSidingMaterial || isPriceListLoading || isProcessing}>
-                  Apply catalog prices to draft
-                </Button>
-              )}
-            </CardContent>
-          </Card>
         </div>
 
-        <Card className="mb-6">
-          <CardContent className="p-4">
-            <Tabs value={selectedMode} onValueChange={setSelectedMode}>
-              <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger
-                    value="document"
-                    className="flex items-center gap-2"
-                    onClick={() => {
-                      if (selectedMode === 'document') fileInputRef.current?.click();
+        <div className="mb-4 space-y-2">
+          <Tabs value={selectedMode} onValueChange={setSelectedMode}>
+            <TabsList className="grid w-full grid-cols-2 h-11">
+                <TabsTrigger
+                  value="document"
+                  className="flex items-center gap-2"
+                  onClick={() => {
+                    if (selectedMode === 'document') fileInputRef.current?.click();
+                  }}
+                >
+                  <FileText className="w-4 h-4" />
+                  I already have a report
+                </TabsTrigger>
+                <TabsTrigger value="satellite" className="flex items-center gap-2">
+                  <Satellite className="w-4 h-4" />
+                  {t.estimates.measureFromSatellite}
+                </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {!currentEstimate && (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 shrink-0">Format</span>
+                <Select value={selectedFormatId || ''} onValueChange={handleFormatChange}>
+                  <SelectTrigger className="w-full sm:w-64 h-9">
+                    <SelectValue placeholder="Auto (based on pricing)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None (Default)</SelectItem>
+                    {formats.map(format => (
+                      <SelectItem key={format.id} value={format.id}>
+                        {format.format_name} {format.insurance_company ? `(${format.insurance_company})` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 shrink-0">Pricing</span>
+                <Select value={pricingSource} onValueChange={handlePricingSourceChange}>
+                  <SelectTrigger className="w-full sm:w-40 h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="xactimate_new">Xactimate</SelectItem>
+                    <SelectItem value="symbility">Symbility</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowSidingSetup(v => !v)}
+              className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900"
+              data-testid="toggle-siding-setup"
+            >
+              <ChevronDown className={`w-3.5 h-3.5 mr-1 transition-transform ${showSidingSetup ? '' : '-rotate-90'}`} />
+              Siding material
+              {confirmedSidingMaterial ? <span className="ml-1 text-gray-400">· {confirmedSidingMaterial}</span> : null}
+            </button>
+            {(showSidingSetup || lineItems.some(item => item.pricing_scope === 'siding')) && (
+              <div className="mt-2 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700">
+                  Siding material
+                  <select
+                    aria-label="Confirm siding material"
+                    value={confirmedSidingMaterial}
+                    onChange={e => {
+                      setConfirmedSidingMaterial(e.target.value);
+                      setManualSidingForm(prev => ({ ...prev, siding_material: e.target.value }));
                     }}
+                    className="rounded-md border border-gray-300 bg-white px-3 py-2"
                   >
-                    <FileText className="w-4 h-4" />
-                    I already have a report
-                  </TabsTrigger>
-                  <TabsTrigger value="satellite" className="flex items-center gap-2">
-                    <Satellite className="w-4 h-4" />
-                    {t.sidebar.stormTracking}
-                  </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </CardContent>
-        </Card>
+                    <option value="">Use identified material / select if unknown</option>
+                    <option value="vinyl">Vinyl</option>
+                    <option value="aluminum">Aluminum</option>
+                  </select>
+                  <span className="text-xs font-normal text-gray-500">Used when building siding items. Changing this does not change prices already on the estimate.</span>
+                </label>
+                {lineItems.some(item => item.pricing_scope === 'siding') && (
+                  <Button type="button" variant="outline" size="sm" className="mt-2"
+                    onClick={handleApplySidingCatalogPrices}
+                    disabled={!confirmedSidingMaterial || isPriceListLoading || isProcessing}>
+                    Apply catalog prices to draft
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
 
         <Dialog open={showConfig} onOpenChange={setShowConfig}>
           <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
@@ -12524,15 +12540,8 @@ ${insuranceSettlementPrompt}`,
         </Dialog>
 
         <div className="space-y-6">
-          {selectedMode === "document" && (
-            <Card className="bg-white shadow-lg">
-              <CardHeader className="bg-gradient-to-r from-blue-600 to-purple-600 text-white">
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="w-5 h-5" />
-                  Document Upload Mode
-                </CardTitle>
-              </CardHeader>
-
+          {selectedMode === "document" && (!currentEstimate || uploadedFiles.length > 0 || isProcessing || isInsuranceJob || linkedInspectionJobId) && (
+            <Card className="bg-white shadow-sm border border-gray-200">
               <CardContent className="p-0">
                 {uploadedFiles.length > 0 && !isProcessing && (
                   <div className="p-4 border-b bg-gradient-to-r from-green-50 to-blue-50 flex items-center justify-between">
@@ -12781,6 +12790,8 @@ ${insuranceSettlementPrompt}`,
                       )}
                     </div>
                   )}
+                  {!currentEstimate && (
+                  <>
                   <form onSubmit={handleSendMessage} className="flex gap-2">
                     <input
                       ref={fileInputRef}
@@ -12812,7 +12823,7 @@ ${insuranceSettlementPrompt}`,
                       {isRecordingVoice ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                     </Button>
                     <Input
-                      placeholder={isRecordingVoice ? '🎤 Listening… speak naturally' : 'Upload file, type, or tap mic to talk...'}
+                      placeholder={isRecordingVoice ? '🎤 Listening… speak naturally' : 'Upload a report, or describe the job'}
                       value={userInput}
                       onChange={(e) => setUserInput(e.target.value)}
                       disabled={isProcessing || uploadedFiles.length > 0}
@@ -12833,10 +12844,10 @@ ${insuranceSettlementPrompt}`,
                       Recording — tap mic again to stop and send to AI
                     </div>
                   )}
-                  {!currentEstimate && (
-                    <div className="mt-2 text-sm text-gray-500">
-                      Upload a document (e.g., HOVER, Xactimate PDF) or type a message to start an estimate.
-                    </div>
+                  <div className="mt-2 text-sm text-gray-500">
+                    HOVER, EagleView, Xactimate, or a photo. You can also type or use the mic.
+                  </div>
+                  </>
                   )}
                   {!currentEstimate && lineItems.length === 0 && (
                     <div className="mt-3 flex items-center justify-center gap-2 border-t pt-3">
@@ -12867,15 +12878,8 @@ ${insuranceSettlementPrompt}`,
 
           {selectedMode === "satellite" && (
             <div className="space-y-6">
-              <Card className="bg-white shadow-lg">
-                <CardHeader className="bg-gradient-to-r from-green-600 to-blue-600 text-white">
-                  <CardTitle className="flex items-center gap-2">
-                    <Satellite className="w-5 h-5" />
-                    AI Satellite Measurement
-                  </CardTitle>
-                </CardHeader>
-
-                <CardContent className="p-3 sm:p-6 space-y-6">
+              <Card className="bg-white shadow-sm border border-gray-200">
+                <CardContent className="p-3 sm:p-6 space-y-4">
                   {!googleMapsLoaded && !googleMapsError && (
                     <div className="text-center py-12">
                       <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
@@ -13036,55 +13040,56 @@ ${insuranceSettlementPrompt}`,
                         initialAddress={satelliteAddress?.address || customerInfo.property_address || ''} // Pre-fill from satellite or customer address
                       />
                       
-                      <div className="mt-4 space-y-4">
-                        <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-4 border border-purple-200">
-                          <h4 className="font-semibold flex items-center gap-2 mb-3">
-                            <Sparkles className="w-4 h-4 text-purple-600" />
-                            Measurement API:
-                          </h4>
-                          <Select value={measurementAPI} onValueChange={(val) => {
-                            setMeasurementAPI(val);
-                            localStorage.setItem('aiEstimatorMeasurementAPI', val);
-                          }}>
-                            <SelectTrigger className="w-full bg-white">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="google_solar">
-                                <div className="flex items-center gap-2">
-                                  <span>🌐 Google Solar API</span>
-                                </div>
-                              </SelectItem>
-                              <SelectItem value="gemini_vision">
-                                <div className="flex items-center gap-2">
-                                  <span>✨ Gemini Vision (Experimental)</span>
-                                </div>
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <p className="text-xs text-gray-600 mt-2">
-                            {measurementAPI === 'gemini_vision' 
-                              ? '✨ Uses AI vision to analyze satellite images for more accurate ridge/hip/valley detection' 
-                              : '🌐 Uses Google Solar API for fast automated measurements'}
-                          </p>
-                        </div>
-
-                        <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-4 border border-purple-200">
-                          <h4 className="font-semibold flex items-center gap-2 mb-2">
-                            <Sparkles className="w-4 h-4 text-purple-600" />
-                            {t.estimates.twoWaysToMeasure}
-                          </h4>
-                          <div className="space-y-2 text-sm text-gray-700">
-                            <div className="flex items-start gap-2">
-                              <span className="font-bold text-purple-600">1️⃣ {t.estimates.aiAutoDetect}:</span>
-                              <span>Fast (30-60s) but may need manual review</span>
+                      <div className="mt-3">
+                        <p className="text-sm text-gray-600">
+                          Confirm the address, then choose automatic measurement or draw the roof yourself.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setShowMeasureHelp(v => !v)}
+                          className="mt-1 inline-flex items-center text-sm font-medium text-purple-700 hover:text-purple-900"
+                          data-testid="toggle-measure-help"
+                        >
+                          <ChevronDown className={`w-3.5 h-3.5 mr-1 transition-transform ${showMeasureHelp ? '' : '-rotate-90'}`} />
+                          Measurement options
+                        </button>
+                        {showMeasureHelp && (
+                          <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-3">
+                            <div>
+                              <Label className="text-xs font-semibold text-gray-600 mb-1 block">Measurement API</Label>
+                              <Select value={measurementAPI} onValueChange={(val) => {
+                                setMeasurementAPI(val);
+                                localStorage.setItem('aiEstimatorMeasurementAPI', val);
+                              }}>
+                                <SelectTrigger className="w-full bg-white">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="google_solar">
+                                    <div className="flex items-center gap-2">
+                                      <span>Google Solar API</span>
+                                    </div>
+                                  </SelectItem>
+                                  <SelectItem value="gemini_vision">
+                                    <div className="flex items-center gap-2">
+                                      <span>Gemini Vision (Experimental)</span>
+                                    </div>
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-gray-600 mt-2">
+                                {measurementAPI === 'gemini_vision'
+                                  ? 'Uses AI vision on the satellite image for ridge, hip, and valley lines.'
+                                  : 'Uses Google Solar for a fast automatic measurement.'}
+                              </p>
                             </div>
-                            <div className="flex items-start gap-2">
-                              <span className="font-bold text-blue-600">2️⃣ {t.estimates.manualDrawing}:</span>
-                              <span>{t.estimates.manualDrawingDesc}</span>
+                            <div className="text-sm text-gray-700 space-y-1">
+                              <p className="font-medium text-gray-800">{t.estimates.twoWaysToMeasure}</p>
+                              <p><span className="font-medium">{t.estimates.aiAutoDetect}.</span> Fast (30-60s). Review the result before you send it.</p>
+                              <p><span className="font-medium">{t.estimates.manualDrawing}.</span> {t.estimates.manualDrawingDesc}</p>
                             </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -17957,7 +17962,8 @@ ${insuranceSettlementPrompt}`,
 
 
                 {/* Chat History Display */}
-                <div className="h-[300px] overflow-y-auto p-6 space-y-4">
+                {(messages.length > 0 || isProcessing || isAnalyzing) && (
+                <div className="max-h-[220px] overflow-y-auto p-4 space-y-3 border-b">
                   {messages.map((msg, idx) => (
                     <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[80%] rounded-lg p-4 ${
@@ -18009,9 +18015,11 @@ ${insuranceSettlementPrompt}`,
                   )}
                   <div ref={messagesEndRef} />
                 </div>
+                )}
 
                 {/* Message Input */}
                 <div className="p-4 bg-white">
+                  <p className="text-xs font-medium text-gray-500 mb-2">Change this estimate</p>
                   {isInsuranceJob && (
                     <div data-testid="badge-insurance-mode-satellite" className="flex items-center gap-1.5 mb-2 px-3 py-1.5 bg-orange-50 border border-orange-200 rounded-lg w-fit">
                       <span className="text-orange-600 text-xs font-semibold">🏷️ Insurance Mode ON</span>
@@ -18041,7 +18049,7 @@ ${insuranceSettlementPrompt}`,
                       </>
                     )}
                     <Input
-                      placeholder={t.ai.askQuestion}
+                      placeholder="Change a price, add an item, or ask a question"
                       value={userInput}
                       onChange={(e) => setUserInput(e.target.value)}
                       disabled={isProcessing}
@@ -18057,6 +18065,16 @@ ${insuranceSettlementPrompt}`,
                   </form>
                   {lineItems.length > 0 && (
                     <div className="mt-2 space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowQuickAddons(v => !v)}
+                        className="inline-flex items-center text-xs font-medium text-gray-600 hover:text-gray-900"
+                        data-testid="toggle-quick-addons"
+                      >
+                        <ChevronDown className={`w-3.5 h-3.5 mr-1 transition-transform ${showQuickAddons ? '' : '-rotate-90'}`} />
+                        Common add-ons
+                      </button>
+                      {showQuickAddons && (
                       <div className="flex flex-wrap gap-1.5" data-testid="quick-action-chips">
                         {[
                           { label: 'Dumpster', cmd: 'add dumpster' },
@@ -18087,6 +18105,7 @@ ${insuranceSettlementPrompt}`,
                           </button>
                         ))}
                       </div>
+                      )}
                       {missingSuggestions.length > 0 && (
                         <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg" data-testid="missing-suggestions">
                           <div className="flex items-center gap-1 mb-1.5">
@@ -18135,7 +18154,7 @@ ${insuranceSettlementPrompt}`,
                     <div>
                       <CardTitle className="flex items-center gap-2">
                         <UserCircle className="w-5 h-5" />
-                        {t.sidebar.customers}
+                        {t.estimates.customer}
                       </CardTitle>
                     </div>
 
