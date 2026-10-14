@@ -610,6 +610,12 @@ try {
 }
 
 const BASE44_API_URL = process.env.BASE44_SARAH_API_URL || '';
+// Secrets come only from the environment (Replit Secrets / Railway variables).
+// They used to sit in .replit; warn loudly at boot if one is missing so a
+// host move cannot silently break encrypted credentials or bridge calls.
+for (const name of ['SESSION_SECRET', 'ENCRYPTION_KEY', 'DATABASE_URL', 'SARAH_BRIDGE_SECRET', 'LEXI_NATIVE_BRIDGE_SECRET']) {
+  if (!process.env[name]) console.warn(`[Startup] WARNING: ${name} is not set in the environment.`);
+}
 const BRIDGE_SECRET = process.env.SARAH_BRIDGE_SECRET || '';
 const DEFAULT_COMPANY_ID = '695944e3c1fb00b7ab716c6f';
 

@@ -1,0 +1,13 @@
+# Railway config-as-code for the CompanySync web app (ignored by Replit).
+# Replit keeps using .replit [deployment]; this file only affects Railway.
+[build]
+buildCommand = "npm run build"
+
+[deploy]
+# scripts/start-production.sh looks for Node inside Replit's /nix/store,
+# which does not exist on Railway, so start the server directly.
+startCommand = "node prod-server.cjs"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
