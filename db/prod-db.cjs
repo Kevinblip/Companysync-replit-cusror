@@ -208,6 +208,25 @@ async function initDatabase() {
       data JSONB DEFAULT '{}', synced_at TIMESTAMP DEFAULT NOW(),
       created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS caller_memories (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL,
+      phone_key TEXT NOT NULL,
+      customer_id TEXT,
+      lead_id TEXT,
+      contact_name TEXT,
+      summary TEXT NOT NULL DEFAULT '',
+      facts JSONB NOT NULL DEFAULT '{}',
+      recent_excerpt TEXT,
+      older_summary TEXT,
+      source_call_id TEXT,
+      word_count INTEGER,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE (company_id, phone_key)
+    );
+    CREATE INDEX IF NOT EXISTS caller_memories_company_customer_idx ON caller_memories (company_id, customer_id);
+    CREATE INDEX IF NOT EXISTS caller_memories_company_lead_idx ON caller_memories (company_id, lead_id);
     CREATE TABLE IF NOT EXISTS call_routing_cache (
       phone_number TEXT PRIMARY KEY, company_id TEXT, company_name TEXT,
       assistant_name TEXT DEFAULT 'Alex', routing_mode TEXT DEFAULT 'sarah_answers',
