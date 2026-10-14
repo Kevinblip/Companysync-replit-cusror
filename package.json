@@ -46,6 +46,7 @@
     "test:lexi-double-booking-confirmation": "node scripts/test-lexi-double-booking-confirmation.cjs",
     "test:lexi-build-confirmation": "node scripts/test-lexi-build-confirmation.cjs",
     "test:teammate-name-match": "node scripts/test-teammate-name-match.cjs",
+    "test:spoken-brand-name": "node scripts/test-spoken-brand-name.cjs",
     "test:lexi-team-chat": "node scripts/test-lexi-team-chat.cjs",
     "test:siding-derived": "node scripts/test-siding-derived.cjs",
     "test:siding-area-consistency": "node scripts/test-siding-area-consistency.cjs",

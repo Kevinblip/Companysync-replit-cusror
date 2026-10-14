@@ -2637,6 +2637,26 @@ export default function Layout({ children, currentPageName }) {
                       </>
                     )}
 
+                    {sidebarModel.account.some((item) => item.source === 'subscription') && (
+                      <DropdownMenuItem
+                        data-testid="menu-item-plan-billing"
+                        onClick={() => navigate(createPageUrl('Pricing'))}
+                      >
+                        <CreditCard className="w-4 h-4 mr-2" />
+                        Plan & Billing
+                      </DropdownMenuItem>
+                    )}
+                    {sidebarModel.account.some((item) => item.source === 'feature-comparison') && (
+                      <DropdownMenuItem
+                        data-testid="menu-item-compare-plans"
+                        onClick={() => navigate(createPageUrl('FeatureComparison'))}
+                      >
+                        <Layers className="w-4 h-4 mr-2" />
+                        Compare Plans
+                      </DropdownMenuItem>
+                    )}
+                    {sidebarModel.account.length > 0 && <DropdownMenuSeparator />}
+
                     <DropdownMenuItem 
                       onClick={(e) => {
                         e.preventDefault();
@@ -2690,7 +2710,7 @@ export default function Layout({ children, currentPageName }) {
               >
                 {children}
               </div>
-              <MobileNav allNavItems={displayNavigationItems} sections={[...sidebarModel.sections, ...sidebarModel.footer]} onOpenSettings={() => { setShowSettingsMenu(true); setSidebarOpen(true); }} user={user} company={myCompany} myAssignmentsBadgeCount={myAssignmentsBadgeCount} myOpenTasksCount={myOpenTasksCount} myStaffProfile={myStaffProfile} />
+              <MobileNav allNavItems={displayNavigationItems} sections={[...sidebarModel.sections, ...sidebarModel.footer, ...(sidebarModel.account.length ? [{ id: "account", label: "Account", items: sidebarModel.account }] : [])]} onOpenSettings={() => { setShowSettingsMenu(true); setSidebarOpen(true); }} user={user} company={myCompany} myAssignmentsBadgeCount={myAssignmentsBadgeCount} myOpenTasksCount={myOpenTasksCount} myStaffProfile={myStaffProfile} />
               <FloatingActionButton company={myCompany} />
               <PwaInstallBanner />
             </>

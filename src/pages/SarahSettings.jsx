@@ -1259,11 +1259,11 @@ export default function SarahSettings() {
             className="mt-2"
             value={form.spoken_name}
             onChange={(e) => onChange('spoken_name', e.target.value)}
-            placeholder='e.g. spell it out like "A-B-C Roofing", or write it the way it sounds'
+            placeholder='e.g. "Y. I. C. N. Roofing" — periods make the voice say each letter'
             data-testid="input-spoken-name"
           />
           <p className="text-xs text-gray-500 mt-1">
-            Leave blank and we'll do our best automatically — short all-capital names like "ABC" are spelled out letter by letter ("A-B-C").
+            Leave blank and short all-capital names like "YICN" are spoken as separate letters ("Y. I. C. N.").
             Fill this in only if you want to control exactly how the voice pronounces your company name.
           </p>
         </div>

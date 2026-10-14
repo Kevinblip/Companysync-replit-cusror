@@ -4,6 +4,7 @@ import { applyEditorToLegacyMenu, applyNodeOrder, applySavedMenuToEditor, buildS
 function fullNavigation() {
   return [
     { id: "dashboard" },
+    { id: "my-assignments" },
     {
       id: "ai-tools",
       submenu: [
@@ -37,6 +38,7 @@ function fullNavigation() {
         { id: "items" },
         { id: "commissions" },
         { id: "family-commissions" },
+        { id: "rep-performance" },
       ],
     },
     {
@@ -62,6 +64,7 @@ function fullNavigation() {
         { id: "field-sales-tracker" },
         { id: "field-rep-app" },
         { id: "territory-manager" },
+        { id: "inspection-routing" },
         { id: "build-schedule" },
       ],
     },
@@ -73,15 +76,19 @@ function fullNavigation() {
         { id: "crewcam-capture" },
         { id: "ai-damage" },
         { id: "subcontractors" },
+        { id: "subcontractor-work-orders" },
+        { id: "labor-rates" },
         { id: "tasks" },
         { id: "review-requests" },
-        { id: "reminders" },
+        { id: "action-items" },
         { id: "projects" },
+        { id: "leaderboard" },
         { id: "activity" },
       ],
     },
     { id: "smart-glasses" },
     { id: "calendar" },
+    { id: "reminders" },
     {
       id: "communication",
       submenu: [
@@ -93,7 +100,11 @@ function fullNavigation() {
         { id: "ai-dashboard" },
         { id: "mailbox" },
         { id: "messages" },
+        { id: "team-chat" },
         { id: "zoom" },
+        { id: "google-meet" },
+        { id: "slack" },
+        { id: "google-chat" },
       ],
     },
     {
@@ -116,6 +127,7 @@ function fullNavigation() {
     },
     { id: "map" },
     { id: "knowledge-base" },
+    { id: "training-videos" },
     { id: "subscription" },
     { id: "feature-comparison" },
     { id: "coming-soon" },
@@ -152,6 +164,9 @@ const settingsItems = [
   { id: "integration-manager" },
   { id: "google-chat" },
   { id: "slack" },
+  { id: "marketing-videos" },
+  { id: "claims-audit" },
+  { id: "integrations-accounting" },
 ];
 
 function labels(nodes, acc = []) {
@@ -219,12 +234,34 @@ describe("sidebar model", () => {
     expect(labels(platform.items)).toContain("Competitor Analysis");
   });
 
-  it("does not invent pages that have no route", () => {
-    const all = model.pages.map((page) => page.label);
-    expect(all).not.toContain("Route Planner");
-    expect(all).not.toContain("Marketing Videos");
-    expect(all).not.toContain("Insurance Claim Audit");
-    expect(all).not.toContain("My Work");
+  it("keeps every live menu route reachable", () => {
+    const urls = new Set(model.pages.map((page) => page.url));
+    const liveRoutes = [
+      "/MyAssignments",
+      "/InspectionRouting",
+      "/MarketingVideos",
+      "/ClaimsAudit",
+      "/TrainingVideos",
+      "/RepPerformance",
+      "/SubcontractorWorkOrders",
+      "/LaborRates",
+      "/ActionItems",
+      "/Leaderboard",
+      "/TeamChat",
+      "/GoogleMeet",
+      "/SlackSettings",
+      "/GoogleChatSettings",
+      "/Reminders",
+      "/Pricing",
+      "/FeatureComparison",
+      "/Settings?tab=integrations",
+    ];
+    for (const url of liveRoutes) {
+      expect(urls.has(url), url).toBe(true);
+    }
+    expect(model.pages.map((page) => page.label)).not.toContain("My Work");
+    const training = model.pages.find((page) => page.label === "Training Videos");
+    expect(training.url).toBe("/TrainingVideos");
   });
 
   it("keeps accounting reports distinct from the reports section", () => {
@@ -267,8 +304,10 @@ describe("sidebar model", () => {
     ]);
     expect(tree[0].items.map((item) => item.title)).toEqual([
       "Dashboard",
+      "My Assignments",
       "Calendar",
       "Tasks",
+      "Action Items",
       "Reminders",
       "Team Activity",
     ]);
