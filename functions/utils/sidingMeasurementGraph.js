@@ -608,6 +608,12 @@ function buildWallFacets(perPhotoResults, dedupedOpenings, multiViewEvidence) {
       fused_height_ft: faceEvidence?.height_ft ?? null,
       height_range_ft: faceEvidence?.height_range_ft ?? null,
       contradictory_dimensions: faceEvidence?.contradictory_dimensions === true,
+      // A face is poor only when every photo of it is unusable. One clear
+      // elevation still measures the wall; a dark or blocked set does not.
+      elevation_poor: photos.length > 0 && photos.every((p) => {
+        if (p.elevation_usable === false || p.elevation_poor === true || p.occluded === true) return true;
+        return photoConfidence(p) < 0.5;
+      }),
       // Per-face cladding. The analyzer reads this off every photo, but the graph
       // used to drop it, so the 3D viewer had no way to tell a brick elevation
       // from a vinyl one and rendered every wall with the same lap texture.
@@ -678,6 +684,7 @@ function buildPhotoWallArea(wallFacets, agg) {
   const faces = {};
   const measured = [];
   const substituted = [];
+  const poorFaces = [];
   let area = 0;
   let prismPerimeter = 0;
   let measuredPerimeter = 0;
@@ -686,7 +693,10 @@ function buildPhotoWallArea(wallFacets, agg) {
     const facet = wallFacets.find((f) => f.face === face && !f.is_unknown);
     const width = num(facet?.wall_width_ft);
     const eave = num(facet?.eave_height_ft) || num(facet?.wall_height_ft);
-    if (facet && width > 0 && eave > 0) {
+    if (facet?.elevation_poor === true) poorFaces.push(face);
+    // A poor elevation is flagged and left off the photo total. Filling it
+    // from the footprint and calling the total measured would be a guess.
+    if (facet && width > 0 && eave > 0 && facet.elevation_poor !== true) {
       const gableRise = Math.max(0, num(facet.gable_rise_ft));
       const faceArea = round(width * eave + (width * gableRise) / 2, 2);
       faces[face] = {
@@ -767,15 +777,24 @@ function buildPhotoWallArea(wallFacets, agg) {
     delta_vs_extrusion_pct: deltaPct,
     within_sanity_band: withinBand,
     sanity_band_pct: PHOTO_HERO_SANITY_BAND_PCT,
-    usable: areaSqft > 0
-      && measured.length >= MIN_MEASURED_FACES_FOR_PHOTO_HERO
-      && withinBand
-      && coversFootprint
-      && !inflatesExtrusion,
+    // Four photographed elevations are the measurement. They override the
+    // footprint even when the box and the traced perimeter disagree. A missing
+    // elevation does not get to borrow the footprint and call itself measured.
+    poor_faces: poorFaces,
+    photo_overrides_footprint: measured.length >= 4 && areaSqft > 0
+      && !(withinBand && coversFootprint && !inflatesExtrusion),
+    usable: areaSqft > 0 && (
+      (measured.length >= MIN_MEASURED_FACES_FOR_PHOTO_HERO
+        && withinBand
+        && coversFootprint
+        && !inflatesExtrusion)
+      || measured.length >= 4
+    ),
   };
 }
 
-function buildOpeningGroupsAndComponents(dedupedOpenings, smallOpeningsInWaste) {
+function buildOpeningGroupsAndComponents(dedupedOpenings, smallOpeningsInWaste, minDeductibleSqft = MIN_DEDUCTIBLE_SQFT) {
+  const deductibleFloor = Number(minDeductibleSqft) === 33 ? 33 : MIN_DEDUCTIBLE_SQFT;
   const groups = [];
   const components = [];
 
@@ -785,7 +804,7 @@ function buildOpeningGroupsAndComponents(dedupedOpenings, smallOpeningsInWaste) 
       `${o.physical_identity || `${o.face}|${o.type}|${o.width_ft}|${o.height_ft}|${o.pos_x}|${o.pos_y}|${idx}`}`,
     )}`;
 
-    const deductible = smallOpeningsInWaste ? true : o.sqft >= MIN_DEDUCTIBLE_SQFT;
+    const deductible = smallOpeningsInWaste ? true : o.sqft >= deductibleFloor;
 
     const group = {
       id: gid,
@@ -1252,6 +1271,8 @@ function buildTotals(agg, groups, components, trim, counts) {
   const usePhotoHero = photoWallArea?.usable === true && num(photoWallArea.area_sqft) > 0;
   const gross = usePhotoHero ? round(num(photoWallArea.area_sqft), 2) : extrusionGross;
   const grossSource = usePhotoHero ? 'photo_wall_planes' : 'footprint_extrusion';
+  const measuredFaceCount = photoWallArea?.measured_faces?.length || 0;
+  const wallTotalQuality = usePhotoHero && measuredFaceCount >= 4 ? 'measured' : 'estimated';
   const accent = round(num(agg.accentDeductionSqft), 2);
   const materialMap = agg.materialMap && typeof agg.materialMap === 'object'
     ? agg.materialMap : null;
@@ -1379,6 +1400,9 @@ function buildTotals(agg, groups, components, trim, counts) {
     sanity_band_pct: SIDING_SANITY_BAND_PCT,
     within_sanity_band: sanityDeltaPct == null ? false : sanityDeltaPct <= SIDING_SANITY_BAND_PCT,
     sanity_review_required: sanityReviewRequired,
+    wall_total_quality: wallTotalQuality,
+    poor_faces: photoWallArea?.poor_faces ?? [],
+    photo_overrides_footprint: photoWallArea?.photo_overrides_footprint === true,
     accent_deduction_sqft: accent,
     masonry_area_sqft: materialFaces.length > 0
       ? round(materialFaces.reduce((sum, face) => sum + num(face.excluded_area_sqft), 0) * materialScale, 2)
@@ -1484,6 +1508,7 @@ export function buildSidingMeasurementGraph(input = {}) {
     _multi_view_evidence: multiViewEvidence.photos[index],
   }));
   const smallOpeningsInWaste = !!input.smallOpeningsInWaste;
+  const openingDeductMinSqft = Number(input.openingDeductMinSqft) === 33 ? 33 : MIN_DEDUCTIBLE_SQFT;
 
   const agg = {
     storyCount: input.storyCount,
@@ -1537,7 +1562,7 @@ export function buildSidingMeasurementGraph(input = {}) {
   const photoWallArea = buildPhotoWallArea(wallFacets, agg);
   agg.photoWallArea = photoWallArea;
   const { groups: openingGroups, components: openingComponents } =
-    buildOpeningGroupsAndComponents(dedupedOpenings, smallOpeningsInWaste);
+    buildOpeningGroupsAndComponents(dedupedOpenings, smallOpeningsInWaste, openingDeductMinSqft);
   const roofFacets = buildRoofFacets(input.roofFacets);
   const trimEdges = buildTrimEdges(openingGroups, agg.perimeterFt);
   const counts = buildCounts(openingGroups, openingComponents);

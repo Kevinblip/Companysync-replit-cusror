@@ -212,21 +212,26 @@ async function main() {
     offBy(shippedGross, HOVER.grossFacade) <= 0.05, { shippedGross, hoverGross: HOVER.grossFacade });
   check('Centuryway correct wall trace is accepted by the runtime gate',
     canOverride(HOVER.wallPerimeter));
-  check('Centuryway correct wall trace stays near 2,900 sqft through the real graph',
-    offBy(correctWallTrace.gross_wall_area_sqft, HOVER.grossFacade) <= 0.10,
-    { selectedGross: correctWallTrace.gross_wall_area_sqft, hoverGross: HOVER.grossFacade });
+  check('four elevations bill the photo wall and keep the wall-line extrusion near Hover',
+    correctWallTrace.gross_wall_area_source === 'photo_wall_planes'
+      && correctWallTrace.photo_overrides_footprint === true
+      && offBy(correctWallTrace.extrusion_wall_area_sqft, HOVER.grossFacade) <= 0.10,
+    { selectedGross: correctWallTrace.gross_wall_area_sqft, extrusion: correctWallTrace.extrusion_wall_area_sqft, hoverGross: HOVER.grossFacade });
   check('a rectangle candidate cannot replace OSM even when its perimeter is close',
     !canOverride(HOVER.wallPerimeter, 'rectangle_estimate'));
   check('294 ft roof drip edge would materially inflate gross wall area',
     unsafeRoofEdgeGross > HOVER.grossFacade * 1.35, { unsafeRoofEdgeGross, hoverGross: HOVER.grossFacade });
   check('Centuryway roof drip edge is rejected by the runtime gate',
     !canOverride(HOVER.roofDripEdge));
-  check('rejected roof drip edge keeps shipped gross area through the real graph',
-    unsafeRoofEdgeTrace.gross_wall_area_sqft === shippedGross,
-    { selectedGross: unsafeRoofEdgeTrace.gross_wall_area_sqft, shippedGross });
+  check('rejected roof drip edge keeps the shipped extrusion under the photo wall',
+    unsafeRoofEdgeTrace.extrusion_wall_area_sqft === shippedGross
+      && unsafeRoofEdgeTrace.gross_wall_area_source === 'photo_wall_planes',
+    { selectedGross: unsafeRoofEdgeTrace.gross_wall_area_sqft, extrusion: unsafeRoofEdgeTrace.extrusion_wall_area_sqft, shippedGross });
   check('today over-reports vs Hover', today > HOVER.siding, { today });
   check('perimeter-only alone OVER-shoots badly', offBy(wallLineOnly, HOVER.siding) > 0.20, { wallLineOnly });
-  check('perimeter-only is WORSE than shipping nothing', offBy(wallLineOnly, HOVER.siding) > offBy(today, HOVER.siding));
+  check('a longer footprint extrusion is farther from the Hover facade than the shipped extrusion',
+    offBy(run(HOVER.wallPerimeter, 0).extrusion_wall_area_sqft, HOVER.grossFacade)
+      > offBy(run(SHIPPED.perimeter, 0).extrusion_wall_area_sqft, HOVER.grossFacade));
   check('realistic masonry does not erase half the wall',
     run(HOVER.wallPerimeter, BENCHMARK_MASONRY_PCT).siding_share_pct >= 78,
     { sidingShare: run(HOVER.wallPerimeter, BENCHMARK_MASONRY_PCT).siding_share_pct });
@@ -235,8 +240,9 @@ async function main() {
     { realistic: masonryOnlyAtWallLine, wrong50: run(HOVER.wallPerimeter, 50).net_siding_area_sqft });
   check('masonry correction improves the quote without a roof-edge perimeter increase',
     offBy(masonryOnly, HOVER.siding) < offBy(today, HOVER.siding), { masonryOnly, today });
-  check('using the correct wall line remains far safer than using roof drip edge',
-    wallLineOnly < run(HOVER.roofDripEdge, 0).net_siding_area_sqft, { wallLineOnly });
+  check('the wall-line extrusion stays below a roof-drip extrusion',
+    run(HOVER.wallPerimeter, 0).extrusion_wall_area_sqft < run(HOVER.roofDripEdge, 0).extrusion_wall_area_sqft,
+    { wallLine: run(HOVER.wallPerimeter, 0).extrusion_wall_area_sqft, drip: run(HOVER.roofDripEdge, 0).extrusion_wall_area_sqft });
 
   console.log('   5c. the graph must still charge brick openings to brick');
   const t = run(HOVER.wallPerimeter, BENCHMARK_MASONRY_PCT);

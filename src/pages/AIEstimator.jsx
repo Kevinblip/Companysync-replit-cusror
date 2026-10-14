@@ -836,6 +836,21 @@ const normalizeEstimatorConfig = (saved = {}) => {
   return merged;
 };
 
+function elevationQualityNote(data) {
+  const quality = data?.wall_total_quality || data?.measurement_graph?.totals?.wall_total_quality || 'estimated';
+  const missing = data?.coverage?.missing_faces || data?.measurement_graph?.coverage?.missing_faces || [];
+  const poor = data?.poor_faces || data?.measurement_graph?.totals?.poor_faces || [];
+  const faceName = (face) => String(face).replace(/_/g, ' ');
+  const parts = [
+    quality === 'measured'
+      ? 'Wall total is measured from all four elevations.'
+      : 'Wall total is estimated.',
+  ];
+  if (missing.length) parts.push(`Missing elevation: ${missing.map(faceName).join(', ')}.`);
+  if (poor.length) parts.push(`Poor elevation, not used: ${poor.map(faceName).join(', ')}.`);
+  return parts.join(' ');
+}
+
 export default function AIEstimator() {
   usePageGuard({ feature: 'ai_estimator' });
   const { t } = useTranslation();
@@ -946,6 +961,9 @@ export default function AIEstimator() {
       sessionStorage.setItem(HOUSE_PHOTOS_STORAGE_KEY, JSON.stringify({ scope: housePhotosScope, photos: persistable }));
     } catch { /* storage full/unavailable — persistence is best-effort */ }
   }, [housePhotos, housePhotosScope]);
+  // Openings smaller than this stay in the waste factor instead of being deducted.
+  const [openingDeductMinSqft, setOpeningDeductMinSqft] = useState(20);
+  const [sidingWasteOverridePct, setSidingWasteOverridePct] = useState('');
   const [calibratingLabel, setCalibratingLabel] = useState(null); // photo label being calibrated
   const [doorDetecting, setDoorDetecting] = useState(null);       // label currently running door detection
   const calibDraftRef = useRef(null); // live { eaveFt, gableFt, calibration } from the canvas
@@ -2514,6 +2532,9 @@ Choose your mode: Upload documents OR use satellite measurements!`,
         // when the image on screen differs from Google Solar's measurement
         // model so it cannot present that model as if it measured the overlay.
         imagery_source: 'google',
+        ...(satelliteAnalysis?.waste_override_pct != null
+          ? { waste_override_pct: satelliteAnalysis.waste_override_pct }
+          : {}),
       });
       // Function invokes can remain pending when an upstream imagery request
       // stalls. Recover the UI rather than leaving this screen spinning forever.
@@ -2552,7 +2573,14 @@ Choose your mode: Upload documents OR use satellite measurements!`,
         // Capture new fields
         final_order_quantity_sq: response.data.final_order_quantity_sq,
         waste_percentage: response.data.waste_percentage,
+        waste_recommended_pct: response.data.waste_recommended_pct,
+        waste_override_pct: response.data.waste_override_pct,
         waste_reason: response.data.waste_reason,
+        ridge_count: response.data.ridge_count || 0,
+        hip_count: response.data.hip_count || 0,
+        valley_count: response.data.valley_count || 0,
+        rake_count: response.data.rake_count || 0,
+        eave_count: response.data.eave_count || 0,
         warning_message: response.data.warning_message,
         measurement_ready: response.data.measurement_ready !== false,
         requires_manual_review: response.data.requires_manual_review === true,
@@ -3003,6 +3031,10 @@ Choose your mode: Upload documents OR use satellite measurements!`,
           structure_type: isGarageStructure ? 'garage' : 'house',
           ...(roofEaveLf > 0 ? { known_perimeter_ft: roofEaveLf } : {}),
           ...(satelliteAnalysis?.roof_facets?.length ? { roof_facets: satelliteAnalysis.roof_facets } : {}),
+          opening_deduct_min_sqft: Number(openingDeductMinSqft) === 33 ? 33 : 20,
+          ...(String(sidingWasteOverridePct).trim() !== '' && Number.isFinite(Number(sidingWasteOverridePct))
+            ? { siding_waste_override_pct: Math.max(10, Number(sidingWasteOverridePct)) }
+            : {}),
         });
         const data = validatePhotoSidingResponse(response);
         // Surface which Street View angles were used as-is, recaptured after a
@@ -3122,7 +3154,7 @@ Choose your mode: Upload documents OR use satellite measurements!`,
 
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `✅ **Siding measured — ${measurementHeadline}**\n\n${wallProvenance.detail}\n${footprintSource}\n\n📐 **Wall Area:** ${data.wall_area_sq?.toFixed(2)} SQ (${data.wall_area_sqft?.toLocaleString()} sqft)\n🏠 **${heightSummary}** | ${data.window_assemblies_count ?? data.windows_count ?? 0} window assemblies | ${data.window_units_count ?? data.windows_count ?? 0} window units | ${data.doors_count || 0} doors${data.garage_door_count > 0 ? ` | ${data.garage_door_count} garage door(s)` : ''}\n${data.trim_totals ? `📏 **Trim:** J-channel ${data.trim_totals.j_channel_lf} LF | Starter ${data.trim_totals.starter_strip_lf} LF | Corners ${(data.trim_totals.outside_corner_lf || 0) + (data.trim_totals.inside_corner_lf || 0)} LF\n` : ''}🎨 **Material:** ${data.siding_material || 'unknown'} (${data.siding_condition || 'unknown'})\n📊 **Confidence:** Grade ${data.confidence_grade} ${data.overall_confidence}% (±${data.tolerance_pct}%)${data.sanity_review_required ? '\n⚠️ **SANITY-REVIEW:** photo siding and footprint sanity differ by more than 25%.' : ''}\n\n${autoBuild ? 'Line items populated. Use **"Build Siding Estimate"** to rebuild with adjusted measurements.' : '✏️ **Review the Measurement Summary below. Correct any numbers, then tap "Build Siding Estimate".**'}`,
+          content: `✅ **Siding measured — ${measurementHeadline}**\n\n${wallProvenance.detail}\n${elevationQualityNote(data)}\n${footprintSource}\n\n📐 **Wall Area:** ${data.wall_area_sq?.toFixed(2)} SQ (${data.wall_area_sqft?.toLocaleString()} sqft)\n🏠 **${heightSummary}** | ${data.window_assemblies_count ?? data.windows_count ?? 0} window assemblies | ${data.window_units_count ?? data.windows_count ?? 0} window units | ${data.doors_count || 0} doors${data.garage_door_count > 0 ? ` | ${data.garage_door_count} garage door(s)` : ''}\n${data.trim_totals ? `📏 **Trim:** J-channel ${data.trim_totals.j_channel_lf} LF | Starter ${data.trim_totals.starter_strip_lf} LF | Corners ${(data.trim_totals.outside_corner_lf || 0) + (data.trim_totals.inside_corner_lf || 0)} LF\n` : ''}🎨 **Material:** ${data.siding_material || 'unknown'} (${data.siding_condition || 'unknown'})\n📊 **Confidence:** Grade ${data.confidence_grade} ${data.overall_confidence}% (±${data.tolerance_pct}%)${data.sanity_review_required ? '\n⚠️ **SANITY-REVIEW:** photo siding and footprint sanity differ by more than 25%.' : ''}\n\n${autoBuild ? 'Line items populated. Use **"Build Siding Estimate"** to rebuild with adjusted measurements.' : '✏️ **Review the Measurement Summary below. Correct any numbers, then tap "Build Siding Estimate".**'}`,
           timestamp: new Date().toISOString()
         }]);
 
@@ -3159,7 +3191,7 @@ Choose your mode: Upload documents OR use satellite measurements!`,
             });
             setMessages(prev => [...prev, {
               role: 'assistant',
-              content: `⚠️ **Siding estimated from roof footprint** — Solar API returned no wall data for this address.\n\n📐 **Estimated Wall Area:** ${fallback.wall_area_sq.toFixed(2)} SQ (${fallback.wall_area_sqft.toLocaleString()} sqft)\n📏 **Perimeter (from eave line):** ${fallback.perimeter_ft} LF\n🏠 **${fallback.story_count} stor${fallback.story_count === 1 ? 'y' : 'ies'} × ${fallback.story_height_ft}ft**\n📊 **Confidence: Grade D ±20%** — rough estimate only.\n\n💡 Street View wasn't available — enable the **Street View Static API** in Google Cloud Console to automatically add facade details to satellite estimates.`,
+              content: `⚠️ **Siding estimated from roof footprint** — Solar API returned no wall data for this address.\n\nWall total is estimated — this is not a four-elevation photo measurement.\n\n📐 **Estimated Wall Area:** ${fallback.wall_area_sq.toFixed(2)} SQ (${fallback.wall_area_sqft.toLocaleString()} sqft)\n📏 **Perimeter (from eave line):** ${fallback.perimeter_ft} LF\n🏠 **${fallback.story_count} stor${fallback.story_count === 1 ? 'y' : 'ies'} × ${fallback.story_height_ft}ft**\n📊 **Confidence: Grade D ±20%** — rough estimate only.\n\n💡 Street View wasn't available — enable the **Street View Static API** in Google Cloud Console to automatically add facade details to satellite estimates.`,
               timestamp: new Date().toISOString()
             }]);
             setIsSidingAnalyzing(false);
@@ -3191,7 +3223,7 @@ Choose your mode: Upload documents OR use satellite measurements!`,
         }
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `✅ **Siding measured from satellite only**\n\n${data.osm_perimeter_used ? '📍 **Perimeter: OpenStreetMap** (real building footprint)' : '📡 **Perimeter: Solar API** (derived from roof segments)'}\n\n📐 **Wall Area:** ${data.wall_area_sq?.toFixed(2)} SQ (${data.wall_area_sqft?.toLocaleString()} sqft)\n📏 **Perimeter:** ${data.perimeter_ft} LF${data.osm_perimeter_used && data.solar_perimeter_ft ? ` (OSM) vs ${data.solar_perimeter_ft} LF (Solar)` : ''}\n🏠 **Building:** ${data.building_length_ft}ft × ${data.building_width_ft}ft ${data.roof_type || ''}\n📊 **Confidence:** Grade ${data.confidence_grade} ${data.overall_confidence}% (±${data.tolerance_pct}%)\n\n💡 **No Street View or photos available** — story count and window deductions are estimated. Upload house photos or wait for Street View to load for better accuracy.`,
+          content: `✅ **Siding measured from satellite only**\n\nWall total is estimated — no elevation photos, so openings and wall area are not photo-measured.\n\n${data.osm_perimeter_used ? '📍 **Perimeter: OpenStreetMap** (real building footprint)' : '📡 **Perimeter: Solar API** (derived from roof segments)'}\n\n📐 **Wall Area:** ${data.wall_area_sq?.toFixed(2)} SQ (${data.wall_area_sqft?.toLocaleString()} sqft)\n📏 **Perimeter:** ${data.perimeter_ft} LF${data.osm_perimeter_used && data.solar_perimeter_ft ? ` (OSM) vs ${data.solar_perimeter_ft} LF (Solar)` : ''}\n🏠 **Building:** ${data.building_length_ft}ft × ${data.building_width_ft}ft ${data.roof_type || ''}\n📊 **Confidence:** Grade ${data.confidence_grade} ${data.overall_confidence}% (±${data.tolerance_pct}%)\n\n💡 **No Street View or photos available** — story count and window deductions are estimated. Upload house photos or wait for Street View to load for better accuracy.`,
           timestamp: new Date().toISOString()
         }]);
       }
@@ -3247,17 +3279,17 @@ Choose your mode: Upload documents OR use satellite measurements!`,
     const newPhotos = [];
     for (const file of Array.from(files)) {
       try {
-        const preview = URL.createObjectURL(file);
         const [exif_heading, perceptual_hash] = await Promise.all([
           extractBrowserExifHeading(file),
           computePhotoPerceptualHash(file),
         ]);
-        const normalizedFile = new File([file], file.name.replace(/\.[^.]+$/, m => m.toLowerCase()), { type: file.type });
-        const { file_url } = await base44.integrations.Core.UploadFile({ file: normalizedFile });
+        const prepared = await compressPhotoForUpload(file);
+        const preview = URL.createObjectURL(prepared);
+        const { file_url } = await base44.integrations.Core.UploadFile({ file: prepared });
         newPhotos.push({
           url: file_url,
           label: PHOTO_LABEL_OPTIONS[newPhotos.length] || 'Other',
-          name: file.name,
+          name: prepared.name,
           preview,
           source: 'manual',
           manually_assigned: true,
@@ -3268,31 +3300,67 @@ Choose your mode: Upload documents OR use satellite measurements!`,
         console.error('Photo upload error:', err);
       }
     }
-    setHousePhotos(prev => [...prev, ...newPhotos].slice(0, 8));
+    setHousePhotos(prev => [...prev, ...newPhotos].slice(0, 24));
     setIsUploadingPhotos(false);
+  };
+
+  const relabelHousePhoto = (fromLabel, toLabel) => {
+    if (!toLabel || fromLabel === toLabel) return;
+    setHousePhotos(prev => {
+      const moving = prev.find(photo => photo.label === fromLabel);
+      if (!moving) return prev;
+      const occupant = prev.find(photo => photo.label === toLabel);
+      return prev.map(photo => {
+        if (photo.label === fromLabel) {
+          return { ...photo, label: toLabel, manually_assigned: true, classification_review_required: false };
+        }
+        if (occupant && photo.label === toLabel) {
+          return { ...photo, label: fromLabel, manually_assigned: true };
+        }
+        return photo;
+      });
+    });
   };
 
   // Compress a photo to max 1920px JPEG before upload so live camera shots
   // (which can be 5-20 MB) don't time-out or abort on slow mobile connections.
-  const compressPhotoForUpload = (file, maxPx = 1920, quality = 0.82) =>
-    new Promise((resolve) => {
+  // iPhone HEIC files cannot be decoded by Image(), so convert them first.
+  const compressPhotoForUpload = async (file, maxPx = 1920, quality = 0.82) => {
+    let source = file;
+    const ext = (file?.name || '').toLowerCase().split('.').pop();
+    const isHeic = ext === 'heic' || ext === 'heif' || file?.type === 'image/heic' || file?.type === 'image/heif';
+    if (isHeic) {
+      try {
+        const { default: heic2any } = await import('heic2any');
+        const converted = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
+        const jpegBlob = Array.isArray(converted) ? converted[0] : converted;
+        const baseName = (file.name || 'photo').replace(/\.(heic|heif)$/i, '');
+        source = new File([jpegBlob], `${baseName}.jpg`, { type: 'image/jpeg' });
+      } catch (err) {
+        console.warn('HEIC conversion failed, uploading original:', err);
+      }
+    }
+    return new Promise((resolve) => {
       const img = new Image();
-      const blobUrl = URL.createObjectURL(file);
+      const blobUrl = URL.createObjectURL(source);
       img.onload = () => {
         URL.revokeObjectURL(blobUrl);
         const ratio = Math.min(maxPx / img.width, maxPx / img.height, 1);
         const canvas = document.createElement('canvas');
-        canvas.width = Math.round(img.width * ratio);
-        canvas.height = Math.round(img.height * ratio);
+        canvas.width = Math.max(1, Math.round(img.width * ratio));
+        canvas.height = Math.max(1, Math.round(img.height * ratio));
         canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
         canvas.toBlob(
-          blob => resolve(new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })),
+          blob => resolve(blob
+            ? new File([blob], (source.name || 'photo').replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })
+            : source),
           'image/jpeg', quality
         );
       };
-      img.onerror = () => { URL.revokeObjectURL(blobUrl); resolve(file); };
+      img.onerror = () => { URL.revokeObjectURL(blobUrl); resolve(source); };
       img.src = blobUrl;
     });
+  };
 
   const handleSlotPhotoSelect = async (file, slotLabel) => {
     if (!file) return;
@@ -3565,9 +3633,8 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       // it until the user explicitly changes it; after that the user's value wins.
       const storyCountOverride = isGarageMode ? 1
         : (storyCountUserOverride ? (Number(config.storyCount) || 1) : null);
-      const housePhotoRoofEaveLf = (!isGarageMode && satelliteAnalysis?.eave_lf > 0)
-        ? satelliteAnalysis.eave_lf
-        : 0;
+      // Photos-only does not inherit the aerial eave. That length is a
+      // footprint estimate and would scale the photo walls to the roof model.
 
       // Feed the already-evaluated satellite footprint dimensions into each
       // ground-level photo. Match the siding engine's existing geometry convention:
@@ -3646,15 +3713,16 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       // signal) → corner shots (depth info) → detail/other (least useful for area).
       const PRIMARY_FACES = ['Front', 'Back', 'Left Side', 'Right Side'];
       const CORNER_SHOTS  = ['FL Corner', 'FR Corner', 'BL Corner', 'BR Corner'];
-      const MAX_ANALYSIS_PHOTOS = 8;
+      const MAX_ANALYSIS_PHOTOS = 12;
       let photosForAnalysis = allPhotos;
       let photosCapped = false;
       if (allPhotos.length > MAX_ANALYSIS_PHOTOS) {
         const primary = allPhotos.filter(p => PRIMARY_FACES.includes(p.label));
         const corners = allPhotos.filter(p => CORNER_SHOTS.includes(p.label));
         const others  = allPhotos.filter(p => !PRIMARY_FACES.includes(p.label) && !CORNER_SHOTS.includes(p.label));
-        photosForAnalysis = [...primary, ...corners, ...others].slice(0, MAX_ANALYSIS_PHOTOS);
-        photosCapped = true;
+        const kept = Math.max(MAX_ANALYSIS_PHOTOS, primary.length);
+        photosForAnalysis = [...primary, ...corners, ...others].slice(0, kept);
+        photosCapped = photosForAnalysis.length < allPhotos.length;
       }
 
       const anchoredPhotos = photosForAnalysis.filter(p => Number(p.satellite_wall_width_ft) > 0);
@@ -3676,8 +3744,10 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
         longitude: (!isGarageMode && useSatelliteMode) ? (satelliteAddress?.coordinates?.lng || satelliteAddress?.lng || null) : null,
         use_satellite: !isGarageMode && useSatelliteMode,
         structure_type: structureType,
-        ...(housePhotoRoofEaveLf > 0 ? { known_perimeter_ft: housePhotoRoofEaveLf } : {}),
-        ...(satelliteAnalysis?.roof_facets?.length ? { roof_facets: satelliteAnalysis.roof_facets } : {}),
+        opening_deduct_min_sqft: Number(openingDeductMinSqft) === 33 ? 33 : 20,
+        ...(String(sidingWasteOverridePct).trim() !== '' && Number.isFinite(Number(sidingWasteOverridePct))
+          ? { siding_waste_override_pct: Math.max(10, Number(sidingWasteOverridePct)) }
+          : {}),
       });
       if (response?.error) throw new Error(response.error);
       const data = response?.data || response;
@@ -3811,7 +3881,7 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       // the Measurement Summary panel below before committing to an estimate.
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `${isGarageMode ? '🏗️' : useSatelliteMode ? '🛰️' : '📸'} **Siding measurements ready — review before building estimate**${dedupedSv.length > 0 ? `\n🌐 **Street View reference:** ${dedupedSv.map(p => p.label).join(', ')} (reference only; not counted as verified elevation coverage)` : ''}${photosCapped ? `\n📸 **${photosForAnalysis.length} of ${allPhotos.length} photos analyzed** — face shots prioritized to avoid timeout` : ''}\n\n📐 **Wall Area:** ${data.wall_area_sq?.toFixed(2)} SQ (${data.wall_area_sqft?.toLocaleString()} sqft)\n${data.is_garage_job ? '🏗️ **Garage/outbuilding**' : '🏠'} **${analysisHeightSummary}** | ${data.window_assemblies_count ?? data.windows_count ?? 0} window assemblies | ${data.window_units_count ?? data.windows_count ?? 0} window units | ${data.doors_count} doors${data.garage_door_count > 0 ? ` | ${data.garage_door_count} garage door(s)` : ''}${data.gable_area_sqft > 0 ? `\n📐 **Gable area included:** ${data.gable_area_sqft} sqft (${(data.gable_area_sqft/100).toFixed(2)} SQ, ${data.gable_rise_ft}ft rise)` : ''}${data.depth_missing ? '\n⚠️ **No side photos — depth estimated.** Upload left/right elevation photos for best accuracy.' : ''}${isGarageMode ? '\n🏗️ **Garage mode** — satellite skipped, AI analyzed photos as a detached garage/outbuilding.' : !useSatelliteMode ? '\n📸 **Photos Only mode** — satellite was not used. All dimensions are from your uploaded photos.' : data.is_garage_job ? '\n⚠️ **Satellite footprint skipped** — photos show a garage/outbuilding.' : data.osm_perimeter_used ? '\n🗺️ **Footprint: OpenStreetMap** (traced building polygon — highest perimeter accuracy)' : data.used_satellite_footprint ? '\n📡 **Footprint: Solar API** (corrected bounding box)' : '\n📸 **Footprint: Photo-derived** (satellite unavailable or mismatched)'}${data.height_clamped ? '\n⚠️ **Some wall heights clamped to story-count maximum** — verify eave height in the summary below.' : ''}${data.osm_height_warning ? `\n${data.osm_height_warning}` : ''}${data.trim_totals ? `\n📏 **Trim:** J-channel ${data.trim_totals.j_channel_lf} LF | Starter ${data.trim_totals.starter_strip_lf} LF | Corners ${data.trim_totals.outside_corner_lf + data.trim_totals.inside_corner_lf} LF` : ''}${data.sanity_warning ? `\n**${data.sanity_warning}**` : ''}${data.failed_photo_labels?.length > 0 ? `\n⚠️ **${data.failed_photo_labels.length} photo(s) could not be analyzed** (${data.failed_photo_labels.join(', ')}) — opening counts may be low.` : ''}${data.has_mixed_materials && data.accent_deduction_sqft > 0 ? `\n🪨 **Mixed materials detected** — ${data.accent_deduction_sqft} sqft of ${data.accent_material} deducted.` : ''}\n🎨 **Material:** ${data.siding_material || 'unknown'} (${data.siding_condition || 'unknown'} condition)\n📊 **Confidence:** Grade ${data.confidence_grade} ${data.overall_confidence}% (±${data.tolerance_pct}%)\n\n✏️ **Review the Measurement Summary below. Correct any numbers, then tap "Build Siding Estimate".**`,
+        content: `${isGarageMode ? '🏗️' : useSatelliteMode ? '🛰️' : '📸'} **Siding measurements ready — review before building estimate**\n${elevationQualityNote(data)}${dedupedSv.length > 0 ? `\n🌐 **Street View reference:** ${dedupedSv.map(p => p.label).join(', ')} (reference only; not counted as verified elevation coverage)` : ''}${photosCapped ? `\n📸 **${photosForAnalysis.length} of ${allPhotos.length} photos analyzed** — the four elevations are always kept` : ''}\n\n📐 **Wall Area:** ${data.wall_area_sq?.toFixed(2)} SQ (${data.wall_area_sqft?.toLocaleString()} sqft)\n${data.is_garage_job ? '🏗️ **Garage/outbuilding**' : '🏠'} **${analysisHeightSummary}** | ${data.window_assemblies_count ?? data.windows_count ?? 0} window assemblies | ${data.window_units_count ?? data.windows_count ?? 0} window units | ${data.doors_count} doors${data.garage_door_count > 0 ? ` | ${data.garage_door_count} garage door(s)` : ''}${data.gable_area_sqft > 0 ? `\n📐 **Gable area included:** ${data.gable_area_sqft} sqft (${(data.gable_area_sqft/100).toFixed(2)} SQ, ${data.gable_rise_ft}ft rise)` : ''}${data.depth_missing ? '\n⚠️ **No side photos — depth estimated.** Upload left/right elevation photos for best accuracy.' : ''}${isGarageMode ? '\n🏗️ **Garage mode** — satellite skipped, AI analyzed photos as a detached garage/outbuilding.' : !useSatelliteMode ? '\n📸 **Photos Only mode** — satellite was not used. All dimensions are from your uploaded photos.' : data.is_garage_job ? '\n⚠️ **Satellite footprint skipped** — photos show a garage/outbuilding.' : data.osm_perimeter_used ? '\n🗺️ **Footprint: OpenStreetMap** (traced building polygon — highest perimeter accuracy)' : data.used_satellite_footprint ? '\n📡 **Footprint: Solar API** (corrected bounding box)' : '\n📸 **Footprint: Photo-derived** (satellite unavailable or mismatched)'}${data.height_clamped ? '\n⚠️ **Some wall heights clamped to story-count maximum** — verify eave height in the summary below.' : ''}${data.osm_height_warning ? `\n${data.osm_height_warning}` : ''}${data.trim_totals ? `\n📏 **Trim:** J-channel ${data.trim_totals.j_channel_lf} LF | Starter ${data.trim_totals.starter_strip_lf} LF | Corners ${data.trim_totals.outside_corner_lf + data.trim_totals.inside_corner_lf} LF` : ''}${data.sanity_warning ? `\n**${data.sanity_warning}**` : ''}${data.failed_photo_labels?.length > 0 ? `\n⚠️ **${data.failed_photo_labels.length} photo(s) could not be analyzed** (${data.failed_photo_labels.join(', ')}) — opening counts may be low.` : ''}${data.has_mixed_materials && data.accent_deduction_sqft > 0 ? `\n🪨 **Mixed materials detected** — ${data.accent_deduction_sqft} sqft of ${data.accent_material} deducted.` : ''}\n🎨 **Material:** ${data.siding_material || 'unknown'} (${data.siding_condition || 'unknown'} condition)\n📊 **Confidence:** Grade ${data.confidence_grade} ${data.overall_confidence}% (±${data.tolerance_pct}%)\n\n✏️ **Review the Measurement Summary below. Correct any numbers, then tap "Build Siding Estimate".**`,
         timestamp: new Date().toISOString()
       }]);
     } catch (error) {
@@ -13756,9 +13826,54 @@ ${insuranceSettlementPrompt}`,
                           {correctedSq > 0 && (
                             <div className="bg-green-50 rounded p-3 shadow-sm border border-green-100">
                               <span className="text-green-800 block mb-1 text-xs font-bold">Order Qty:</span>
-                              <span className="font-bold text-xl text-green-700">{(correctedSq * (1 + (satelliteAnalysis.waste_percentage || 12) / 100)).toFixed(2)}</span>
+                              <span className="font-bold text-xl text-green-700">{(correctedSq * (1 + (Math.max(10, Number(satelliteAnalysis.waste_percentage) || 10)) / 100)).toFixed(2)}</span>
                               <span className="text-xs text-green-600 ml-1">SQ</span>
-                              <p className="text-xs text-green-600 mt-1">+{satelliteAnalysis.waste_percentage || 12}% waste included</p>
+                              <p className="text-xs text-green-600 mt-1">
+                                +{Math.max(10, Number(satelliteAnalysis.waste_percentage) || 10)}% waste
+                                {satelliteAnalysis.waste_reason ? ` — ${satelliteAnalysis.waste_reason}` : ''}
+                              </p>
+                              {satelliteAnalysis.waste_override_pct != null && (
+                                <p className="text-xs text-green-700 mt-1">
+                                  Rep override {satelliteAnalysis.waste_override_pct}% (recommended {satelliteAnalysis.waste_recommended_pct ?? satelliteAnalysis.waste_percentage}%)
+                                </p>
+                              )}
+                              <label className="block text-[11px] text-green-800 mt-2">
+                                Rep waste override %
+                                <input
+                                  data-testid="input-roof-waste-override"
+                                  type="number"
+                                  min="10"
+                                  step="1"
+                                  className="ml-1 w-16 border border-green-300 rounded px-1 py-0.5 bg-white"
+                                  value={satelliteAnalysis.waste_override_pct ?? ''}
+                                  onChange={(event) => {
+                                    const raw = event.target.value;
+                                    setSatelliteAnalysis(prev => {
+                                      if (!prev) return prev;
+                                      const recommended = Math.max(10, Number(prev.waste_recommended_pct ?? prev.waste_percentage) || 10);
+                                      const area = Number(prev.roof_area_sq) || 0;
+                                      if (raw === '') {
+                                        return {
+                                          ...prev,
+                                          waste_override_pct: null,
+                                          waste_recommended_pct: recommended,
+                                          waste_percentage: recommended,
+                                          final_order_quantity_sq: Math.round(area * (1 + recommended / 100) * 100) / 100,
+                                        };
+                                      }
+                                      const override = Math.max(10, Number(raw));
+                                      if (!Number.isFinite(override)) return prev;
+                                      return {
+                                        ...prev,
+                                        waste_recommended_pct: recommended,
+                                        waste_override_pct: override,
+                                        waste_percentage: override,
+                                        final_order_quantity_sq: Math.round(area * (1 + override / 100) * 100) / 100,
+                                      };
+                                    });
+                                  }}
+                                />
+                              </label>
                             </div>
                           )}
 
@@ -15140,6 +15255,23 @@ ${insuranceSettlementPrompt}`,
                                         </div>
                                       </div>
                                       {filled && (
+                                        <select
+                                          data-testid={`select-relabel-${slotLabel.replace(/\s+/g, '-').toLowerCase()}`}
+                                          aria-label={`Elevation for ${slotLabel}`}
+                                          value={slotLabel}
+                                          className="absolute bottom-1 left-1 z-20 max-w-[72%] text-[9px] bg-white/95 border border-cyan-300 rounded px-0.5 py-0.5"
+                                          onClick={(event) => event.stopPropagation()}
+                                          onChange={(event) => {
+                                            event.stopPropagation();
+                                            relabelHousePhoto(slotLabel, event.target.value);
+                                          }}
+                                        >
+                                          {(structureType === 'garage' ? garageSlots : houseSlots).map(option => (
+                                            <option key={option.label} value={option.label}>{option.label}</option>
+                                          ))}
+                                        </select>
+                                      )}
+                                      {filled && (
                                         <button
                                           data-testid={`button-remove-slot-${slotLabel.replace(/\s+/g, '-').toLowerCase()}`}
                                           className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity text-[10px] leading-none z-10 shadow"
@@ -15584,6 +15716,34 @@ ${insuranceSettlementPrompt}`,
                                         <span className="text-[9px] font-semibold text-amber-700 whitespace-nowrap">manual</span>
                                       )}
                                     </div>
+                                    <div className="flex items-center gap-1.5 bg-cyan-50 border border-cyan-200 rounded-md px-2 py-1">
+                                      <span className="text-[11px] text-cyan-700 font-medium whitespace-nowrap">Openings under</span>
+                                      <Select
+                                        value={String(openingDeductMinSqft)}
+                                        onValueChange={(value) => setOpeningDeductMinSqft(Number(value) === 33 ? 33 : 20)}
+                                      >
+                                        <SelectTrigger data-testid="select-opening-deduct-min" className="h-6 w-28 text-xs border-cyan-300 bg-white">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="20">20 sq ft</SelectItem>
+                                          <SelectItem value="33">33 sq ft</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <label className="flex items-center gap-1.5 bg-cyan-50 border border-cyan-200 rounded-md px-2 py-1 text-[11px] text-cyan-700">
+                                      Siding waste override %
+                                      <input
+                                        data-testid="input-siding-waste-override"
+                                        type="number"
+                                        min="10"
+                                        step="1"
+                                        value={sidingWasteOverridePct}
+                                        onChange={(event) => setSidingWasteOverridePct(event.target.value)}
+                                        placeholder="auto"
+                                        className="h-6 w-16 border border-cyan-300 rounded px-1 bg-white"
+                                      />
+                                    </label>
                                     <Button
                                       data-testid={useSatelliteMode ? "button-analyze-photos-satellite" : "button-analyze-photos"}
                                       size="sm"
@@ -15792,6 +15952,7 @@ ${insuranceSettlementPrompt}`,
                                     levelSoffitDepthFt: Number(d.soffit_level_depth_ft) || 0,
                                     slopedSoffitDepthFt: Number(d.soffit_sloped_depth_ft) || 0,
                                     hipRoof: /hip|pyramid/i.test(satelliteAnalysis?.roof_type || d.roof_type || ''),
+                                    edgesMeasured: resolvedSidingEdges.source === 'roof_facets',
                                   });
                                   // These material-map values are shared by both
                                   // the live area summary and the report-style
@@ -15942,7 +16103,7 @@ ${insuranceSettlementPrompt}`,
                                         <div className="bg-white/80 rounded-lg px-3 py-2">
                                           <div className="flex items-center justify-between">
                                             <div>
-                                               <p className="text-xs text-gray-500">{photoPrimary ? 'Photo-based Net Wall Area' : grossSqft > 0 ? 'Total Exterior Wall Area' : 'Net Wall Area'}</p>
+                                               <p className="text-xs text-gray-500">{photoPrimary ? 'Photo-based Net Wall Area' : grossSqft > 0 ? `Total Exterior Wall Area (${(d.wall_total_quality || gt?.wall_total_quality) === 'measured' ? 'measured' : 'estimated'})` : 'Net Wall Area'}</p>
                                                <p className="font-bold text-lg text-teal-700">{(photoPrimary ? displaySq : grossSqft > 0 ? grossSqft / 100 : displaySq).toFixed(2)} SQ</p>
                                                <p className="text-xs text-gray-400">{photoPrimary ? `${Math.round(displaySqft).toLocaleString()} sqft net from photo-calibrated walls` : grossSqft > 0 ? `${Math.round(grossSqft).toLocaleString()} sqft of facade` : `${Math.round(displaySqft).toLocaleString()} sqft net`}</p>
                                                {extrusionSanity && (
@@ -16090,11 +16251,12 @@ ${insuranceSettlementPrompt}`,
                                            resolvedCounts.garageDoors > 0 ? { label: 'Garage Doors', value: resolvedCounts.garageDoors } : null,
                                           (d.shutter_panel_count || d.shutter_pair_count || d.shutters_count) > 0 ? { label: 'Shutters', value: d.shutter_panel_count ? `${d.shutter_panel_count} panel${d.shutter_panel_count === 1 ? '' : 's'}` : d.shutter_pair_count ? `${d.shutter_pair_count} pairs` : d.shutters_count } : null,
                                           { label: `Fascia${derivedQ.edgeSource === 'estimated' ? ' (est.)' : ''}`, value: `${derivedQ.fasciaLf} ft` },
-                                          { label: `Soffit (${derivedQ.overhangFt}′ overhang)`, value: `${derivedQ.soffitSqft.toLocaleString()} ft²` },
+                                          { label: `Soffit (${derivedQ.overhangFt}′ overhang${derivedQ.edgeSource === 'estimated' || d.soffit_depth_source !== 'measured' ? ', est.' : ''})`, value: `${derivedQ.soffitSqft.toLocaleString()} ft²` },
                                           { label: 'Trim', value: `${derivedQ.trimSqft.toLocaleString()} ft²` },
                                           { label: `Roof Perimeter${derivedQ.edgeSource === 'estimated' ? ' (est.)' : ''}`, value: `${derivedQ.roofPerimeterLf} ft` },
                                           { label: 'Wall Perimeter', value: `${eff.perimeter_ft || 0} ft` },
                                           coverage?.missing_faces?.length > 0 ? { label: '⚠️ Not photographed (estimated)', value: coverage.missing_faces.map(f => String(f).replace(/_/g, ' ')).join(', '), highlight: true } : null,
+                                          (d.poor_faces || graphTotals?.poor_faces || []).length > 0 ? { label: '⚠️ Poor elevation — not used', value: (d.poor_faces || graphTotals.poor_faces).map(f => String(f).replace(/_/g, ' ')).join(', '), highlight: true } : null,
                                           { label: 'Material', value: <span className="capitalize">{d.siding_material || 'Unknown'}</span> },
                                           { label: 'Condition', value: <span className="capitalize">{d.siding_condition || 'Unknown'}</span> },
                                         ].filter(Boolean).map((row, i) => (

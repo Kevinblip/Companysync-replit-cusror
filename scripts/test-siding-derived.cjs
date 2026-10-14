@@ -97,12 +97,35 @@ async function main() {
   ok(canonicalDerived.soffitSqft === 527,
     'resolved card/report soffit uses split facet-edge depths',
     `got ${canonicalDerived.soffitSqft}`);
-  const legacy = resolveSidingRoofEdges(
+  const explicitFallback = resolveSidingRoofEdges(
     { roof_edge_source: 'footprint_fallback', eave_lf: 118, rake_lf: 0 },
+    { eave_lf: 4200, rake_lf: 3182 },
+  );
+  ok(explicitFallback.source === 'siding_estimate' && explicitFallback.eaveLf === 118 && explicitFallback.rakeLf === 0,
+    'a photo footprint fallback is not replaced by a previous aerial roof');
+  const explicitDerived = computeDerivedExteriorQuantities({
+    eaveLf: explicitFallback.eaveLf,
+    rakeLf: explicitFallback.rakeLf,
+    perimeterLf: 84,
+    edgesMeasured: false,
+  });
+  ok(explicitDerived.edgeSource === 'estimated' && explicitDerived.fasciaLf < 500,
+    'unmeasured photo edges stay estimated and do not inherit the aerial drip edge',
+    `fascia ${explicitDerived.fasciaLf} source ${explicitDerived.edgeSource}`);
+  const legacy = resolveSidingRoofEdges(
+    { eave_lf: 118, rake_lf: 0 },
     { eave_lf: 184, rake_lf: 78 },
   );
   ok(legacy.source === 'satellite_analysis' && legacy.eaveLf === 184 && legacy.rakeLf === 78,
-    'satellite edges remain the legacy fallback');
+    'satellite edges remain the legacy fallback when the siding record has no edge source');
+  const legacyDerived = computeDerivedExteriorQuantities({
+    eaveLf: legacy.eaveLf,
+    rakeLf: legacy.rakeLf,
+    edgesMeasured: false,
+  });
+  ok(legacyDerived.edgeSource === 'estimated' && legacyDerived.fasciaLf === 262,
+    'legacy satellite edges are labeled estimated',
+    `fascia ${legacyDerived.fasciaLf}`);
 
   const fs = require('node:fs');
   const path = require('node:path');

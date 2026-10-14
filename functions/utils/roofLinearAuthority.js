@@ -1,5 +1,16 @@
 const LINEAR_KEYS = ['ridge', 'hip', 'valley', 'rake', 'eave'];
 
+function facetsWithinFeet(a, b, tol) {
+  const pa = a?.polygon || [];
+  const pb = b?.polygon || [];
+  for (const p of pa) {
+    for (const q of pb) {
+      if (Math.hypot(p.x - q.x, p.y - q.y) <= tol) return true;
+    }
+  }
+  return false;
+}
+
 const roundLf = (value) => Math.round((Number(value) || 0) * 10) / 10;
 
 export function assessRoofFacetTraceQuality(facets) {
@@ -30,6 +41,20 @@ export function assessRoofFacetTraceQuality(facets) {
         adjacency.get(edge.shared_with).add(facet.id);
       } else if (edge.role === 'up' || edge.type === 'ridge') {
         unresolvedUphillEdges++;
+      }
+    }
+  }
+
+  // Rectangles of one roof can miss each other by a few feet without sharing
+  // an edge. That gap is not a second building, and it is not a valley.
+  for (let i = 0; i < facets.length; i++) {
+    for (let j = i + 1; j < facets.length; j++) {
+      const left = facets[i].id;
+      const right = facets[j].id;
+      if (adjacency.get(left).has(right)) continue;
+      if (facetsWithinFeet(facets[i], facets[j], 6)) {
+        adjacency.get(left).add(right);
+        adjacency.get(right).add(left);
       }
     }
   }
@@ -81,10 +106,30 @@ export function reconcileRoofLinearsWithFacetEdges(headlineLinears, facetEdgeTot
     }
   }
 
+  let linears = hasUsableTrace ? traced : heuristic;
+  let source = hasUsableTrace ? 'roof_facet_edges' : 'roof_type_heuristic';
+
+  // A hip (or any) formula that reports rake 0 must not erase a rake the
+  // facet edges still measured. When at least two facets produced that rake,
+  // bill the edge lengths even if the topology gate did not certify the
+  // whole trace. One facet is not enough to override the headline set.
+  const facetCount = Array.isArray(facets) ? facets.length : 0;
+  if (!hasUsableTrace && facetCount >= 2 && traced.rake_lf > 0 && heuristic.rake_lf === 0) {
+    linears = {
+      ridge_lf: traced.ridge_lf > 0 ? traced.ridge_lf : heuristic.ridge_lf,
+      hip_lf: traced.hip_lf,
+      valley_lf: traced.valley_lf > 0 ? traced.valley_lf : heuristic.valley_lf,
+      rake_lf: traced.rake_lf,
+      eave_lf: traced.eave_lf > 0 ? traced.eave_lf : heuristic.eave_lf,
+    };
+    source = 'roof_facet_edges_rake_kept';
+  }
+
   return {
-    linears: hasUsableTrace ? traced : heuristic,
-    source: hasUsableTrace ? 'roof_facet_edges' : 'roof_type_heuristic',
+    linears,
+    source,
     trace_quality: traceQuality,
-    differences: hasUsableTrace ? differences : {},
+    differences: (hasUsableTrace || source === 'roof_facet_edges_rake_kept') ? differences : {},
+    counts: facetEdgeTotals?.counts || null,
   };
 }
