@@ -2122,7 +2122,7 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
             {errorDetails && errorDetails.length > 0 && (
               <Card className="bg-red-50 border-red-200">
                 <CardHeader>
-                  <CardTitle className="text-red-900">Rows not imported ({errorDetails.length})</CardTitle
+                  <CardTitle className="text-red-900">Rows not imported ({errorDetails.length})</CardTitle>
                 </CardHeader>
                 <CardContent className="max-h-96 overflow-y-auto">
                   <div className="space-y-2">
