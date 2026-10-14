@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { stripUserSecrets } = require('../lib/stripUserSecrets.cjs');
 
 const ISSUER_URL = process.env.ISSUER_URL || 'https://replit.com/oidc';
 const SESSION_SECRET = process.env.SESSION_SECRET;
@@ -316,7 +317,7 @@ async function handleGetUser(req, res, pool) {
 
     if (userRow) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ...userRow, is_administrator }));
+      res.end(JSON.stringify(stripUserSecrets({ ...userRow, is_administrator })));
       return;
     }
 

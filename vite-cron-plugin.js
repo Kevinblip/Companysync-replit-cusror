@@ -271,7 +271,7 @@ async function invokeLocalFunction(functionName, params = {}) {
     const cronToken = process.env.SESSION_SECRET
       ? crypto.createHmac('sha256', process.env.SESSION_SECRET).update('internal-cron-2026').digest('hex')
       : '';
-    const resp = await fetch('http://localhost:5000/api/functions/invoke', {
+    const resp = await fetch(`http://127.0.0.1:${process.env.PORT || 5000}/api/functions/invoke`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-cron-token': cronToken },
       body: JSON.stringify({ functionName, params }),
@@ -289,6 +289,11 @@ async function invokeLocalFunction(functionName, params = {}) {
 
 async function runCronTick() {
   for (const job of CRON_JOBS) {
+    if (job.name === 'ghlAutoSyncCron') {
+      const ghlId = String(process.env.GHL_CLIENT_ID || '').trim();
+      const ghlSecret = String(process.env.GHL_CLIENT_SECRET || '').trim();
+      if (!ghlId || !ghlSecret) continue;
+    }
     if (shouldRunNow(job)) {
       lastRunTimes[job.name] = Date.now();
       console.log(`[Cron] Running: ${job.name} (${job.description})`);

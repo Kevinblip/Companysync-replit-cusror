@@ -1400,6 +1400,10 @@ async function handleFunctionInvoke(req, res) {
       sendJson(res, { error: 'Not a callable function', functionName }, 403);
       return;
     }
+    if (functionName === 'ghlAutoSyncCron' && !require('../lib/ghlConfig.cjs').ghlOauthConfigured()) {
+      sendJson(res, { data: { success: true, skipped: true, reason: 'GHL is not configured' } });
+      return;
+    }
     console.log(`[Functions] Invoke: ${functionName}`);
 
     if (functionName === 'sarahBridgeAPI') {
@@ -2601,7 +2605,8 @@ async function handleFunctionInvoke(req, res) {
       // See the matching comment in vite-functions-plugin.js: external calls are
       // marked so email handlers can fail closed when a request never reaches them.
       const result = await handlers[functionName]({ ...(params || {}), __externalCall: true }, process.env.GOOGLE_GEMINI_API_KEY, req);
-      sendJson(res, { data: result });
+      const { redactUserSecrets } = require('../lib/stripUserSecrets.cjs');
+      sendJson(res, { data: redactUserSecrets(result) });
       return;
     }
 
