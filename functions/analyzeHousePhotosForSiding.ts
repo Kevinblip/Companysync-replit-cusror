@@ -885,12 +885,12 @@ Return valid JSON with exactly these fields:
 ════════════════════════════════════════════════
 SATELLITE WALL-WIDTH SCALE ANCHOR (MANDATORY)
 ════════════════════════════════════════════════
-The exact satellite-derived width of the PRIMARY wall face in this photo is ${satelliteWallWidthFt} feet.
-- Treat ${satelliteWallWidthFt} ft as FIXED ground truth. Do not estimate or replace wall_width_ft.
-- Set wall_width_ft to exactly ${satelliteWallWidthFt}.
-- Use the visible left and right wall boundaries to establish the horizontal pixel-to-foot scale.
-- Use that calibrated scale, corrected for perspective, to measure grade-to-eave height, gable rise, every opening, and non-siding coverage.
-- Report "satellite_width_${satelliteWallWidthFt}ft" in reference_anchor.
+A satellite estimate for this wall's axis is ${satelliteWallWidthFt} feet. It is a SCALE reference, not a number to copy onto the wall.
+- Measure wall_width_ft yourself: the full length of THIS elevation from outside corner to outside corner.
+- Do not set wall_width_ft to ${satelliteWallWidthFt} when the wall in the photo is visibly longer or shorter. The two side walls are added together; copying one rectangle side onto both of them drops the longer siding.
+- Use a door, garage door, or siding course for scale, and use the satellite length only to cross-check that scale when the full wall is in frame.
+- Use that scale, corrected for perspective, to measure grade-to-eave height, gable rise, every opening, and non-siding coverage.
+- Report "satellite_width_${satelliteWallWidthFt}ft" in reference_anchor only as the scale you cross-checked, never as a substitute for the measured length.
 `
         : '';
       if (satelliteWallWidthFt > 0) {
@@ -1171,12 +1171,12 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
         } else if (result.classification_shot_type === 'corner') {
           result.is_corner_shot = true;
         }
-        // Enforce the fixed satellite scale after generation too. The prompt tells
-        // Gemini to honor it; this prevents a model response from drifting anyway.
+        // The satellite length is a scale hint. Keep the elevation the model
+        // measured so the two side walls can be added instead of both being
+        // replaced by one rectangle side.
         if (satelliteWallWidthFt > 0) {
-          result.wall_width_ft = satelliteWallWidthFt;
+          result.measured_wall_width_ft = Number(result.wall_width_ft) || 0;
           result.satellite_width_anchor_ft = satelliteWallWidthFt;
-          result.reference_anchor = `satellite_width_${satelliteWallWidthFt}ft`;
         }
         const labelLc = (photoData.label || '').toLowerCase();
         if (/corner|angle/.test(labelLc)) result.is_corner_shot = true;
@@ -1594,8 +1594,51 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
     const robustFrontBackWidthFt = robustWidth(frontBackWidths);
     const robustSideWidthFt = robustWidth(sideWidths);
     const robustAnyWidthFt = robustWidth(allWidths);
-    let buildingWidthFt: number = robustFrontBackWidthFt || robustAnyWidthFt;
-    let buildingLengthFt: number = robustSideWidthFt || Math.round(buildingWidthFt * depthRatio);
+    // Same rule as db/siding-aggregate.cjs sumOppositeElevations: add the two
+    // measured elevations on an axis. A single photo that is an outlier against
+    // a corroborated opposite wall is still replaced (Hover garage benchmark).
+    const faceSpread = (values: number[]) => {
+      if (values.length < 2) return 0;
+      const sorted = [...values].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      const center = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+      return center > 0 ? (sorted[sorted.length - 1] - sorted[0]) / center : 0;
+    };
+    const sumOppositeElevations = (aWidths: number[], bWidths: number[]): number | null => {
+      if (aWidths.length === 0 && bWidths.length === 0) return null;
+      const a = aWidths.length ? robustAvg(aWidths).value : null;
+      const b = bWidths.length ? robustAvg(bWidths).value : null;
+      if (a == null) return b;
+      if (b == null) return a;
+      const aTight = aWidths.length >= 2 && robustAvg(aWidths).rejected.length === 0 && faceSpread(aWidths) <= 0.15;
+      const bTight = bWidths.length >= 2 && robustAvg(bWidths).rejected.length === 0 && faceSpread(bWidths) <= 0.15;
+      const pooled = robustAvg([...aWidths, ...bWidths]);
+      let aVal = a;
+      let bVal = b;
+      if (aWidths.length === 1 && bTight && pooled.rejected.includes(aWidths[0])) aVal = b;
+      else if (bWidths.length === 1 && aTight && pooled.rejected.includes(bWidths[0])) bVal = a;
+      return (aVal + bVal) / 2;
+    };
+    const widthsForFace = (pred: (r: any) => boolean) => dimResults
+      .filter(pred)
+      .map((r: any) => Number(r.wall_width_ft) || 0)
+      .filter((w: number) => w > 5);
+    const isLeftFace = (r: any) => /\bleft\b|left_side|\bwest\b/.test(dimLabel(r));
+    const isRightFace = (r: any) => /\bright\b|right_side|\beast\b/.test(dimLabel(r));
+    const frontWidths = widthsForFace((r) => /front|\bsouth\b/.test(dimLabel(r)) && !isLeftFace(r) && !isRightFace(r));
+    const backWidths = widthsForFace((r) => /back|rear|\bnorth\b/.test(dimLabel(r)) && !isLeftFace(r) && !isRightFace(r));
+    const leftWidths = widthsForFace(isLeftFace);
+    const rightWidths = widthsForFace(isRightFace);
+    const summedFrontBack = (frontWidths.length + backWidths.length) === frontBackWidths.length
+      ? sumOppositeElevations(frontWidths, backWidths) : null;
+    const summedSides = (leftWidths.length + rightWidths.length) === sideWidths.length
+      ? sumOppositeElevations(leftWidths, rightWidths) : null;
+    let buildingWidthFt: number = summedFrontBack != null
+      ? Math.round(summedFrontBack)
+      : (robustFrontBackWidthFt || robustAnyWidthFt);
+    let buildingLengthFt: number = summedSides != null
+      ? Math.round(summedSides)
+      : (robustSideWidthFt || Math.round(buildingWidthFt * depthRatio));
     let depthMissing = sideWidths.length === 0; // flagged when no side photos were uploaded
 
     const hasGableRakeEvidence = (result: any) =>

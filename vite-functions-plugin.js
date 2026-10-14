@@ -11250,12 +11250,12 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
 ════════════════════════════════════════════════
 SATELLITE WALL-WIDTH SCALE ANCHOR (MANDATORY)
 ════════════════════════════════════════════════
-The exact satellite-derived width of the PRIMARY wall face in this photo is ${satelliteWallWidthFt} feet.
-- Treat ${satelliteWallWidthFt} ft as FIXED ground truth. Do not estimate or replace wall_width_ft.
-- Set wall_width_ft to exactly ${satelliteWallWidthFt}.
-- Use the visible left and right wall boundaries to establish the horizontal pixel-to-foot scale.
-- Use that calibrated scale, corrected for perspective, to measure grade-to-eave height, gable rise, windows, doors, and non-siding areas.
-- Report "satellite_width_${satelliteWallWidthFt}ft" in reference_anchor.
+A satellite estimate for this wall's axis is ${satelliteWallWidthFt} feet. It is a SCALE reference, not a number to copy onto the wall.
+- Measure wall_width_ft yourself: the full length of THIS elevation from outside corner to outside corner.
+- Do not set wall_width_ft to ${satelliteWallWidthFt} when the wall in the photo is visibly longer or shorter. The two side walls are added together; copying one rectangle side onto both of them drops the longer siding.
+- Use a door, garage door, or siding course for scale, and use the satellite length only to cross-check that scale when the full wall is in frame.
+- Use that scale, corrected for perspective, to measure grade-to-eave height, gable rise, windows, doors, and non-siding areas.
+- Report "satellite_width_${satelliteWallWidthFt}ft" in reference_anchor only as the scale you cross-checked, never as a substitute for the measured length.
 `
           : '';
         if (satelliteWallWidthFt > 0) {
@@ -11604,9 +11604,11 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
              result.is_corner_shot = true;
            }
           if (satelliteWallWidthFt > 0) {
-            result.wall_width_ft = satelliteWallWidthFt;
+            // Keep the length the model measured on this elevation. Forcing the
+            // satellite axis onto every photo makes the two side walls identical
+            // and the longer siding can never be added.
+            result.measured_wall_width_ft = Number(result.wall_width_ft) || 0;
             result.satellite_width_anchor_ft = satelliteWallWidthFt;
-            result.reference_anchor = `satellite_width_${satelliteWallWidthFt}ft`;
           }
 
           // ── Fix #1: Clamp eave height to physically plausible range ──────

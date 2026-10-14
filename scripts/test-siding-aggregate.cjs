@@ -351,6 +351,28 @@ console.log('\n── Building dimensions: width outlier rejected ──');
   ok('side depth = 22', buildingLengthFt === 22, buildingLengthFt, 22);
 }
 
+console.log('\n── Building dimensions: the two side elevations are added ──');
+{
+  // Two agreeing photos of a long left wall, three of a short right wall.
+  // Pooling every side photo and rejecting outliers mirrors the short wall
+  // onto both sides (about 31 ft). Hover adds the elevations: (61 + 31) / 2.
+  const perPhotoResults = [
+    { view_label: 'Front', wall_width_ft: 36 },
+    { view_label: 'Back', wall_width_ft: 36 },
+    { view_label: 'Left Side', wall_width_ft: 60 },
+    { view_label: 'Left Side', wall_width_ft: 62 },
+    { view_label: 'Right Side', wall_width_ft: 30 },
+    { view_label: 'Right Side', wall_width_ft: 31 },
+    { view_label: 'Right Side', wall_width_ft: 32 },
+  ];
+  const { buildingWidthFt, buildingLengthFt } = deriveBuildingDimensions(perPhotoResults, false);
+  ok('gable-end width stays 36 ft', buildingWidthFt === 36, buildingWidthFt, 36);
+  ok('side length adds the long wall to the short wall (46 ft, not the short 31 ft)',
+     buildingLengthFt === 46, buildingLengthFt, 46);
+  ok('both side walls are in the perimeter (2 × 46 = 61 + 31)',
+     2 * buildingLengthFt === 92, 2 * buildingLengthFt, 92);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 5: 5688 Gemini Ct ground-truth benchmark
 // ─────────────────────────────────────────────────────────────────────────────

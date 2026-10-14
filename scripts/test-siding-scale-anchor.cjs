@@ -34,8 +34,10 @@ assert(
   'the live prompt requires the satellite scale anchor'
 );
 assert(
-  live.includes('result.wall_width_ft = satelliteWallWidthFt'),
-  'the live handler enforces the fixed width after AI generation'
+  live.includes('Do not set wall_width_ft to') &&
+  live.includes('result.measured_wall_width_ft = Number(result.wall_width_ft)') &&
+  !live.includes('result.wall_width_ft = satelliteWallWidthFt'),
+  'the live handler keeps each elevation\'s measured length instead of copying the satellite side onto both walls'
 );
 assert(
   live.includes('[SidingScaleAnchor]'),

@@ -183,6 +183,45 @@ function check(name, cond, extra) {
       { flat: flat.photo_wall_area_sqft, gabled: gabled.photo_wall_area_sqft });
   }
 
+  console.log('\n\u2500\u2500 1b. Photo footprint adds the two side elevations \u2500\u2500');
+  {
+    const HT = 10.5;
+    const shortGross = 152 * HT;
+    const sides = [
+      { wall_face: 'left_side', view_label: 'Left', wall_width_ft: 62, eave_height_ft: HT, wall_height_ft: HT, story_count: 1 },
+      { wall_face: 'right_side', view_label: 'Right', wall_width_ft: 58, eave_height_ft: HT, wall_height_ft: HT, story_count: 1 },
+    ];
+    const photo = buildSidingMeasurementGraph({
+      perPhotoResults: sides,
+      storyCount: 1,
+      wallHeightFt: HT,
+      grossWallAreaSqft: shortGross,
+      perimeterFt: 152,
+      buildingWidthFt: 39,
+      buildingLengthFt: 37,
+      footprintSource: 'photos',
+    }).totals;
+    const added = (62 + 58 + 39 + 39) * HT;
+    check('a photo rectangle bills the two measured side walls instead of the short box',
+      photo.gross_wall_area_source === 'photo_wall_planes'
+        && photo.gross_wall_area_sqft > shortGross
+        && Math.abs(photo.gross_wall_area_sqft - added) < 1,
+      { gross: photo.gross_wall_area_sqft, added, shortGross, source: photo.gross_wall_area_source });
+    const traced = buildSidingMeasurementGraph({
+      perPhotoResults: sides,
+      storyCount: 1,
+      wallHeightFt: HT,
+      grossWallAreaSqft: shortGross,
+      perimeterFt: 152,
+      buildingWidthFt: 39,
+      buildingLengthFt: 37,
+      footprintSource: 'solar',
+    }).totals;
+    check('a traced footprint is not inflated by two side photos',
+      traced.gross_wall_area_source === 'footprint_extrusion',
+      traced.gross_wall_area_source);
+  }
+
   console.log('\n\u2500\u2500 2. Mullion banks are counting-only \u2500\u2500');
   {
     // Three same-height windows 0.5 ft apart on one wall = one mulled bank.

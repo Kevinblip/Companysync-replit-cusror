@@ -16096,9 +16096,17 @@ ${insuranceSettlementPrompt}`,
                                         : 'Masonry';
                                        const photoPrimary = wallSource?.kind === 'photo_calibration';
                                        const photoArea = photoPresentationReadiness?.photoAreaSqft;
-                                       const extrusionSanity = photoArea && grossSqft > 0
-                                         ? `Satellite extrusion sanity: ${Math.round(grossSqft).toLocaleString()} ft² gross facade · ${Math.round(Math.abs(photoArea - grossSqft) / grossSqft * 100)}% difference`
+                                       const extrusionSqft = Number(gt?.extrusion_wall_area_sqft) || 0;
+                                       const billedGross = grossSqft;
+                                       const footprintCheckBase = extrusionSqft > 0 ? extrusionSqft : billedGross;
+                                       const footprintCheckPct = footprintCheckBase > 0 && billedGross > 0
+                                         ? Math.round(Math.abs(billedGross - footprintCheckBase) / footprintCheckBase * 100)
                                          : null;
+                                       const extrusionSanity = footprintCheckPct > 0
+                                         ? `Footprint check: ${Math.round(footprintCheckBase).toLocaleString()} ft² rectangle · measured elevations are ${footprintCheckPct}% ${billedGross > footprintCheckBase ? 'higher' : 'lower'}`
+                                         : (photoArea && grossSqft > 0 && Math.round(photoArea) !== Math.round(grossSqft)
+                                           ? `Footprint check: ${Math.round(grossSqft).toLocaleString()} ft² rectangle · ${Math.round(Math.abs(photoArea - grossSqft) / grossSqft * 100)}% difference`
+                                           : null);
                                       return (
                                         <div className="bg-white/80 rounded-lg px-3 py-2">
                                           <div className="flex items-center justify-between">

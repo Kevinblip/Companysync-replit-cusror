@@ -68,6 +68,49 @@ function robustPhotoHeightAvg(values) {
   return { value: median(survivors), kept: survivors, rejected };
 }
 
+function spreadRatio(values) {
+  if (values.length < 2) return 0;
+  const center = median(values);
+  if (!(center > 0)) return 0;
+  return (Math.max(...values) - Math.min(...values)) / center;
+}
+
+/**
+ * Length of one building axis when both opposite elevations were measured.
+ *
+ * Hover adds the two elevations. A robust average of every side photo pooled
+ * together does the opposite: three short reads of one wall can reject two
+ * agreeing reads of the other wall, and the short length is then mirrored
+ * onto both sides. Each face is reduced on its own first. The two surviving
+ * face lengths are then averaged so `2 × axis = left + right` (or front + back).
+ *
+ * The one exception is the single uncorroborated outlier — one photo of a
+ * wall that disagrees with two or more agreeing photos of the opposite wall.
+ * That is the Hover-garage failure (a back photo that included the background).
+ * Repeating it onto both walls would inflate the building; copying the
+ * corroborated elevation is the right call there.
+ *
+ * @returns {number|null} axis length (the mean of the two elevation lengths)
+ */
+function sumOppositeElevations(aWidths, bWidths) {
+  if (aWidths.length === 0 && bWidths.length === 0) return null;
+  const a = aWidths.length ? robustAvg(aWidths).value : null;
+  const b = bWidths.length ? robustAvg(bWidths).value : null;
+  if (a == null) return b;
+  if (b == null) return a;
+
+  const aStats = robustAvg(aWidths);
+  const bStats = robustAvg(bWidths);
+  const aTight = aWidths.length >= 2 && aStats.rejected.length === 0 && spreadRatio(aWidths) <= 0.15;
+  const bTight = bWidths.length >= 2 && bStats.rejected.length === 0 && spreadRatio(bWidths) <= 0.15;
+  const pooled = robustAvg([...aWidths, ...bWidths]);
+  let aVal = a;
+  let bVal = b;
+  if (aWidths.length === 1 && bTight && pooled.rejected.includes(aWidths[0])) aVal = b;
+  else if (bWidths.length === 1 && aTight && pooled.rejected.includes(bWidths[0])) bVal = a;
+  return (aVal + bVal) / 2;
+}
+
 // ─── 1. Wall height ──────────────────────────────────────────────────────────
 /**
  * Derive wall eave height from per-photo AI results.
@@ -176,22 +219,44 @@ function deriveBuildingDimensions(perPhotoResults, isGarageJob = false) {
     .map(r => Number(r.wall_width_ft) || 0)
     .filter(w => w > 5);
 
+  const widthsFor = (pred) => dimResults
+    .filter(pred)
+    .map(r => Number(r.wall_width_ft) || 0)
+    .filter(w => w > 5);
+  const faceLabel = label;
+  const isLeftFace = (r) => /\bleft\b|left_side|\bwest\b/.test(faceLabel(r));
+  const isRightFace = (r) => /\bright\b|right_side|\beast\b/.test(faceLabel(r));
+  const isFrontFace = (r) => /front|\bsouth\b/.test(faceLabel(r)) && !isLeftFace(r) && !isRightFace(r);
+  const isBackFace = (r) => /back|rear|\bnorth\b/.test(faceLabel(r)) && !isLeftFace(r) && !isRightFace(r);
+  const frontWidths = widthsFor(isFrontFace);
+  const backWidths = widthsFor(isBackFace);
+  const leftWidths = widthsFor(isLeftFace);
+  const rightWidths = widthsFor(isRightFace);
+
   let buildingWidthFt, buildingLengthFt, depthMissing = false;
 
   // Robust means: one photo that mistakes a corner shot for a full facade (or
   // includes a neighboring wall) can inflate a plain average by 20%+.
   const robustWidth = (ws) => Math.round(robustAvg(ws).value);
+  // Opposite elevations are added (each face keeps its own length) unless a
+  // single photo is an outlier against a corroborated opposite wall.
+  const summedFrontBack = (frontWidths.length + backWidths.length) === frontBackWidths.length
+    ? sumOppositeElevations(frontWidths, backWidths)
+    : null;
+  const summedSides = (leftWidths.length + rightWidths.length) === sideWidths.length
+    ? sumOppositeElevations(leftWidths, rightWidths)
+    : null;
 
   if (frontBackWidths.length > 0 && sideWidths.length > 0) {
-    buildingWidthFt  = robustWidth(frontBackWidths);
-    buildingLengthFt = robustWidth(sideWidths);
+    buildingWidthFt  = summedFrontBack != null ? Math.round(summedFrontBack) : robustWidth(frontBackWidths);
+    buildingLengthFt = summedSides != null ? Math.round(summedSides) : robustWidth(sideWidths);
   } else if (frontBackWidths.length > 0) {
     // No side shots — estimate depth, do NOT use width as depth
     buildingWidthFt  = robustWidth(frontBackWidths);
     buildingLengthFt = Math.round(buildingWidthFt * (isGarageJob ? 0.9 : 0.75));
     depthMissing = true;
   } else if (sideWidths.length > 0) {
-    buildingLengthFt = robustWidth(sideWidths);
+    buildingLengthFt = summedSides != null ? Math.round(summedSides) : robustWidth(sideWidths);
     buildingWidthFt  = buildingLengthFt;
   } else if (allWidths.length > 0) {
     buildingWidthFt  = robustWidth(allWidths);
@@ -251,6 +316,7 @@ module.exports = {
   deriveWallHeight,
   deriveBuildingDimensions,
   computeGableArea,
+  sumOppositeElevations,
   robustAvg,
   median,
   DEFAULT_EAVE_PER_STORY,

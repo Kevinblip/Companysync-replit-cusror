@@ -73,12 +73,14 @@ const PHOTO_HERO_SANITY_BAND_PCT = 25;
 // this means every meaningful face must be photographed before the prism can
 // bill; a single unphotographed elevation drops coverage well below the floor.
 const PHOTO_HERO_MIN_PERIMETER_COVERAGE = 0.98;
-// For the same reason, four measured planes are a LOWER BOUND on the building's
-// wall area: any wall the camera never saw only adds to it. So the prism may
-// refine the extrusion downward (photos proving a wall is shorter than the
-// extrusion assumed) but it may never inflate it. A prism that comes out ABOVE
-// the extrusion is telling us the FOOTPRINT perimeter is under-called — that is
-// a footprint defect, and correcting it here would paper over it with a box.
+// For the same reason, four measured planes are a LOWER BOUND on a TRACED
+// footprint: any wall the camera never saw only adds to it. So against an
+// OSM/Solar outline the prism may refine the extrusion downward but it may not
+// inflate it. A photo-derived rectangle is not that outline. It is the same
+// photos averaged together, and that average can delete the longer of two
+// side walls. When the footprint source is the photos themselves, Hover's
+// rule wins: add every measured elevation, even when the sum is longer than
+// the rectangle.
 const PHOTO_HERO_MAX_INFLATION = 1.02; // 2% headroom for rounding noise only
 // Grade-B consistency band: how far the photo-measured siding total may sit
 // from the extrusion-derived sanity total and still be treated as corroborated.
@@ -754,6 +756,13 @@ function buildPhotoWallArea(wallFacets, agg) {
     : null;
   const coversFootprint = perimeterCoverage != null
     && perimeterCoverage >= PHOTO_HERO_MIN_PERIMETER_COVERAGE;
+  // Photo-only jobs have no traced outline. The rectangle is just the averaged
+  // elevations, so a longer prism is the two (or more) measured walls added
+  // back. A traced OSM/Solar perimeter stays the authority and is not inflated.
+  const sumMeasuredElevations = agg.footprintSource === 'photos'
+    && measured.length >= 2
+    && extrusionSqft > 0
+    && areaSqft > extrusionSqft * PHOTO_HERO_MAX_INFLATION;
   // Diagnostic only — how much of the prism came from photos vs the footprint.
   const measuredPerimeterShare = prismPerimeter > 0
     ? round(measuredPerimeter / prismPerimeter, 3)
@@ -781,14 +790,16 @@ function buildPhotoWallArea(wallFacets, agg) {
     // footprint even when the box and the traced perimeter disagree. A missing
     // elevation does not get to borrow the footprint and call itself measured.
     poor_faces: poorFaces,
-    photo_overrides_footprint: measured.length >= 4 && areaSqft > 0
+    photo_overrides_footprint: (measured.length >= 4 || sumMeasuredElevations) && areaSqft > 0
       && !(withinBand && coversFootprint && !inflatesExtrusion),
+    sum_measured_elevations: sumMeasuredElevations,
     usable: areaSqft > 0 && (
       (measured.length >= MIN_MEASURED_FACES_FOR_PHOTO_HERO
         && withinBand
         && coversFootprint
         && !inflatesExtrusion)
       || measured.length >= 4
+      || sumMeasuredElevations
     ),
   };
 }
@@ -1216,6 +1227,29 @@ function buildMaterialMap(wallFacets, agg) {
         .reduce((sum, region) => sum + region.percent, 0),
       2,
     );
+    // Glass in the material map is the openings seen as a surface. Hover
+    // deducts those openings once. Leaving glass out of the facade and then
+    // deducting the opening schedule removes the same holes twice.
+    // Unknown/other is neutral when the wall is otherwise siding: it stays in
+    // the takeoff instead of being dropped. A wall that is entirely unknown
+    // is still not billed as siding.
+    const glassPercent = round(
+      regions
+        .filter((region) => region.material === 'glass')
+        .reduce((sum, region) => sum + region.percent, 0),
+      2,
+    );
+    const uncertainPercent = round(
+      regions
+        .filter((region) => region.material === 'unknown' || region.material === 'other')
+        .reduce((sum, region) => sum + region.percent, 0),
+      2,
+    );
+    const neutralUncertain = sidingPercent > 0 ? uncertainPercent : 0;
+    const preOpeningPercent = round(
+      Math.min(100, sidingPercent + glassPercent + neutralUncertain),
+      2,
+    );
     const normalizedRegions = regions.map((region) => ({
       ...region,
       area_sqft: round(gross * region.percent / 100, 2),
@@ -1227,7 +1261,8 @@ function buildMaterialMap(wallFacets, agg) {
       regions: normalizedRegions,
       siding_percent: sidingPercent,
       siding_area_sqft: round(gross * sidingPercent / 100, 2),
-      excluded_area_sqft: round(gross * (100 - sidingPercent) / 100, 2),
+      pre_opening_facade_area_sqft: round(gross * preOpeningPercent / 100, 2),
+      excluded_area_sqft: round(gross * (100 - preOpeningPercent) / 100, 2),
       material_confidence: facet.material_confidence ?? facet.confidence ?? null,
       uncertain,
       photo_count: facet.photo_count || 0,
@@ -1284,6 +1319,12 @@ function buildTotals(agg, groups, components, trim, counts) {
   const materialSiding = round(materialFaces.reduce(
     (sum, face) => sum + num(face.siding_area_sqft), 0,
   ), 2);
+  // Lap + vertical is the siding material. Glass is added back here so the
+  // opening schedule can deduct those holes once. Stone, brick, and stucco
+  // stay in the excluded column.
+  const materialPreOpening = round(materialFaces.reduce(
+    (sum, face) => sum + num(face.pre_opening_facade_area_sqft ?? face.siding_area_sqft), 0,
+  ), 2);
   // Photo face dimensions can cover only the measured wall prism. Scale the
   // split once to the canonical gross area instead of silently inventing
   // siding on masonry or unclassified faces.
@@ -1295,7 +1336,7 @@ function buildTotals(agg, groups, components, trim, counts) {
   // portion clad in brick/stone/other non-siding material. What is left is the
   // siding facade — the only column siding openings may be deducted from.
   const sidingFacade = materialFaces.length > 0
-    ? round(Math.max(0, materialSiding * materialScale), 2)
+    ? round(Math.max(0, materialPreOpening * materialScale), 2)
     : round(Math.max(0, gross - accent), 2);
   // With no positive facade there is no siding column to charge openings to.
   // Defaulting the share to 1 here would report a 100 %-siding house that has
@@ -1316,6 +1357,14 @@ function buildTotals(agg, groups, components, trim, counts) {
     : null;
   const sidingFractionForFace = (face) => {
     const materialFace = materialMap?.faces?.[face];
+    const faceGross = num(materialFace?.gross_wall_area_sqft);
+    const preOpening = num(materialFace?.pre_opening_facade_area_sqft);
+    // Glass is part of the pre-opening facade, so an opening cut into that
+    // glass comes out of the siding column once. Using lap-only percent here
+    // would leave part of the same opening in the masonry column.
+    if (materialFace && faceGross > 0 && preOpening > 0) {
+      return clamp01(preOpening / faceGross);
+    }
     if (materialFace && Number.isFinite(Number(materialFace.siding_percent))) {
       return clamp01(Number(materialFace.siding_percent) / 100);
     }
@@ -1355,7 +1404,7 @@ function buildTotals(agg, groups, components, trim, counts) {
   const sidingFacadeForGross = (grossArea) => {
     if (!(grossArea > 0)) return 0;
     if (materialFaces.length > 0 && materialGross > 0) {
-      return round(Math.max(0, materialSiding * (grossArea / materialGross)), 2);
+      return round(Math.max(0, materialPreOpening * (grossArea / materialGross)), 2);
     }
     return round(Math.max(0, grossArea - accent), 2);
   };
