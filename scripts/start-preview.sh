@@ -61,16 +61,13 @@ for name in "${live_vars[@]}"; do
   fi
 done
 
-# Preview-only secrets. Generated in this process and never printed or stored.
-# Production still requires the host to set these; this script is not that host.
-if [[ -z "${SESSION_SECRET:-}" ]]; then
-  SESSION_SECRET="$(openssl rand -hex 32)"
-  export SESSION_SECRET
-fi
-if [[ -z "${ENCRYPTION_KEY:-}" ]]; then
-  ENCRYPTION_KEY="$(openssl rand -hex 32)"
-  export ENCRYPTION_KEY
-fi
+# Preview-only secrets. Always replace inherited values: the tmux server can
+# carry short placeholders, and this process must not reuse a live key.
+# Generated here, never printed, and never written to disk.
+unset ENCRYPTION_KEY_PREVIOUS
+SESSION_SECRET="$(openssl rand -hex 32)"
+ENCRYPTION_KEY="$(openssl rand -hex 32)"
+export SESSION_SECRET ENCRYPTION_KEY
 if [[ ${#SESSION_SECRET} -lt 32 ]]; then
   echo 'Refusing to start: SESSION_SECRET is too short.' >&2
   exit 1
