@@ -44,6 +44,7 @@ const { handleWorkOrderRoute } = nodeRequire('./lib/workOrders.cjs');
 const crewPhotoSharing = nodeRequire('./lib/crewPhotoSharing.cjs');
 const { handleEmailDeliveryWebhook } = nodeRequire('./lib/emailDeliveryWebhook.cjs');
 const { canonicalizeGenericEntityType, normalizeGenericEntityData } = nodeRequire('./lib/expenseNormalize.cjs');
+const { resolveAssistantName } = nodeRequire('./lib/assistantName.cjs');
 const { buildMaterialList, materialListLineItems } = nodeRequire('./lib/materialList.cjs');
 const { buildLexiSystemPrompt, getLexiTools } = nodeRequire('./lib/lexiSystemPrompt.cjs');
 const callerMemory = nodeRequire('./lib/callerMemory.cjs');
@@ -16207,7 +16208,7 @@ ${categoryXml}
           [company_id]
         );
         const sd = settingsRes.rows[0]?.data || {};
-        if (sd.assistant_name) assistantName = sd.assistant_name.charAt(0).toUpperCase() + sd.assistant_name.slice(1);
+        assistantName = resolveAssistantName(sd.intent_templates?._assistant_display_name, sd.assistant_name);
         if (sd.brand_short_name) companyName = sd.brand_short_name;
         if (sd.knowledge_base) knowledgeBase = sd.knowledge_base;
         if (sd.custom_system_prompt) customSystemPrompt = sd.custom_system_prompt;
@@ -25156,10 +25157,12 @@ Return JSON:
           return null;
         }
       };
-      // Build the AI-identification prefix ("This is Sarah, Acme's AI assistant.")
+      // Build the AI-identification prefix ("This is Alex, Acme's AI assistant.")
       const buildAiLine = (assistant, companyName) => {
-        const rawName = assistant?.assistant_name || 'Alex';
-        const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+        const displayName = resolveAssistantName(
+          assistant?.intent_templates?._assistant_display_name,
+          assistant?.assistant_name
+        );
         const tmpl = assistant?.ai_identification_line || "This is {assistant}, {company}'s AI assistant.";
         return tmpl
           .replace(/\{assistant\}/g, displayName)

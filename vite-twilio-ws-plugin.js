@@ -335,7 +335,7 @@ function loadSettings() {
     }
   } catch (e) {}
   return {
-    voice: 'Kore',
+    voice: 'Puck',
     response_speed: 'normal',
     background_audio: 'none',
     interim_audio: 'typing',
@@ -391,7 +391,10 @@ async function localGetSettings(companyId) {
 
       const companyName = settings.brand_short_name || company.name || company.data?.company_name || 'our company';
       const companyTimezone = company.data?.timezone || 'America/New_York';
-      const assistantDisplayName = resolveAssistantName(settings.assistant_name);
+      const assistantDisplayName = resolveAssistantName(
+        settings.intent_templates?._assistant_display_name,
+        settings.assistant_name
+      );
 
       // Staff list so Sarah knows team members by name
       let staffContext = '';
@@ -1339,7 +1342,7 @@ async function callBase44API(action, companyId, data = null) {
       const { rows: companyRows } = await pool.query(`SELECT id FROM companies WHERE id = $1 OR base44_id = $1 LIMIT 1`, [companyId]);
       const localId = companyRows[0]?.id || companyId;
       await notifyAdmins(localId, {
-        title: data?.title || (action === 'notifyRep' ? 'New lead from Sarah' : 'Sarah Alert'),
+        title: data?.title || (action === 'notifyRep' ? 'New lead from Alex' : 'Alex Alert'),
         message: data?.message || data?.body || '',
         type: action === 'notifyRep' ? 'lead_created' : 'alert',
         linkUrl: '/SarahWorkspace'
@@ -2413,7 +2416,7 @@ CRM TOOLS — use these automatically as info comes in:
 
         async function connectGemini(isReconnect = false) {
           const currentSettings = loadSettings();
-          let voiceName = currentSettings.voice || 'Kore';
+          let voiceName = currentSettings.voice || 'Puck';
 
           const VALID_GEMINI_VOICES = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr'];
           let inboundGreeting = '';
@@ -2490,8 +2493,8 @@ CRM TOOLS — use these automatically as info comes in:
                 console.log(`[${assistantName}] Using CRM voice: ${voiceName}`);
               }
               if (!VALID_GEMINI_VOICES.includes(voiceName)) {
-                console.warn(`[${assistantName}] Voice "${voiceName}" is not valid for Gemini. Falling back to Kore. Valid voices: ${VALID_GEMINI_VOICES.join(', ')}`);
-                voiceName = 'Kore';
+                console.warn(`[${assistantName}] Voice "${voiceName}" is not valid for Gemini. Falling back to Puck. Valid voices: ${VALID_GEMINI_VOICES.join(', ')}`);
+                voiceName = 'Puck';
               }
               if (crmSettings.customSystemPrompt) {
                 subscriberSystemPrompt = crmSettings.customSystemPrompt;
@@ -3700,7 +3703,7 @@ Keep responses brief, conversational, and in the caller's language.`;
         req.on('end', async () => {
           try {
             const { voice, text } = JSON.parse(body);
-            const voiceName = voice || 'Kore';
+            const voiceName = voice || 'Puck';
             const previewText = text || "Say in a friendly, professional tone: Hi there! This is your AI assistant calling from the roofing company. How can I help you today?";
             const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
             if (!apiKey) {

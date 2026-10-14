@@ -1030,7 +1030,7 @@ function loadSettings() {
     }
   } catch (e) {}
   return {
-    voice: 'Kore',
+    voice: 'Puck',
     response_speed: 'normal',
     background_audio: 'none',
     interim_audio: 'typing',
@@ -1220,9 +1220,10 @@ async function localGetSettings(companyId) {
     const companyTimezone = company.data?.timezone || 'America/New_York';
     const preferredLanguage = company.preferred_language || 'en';
 
-    let rawName = (settings.assistant_name || 'Alex').trim();
-    if (/^\{.*\}$/.test(rawName)) rawName = 'Alex';
-    const assistantDisplayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+    const assistantDisplayName = resolveAssistantName(
+      settings.intent_templates?._assistant_display_name,
+      settings.assistant_name
+    );
 
     let knowledgeParts = [];
 
@@ -11302,7 +11303,7 @@ twilioWss.on('connection', async (twilioWs, req) => {
 
   async function connectGemini(isReconnect = false) {
     const currentSettings = loadSettings();
-    let voiceName = currentSettings.voice || 'Kore';
+    let voiceName = currentSettings.voice || 'Puck';
 
     let inboundGreeting = '';
     let callTransferInstructions = '';
@@ -11410,7 +11411,7 @@ twilioWss.on('connection', async (twilioWs, req) => {
       } catch (e) { console.warn('[Sarah] CRM load failed:', e.message); }
     }
 
-    if (!VALID_GEMINI_VOICES.includes(voiceName)) { console.warn(`[Sarah] Invalid voice "${voiceName}", using Kore`); voiceName = 'Kore'; }
+    if (!VALID_GEMINI_VOICES.includes(voiceName)) { console.warn(`[Sarah] Invalid voice "${voiceName}", using Puck`); voiceName = 'Puck'; }
     console.log(`[Sarah] Connecting Gemini: voice=${voiceName}, company=${companyName}, assistant=${assistantName}`);
     })();
 
@@ -12899,11 +12900,11 @@ prodDb.initDatabase().then(async () => {
       const voiceId = row.data?.voice_id;
       if (voiceId && !VALID_GEMINI_VOICES.includes(voiceId)) {
         await pool.query(
-          `UPDATE generic_entities SET data = jsonb_set(data::jsonb, '{voice_id}', '"Kore"'), updated_date = NOW() WHERE id = $1`,
+          `UPDATE generic_entities SET data = jsonb_set(data::jsonb, '{voice_id}', '"Puck"'), updated_date = NOW() WHERE id = $1`,
           [row.id]
         );
         fixed++;
-        console.log(`[VoiceMigration] Fixed invalid voice_id "${voiceId}" -> "Kore" for AssistantSettings ${row.id}`);
+        console.log(`[VoiceMigration] Fixed invalid voice_id "${voiceId}" -> "Puck" for AssistantSettings ${row.id}`);
       }
     }
     if (fixed > 0) console.log(`[VoiceMigration] Cleaned up ${fixed} invalid voice IDs`);
