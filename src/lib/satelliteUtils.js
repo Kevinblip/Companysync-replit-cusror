@@ -232,6 +232,23 @@ export function parsePitchRise(pitchStr) {
   return null;
 }
 
+/**
+ * A high-confidence Solar segment pitch outranks one photo reading that
+ * disagrees by a full rise or more. Re-projecting the measured roof with that
+ * photo pitch shrinks or inflates an area Solar already slope-adjusted.
+ * A hand-picked pitch is not decided here; callers still apply it first.
+ */
+export function satellitePitchOutranksPhoto(analysis, photoPitch) {
+  if (!analysis || !photoPitch) return false;
+  const source = String(analysis.pitch_source || '');
+  const confidence = String(analysis.pitch_confidence || '');
+  if (confidence !== 'high' || !/solar/i.test(source)) return false;
+  const solarRise = parsePitchRise(analysis.pitch);
+  const photoRise = parsePitchRise(photoPitch);
+  if (solarRise == null || photoRise == null) return false;
+  return Math.abs(solarRise - photoRise) >= 1;
+}
+
 const SQM_TO_SQFT = 10.7639;
 
 /**

@@ -65,6 +65,29 @@ export function isPerimeterSafeOsmGeometryOverride({
     && candidate <= osm * (1 + tolerance);
 }
 
+/**
+ * A roof eave length is not the wall perimeter. It may scale a traced outline
+ * only when the two already agree. A much shorter eave (one wing, or a vision
+ * guess from a cropped photo) must not shrink the walls.
+ */
+export function tracedOutlineOutranksShortEave(tracedPerimeterFt, eavePerimeterFt) {
+  const traced = Number(tracedPerimeterFt) || 0;
+  const eave = Number(eavePerimeterFt) || 0;
+  if (!(traced >= 40) || !(eave >= 40)) return false;
+  return eave < traced * 0.85;
+}
+
+/**
+ * A photo or eave rectangle that covers less than 55% of the Solar plan is the
+ * wrong footprint. Callers should keep the traced Solar or OSM outline.
+ */
+export function rectangleUndercutsSolarPlan(rectangleAreaSqFt, solarPlanAreaSqFt) {
+  const rect = Number(rectangleAreaSqFt) || 0;
+  const solar = Number(solarPlanAreaSqFt) || 0;
+  if (!(solar >= 400) || !(rect > 0)) return false;
+  return rect < solar * 0.55;
+}
+
 // ── Basic polygon measures ───────────────────────────────────────────────────
 
 /** Perimeter of a closed ring [[x,y], …] in feet. */

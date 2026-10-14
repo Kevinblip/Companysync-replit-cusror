@@ -298,8 +298,10 @@ async function main() {
   console.log('\n\u2500\u2500 7. Guard rails that must not regress \u2500\u2500');
   check('masonry still gated above the 2% noise floor', /avgNonSidingPct > 2 \? Math\.round\(grossWallSqFt \* \(avgNonSidingPct \/ 100\)\)/.test(PLUGIN));
   check('Solar facet-union sanity bounds still present', /fp\.area_sqft >= flatSqFt \* 0\.35 && fp\.area_sqft <= flatSqFt \* 1\.60/.test(PLUGIN));
-  check('satellite ratio gate still 0.55-4.0', /ratio >= 0\.55 && ratio <= 4\.0/.test(PLUGIN));
-  check('roof-eave override still highest precedence', /Roof eave perimeter cross-reference \(highest precedence\)/.test(PLUGIN));
+  check('satellite ratio floor still 0.55', /ratio >= 0\.55 && ratio <= maxPhotoRatio/.test(PLUGIN));
+  check('a rectangle still cannot exceed 4x the photo perimeter', /candGeometry === 'traced_polygon' \? 8 : 4\.0/.test(PLUGIN));
+  check('a short roof eave cannot shrink a traced outline', /tracedOutlineOutranksShortEave\(tracedPerim, known_perimeter_ft\)/.test(PLUGIN));
+  check('an undersized rectangle is replaced by the traced outline', /rectangleUndercutsSolarPlan\(rectArea, solarPlan\)/.test(PLUGIN));
   check('graph still charges openings per-face', /sidingFractionForFace/.test(GRAPH));
   check('opening cap still measured against the siding facade', /openingDeductionCap = round\(sidingFacade \* MAX_OPENING_DEDUCTION_PCT/.test(GRAPH));
   check('20-sqft deductibility floor still in force', /MIN_DEDUCTIBLE_SQFT = 20/.test(GRAPH));

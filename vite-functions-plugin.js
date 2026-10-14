@@ -17,6 +17,8 @@ import {
   scalePolygonToPerimeter,
   rectanglePolygon,
   isPerimeterSafeOsmGeometryOverride,
+  tracedOutlineOutranksShortEave,
+  rectangleUndercutsSolarPlan,
   DEFAULT_EAVE_OVERHANG_FT,
 } from './functions/utils/footprintPolygon.js';
 import { buildRoofMeasurementGraph, summarizeRoofMeasurement } from './functions/utils/roofMeasurementGraph.js';
@@ -9704,6 +9706,9 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       companyId,
       apiKey: googleApiKey,
       query: companyId ? ((sql, params) => getPool().query(sql, params)) : null,
+      // The height-map trace is how a partial Building Insights model gets the
+      // rest of the roof. An admin can still turn it off in Company Setup.
+      force: true,
     });
 
     let roofAreaSquares = Math.round((totalAreaSqFt / 100) * 100) / 100;
@@ -10645,32 +10650,39 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
             totalAreaSqFt = payload.area_sqft;
             roofAreaSquares = Math.round((totalAreaSqFt / 100) * 100) / 100;
             areaMethod = 'datalayers_polygons';
-            ridgeLf = payload.linears?.ridge || 0;
-            hipLf = payload.linears?.hip || 0;
-            valleyLf = payload.linears?.valley || 0;
-            rakeLf = payload.linears?.rake || 0;
-            eaveLf = payload.linears?.eave || 0;
-            roofFacets3d = (payload.facets || []).map((facet) => ({
-              id: facet.id,
-              provenance: 'google_solar_datalayers',
-              pitch: facet.pitch,
-              pitch_degrees: facet.pitch_degrees,
-              azimuth_degrees: facet.azimuth_degrees,
-              area_sqft: facet.area_sqft,
-              polygon: (facet.polygon || []).map(([x, y, h]) => ({ x, y, h })),
-              edges: [],
-            }));
-            roofFacetEdgeTotals = {
-              eave: eaveLf,
-              ridge: ridgeLf,
-              hip: hipLf,
-              valley: valleyLf,
-              rake: rakeLf,
-              counts: payload.counts || {},
-            };
-            roofLinearSource = 'solar_datalayers';
-            pitchAreas = payload.pitch_areas || pitchAreas;
-            numSegments = roofFacets3d.length || numSegments;
+            // A trace that classifies most of the roof edge as something else
+            // (or clips it) comes back with a tiny eave. Keep the Solar edge
+            // lengths in that case; the area is still the traced surface.
+            const traceEave = Number(payload.linears?.eave) || 0;
+            const trustTraceLinears = !(eaveLf > 40 && traceEave < eaveLf * 0.5);
+            if (trustTraceLinears) {
+              ridgeLf = payload.linears?.ridge || 0;
+              hipLf = payload.linears?.hip || 0;
+              valleyLf = payload.linears?.valley || 0;
+              rakeLf = payload.linears?.rake || 0;
+              eaveLf = payload.linears?.eave || 0;
+              roofFacets3d = (payload.facets || []).map((facet) => ({
+                id: facet.id,
+                provenance: 'google_solar_datalayers',
+                pitch: facet.pitch,
+                pitch_degrees: facet.pitch_degrees,
+                azimuth_degrees: facet.azimuth_degrees,
+                area_sqft: facet.area_sqft,
+                polygon: (facet.polygon || []).map(([x, y, h]) => ({ x, y, h })),
+                edges: [],
+              }));
+              roofFacetEdgeTotals = {
+                eave: eaveLf,
+                ridge: ridgeLf,
+                hip: hipLf,
+                valley: valleyLf,
+                rake: rakeLf,
+                counts: payload.counts || {},
+              };
+              roofLinearSource = 'solar_datalayers';
+              pitchAreas = payload.pitch_areas || pitchAreas;
+              numSegments = roofFacets3d.length || numSegments;
+            }
             roofWaste = resolveRoofWaste({
               pitchVal,
               numSegments,
@@ -10681,7 +10693,7 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
             wastePercent = roofWaste.waste_percentage;
             wasteReason = roofWaste.waste_reason;
             finalOrderQty = Number((roofAreaSquares * (1 + wastePercent / 100)).toFixed(2));
-            debugLogs.push(`Solar dataLayers trace accepted (${datalayersDelta}% from Building Insights, ${datalayersBytes} bytes cached, ${datalayersMs} ms)`);
+            debugLogs.push(`Solar dataLayers trace accepted (${datalayersDelta}% from Building Insights, ${datalayersBytes} bytes cached, ${datalayersMs} ms)${trustTraceLinears ? '' : '; kept Solar edge lengths because the traced eave was much shorter'}`);
           } else {
             datalayersStatus = 'fallback_area';
             debugLogs.push(`Solar dataLayers trace discarded: area differs from Building Insights by ${datalayersDelta}% (limit 8%)`);
@@ -12319,6 +12331,10 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     // its established vocabulary because buildRoofMeasurementGraph whitelists it;
     // this field carries the shape-fidelity signal instead.
     let footprintGeometry  = 'rectangle_estimate';
+    // Kept even when the photo-ratio gate rejects it, so a 100 LF photo
+    // rectangle cannot outvote a Solar plan several times larger.
+    let solarTracedCandidate = null;
+    let solarPlanAreaSqFt = 0;
     // Classified roof facets for the 3D viewer. Prefer facets the client already
     // has from a roof analysis; otherwise built from Solar segments below.
     let roofFacetsForGraph = Array.isArray(params.roof_facets) && params.roof_facets.length > 0
@@ -12472,6 +12488,7 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
             let nsM2 = 0, ewM2 = 0;
             segs.forEach(s => { const az = ((s.azimuthDegrees ?? 0) % 360 + 360) % 360; const a = s.stats?.areaMeters2 || 0; if (az <= 45 || az > 315 || (az > 135 && az <= 225)) nsM2 += a; else ewM2 += a; });
             const flatSqFt = flatM2 * 10.7639;
+            if (flatSqFt > solarPlanAreaSqFt) solarPlanAreaSqFt = flatSqFt;
 
             // ── Preferred: trace the true outline from the roof facets ──────────
             // The Solar API never returns a building outline — only one bounding
@@ -12500,6 +12517,7 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
 
             let candLen, candWid, candPerim, candPoly, candGeometry, candNote;
             if (tracedFootprint) {
+              solarTracedCandidate = tracedFootprint;
               candLen = tracedFootprint.length_ft;
               candWid = tracedFootprint.width_ft;
               candPerim = tracedFootprint.perimeter_ft;
@@ -12526,6 +12544,10 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
             }
 
             const ratio = photoEstPerim > 0 ? candPerim / photoEstPerim : 1.0;
+            // A traced outline may be several times the photo estimate: the
+            // photos often see one wing. A rectangle past 4× is still rejected,
+            // because that approximation can be a neighboring building.
+            const maxPhotoRatio = candGeometry === 'traced_polygon' ? 8 : 4.0;
             // Accept satellite when:
             //   ratio >= 0.55 → satellite not drastically smaller than photos (would indicate wrong building)
             //   ratio <= 4.0  → satellite can be much larger than photos for complex multi-wing houses
@@ -12547,7 +12569,7 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
                 candidateGeometry: candGeometry,
               })
             );
-            if (ratio >= 0.55 && ratio <= 4.0 && candPoly && safeOsmGeometryOverride) {
+            if (ratio >= 0.55 && ratio <= maxPhotoRatio && candPoly && safeOsmGeometryOverride) {
               const priorPerimFt = perimeterFt;
               buildingLengthFt = Math.round(candLen);
               buildingWidthFt = Math.round(candWid);
@@ -12566,25 +12588,43 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
               // Keep OSM. Not a rejection — OSM's outline stands.
               debugLogs.push(`Kept OSM footprint (${perimeterFt}ft, ${osmVertexCount} corners): Solar candidate (${candNote}, ${candPerim}ft) was not a perimeter-safe geometry improvement`);
             } else {
-              const rejMsg = `Solar footprint ratio=${ratio.toFixed(2)} out of range (expected 0.55–4.0) — satellite may point to wrong building, using photo estimates`;
+              const rejMsg = `Solar footprint ratio=${ratio.toFixed(2)} out of range (expected 0.55–${maxPhotoRatio}) — satellite may point to wrong building, using photo estimates`;
               debugLogs.push(rejMsg);
-              satelliteRejectionReason = `Satellite footprint rejected: perimeter ratio ${ratio.toFixed(2)} is outside the accepted range (0.55–4.0). This usually means the satellite data is pointing to a neighboring building. Measurement is based on photos only — dimensions may be lower than actual for complex or multi-wing buildings. Use Manual Entry or upload an EagleView/Hover report to calibrate.`;
+              satelliteRejectionReason = `Satellite footprint rejected: perimeter ratio ${ratio.toFixed(2)} is outside the accepted range (0.55–${maxPhotoRatio}). This usually means the satellite data is pointing to a neighboring building. Measurement is based on photos only — dimensions may be lower than actual for complex or multi-wing buildings. Use Manual Entry or upload an EagleView/Hover report to calibrate.`;
             }
           }
         } catch (err) { debugLogs.push(`Solar error: ${err.message}`); }
       }
     }
 
-    // ── Roof eave perimeter cross-reference (highest precedence) ─────────────
-    // When the caller provides known_perimeter_ft from a roof measurement for the
-    // same address, use it directly — more accurate than OSM tags or Solar bbox.
+    // ── Roof eave perimeter cross-reference ─────────────────────────────────
+    // An eave length is only the level roof edge. It may scale a traced wall
+    // outline when the two already agree. A much shorter eave must not shrink
+    // the walls down to one wing.
+    const adoptSolarTracedCandidate = (reason) => {
+      const fp = solarTracedCandidate;
+      if (!fp?.polygon || fp.polygon.length < 4) return false;
+      buildingLengthFt = Math.round(fp.length_ft);
+      buildingWidthFt = Math.round(fp.width_ft);
+      perimeterFt = Math.round(fp.perimeter_ft);
+      footprintPolygonXY = fp.polygon;
+      footprintGeometry = 'traced_polygon';
+      footprintSource = 'solar';
+      usedSatellite = true;
+      usingOSM = false;
+      satelliteRejectionReason = null;
+      debugLogs.push(reason);
+      return true;
+    };
     let usingRoofEave = false;
     if (!isGarageJob && known_perimeter_ft >= 40 && known_perimeter_ft <= 600) {
-      if (footprintGeometry === 'traced_polygon' && Array.isArray(footprintPolygonXY) && footprintPolygonXY.length >= 4) {
-        // A measured roof-eave line is a better NUMBER than OSM/Solar, but it is
-        // only a number. Scale the traced outline about its centroid so its own
-        // perimeter equals the measured line, instead of collapsing the house
-        // back into a rectangle and throwing away the wings we just traced.
+      const tracedPerim = footprintGeometry === 'traced_polygon' && Array.isArray(footprintPolygonXY)
+        ? polygonPerimeterFt(footprintPolygonXY) : 0;
+      if (tracedPerim > 0 && tracedOutlineOutranksShortEave(tracedPerim, known_perimeter_ft)) {
+        debugLogs.push(`Kept traced ${footprintSource} outline (${Math.round(tracedPerim)} LF). Roof eave ${known_perimeter_ft} LF is not the wall line.`);
+      } else if (footprintGeometry === 'traced_polygon' && Array.isArray(footprintPolygonXY) && footprintPolygonXY.length >= 4) {
+        // Close enough to be the same line. Scale about the centroid so the
+        // wings stay, instead of collapsing the house into a rectangle.
         const beforePerim = polygonPerimeterFt(footprintPolygonXY);
         const scaled = scalePolygonToPerimeter(footprintPolygonXY, known_perimeter_ft);
         if (scaled) footprintPolygonXY = scaled;
@@ -12593,27 +12633,37 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
         buildingLengthFt = Math.round(nd.lengthFt);
         buildingWidthFt  = Math.round(nd.widthFt);
         perimeterFt      = Math.round(polygonPerimeterFt(footprintPolygonXY));
-        debugLogs.push(`✅ Roof-eave perimeter ${known_perimeter_ft} LF applied to the traced ${footprintSource} outline (scaled ×${k.toFixed(3)}, ${footprintPolygonXY.length} corners preserved)`);
+        footprintSource  = 'roof_eave';
+        usedSatellite    = true;
+        usingRoofEave    = true;
+        debugLogs.push(`✅ Roof-eave perimeter ${known_perimeter_ft} LF applied to the traced outline (scaled ×${k.toFixed(3)}, ${footprintPolygonXY.length} corners preserved)`);
       } else {
-        // No traced outline to preserve — split the measured perimeter into a
-        // rectangle, and return that rectangle as the polygon so the perimeter
-        // downstream always matches the shape downstream.
         const photoRatio = (buildingWidthFt > 0 && buildingLengthFt > 0)
           ? buildingWidthFt / (buildingWidthFt + buildingLengthFt)
           : 0.55;
         const half       = known_perimeter_ft / 2;
         const widRaw     = half * photoRatio;
         const lenRaw     = half * (1 - photoRatio);
-        buildingWidthFt  = Math.round(widRaw);
-        buildingLengthFt = Math.round(lenRaw);
-        perimeterFt      = known_perimeter_ft;
-        footprintPolygonXY = rectanglePolygon(lenRaw, widRaw);
-        footprintGeometry  = 'rectangle_estimate';
-        debugLogs.push(`✅ Roof-eave perimeter override: ${known_perimeter_ft} LF → ${buildingWidthFt}ft × ${buildingLengthFt}ft (ratio=${photoRatio.toFixed(2)}, rectangle)`);
+        const rectArea   = lenRaw * widRaw;
+        const solarPlan  = solarPlanAreaSqFt || solarTracedCandidate?.area_sqft || 0;
+        if (rectangleUndercutsSolarPlan(rectArea, solarPlan) && adoptSolarTracedCandidate(
+          `Rejected roof-eave rectangle ${known_perimeter_ft} LF (${Math.round(rectArea)} sqft). Traced Solar outline is ${Math.round(solarTracedCandidate.perimeter_ft)} LF.`
+        )) {
+          // The traced outline is already adopted.
+        } else if (!rectangleUndercutsSolarPlan(rectArea, solarPlan)) {
+          buildingWidthFt  = Math.round(widRaw);
+          buildingLengthFt = Math.round(lenRaw);
+          perimeterFt      = known_perimeter_ft;
+          footprintPolygonXY = rectanglePolygon(lenRaw, widRaw);
+          footprintGeometry  = 'rectangle_estimate';
+          footprintSource  = 'roof_eave';
+          usedSatellite    = true;
+          usingRoofEave    = true;
+          debugLogs.push(`✅ Roof-eave perimeter override: ${known_perimeter_ft} LF → ${buildingWidthFt}ft × ${buildingLengthFt}ft (ratio=${photoRatio.toFixed(2)}, rectangle)`);
+        } else {
+          debugLogs.push(`Rejected roof-eave rectangle ${known_perimeter_ft} LF; it is far smaller than the Solar plan and no traced outline was available.`);
+        }
       }
-      footprintSource  = 'roof_eave';
-      usedSatellite    = true; // suppress the photo-only fallback below
-      usingRoofEave    = true;
     }
 
     // Photo-based dimension estimate — routed through shared module (tested in test:siding-aggregate)
@@ -12633,6 +12683,16 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     if (!Array.isArray(footprintPolygonXY) && buildingLengthFt > 0 && buildingWidthFt > 0) {
       footprintPolygonXY = rectanglePolygon(buildingLengthFt, buildingWidthFt);
       footprintGeometry = 'rectangle_estimate';
+    }
+
+    if (footprintGeometry !== 'traced_polygon') {
+      const rectArea = (Number(buildingWidthFt) || 0) * (Number(buildingLengthFt) || 0);
+      const solarPlan = solarPlanAreaSqFt || solarTracedCandidate?.area_sqft || 0;
+      if (rectangleUndercutsSolarPlan(rectArea, solarPlan)) {
+        adoptSolarTracedCandidate(
+          `Replaced the ${Math.round(rectArea)} sqft rectangle (${perimeterFt} LF) with the traced Solar outline (${Math.round(solarTracedCandidate.perimeter_ft)} LF, ${Math.round(solarTracedCandidate.area_sqft)} sqft).`
+        );
+      }
     }
 
     // True plan area of whatever outline we ended up with. Downstream ratios
@@ -13175,220 +13235,93 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     if (!authUser) throw new Error('Authentication required');
     const usageCheck = await checkAIUsage(authUser.company_id);
     if (!usageCheck.allowed) throw new Error(usageCheck.error);
-    const result = await functionHandlers._geminiRoofMeasurementImpl(params, apiKey);
+    const result = await functionHandlers._geminiRoofMeasurementImpl(params, apiKey, authUser.company_id);
     logUsageEvent(authUser.company_id, 'ai_estimator').catch(() => {});
     return result;
   },
 
-  async _geminiRoofMeasurementImpl(params, apiKey) {
+  async _geminiRoofMeasurementImpl(params, apiKey, companyId = null) {
     const { latitude, longitude, address = '' } = params;
-    const debugLogs = ['Gemini+Solar measurement started'];
+    // Geometry comes from the Solar handler (Building Insights, and the height
+    // map when it agrees). A zoom-19 vision pass is only allowed to count
+    // penetrations. Letting it overwrite eave/ridge lengths collapsed a whole
+    // house down to the one wing visible in the photo.
+    const measured = await functionHandlers._aiRoofMeasurementImpl(params, apiKey, companyId);
+    if (!measured?.success) return measured;
+
+    const debugLogs = [...(measured.debug_logs || []), 'Gemini vision counts penetrations only; roof geometry stays Solar'];
     const googleApiKey = process.env.GOOGLE_MAPS_API_KEY;
-    if (!latitude || !longitude) throw new Error('Latitude and longitude are required');
-    if (!googleApiKey) return { success: false, error: 'Google Maps API key not configured. Please add GOOGLE_MAPS_API_KEY in your secrets.', debug_logs: debugLogs };
-
-    const solarApiUrl = `https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${latitude}&location.longitude=${longitude}&requiredQuality=HIGH&key=${googleApiKey}`;
-    debugLogs.push('Calling Google Solar API...');
-    let solarWorked = false, solarData = null;
-    let solarResponse = await fetch(solarApiUrl);
-    if (!solarResponse.ok) solarResponse = await fetch(`https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${latitude}&location.longitude=${longitude}&requiredQuality=MEDIUM&key=${googleApiKey}`);
-    if (!solarResponse.ok) solarResponse = await fetch(`https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${latitude}&location.longitude=${longitude}&key=${googleApiKey}`);
-    if (solarResponse.ok) { solarData = await solarResponse.json(); solarWorked = true; debugLogs.push(`Solar API OK: ${solarData?.solarPotential?.roofSegmentStats?.length || 0} segments`); }
-    else { debugLogs.push(`Solar API failed: ${solarResponse.status}`); }
-
-    const roofSegments = solarData?.solarPotential?.roofSegmentStats || [];
-    const wholeAreaM2 = solarData?.solarPotential?.wholeRoofStats?.areaMeters2 || 0;
-    const wholeAreaSqFt = wholeAreaM2 * 10.764;
-    let segSumM2 = 0; roofSegments.forEach(s => { segSumM2 += s.stats?.areaMeters2 || 0; });
-    const segSumSqFt = segSumM2 * 10.764;
-    let roofAreaSqFt = 0, areaMethod = '';
-    if (segSumSqFt > 0 && wholeAreaSqFt > 0) {
-      const r = segSumSqFt / wholeAreaSqFt;
-      if (r >= 0.85) { roofAreaSqFt = segSumSqFt; areaMethod = 'segment_sum'; }
-      else if (r >= 0.65) { roofAreaSqFt = segSumSqFt * 1.05; areaMethod = 'segment_sum+5%'; }
-      else { roofAreaSqFt = (segSumSqFt + wholeAreaSqFt) / 2; areaMethod = 'average'; }
-    } else if (segSumSqFt > 0) { roofAreaSqFt = segSumSqFt; areaMethod = 'segment_sum'; }
-    else if (wholeAreaSqFt > 0) { roofAreaSqFt = wholeAreaSqFt * 0.92; areaMethod = 'wholeRoofStats'; }
-    else { roofAreaSqFt = 600; areaMethod = 'fallback'; }
-    const roofAreaSquares = Math.round((roofAreaSqFt / 100) * 100) / 100;
-
-    const degToX12 = (deg) => `${Math.min(20, Math.max(1, Math.round(Math.tan((deg * Math.PI) / 180) * 12)))}/12`;
-    let predominantDeg = null, maxSegArea = 0;
-    let pitchTanWeighted = 0, pitchAreaSum = 0;
-    const segmentPitches = [];
-    for (const seg of roofSegments) {
-      const deg = seg.pitchDegrees ?? seg.tiltDegrees ?? null;
-      const area = seg.stats?.areaMeters2 || 0;
-      if (deg > 0 && area > maxSegArea) { maxSegArea = area; predominantDeg = deg; }
-      if (deg > 0 && area > 0) {
-        pitchTanWeighted += Math.tan(deg * Math.PI / 180) * area;
-        pitchAreaSum += area;
-        segmentPitches.push({ pitch: degToX12(deg), pitch_deg: Math.round(deg * 10) / 10, area_sqft: Math.round(area * 10.764) });
+    let satelliteImageBase64 = null;
+    let uploadedImageUrl = null;
+    let visionAnalysis = null;
+    if (googleApiKey && latitude && longitude) {
+      try {
+        const staticUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${latitude},${longitude}&zoom=19&size=640x640&maptype=satellite&key=${googleApiKey}`;
+        const imgRes = await fetch(staticUrl);
+        if (imgRes.ok) {
+          const buf = await imgRes.arrayBuffer();
+          satelliteImageBase64 = Buffer.from(buf).toString('base64');
+          uploadedImageUrl = staticUrl;
+          debugLogs.push('Satellite image fetched');
+        } else {
+          debugLogs.push(`Satellite image fetch failed: ${imgRes.status}`);
+        }
+      } catch (e) {
+        debugLogs.push(`Satellite image error: ${e.message}`);
       }
     }
-    // Area-weighted pitch (same logic as aiRoofMeasurement — keep in lockstep).
-    const weightedDeg = pitchAreaSum > 0 ? Math.atan(pitchTanWeighted / pitchAreaSum) * 180 / Math.PI : null;
-    const effectiveDeg = weightedDeg ?? predominantDeg;
-    const finalPitch = effectiveDeg ? degToX12(effectiveDeg) : '6/12';
-    const pitchRad = effectiveDeg ? (effectiveDeg * Math.PI / 180) : Math.atan(6 / 12);
-    const pitchVal = effectiveDeg ? Math.round(Math.tan(effectiveDeg * Math.PI / 180) * 12) : 6;
-    const pitchSource = weightedDeg != null ? 'solar_segments_weighted' : 'vision_guess';
-    const pitchConfidence = weightedDeg == null ? 'low' : (segmentPitches.length >= 2 ? 'high' : 'medium');
 
-    const flatArea = roofAreaSqFt / (1 / Math.cos(pitchRad));
-    const aspect = 1.5, estWidth = Math.sqrt(flatArea / aspect), estLength = flatArea / estWidth;
-    const rafterLen = (estWidth / 2) / Math.cos(pitchRad);
-    const hipRafterLen = Math.sqrt(Math.pow(rafterLen, 2) + Math.pow(estWidth / 2, 2));
-    const numSeg = roofSegments.length;
-
-    const azimuths = roofSegments.map(s => s.azimuthDegrees ?? null).filter(a => a !== null && !isNaN(a));
-    const azGroups = [];
-    for (const az of azimuths) {
-      let found = false;
-      for (const g of azGroups) { const d = Math.min(Math.abs(az - g.center), 360 - Math.abs(az - g.center)); if (d < 30) { g.members.push(az); g.center = g.members.reduce((a, b) => a + b, 0) / g.members.length; found = true; break; } }
-      if (!found) azGroups.push({ center: az, members: [az] });
-    }
-    let roofType = 'complex';
-    if (numSeg <= 2) roofType = 'gable';
-    else if (azGroups.length === 2) { const d = Math.abs(azGroups[0].center - azGroups[1].center); roofType = (Math.min(d, 360 - d) > 150) ? 'gable' : 'cross_gable'; }
-    else if (azGroups.length === 4 && numSeg >= 4 && numSeg <= 6) roofType = 'hip';
-    else if (azGroups.length >= 3 && numSeg >= 6) roofType = 'complex_hip';
-    else if (azGroups.length === 3) roofType = 'cross_gable';
-    debugLogs.push(`Roof type: ${roofType}, segments: ${numSeg}`);
-
-    let finalRidgeLf, finalHipLf, finalValleyLf, finalRakeLf, finalEaveLf, finalStepFlashingLf, finalApronFlashingLf;
-    switch (roofType) {
-      case 'gable': finalRidgeLf = Math.round(estLength); finalHipLf = 0; finalValleyLf = 0; finalRakeLf = Math.round(4 * rafterLen); finalEaveLf = Math.round(2 * estLength); finalStepFlashingLf = Math.round(estLength * 0.15); finalApronFlashingLf = 0; break;
-      case 'hip': finalRidgeLf = Math.round(Math.max(0, estLength - estWidth)); finalHipLf = Math.round(4 * hipRafterLen); finalValleyLf = 0; finalRakeLf = 0; finalEaveLf = Math.round(2 * (estLength + estWidth)); finalStepFlashingLf = Math.round(estLength * 0.12); finalApronFlashingLf = 0; break;
-      case 'cross_gable': finalRidgeLf = Math.round(estLength + estLength * 0.3); finalHipLf = 0; finalValleyLf = Math.round(4 * rafterLen * 0.7); finalRakeLf = Math.round(4 * rafterLen + 2 * (estWidth * 0.3) / Math.cos(pitchRad)); finalEaveLf = Math.round(2 * estLength + 2 * estLength * 0.3); finalStepFlashingLf = Math.round(estLength * 0.2); finalApronFlashingLf = Math.round(estWidth * 0.25); break;
-      case 'complex_hip': { const cf = (numSeg - 4) / 4; finalRidgeLf = Math.round(Math.max(0, estLength - estWidth) + estLength * cf * 0.3); finalHipLf = Math.round(4 * hipRafterLen + cf * 2 * hipRafterLen * 0.5); finalValleyLf = Math.round(cf * 2 * rafterLen * 0.8); finalRakeLf = Math.round(cf * 2 * rafterLen * 0.4); finalEaveLf = Math.round(2 * (estLength + estWidth) + cf * estWidth * 0.8); finalStepFlashingLf = Math.round((estLength + estWidth) * 0.15); finalApronFlashingLf = Math.round(estWidth * 0.15 * cf); break; }
-      default: { const cf = numSeg > 4 ? Math.log2(numSeg / 4) : 0; const bf = 1 + cf * 0.3; finalRidgeLf = Math.round(estLength * bf); finalHipLf = Math.round(numSeg > 4 ? 4 * hipRafterLen * 0.5 * bf : 0); finalValleyLf = Math.round(numSeg > 6 ? 2 * rafterLen * cf * 0.6 : 0); finalRakeLf = Math.round(2 * rafterLen * bf); finalEaveLf = Math.round(2 * (estLength + estWidth * 0.5) * bf); finalStepFlashingLf = Math.round(estLength * 0.2 * bf); finalApronFlashingLf = Math.round(estWidth * 0.1 * cf); }
-    }
-
-    const sqRef = Math.sqrt(roofAreaSqFt);
-    if (numSeg > 8 && finalHipLf > sqRef * 1.5) { finalHipLf = Math.round(sqRef * 1.5); debugLogs.push(`Hip capped at ${finalHipLf} LF`); }
-    if (numSeg > 8 && finalRakeLf < sqRef * 1.5) { finalRakeLf = Math.round(sqRef * 1.5); debugLogs.push(`Rake floor at ${finalRakeLf} LF`); }
-    if (finalEaveLf > sqRef * 5.5) { finalEaveLf = Math.round(sqRef * 5.5); debugLogs.push(`Eave capped at ${finalEaveLf} LF`); }
-    if (numSeg <= 6 && finalValleyLf > 12) { finalValleyLf = 12; debugLogs.push(`Valley capped at 12 LF (simple roof)`); }
-
-    let satelliteImageBase64 = null, uploadedImageUrl = null;
-    try {
-      const staticUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${latitude},${longitude}&zoom=19&size=640x640&maptype=satellite&key=${googleApiKey}`;
-      const imgRes = await fetch(staticUrl);
-      if (imgRes.ok) {
-        const buf = await imgRes.arrayBuffer();
-        satelliteImageBase64 = Buffer.from(buf).toString('base64');
-        uploadedImageUrl = staticUrl;
-        debugLogs.push('Satellite image fetched');
-      } else { debugLogs.push(`Satellite image fetch failed: ${imgRes.status}`); }
-    } catch (e) { debugLogs.push(`Satellite image error: ${e.message}`); }
-
-    let visionAnalysis = null;
     if (satelliteImageBase64 && apiKey) {
       try {
         visionAnalysis = await callGemini(apiKey,
-          'You are a roofing expert analyzing satellite imagery to measure a residential roof. Respond ONLY with JSON.',
-          `Analyze this satellite image of the roof at: ${address || `${latitude}, ${longitude}`}.
-Identify and count roofing features. Return JSON with these exact fields:
+          'You are a roofing expert counting penetrations on a satellite photo. Respond ONLY with JSON. Do not estimate ridge, hip, valley, rake, or eave lengths.',
+          `Count roof penetrations and obstructions at: ${address || `${latitude}, ${longitude}`}.
+Return JSON with these exact fields:
 {
-  "ridge_lf": <number, linear feet of ridge>,
-  "hip_lf": <number, linear feet of hips>,
-  "valley_lf": <number, linear feet of valleys>,
-  "rake_lf": <number, linear feet of rakes/gable ends>,
-  "eave_lf": <number, linear feet of eaves>,
-  "step_flashing_lf": <number, linear feet of step flashing>,
-  "pipe_boots": <number, count of pipe boots/vents>,
-  "box_vents": <number, count of box vents>,
-  "ridge_vent_lf": <number, linear feet of ridge vent>,
+  "pipe_boots": <number>,
+  "box_vents": <number>,
+  "ridge_vent_lf": <number>,
   "chimney_small": <number>,
   "chimney_medium": <number>,
   "chimney_large": <number>,
   "satellite_dish": <number>,
   "has_significant_obstructions": <boolean, trees/shadows blocking >15% of roof>,
   "obstruction_percentage": <number, 0-100>,
-  "ai_observations": <string, brief description of roof>,
-  "ridge_confidence": <number, 0-100>,
-  "hip_confidence": <number, 0-100>,
-  "valley_confidence": <number, 0-100>,
-  "rake_confidence": <number, 0-100>,
-  "eave_confidence": <number, 0-100>,
-  "step_flashing_confidence": <number, 0-100>,
-  "apron_flashing_confidence": <number, 0-100>
+  "ai_observations": <string, brief description of roof>
 }`,
           { imageData: satelliteImageBase64, mimeType: 'image/jpeg', model: 'gemini-2.5-flash' }
         );
-        debugLogs.push(`Vision analysis complete: ${visionAnalysis?.ai_observations || 'ok'}`);
-        if (visionAnalysis?.ridge_lf > 0) finalRidgeLf = visionAnalysis.ridge_lf;
-        if (visionAnalysis?.hip_lf >= 0) finalHipLf = visionAnalysis.hip_lf;
-        if (visionAnalysis?.valley_lf >= 0) finalValleyLf = visionAnalysis.valley_lf;
-        if (visionAnalysis?.rake_lf > 0) finalRakeLf = visionAnalysis.rake_lf;
-        if (visionAnalysis?.eave_lf > 0) finalEaveLf = visionAnalysis.eave_lf;
-        if (visionAnalysis?.step_flashing_lf >= 0) finalStepFlashingLf = visionAnalysis.step_flashing_lf;
-      } catch (e) { debugLogs.push(`Vision analysis failed (using Solar only): ${e.message}`); }
-    } else { debugLogs.push(`Vision analysis skipped: ${!apiKey ? 'no API key' : 'no image'}`); }
-
-    let wastePercent = 10, wasteReason = 'Simple Gable';
-    if (pitchVal >= 10 || numSeg > 10) { wastePercent = 15; wasteReason = pitchVal >= 10 ? 'Steep Pitch (10/12+)' : 'Complex Roof (>10 Facets)'; }
-    else if ((pitchVal >= 7 && pitchVal <= 9) || finalHipLf > 0 || (finalValleyLf > 0 && pitchVal !== 4)) { wastePercent = 12; wasteReason = (pitchVal >= 7 && pitchVal <= 9) ? 'Standard Pitch (7/12-9/12)' : 'Hip/Valley Present'; }
-    else if ((pitchVal <= 6 && finalHipLf === 0) || (pitchVal <= 6 && finalValleyLf === 0)) {
-      wastePercent = 10;
-      wasteReason = finalValleyLf > 0 ? 'Minor Complexity (Low Pitch + Small Valleys)' : finalHipLf > 0 ? 'Simple Hip (<=6/12, No Valleys)' : 'Simple Gable (<=6/12)';
+        debugLogs.push(`Vision penetrations: ${visionAnalysis?.ai_observations || 'ok'}`);
+      } catch (e) {
+        debugLogs.push(`Vision penetration count failed (geometry unchanged): ${e.message}`);
+      }
+    } else {
+      debugLogs.push(`Vision penetration count skipped: ${!apiKey ? 'no API key' : 'no image'}`);
     }
-    wastePercent = Math.max(10, wastePercent);
-    const wasteRecommendedPct = wastePercent;
-    const geminiOverrideNum = Number(params.waste_override_pct);
-    const wasteOverridePct = Number.isFinite(geminiOverrideNum) ? Math.max(10, geminiOverrideNum) : null;
-    if (wasteOverridePct != null) wastePercent = wasteOverridePct;
-    const wasteFactor = 1 + (wastePercent / 100);
-    const finalOrderQuantitySq = Number((roofAreaSquares * wasteFactor).toFixed(2));
 
-    const isSimpleGable = pitchVal <= 6 && finalHipLf === 0;
-    const isSteepForConf = pitchVal >= 12;
-    let overallConfidence = 0, warningMessage = null;
-    if (visionAnalysis?.has_significant_obstructions || (visionAnalysis?.obstruction_percentage && visionAnalysis.obstruction_percentage > 15)) {
-      overallConfidence = 75; warningMessage = 'AI visibility limited by obstructions. A safety buffer has been applied; a site visit or aerial report is recommended.';
-    } else if (solarWorked && isSimpleGable) { overallConfidence = 95; }
-    else if (solarWorked && isSteepForConf) { overallConfidence = 95; }
-    else if (visionAnalysis) {
-      const scores = [visionAnalysis.ridge_confidence, visionAnalysis.hip_confidence, visionAnalysis.valley_confidence, visionAnalysis.rake_confidence, visionAnalysis.eave_confidence].filter(c => typeof c === 'number' && !isNaN(c));
-      overallConfidence = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : (solarWorked ? 80 : 55);
-    } else { overallConfidence = solarWorked ? 80 : 55; }
-
-    const isFlatRoof = finalPitch === '0/12' || finalPitch === '1/12' || finalPitch === '2/12';
-    const analysisSource = visionAnalysis ? 'Gemini Vision + Solar API' : 'Google Solar API only';
-    debugLogs.push(`Source: ${analysisSource}, Area: ${roofAreaSqFt.toFixed(0)} sqft, Pitch: ${finalPitch}, Waste: ${wastePercent}%`);
-
+    const obstructed = visionAnalysis?.has_significant_obstructions
+      || (Number(visionAnalysis?.obstruction_percentage) > 15);
+    const visionNote = visionAnalysis?.ai_observations
+      ? ` Penetration notes: ${visionAnalysis.ai_observations}.`
+      : '';
     return {
-      success: true,
-      roof_area_sq: roofAreaSquares, roof_area_sqft: roofAreaSqFt,
-      final_order_quantity_sq: finalOrderQuantitySq, waste_percentage: wastePercent, waste_recommended_pct: wasteRecommendedPct, waste_reason: wasteReason, waste_override_pct: wasteOverridePct,
-      has_significant_obstructions: visionAnalysis?.has_significant_obstructions || false,
-      warning_message: warningMessage,
-      ridge_lf: finalRidgeLf, hip_lf: finalHipLf, valley_lf: finalValleyLf,
-      rake_lf: finalRakeLf, eave_lf: finalEaveLf, step_flashing_lf: finalStepFlashingLf,
-      apron_flashing_lf: finalApronFlashingLf || 0, pitch: finalPitch, is_flat_roof: isFlatRoof,
-      pitch_source: pitchSource, pitch_confidence: pitchConfidence,
-      segment_pitches: segmentPitches,
-      area_is_slope_adjusted: true,
-      overall_confidence: overallConfidence,
-      ridge_confidence: visionAnalysis?.ridge_confidence || (solarWorked ? 80 : 50),
-      hip_confidence: visionAnalysis?.hip_confidence || (solarWorked ? 80 : 50),
-      valley_confidence: visionAnalysis?.valley_confidence || (solarWorked ? 80 : 50),
-      rake_confidence: visionAnalysis?.rake_confidence || (solarWorked ? 80 : 50),
-      eave_confidence: visionAnalysis?.eave_confidence || (solarWorked ? 80 : 50),
-      step_flashing_confidence: visionAnalysis?.step_flashing_confidence || (solarWorked ? 80 : 50),
-      apron_flashing_confidence: visionAnalysis?.apron_flashing_confidence || (solarWorked ? 75 : 50),
-      pipe_boots: visionAnalysis?.pipe_boots || 0, box_vents: visionAnalysis?.box_vents || 0,
+      ...measured,
+      satellite_image_url: uploadedImageUrl,
+      satellite_image_base64: satelliteImageBase64,
+      pipe_boots: visionAnalysis?.pipe_boots || 0,
+      box_vents: visionAnalysis?.box_vents || 0,
       ridge_vent_lf: visionAnalysis?.ridge_vent_lf || 0,
-      chimney_small: visionAnalysis?.chimney_small || 0, chimney_medium: visionAnalysis?.chimney_medium || 0,
-      chimney_large: visionAnalysis?.chimney_large || 0, satellite_dish: visionAnalysis?.satellite_dish || 0,
-      satellite_image_url: uploadedImageUrl, satellite_image_base64: satelliteImageBase64,
-      analysis_notes: overallConfidence >= 95 && isSimpleGable
-        ? 'Confidence high due to simple roof geometry and clear satellite data.'
-        : (visionAnalysis
-          ? `Gemini Vision Analysis: ${visionAnalysis.ai_observations || 'Measurements refined from visual analysis'}. ${warningMessage || 'Base area from Google Solar API.'}`
-          : `Measurements from Google Solar API (${solarWorked ? 'direct data' : 'estimated'}). Satellite image unavailable for visual analysis.`),
-      debug_logs: debugLogs
+      chimney_small: visionAnalysis?.chimney_small || 0,
+      chimney_medium: visionAnalysis?.chimney_medium || 0,
+      chimney_large: visionAnalysis?.chimney_large || 0,
+      satellite_dish: visionAnalysis?.satellite_dish || 0,
+      has_significant_obstructions: !!obstructed,
+      warning_message: measured.warning_message
+        || (obstructed
+          ? 'AI visibility limited by obstructions. A site visit or aerial report is recommended.'
+          : null),
+      analysis_notes: `${measured.analysis_notes || ''}${visionNote}`.trim(),
+      debug_logs: debugLogs,
     };
   },
 

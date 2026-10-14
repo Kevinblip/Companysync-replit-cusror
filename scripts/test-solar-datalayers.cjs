@@ -27,6 +27,7 @@ const {
   writeSolarTraceCache,
   readSolarTraceCache,
   readCompanySolarDataLayersEnabled,
+  solarDataLayersAllowed,
   SOLAR_DATALAYERS_SETTING,
 } = await import('../functions/utils/solarRoofTraceCache.js');
 
@@ -101,6 +102,9 @@ check('a second company does not see the first cache row', (await readSolarTrace
 check('toggle defaults off', (await readCompanySolarDataLayersEnabled(query, 'off')) === false);
 check('toggle reads the company setting', (await readCompanySolarDataLayersEnabled(query, 'on')) === true);
 check('toggle without a company stays off', (await readCompanySolarDataLayersEnabled(null, null)) === false);
+check('an explicit false still disables the trace', (await solarDataLayersAllowed(query, 'off', true)) === false);
+check('a missing setting runs when the measurement asks', (await solarDataLayersAllowed(async () => ({ rows: [{ settings: {} }] }), 'co', true)) === true);
+check('a missing setting stays off without that ask', (await solarDataLayersAllowed(async () => ({ rows: [{ settings: {} }] }), 'co', false)) === false);
 
 const slow = new Promise((resolve) => setTimeout(() => resolve('finished'), 80));
 const timed = await withTimeout(slow, 20);

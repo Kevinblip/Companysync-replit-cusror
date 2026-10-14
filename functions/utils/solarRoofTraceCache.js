@@ -57,16 +57,32 @@ function redact(message) {
   return String(message || 'Solar dataLayers failed').replace(/key=[^&\s]+/gi, 'key=REDACTED').slice(0, 180);
 }
 
-export async function readCompanySolarDataLayersEnabled(query, companyId) {
-  if (!companyId || typeof query !== 'function') return false;
+async function readSolarDataLayersSetting(query, companyId) {
+  if (!companyId || typeof query !== 'function') return undefined;
   try {
     const result = await query('SELECT settings FROM companies WHERE id = $1 LIMIT 1', [companyId]);
     const settings = result?.rows?.[0]?.settings;
     const parsed = typeof settings === 'string' ? JSON.parse(settings) : (settings || {});
-    return parsed?.[SOLAR_DATALAYERS_SETTING] === true;
+    return parsed?.[SOLAR_DATALAYERS_SETTING];
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+export async function readCompanySolarDataLayersEnabled(query, companyId) {
+  return (await readSolarDataLayersSetting(query, companyId)) === true;
+}
+
+/**
+ * Roof measurements trace the height map unless an admin has saved the
+ * setting as false. A missing setting stays on, so a host that never opened
+ * Company Setup still gets the outline.
+ */
+export async function solarDataLayersAllowed(query, companyId, force) {
+  const setting = await readSolarDataLayersSetting(query, companyId);
+  if (setting === false) return false;
+  if (force) return true;
+  return setting === true;
 }
 
 export async function readSolarTraceCache(query, companyId, addressKey) {
@@ -160,10 +176,10 @@ export async function fetchSolarDataLayerRasters({ latitude, longitude, apiKey }
  * A cache miss downloads the rasters, traces them in memory, and stores only
  * the derived JSON. Failures never include the API key.
  */
-export function beginSolarRoofTrace({ latitude, longitude, address, companyId, apiKey, query }) {
+export function beginSolarRoofTrace({ latitude, longitude, address, companyId, apiKey, query, force = false }) {
   const addressKey = normalizeSolarAddress(address, latitude, longitude);
   const job = (async () => {
-    const enabled = await readCompanySolarDataLayersEnabled(query, companyId);
+    const enabled = await solarDataLayersAllowed(query, companyId, force);
     if (!enabled) return { status: 'disabled', address_key: addressKey };
     if (!addressKey) return { status: 'fallback_error', error: 'Address is required to cache a Solar trace' };
     const cached = await readSolarTraceCache(query, companyId, addressKey);

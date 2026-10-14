@@ -100,7 +100,7 @@ import { getFormatInstructions, formatLabel } from "@/utils/symbilityExport";
 import { analyzeEstimateCompleteness, generateMaterialList } from "@/lib/functions";
 import MissingPurchaseMaterials from "@/components/estimates/MissingPurchaseMaterials";
 import useHiddenFeatures from "@/hooks/useHiddenFeatures";
-import { getPitchMultiplier, calculateRealConfidence, applyPhotoPitchToAnalysis } from "@/lib/satelliteUtils";
+import { getPitchMultiplier, calculateRealConfidence, applyPhotoPitchToAnalysis, satellitePitchOutranksPhoto } from "@/lib/satelliteUtils";
 import {
   createTiltControl,
   getImageryBaseType,
@@ -2657,7 +2657,14 @@ Choose your mode: Upload documents OR use satellite measurements!`,
       // the pitch multiplier and steep-labour applicability.
       // A hand-picked pitch outranks the photo pitch. It is property-scoped and
       // cleared whenever a new address is confirmed, so it can't bleed jobs.
-      const preConfPitch = manualPitchOverride || photoPitch;
+      // A high-confidence Solar segment pitch that already disagrees by a full
+      // rise is kept: re-projecting that slope-adjusted area with one photo
+      // reading is what shrank a 6/12 roof down to 5/12.
+      const solarPitchWins = !manualPitchOverride && satellitePitchOutranksPhoto(analysis, photoPitch);
+      if (solarPitchWins) {
+        console.log(`📐 Kept Solar pitch ${analysis.pitch} (${analysis.pitch_source}); photo pitch ${photoPitch} was not applied`);
+      }
+      const preConfPitch = manualPitchOverride || (solarPitchWins ? null : photoPitch);
       if (preConfPitch) {
         analysis.original_satellite_pitch = analysis.pitch; // capture BEFORE overwriting
         analysis.pitch                  = preConfPitch;
@@ -2708,7 +2715,7 @@ Choose your mode: Upload documents OR use satellite measurements!`,
       // satellite's 3D surface area and re-project the isolated 2D footprint
       // with the photo pitch (calculateRealConfidence keeps slope-adjusted
       // areas as-is, so this must run after it).
-      if (photoPitch) {
+      if (photoPitch && !solarPitchWins) {
         Object.assign(analysis, applyPhotoPitchToAnalysis(analysis, photoPitch));
         console.log(`📐 Fused geometry: area re-projected with photo pitch ${photoPitch} → ${analysis.corrected_area_sq} SQ (footprint ${analysis.footprint_sqft_2d || '?'} sqft)`);
       }
@@ -3746,9 +3753,12 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
         story_count_override: storyCountOverride,
         storyHeightFt: Number(config.storyHeightFt) || 9,
         openingDeductionPct: Number(config.openingDeductionPct) || 15,
-        latitude: (!isGarageMode && useSatelliteMode) ? (satelliteAddress?.coordinates?.lat || satelliteAddress?.lat || null) : null,
-        longitude: (!isGarageMode && useSatelliteMode) ? (satelliteAddress?.coordinates?.lng || satelliteAddress?.lng || null) : null,
-        use_satellite: !isGarageMode && useSatelliteMode,
+        // A confirmed house address always supplies coordinates, even when the
+        // satellite toggle is off. The toggle still controls wall-width anchors.
+        // Without coordinates the footprint falls back to the photo rectangle.
+        latitude: (!isGarageMode) ? (satelliteAddress?.coordinates?.lat || satelliteAddress?.lat || null) : null,
+        longitude: (!isGarageMode) ? (satelliteAddress?.coordinates?.lng || satelliteAddress?.lng || null) : null,
+        use_satellite: !isGarageMode && !!(satelliteAddress?.coordinates?.lat || satelliteAddress?.lat),
         structure_type: structureType,
         opening_deduct_min_sqft: Number(openingDeductMinSqft) === 33 ? 33 : 20,
         ...(String(sidingWasteOverridePct).trim() !== '' && Number.isFinite(Number(sidingWasteOverridePct))
@@ -3812,8 +3822,12 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       // store it and immediately update any existing satellite analysis.
       let roofBase = satelliteAnalysis;
       if (data.roof_pitch_detected && ['high', 'medium'].includes(data.roof_pitch_confidence || '')) {
-        setPhotoPitch(data.roof_pitch_detected);
-        roofBase = roofBase ? applyPhotoPitchToAnalysis(roofBase, data.roof_pitch_detected) : roofBase;
+        if (satellitePitchOutranksPhoto(roofBase, data.roof_pitch_detected)) {
+          console.log(`📐 Kept Solar pitch ${roofBase.pitch}; photo pitch ${data.roof_pitch_detected} was not applied`);
+        } else {
+          setPhotoPitch(data.roof_pitch_detected);
+          roofBase = roofBase ? applyPhotoPitchToAnalysis(roofBase, data.roof_pitch_detected) : roofBase;
+        }
       }
       const reconciledRoof = reconcileRoofMeasurement(roofBase, data.roof_measurement_graph);
       if (reconciledRoof) {
@@ -15981,7 +15995,7 @@ ${insuranceSettlementPrompt}`,
                                     : 0;
                                   const sharedMapStoneSqft = sharedMappedMasonryArea('stone');
                                   const sharedMapBrickSqft = sharedMappedMasonryArea('brick');
-                                const perimSource = d.osm_perimeter_used ? '🔒 OSM' : d.used_satellite_footprint ? '🔒 Solar API' : '📷 Photo';
+                                const perimSource = d.osm_perimeter_used ? '🔒 OSM' : d.used_satellite_footprint ? '🔒 Solar API' : d.footprint_source === 'roof_eave' ? '📐 Roof eave' : '📷 Photo';
                                  const fullPlaneHeight = d.wall_height_semantics === 'full_elevation'
                                    || String(d.height_source || '').startsWith('photo_calibration')
                                    || String(d.height_source || '').startsWith('manual_calibration');
