@@ -4,7 +4,7 @@
 # Do not set PORT here. Railway injects PORT and prod-server.cjs listens on it.
 [build]
 builder = "RAILPACK"
-buildCommand = "npm ci && npm run build"
+buildCommand = "npm run build"
 
 [deploy]
 # Schema setup finishes before the server process starts. The Replit start

@@ -12,8 +12,10 @@ Base: `replit-live` (snapshot of the code running on getcompanysync.com). Nothin
 - `vite.config.js`: build process exits when done (it hung forever before).
 - `railway.toml`, `railpack.json`, `nixpacks.toml`, and `.node-version`: Node 20.
   `main.py` is a Replit stub and is not part of the web process, so the build is
-  pinned to the Node provider and runs `npm ci` (Python detection was skipping
-  Node packages). `PORT` stays whatever Railway injects. The Replit start script
+  pinned to the Node provider (Python detection was skipping Node packages).
+  Railpack installs packages; the build command is `npm run build` only.
+  `PORT` stays whatever Railway injects, and `prod-server.cjs` listens on
+  `process.env.PORT`. The Replit start script
   is not used; it looks for Node inside `/nix/store`.
 - Schema: `scripts/ensure-schema.cjs` runs before `node prod-server.cjs` and adds
   any missing tables or columns. Additive only (no drops, no data rewrites).
