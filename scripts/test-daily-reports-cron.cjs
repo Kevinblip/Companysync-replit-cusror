@@ -164,11 +164,14 @@ async function cleanup() {
       },
     });
     const unauthorizedNormalResult = unauthorizedNormal.body?.data ?? unauthorizedNormal.body ?? {};
+    const rejectedByInvokeAuth = unauthorizedNormal.status === 401
+      && /authentication required/i.test(unauthorizedNormal.body?.error || '');
     ok('unauthenticated normal scheduler invocations are rejected',
-      unauthorizedNormal.status === 200
-        && unauthorizedNormalResult.success === false
-        && /only run from the server/i.test(unauthorizedNormalResult.error || ''),
-      unauthorizedNormalResult,
+      rejectedByInvokeAuth
+        || (unauthorizedNormal.status === 200
+          && unauthorizedNormalResult.success === false
+          && /only run from the server/i.test(unauthorizedNormalResult.error || '')),
+      unauthorizedNormalResult.error || unauthorizedNormal.body?.error || unauthorizedNormalResult,
     );
     const afterUnauthorized = await pool.query(
       `SELECT COUNT(*)::int AS count
@@ -189,11 +192,14 @@ async function cleanup() {
       },
     });
     const unauthorizedResult = unauthorized.body?.data ?? unauthorized.body ?? {};
+    const rejectedOverrideByInvokeAuth = unauthorized.status === 401
+      && /authentication required/i.test(unauthorized.body?.error || '');
     ok('unauthenticated scheduler overrides are rejected',
-      unauthorized.status === 200
-        && unauthorizedResult.success === false
-        && /super-admin authentication/i.test(unauthorizedResult.error || ''),
-      unauthorizedResult,
+      rejectedOverrideByInvokeAuth
+        || (unauthorized.status === 200
+          && unauthorizedResult.success === false
+          && /super-admin authentication/i.test(unauthorizedResult.error || '')),
+      unauthorizedResult.error || unauthorized.body?.error || unauthorizedResult,
     );
 
     await pool.query(
