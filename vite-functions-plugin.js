@@ -15772,9 +15772,12 @@ ${categoryXml}
   async getGoogleMapsApiKey(_params, _apiKey, req) {
     const user = req ? await getUserFromRequest(req) : null;
     if (!user?.email) return { error: 'Authentication required' };
-    const browserKey = process.env.GOOGLE_MAPS_BROWSER_KEY;
-    if (!browserKey) return { error: 'Google Maps browser key is not configured' };
-    return { apiKey: browserKey, api_key: browserKey };
+    const resolved = nodeRequire('./lib/googleMapsKeys.cjs').resolveGoogleMapsBrowserKey();
+    if (!resolved.apiKey) return { error: resolved.error };
+    if (resolved.fallback) {
+      console.warn('[getGoogleMapsApiKey] GOOGLE_MAPS_BROWSER_KEY is not set; using GOOGLE_MAPS_API_KEY for the browser map.');
+    }
+    return { apiKey: resolved.apiKey, api_key: resolved.apiKey };
   },
 
   async transcribeVoiceNote(params, apiKey, req) {

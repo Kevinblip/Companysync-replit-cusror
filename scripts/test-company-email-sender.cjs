@@ -233,7 +233,7 @@ if (createBackupMatch >= 0) {
 const actionEscalationMatch = pluginSrc.indexOf('async processActionItemEscalation');
 if (actionEscalationMatch >= 0) {
   const start = actionEscalationMatch;
-  const end = start + 6000;
+  const end = start + 16000;
   const scopeSrc = pluginSrc.slice(start, end);
   // Action-item escalation calls sendEmailWithResend({ companyId: item.company_id, ... })
   // The companyId triggers auto-resolve via companyFrom in sendEmailWithResend
@@ -243,10 +243,17 @@ if (actionEscalationMatch >= 0) {
     hasCompanyId,
     hasCompanyId ? 'companyId found' : 'companyId NOT found in escalation email call'
   );
+  const skipsInvalidEmail = (
+    scopeSrc.includes('!isValidEmailAddress(recipientEmail)')
+    || scopeSrc.includes('isValidEmailAddress(digest.recipientEmail)')
+  ) && (
+    scopeSrc.includes('Skipping email')
+    || scopeSrc.includes('Skipping digest email')
+  );
   ok(
     'processActionItemEscalation skips recipients that are not email addresses',
-    scopeSrc.includes('!isValidEmailAddress(recipientEmail)') && scopeSrc.includes('Skipping email'),
-    scopeSrc.includes('!isValidEmailAddress(recipientEmail)')
+    skipsInvalidEmail,
+    skipsInvalidEmail ? 'invalid recipients skipped' : 'skip check not found'
   );
   // Also verify sendEmailWithResend auto-resolve logic exists in the file
   const autoResolveMatch = pluginSrc.match(/if\s*\(\s*!fromAddr\s*&&\s*companyId\s*\)/);

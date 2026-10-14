@@ -1612,14 +1612,16 @@ export default function AIEstimator() {
         let apiKey = sessionStorage.getItem('_gmaps_key');
         if (!apiKey) {
           const response = await base44.functions.invoke('getGoogleMapsApiKey');
-          apiKey = response.data?.apiKey;
+          apiKey = response.data?.apiKey || response.data?.api_key || '';
           if (apiKey) {
             sessionStorage.setItem('_gmaps_key', apiKey);
+          } else if (response.data?.error || response.error) {
+            throw new Error(response.data?.error || response.error);
           }
         }
 
         if (!apiKey) {
-          throw new Error('Google Maps API key not configured');
+          throw new Error('Google Maps browser key is not configured. Set GOOGLE_MAPS_BROWSER_KEY in Secrets. GOOGLE_MAPS_API_KEY is also accepted until a separate browser key is added.');
         }
 
         const existingScript = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');

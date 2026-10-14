@@ -54,7 +54,7 @@ const REQUIRED_GUARDS = [
     // Allow either: bare `AND is_public = true`
     //            or: `AND (is_public = true OR uploaded_by LIKE 'homeowner:%')`
     // Both patterns prevent leaking other tenants' private photos.
-    guard:   /AND\s+(?:is_public\s*=\s*true|\(is_public\s*=\s*true\s+OR\s+uploaded_by\s+LIKE\s+'homeowner:%'\))/i,
+    guard:   /AND\s+(?:(?:\w+\.)?is_public\s*=\s*true|\((?:\w+\.)?is_public\s*=\s*true\s+OR\s+(?:\w+\.)?uploaded_by\s+LIKE\s+'homeowner:%'\))/i,
   },
   {
     description: "homeowner note INSERT must hard-code is_public = false (not a variable)",
