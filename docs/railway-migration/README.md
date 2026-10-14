@@ -8,6 +8,8 @@ Base: `replit-live` (snapshot of the code running on getcompanysync.com). Nothin
   trimmed, case-insensitive email match (`LOWER(BTRIM(email))`).
 - `lib/voice-call-flow.cjs` (+ tests) from PR #7 as a helper module only — not wired in.
 - `.dockerignore` (from PR #11, adjusted so app icons are not excluded).
+- `package-lock.json`: 150 packages pointed at Replit's private npm mirror; now registry.npmjs.org (same versions/hashes).
+- `vite.config.js`: build process exits when done (it hung forever before).
 - `railway.toml` + `.node-version`: Railway builds with `npm run build` and starts
   `node prod-server.cjs` (the Replit start script needs Replit's Nix store).
 - `.replit`: ENCRYPTION_KEY, SARAH_BRIDGE_SECRET, LEXI_NATIVE_BRIDGE_SECRET removed;
