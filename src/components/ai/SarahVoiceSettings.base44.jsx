@@ -110,7 +110,7 @@ export default function SarahVoiceSettings({ companyId }) {
         <div className="flex items-center gap-2">
           <Volume2 className="w-5 h-5 text-blue-600" />
           <div>
-            <CardTitle>Sarah's Voice</CardTitle>
+            <CardTitle>Alex's Voice</CardTitle>
             <CardDescription>Choose the voice for incoming and outgoing calls</CardDescription>
           </div>
         </div>

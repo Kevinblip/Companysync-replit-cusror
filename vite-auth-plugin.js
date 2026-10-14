@@ -10,6 +10,7 @@ const { Pool } = pkg;
 const require = createRequire(import.meta.url);
 const googleAuth = require('./db/google-auth.cjs');
 const prodAuth = require('./db/prod-auth.cjs');
+const { stripUserSecrets } = require('./lib/stripUserSecrets.cjs');
 
 function getPool() {
   if (!getPool._pool) {
@@ -305,7 +306,7 @@ export default function authPlugin() {
                 }
                 if (userRow) {
                   res.writeHead(200, { 'Content-Type': 'application/json' });
-                  res.end(JSON.stringify({ ...userRow, is_administrator }));
+                  res.end(JSON.stringify(stripUserSecrets({ ...userRow, is_administrator })));
                 } else {
                   res.writeHead(200, { 'Content-Type': 'application/json' });
                   res.end(JSON.stringify({

@@ -20,6 +20,7 @@ const checks = [
   ['test sync is non-destructive', 'dryRun: true'],
   ['test UI describes a preview rather than an import', 'Would create a new lead'],
   ['production sync runs on startup', 'runGhlAutoSyncCron();'],
+  ['production auto-sync skips when the GHL OAuth keys are missing', 'if (!require(\'./lib/ghlConfig.cjs\').ghlOauthConfigured()) return;'],
   ['OAuth app uses location-level authorization', "user_type: 'Location'"],
   ['OAuth tokens are encrypted at rest', 'access_token_enc: encryptApiKey(tokens.access_token)'],
   ['OAuth callback exists in development and production', '/api/ghl-oauth-callback'],

@@ -12842,7 +12842,7 @@ const _cronToken = process.env.SESSION_SECRET
   : '';
 
 async function callInternalFunction(functionName, params = {}) {
-  const resp = await fetch('http://localhost:5000/api/functions/invoke', {
+  const resp = await fetch(`http://127.0.0.1:${process.env.PORT || 5000}/api/functions/invoke`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-cron-token': _cronToken },
     body: JSON.stringify({ functionName, params }),
@@ -13040,6 +13040,7 @@ setInterval(async () => {
 // ghlAutoSyncCron — run on startup, then every 30 minutes. Waiting for the
 // first interval left a freshly restarted production app unsynced for 30 min.
 const runGhlAutoSyncCron = async () => {
+  if (!require('./lib/ghlConfig.cjs').ghlOauthConfigured()) return;
   try {
     const result = await callInternalFunction('ghlAutoSyncCron', {});
     const details = result?.data || result || {};

@@ -974,10 +974,10 @@ export default function Layout({ children, currentPageName }) {
   const routingMode = myStaffProfile?.call_routing_mode || 'sarah_answers';
 
   const routingLabels = {
-    sarah_answers: 'Sarah Answers',
+    sarah_answers: 'Alex Answers',
     forward_to_cell: 'Forward to Cell',
-    sarah_then_transfer: 'Sarah Then Transfer',
-    sarah_only: 'Sarah Only (No Transfer)',
+    sarah_then_transfer: 'Alex Then Transfer',
+    sarah_only: 'Alex Only (No Transfer)',
   };
 
   const handleOpenStatusPopover = (open) => {
@@ -2405,22 +2405,22 @@ export default function Layout({ children, currentPageName }) {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="forward_to_cell">📲 Forward to Cell Phone</SelectItem>
-                              <SelectItem value="sarah_answers">🤖 Sarah Answers All</SelectItem>
-                              <SelectItem value="sarah_then_transfer">🔀 Sarah Then Transfer</SelectItem>
-                              <SelectItem value="sarah_only">🚫 Sarah Only (No Transfer)</SelectItem>
+                              <SelectItem value="sarah_answers">🤖 Alex Answers All</SelectItem>
+                              <SelectItem value="sarah_then_transfer">🔀 Alex Then Transfer</SelectItem>
+                              <SelectItem value="sarah_only">🚫 Alex Only (No Transfer)</SelectItem>
                             </SelectContent>
                           </Select>
                           {routingMode === 'forward_to_cell' && (
-                            <p className="text-xs text-muted-foreground">Your cell rings first (~4 rings). If you don't answer, Sarah takes over.</p>
+                            <p className="text-xs text-muted-foreground">Your cell rings first (~4 rings). If you don't answer, Alex takes over.</p>
                           )}
                           {routingMode === 'sarah_answers' && (
-                            <p className="text-xs text-muted-foreground">Sarah handles all calls. You'll get a notification after.</p>
+                            <p className="text-xs text-muted-foreground">Alex handles all calls. You'll get a notification after.</p>
                           )}
                           {routingMode === 'sarah_then_transfer' && (
-                            <p className="text-xs text-muted-foreground">Sarah answers, gathers info, then transfers to you.</p>
+                            <p className="text-xs text-muted-foreground">Alex answers, gathers info, then transfers to you.</p>
                           )}
                           {routingMode === 'sarah_only' && (
-                            <p className="text-xs text-muted-foreground">Sarah handles the entire call — saves leads, books inspections, takes messages. Transfer is fully disabled.</p>
+                            <p className="text-xs text-muted-foreground">Alex handles the entire call — saves leads, books inspections, takes messages. Transfer is fully disabled.</p>
                           )}
                         </div>
 

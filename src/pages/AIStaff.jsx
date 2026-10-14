@@ -8,6 +8,7 @@ import { Bot, Briefcase, MessageSquare, Phone, Mail, FileText, ArrowRight } from
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import useTranslation from "@/hooks/useTranslation";
+import { receptionistDisplayName } from "@/utils/receptionistDisplayName";
 
 export default function AIStaff() {
   const navigate = useNavigate();
@@ -41,10 +42,10 @@ export default function AIStaff() {
     enabled: !!company?.id,
   });
 
-  const salesAssistantName = React.useMemo(() => {
-    const name = sarahSettings?.assistant_name || "sarah";
-    return name.charAt(0).toUpperCase() + name.slice(1);
-  }, [sarahSettings]);
+  const salesAssistantName = React.useMemo(
+    () => receptionistDisplayName(sarahSettings?.assistant_name),
+    [sarahSettings]
+  );
 
   const aiStaff = [
     {

@@ -4,6 +4,7 @@ import { fnData, fnError, fnNumber } from "@/lib/functionResult";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { usePageVisibility } from "@/hooks/usePageVisibility";
 import { pickCanonicalSettings, healDuplicateSettings, upsertSarahSettings } from "@/utils/assistantSettingsRecord";
+import { receptionistDisplayName } from "@/utils/receptionistDisplayName";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1179,7 +1180,7 @@ export default function SarahWorkspace() {
   const [showSMS, setShowSMS] = useState(false);
   const [selectedContact, setSelectedContact] = useState({ name: "", phone: "" });
 
-  const agentName = form.assistant_name ? form.assistant_name.charAt(0).toUpperCase() + form.assistant_name.slice(1) : "Alex";
+  const agentName = receptionistDisplayName(form.assistant_name);
 
   const handleCallContact = (conv) => {
     setSelectedContact({ name: conv.name, phone: conv.phone });
