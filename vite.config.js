@@ -18,10 +18,16 @@ import stripePlugin from "./vite-stripe-plugin.js"
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
+const capacitorBuild = process.env.CAPACITOR_BUILD === '1';
+
 function copyProdServer() {
   return {
     name: 'copy-prod-server',
     closeBundle() {
+      if (capacitorBuild) {
+        console.log('[Build] Capacitor build: skipping server copy and precompressed asset duplicates');
+        return;
+      }
       const src = path.resolve(__dirname, 'prod-server.cjs');
       const dest = path.resolve(__dirname, 'dist', 'index.cjs');
       if (fs.existsSync(src)) {
@@ -93,6 +99,7 @@ function copyProdServer() {
 
 // https://vite.dev/config/
 export default defineConfig({
+  ...(capacitorBuild ? { build: { outDir: 'dist-mobile', emptyOutDir: true } } : {}),
   resolve: {
     alias: [
       { find: '@/functions', replacement: path.resolve(__dirname, './functions') },

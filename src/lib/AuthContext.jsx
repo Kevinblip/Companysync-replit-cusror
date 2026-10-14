@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useRef, useCallback, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { clearActiveCompanySession } from '@/lib/activeCompanySelection';
+import { logoutFromApp, redirectToLogin } from '@/lib/native/navigation';
 
 const AuthContext = createContext();
 
@@ -69,12 +70,12 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('selected_company_id');
     localStorage.removeItem('cachedSidebar');
     if (shouldRedirect) {
-      window.location.href = '/api/logout';
+      logoutFromApp();
     }
   }, []);
 
   const navigateToLogin = useCallback(() => {
-    window.location.href = '/api/login';
+    redirectToLogin();
   }, []);
 
   const contextValue = useMemo(() => ({

@@ -10,6 +10,8 @@ import { createRequire } from "module";
 const { Pool } = pkg;
 const require = createRequire(import.meta.url);
 const { stripUserSecrets } = require("./lib/stripUserSecrets.cjs");
+const { installNativeCookieRewrite } = require("./lib/nativeSessionCookie.cjs");
+const { handleDeleteOwnAccount, handleAppLogout } = require("./lib/accountDeletion.cjs");
 
 function getPool() {
   if (!getPool._pool) {
@@ -218,6 +220,11 @@ export default function authPlugin() {
           next();
         });
 
+        server.middlewares.use((req, res, next) => {
+          installNativeCookieRewrite(req, res);
+          next();
+        });
+
         server.middlewares.use(sessionMiddleware);
         server.middlewares.use(passport.initialize());
         server.middlewares.use(passport.session());
@@ -244,6 +251,33 @@ export default function authPlugin() {
           if (localAuth && url === '/api/confirm-email') {
             const pool = getPool();
             await localAuth.handleConfirmEmail(req, res, pool);
+            return;
+          }
+
+          if (url === '/api/account/delete') {
+            const pool = getPool();
+            const sessionEmail = req.user?.claims?.email || req.session?.passport?.user?.claims?.email || '';
+            const isImpersonating = !!(req.session?.impersonating_company_id);
+            await handleDeleteOwnAccount(req, res, { pool, sessionEmail, isImpersonating });
+            return;
+          }
+
+          if (url === '/api/logout-app' && req.method === 'POST') {
+            const pool = getPool();
+            await handleAppLogout(req, res, {
+              pool,
+              getSession: async (request) => {
+                const sid = request.sessionID;
+                return sid ? { sid } : null;
+              },
+              destroySession: async (_pool, sid) => {
+                await new Promise((resolve) => {
+                  if (req.session) req.session.destroy(() => resolve());
+                  else resolve();
+                });
+                try { await pool.query('DELETE FROM sessions WHERE sid = $1', [sid]); } catch { /* store may already be gone */ }
+              },
+            });
             return;
           }
 

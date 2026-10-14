@@ -2,7 +2,14 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from '@/App.jsx'
 import ErrorBoundary from '@/components/ErrorBoundary'
+import { installNativeApiBase } from '@/lib/native/installApiBase'
+import { isNativeApp } from '@/lib/native/platform'
 import '@/index.css'
+
+installNativeApiBase()
+if (import.meta.env.VITE_CAPACITOR_BUILD === 'true') {
+  import('@/lib/native/boot.js')
+}
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <ErrorBoundary fullPage>
@@ -50,7 +57,7 @@ function showUpdateBanner(registration) {
   });
 }
 
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && !isNativeApp()) {
   let refreshing = false;
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')

@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Lock, Sparkles, Zap, Crown } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { isNativeApp } from "@/lib/native/platform";
+import NativeBillingNotice from "@/components/native/NativeBillingNotice";
 
 // Subscription tier feature limits
 export const SUBSCRIPTION_LIMITS = {
@@ -106,8 +108,11 @@ export function SubscriptionGate({ plan, requiredPlan, feature, children }) {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-gray-600">
-          Upgrade to <strong>{requiredPlan.charAt(0).toUpperCase() + requiredPlan.slice(1)}</strong> to unlock {feature || 'this feature'}.
+          {isNativeApp()
+            ? 'This feature is not included in the current plan.'
+            : <>Upgrade to <strong>{requiredPlan.charAt(0).toUpperCase() + requiredPlan.slice(1)}</strong> to unlock {feature || 'this feature'}.</>}
         </p>
+        {isNativeApp() ? <NativeBillingNotice /> : (
         <Button 
           onClick={() => navigate(createPageUrl('Pricing'))}
           className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
@@ -115,6 +120,7 @@ export function SubscriptionGate({ plan, requiredPlan, feature, children }) {
           <PlanIcon className="w-4 h-4 mr-2" />
           View Plans & Upgrade
         </Button>
+        )}
       </CardContent>
     </Card>
   );

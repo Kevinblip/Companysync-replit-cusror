@@ -4,6 +4,8 @@ import { createPageUrl } from "@/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { XCircle, ArrowLeft } from "lucide-react";
+import { isNativeApp } from "@/lib/native/platform";
+import NativeBillingNotice from "@/components/native/NativeBillingNotice";
 
 export default function SubscriptionCancel() {
   const navigate = useNavigate();
@@ -42,12 +44,14 @@ export default function SubscriptionCancel() {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3">
+            {isNativeApp() ? <NativeBillingNotice /> : (
             <Button
               onClick={() => navigate(createPageUrl('Pricing'))}
               className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white py-6 text-lg"
             >
               View Plans Again
             </Button>
+            )}
 
             <Button
               onClick={() => navigate(createPageUrl('Dashboard'))}

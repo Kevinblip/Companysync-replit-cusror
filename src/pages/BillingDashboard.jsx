@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { createPageUrl } from "@/utils";
+import { isNativeApp } from "@/lib/native/platform";
+import NativeBillingNotice from "@/components/native/NativeBillingNotice";
 import {
   CreditCard,
   KeyRound,
@@ -255,7 +257,7 @@ export default function BillingDashboard() {
               <p className="text-sm text-gray-600">{planDetails.description}</p>
             </div>
             <div className="flex gap-2 shrink-0">
-              {isTrial && (
+              {isTrial && (isNativeApp() ? <NativeBillingNotice /> : (
                 <Button
                   className="bg-blue-600 hover:bg-blue-700 text-white"
                   onClick={() => window.location.href = createPageUrl("Pricing")}
@@ -264,7 +266,7 @@ export default function BillingDashboard() {
                   <Zap className="w-4 h-4 mr-1.5" />
                   Upgrade Plan
                 </Button>
-              )}
+              ))}
               <Button
                 variant="outline"
                 onClick={() => window.location.href = createPageUrl("ManageSubscription")}
@@ -425,7 +427,7 @@ export default function BillingDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="hover:border-purple-300 transition-colors cursor-pointer" onClick={() => window.location.href = createPageUrl("Pricing")} data-testid="card-view-plans">
+        {!isNativeApp() && <Card className="hover:border-purple-300 transition-colors cursor-pointer" onClick={() => window.location.href = createPageUrl("Pricing")} data-testid="card-view-plans">
           <CardContent className="pt-5 flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center shrink-0">
               <Star className="w-5 h-5 text-purple-600" />
@@ -436,7 +438,7 @@ export default function BillingDashboard() {
             </div>
             <ChevronRight className="w-4 h-4 text-gray-400" />
           </CardContent>
-        </Card>
+        </Card>}
       </div>
     </div>
   );

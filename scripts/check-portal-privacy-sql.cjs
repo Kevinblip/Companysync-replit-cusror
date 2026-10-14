@@ -53,8 +53,9 @@ const REQUIRED_GUARDS = [
     context: /SELECT\s[^;]*FROM\s+project_photos\s[^;]*WHERE\s[^;]*project_id/is,
     // Allow either: bare `AND is_public = true`
     //            or: `AND (is_public = true OR uploaded_by LIKE 'homeowner:%')`
+    // A table alias (`pp.is_public`) is the same filter.
     // Both patterns prevent leaking other tenants' private photos.
-    guard:   /AND\s+(?:is_public\s*=\s*true|\(is_public\s*=\s*true\s+OR\s+uploaded_by\s+LIKE\s+'homeowner:%'\))/i,
+    guard:   /AND\s+(?:(?:[a-z_][a-z0-9_]*\.)?is_public\s*=\s*true|\((?:[a-z_][a-z0-9_]*\.)?is_public\s*=\s*true\s+OR\s+(?:[a-z_][a-z0-9_]*\.)?uploaded_by\s+LIKE\s+'homeowner:%'\))/i,
   },
   {
     description: "homeowner note INSERT must hard-code is_public = false (not a variable)",

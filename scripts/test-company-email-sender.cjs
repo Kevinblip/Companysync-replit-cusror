@@ -233,11 +233,13 @@ if (createBackupMatch >= 0) {
 const actionEscalationMatch = pluginSrc.indexOf('async processActionItemEscalation');
 if (actionEscalationMatch >= 0) {
   const start = actionEscalationMatch;
-  const end = start + 6000;
+  const nextFn = pluginSrc.indexOf('\n  async ', start + 10);
+  const end = nextFn === -1 ? start + 20000 : nextFn;
   const scopeSrc = pluginSrc.slice(start, end);
-  // Action-item escalation calls sendEmailWithResend({ companyId: item.company_id, ... })
-  // The companyId triggers auto-resolve via companyFrom in sendEmailWithResend
-  const hasCompanyId = scopeSrc.includes('companyId: item.company_id');
+  // Action-item escalation calls sendEmailWithResend({ companyId: digest.companyId, ... })
+  // The companyId triggers auto-resolve via companyFrom in sendEmailWithResend.
+  // Invalid recipients are skipped before that call.
+  const hasCompanyId = scopeSrc.includes('companyId: digest.companyId') || scopeSrc.includes('companyId: item.company_id');
   ok(
     'processActionItemEscalation passes companyId to sendEmailWithResend (auto-resolves company name)',
     hasCompanyId,
@@ -245,8 +247,8 @@ if (actionEscalationMatch >= 0) {
   );
   ok(
     'processActionItemEscalation skips recipients that are not email addresses',
-    scopeSrc.includes('!isValidEmailAddress(recipientEmail)') && scopeSrc.includes('Skipping email'),
-    scopeSrc.includes('!isValidEmailAddress(recipientEmail)')
+    scopeSrc.includes('isValidEmailAddress(digest.recipientEmail)') && scopeSrc.includes('Skipping digest email'),
+    scopeSrc.includes('isValidEmailAddress(digest.recipientEmail)')
   );
   // Also verify sendEmailWithResend auto-resolve logic exists in the file
   const autoResolveMatch = pluginSrc.match(/if\s*\(\s*!fromAddr\s*&&\s*companyId\s*\)/);

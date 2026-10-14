@@ -1,0 +1,6 @@
+{
+  "appId": "com.getcompanysync.app",
+  "appName": "CompanySync",
+  "apiBaseUrl": "https://getcompanysync.com",
+  "notes": "Change appId here and rebuild. Override at build time with CAPACITOR_APP_ID, CAPACITOR_APP_NAME, or VITE_API_BASE_URL. Set CAPACITOR_SERVER_URL only if you must load a remote page instead of the bundled app. Leave it empty so the store build ships the built frontend."
+}

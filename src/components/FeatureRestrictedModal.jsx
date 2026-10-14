@@ -11,6 +11,8 @@ import {
 import { Lock, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { isNativeApp } from "@/lib/native/platform";
+import NativeBillingNotice from "@/components/native/NativeBillingNotice";
 
 const PLAN_FEATURES_MAP = {
   'ai-tools': { requiredPlan: 'business', message: 'Advanced AI Tools (Lexi Memory, Permit Assistant, Daily Reports) are available on Business plan and above' },
@@ -49,6 +51,7 @@ export function FeatureRestrictedModal({ restrictedFeature, onClose }) {
         </AlertDialogHeader>
         <div className="flex gap-3">
           <AlertDialogCancel onClick={onClose}>Dismiss</AlertDialogCancel>
+          {isNativeApp() ? <NativeBillingNotice /> : (
           <AlertDialogAction
             onClick={() => {
               onClose();
@@ -59,6 +62,7 @@ export function FeatureRestrictedModal({ restrictedFeature, onClose }) {
             <Zap className="w-4 h-4 mr-2" />
             View Plans
           </AlertDialogAction>
+          )}
         </div>
       </AlertDialogContent>
     </AlertDialog>

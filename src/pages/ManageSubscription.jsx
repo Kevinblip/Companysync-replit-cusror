@@ -20,6 +20,8 @@ import {
   ArrowRight
 } from "lucide-react";
 import { format } from "date-fns";
+import { isNativeApp } from "@/lib/native/platform";
+import NativeBillingNotice from "@/components/native/NativeBillingNotice";
 
 export default function ManageSubscription() {
   const navigate = useNavigate();
@@ -169,6 +171,7 @@ export default function ManageSubscription() {
               <p className="text-sm text-gray-700">
                 Enjoying the CRM? Choose a plan before your trial ends to keep access to all features.
               </p>
+              {isNativeApp() ? <NativeBillingNotice /> : (
               <Button
                 onClick={() => navigate(createPageUrl('Pricing'))}
                 className="mt-3 bg-green-600 hover:bg-green-700"
@@ -176,6 +179,7 @@ export default function ManageSubscription() {
                 Choose a Plan
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
+              )}
             </div>
           )}
         </CardContent>
@@ -232,6 +236,7 @@ export default function ManageSubscription() {
               <p className="text-sm text-yellow-700 mb-3">
                 You're close to your plan limits. Consider upgrading to continue growing.
               </p>
+              {isNativeApp() ? <NativeBillingNotice /> : (
               <Button
                 onClick={() => navigate(createPageUrl('Pricing'))}
                 size="sm"
@@ -239,6 +244,7 @@ export default function ManageSubscription() {
               >
                 Upgrade Plan
               </Button>
+              )}
             </div>
           )}
         </CardContent>
@@ -298,6 +304,7 @@ export default function ManageSubscription() {
           <CardTitle>Quick Actions</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          {isNativeApp() ? <NativeBillingNotice /> : (
           <Button
             onClick={() => navigate(createPageUrl('Pricing'))}
             variant="outline"
@@ -305,6 +312,7 @@ export default function ManageSubscription() {
           >
             View All Plans
           </Button>
+          )}
           <Button
             onClick={() => navigate(createPageUrl('CompanySetup'))}
             variant="outline"

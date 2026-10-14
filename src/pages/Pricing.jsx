@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Check, Sparkles, Zap, Crown, Loader2 } from "lucide-react";
+import { isNativeApp } from "@/lib/native/platform";
+import NativeBillingNotice from "@/components/native/NativeBillingNotice";
 
 export default function Pricing() {
   const navigate = useNavigate();
@@ -15,6 +17,7 @@ export default function Pricing() {
   const [selectedPlan, setSelectedPlan] = useState(null);
 
   useEffect(() => {
+    if (isNativeApp()) return;
     base44.auth.me().then(setUser).catch(() => {});
 
     // Auto-select plan from sessionStorage if exists
@@ -183,6 +186,7 @@ export default function Pricing() {
   ];
 
   const handleSubscribe = async (plan) => {
+    if (isNativeApp()) return;
     // Check if user is logged in
     if (!user) {
       // Redirect to login with plan selection stored
@@ -289,6 +293,8 @@ export default function Pricing() {
     };
     return colors[color] || colors.blue;
   };
+
+  if (isNativeApp()) return <NativeBillingNotice />;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-12 px-4">

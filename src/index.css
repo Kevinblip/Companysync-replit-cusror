@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Native shell paints the status-bar color in any gap around the WebView.
+   viewport-fit=cover is set in index.html. The status bar itself sits outside
+   the WebView (overlay off). Existing mobile nav padding uses
+   env(safe-area-inset-bottom) for the home indicator. */
+html.capacitor-native {
+  background: #1e3a5f;
+}
+
 /* App-store feel: no grey flash on tap (iOS/Android WebView) */
 * {
   -webkit-tap-highlight-color: transparent;

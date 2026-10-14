@@ -22,7 +22,7 @@
   <body>
     <div id="root"></div>
     <script>
-      if ('serviceWorker' in navigator) {
+      if ('serviceWorker' in navigator && !(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())) {
         window.addEventListener('load', function() {
           navigator.serviceWorker.register('/sw.js').then(function(registration) {
             registration.addEventListener('updatefound', function() {

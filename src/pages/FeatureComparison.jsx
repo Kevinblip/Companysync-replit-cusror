@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Check, X, Crown, Zap, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { isNativeApp } from "@/lib/native/platform";
+import NativeBillingNotice from "@/components/native/NativeBillingNotice";
 
 const FEATURES = [
   {
@@ -213,6 +215,7 @@ export default function FeatureComparison() {
         </div>
 
         <div className="mt-12 text-center">
+          {isNativeApp() ? <NativeBillingNotice /> : (
           <Button 
             onClick={() => navigate(createPageUrl('Pricing'))}
             size="lg"
@@ -220,6 +223,7 @@ export default function FeatureComparison() {
           >
             View Pricing & Subscribe
           </Button>
+          )}
         </div>
       </div>
     </div>
