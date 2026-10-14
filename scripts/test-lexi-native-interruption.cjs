@@ -58,12 +58,17 @@ const frames = (holdMs, sampleCount, sampleRate) => Math.max(1, Math.ceil(holdMs
 assert.equal(frames(320, 1280, 16000), 4, 'desktop worklet interruption is detected in 320 ms');
 assert.equal(frames(480, 1280, 16000), 6, 'hands-free worklet interruption is detected in 480 ms');
 assert.equal(frames(320, 4096, 48000), 4, 'fallback VAD uses the actual sample rate');
+const sessionEnd = fs.readFileSync('lib/lexiSessionEnd.cjs', 'utf8');
+assert.match(
+  sessionEnd,
+  /If the user explicitly says stop, stop talking, or asks you to be quiet, stop the current response immediately/,
+  'Lexi prompt includes stop-command instructions'
+);
+assert.match(sessionEnd, /stop the estimate/, 'end phrases must not treat a longer stop request as hang-up');
 for (const [name, source] of [['production', server], ['development', devServer]]) {
-  assert.match(
-    source,
-    /If the user explicitly says stop, stop talking, or asks you to be quiet, stop the current response immediately/,
-    `${name} Lexi prompt includes stop-command instructions`
-  );
+  assert.match(source, /SESSION_END_INSTRUCTION/, `${name} Lexi bridge uses the shared session-end instruction`);
+  assert.match(source, /END_SESSION_TOOL/, `${name} Lexi bridge exposes end_session on the native voice session`);
+  assert.match(source, /createLexiSessionCloser/, `${name} Lexi bridge closes farewells and idle sessions`);
 }
 
 console.log('PASS: voice barge-in stops playback promptly, flushes buffered user speech, ignores stale audio, and preserves playback echo buffering.');

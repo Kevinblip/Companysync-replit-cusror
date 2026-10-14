@@ -166,6 +166,13 @@ function AudioVolumeMeter({ analyserRef, isActive }) {
   );
 }
 
+// Standard Listening mode warns after 45s without speech and closes the mic
+// and socket at 60s. These match lib/lexiSessionEnd.cjs. Hands-free and
+// Drive Mode do not use this short timer.
+const LEXI_IDLE_WARN_MS = 45000;
+const LEXI_IDLE_CLOSE_MS = 60000;
+const LEXI_GOODBYE_DRAIN_MS = 4000;
+
 // driveMode: force the continuous hands-free session on (used by the dedicated
 // Drive Mode page). When set, the user cannot accidentally toggle it off and
 // silence never ends the session.
@@ -212,7 +219,15 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
   const nextPlayTimeRef = React.useRef(0);
   const lastActivityRef = React.useRef(Date.now());
   const autoStopTimerRef = React.useRef(null);
+  const idleWarnTimerRef = React.useRef(null);
+  const idleCloseTimerRef = React.useRef(null);
+  const idleWarningRef = React.useRef(false);
+  const endReasonRef = React.useRef('');
+  const pendingStopRef = React.useRef(false);
+  const drainTimerRef = React.useRef(null);
   const intentionalStopRef = React.useRef(false);
+  const [idleWarning, setIdleWarning] = React.useState(false);
+  const [closingNote, setClosingNote] = React.useState('');
   const reconnectAttemptsRef = React.useRef(0);
   const wakeLockRef = React.useRef(null);
   const wakeLockPendingRef = React.useRef(false);
@@ -321,6 +336,8 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
       window.removeEventListener('offline', onOffline);
       window.removeEventListener('online', onOnline);
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      if (drainTimerRef.current) clearTimeout(drainTimerRef.current);
+      clearClientIdle();
       releaseWakeLock();
       if (wsRef.current) {
         wsRef.current.close();
@@ -1009,6 +1026,63 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
     }, delayMs);
   };
 
+  const clearClientIdle = () => {
+    if (idleWarnTimerRef.current) clearTimeout(idleWarnTimerRef.current);
+    if (idleCloseTimerRef.current) clearTimeout(idleCloseTimerRef.current);
+    idleWarnTimerRef.current = null;
+    idleCloseTimerRef.current = null;
+  };
+
+  // Backup for the server's 45s/60s silence close. User speech and a normal
+  // assistant turn restart it. The idle-warning line must not, or the warning
+  // itself would keep the mic open.
+  const armClientIdle = () => {
+    clearClientIdle();
+    if (handsFreeModeRef.current || intentionalStopRef.current || pendingStopRef.current) return;
+    idleWarnTimerRef.current = setTimeout(() => {
+      idleWarningRef.current = true;
+      setIdleWarning(true);
+    }, LEXI_IDLE_WARN_MS);
+    idleCloseTimerRef.current = setTimeout(() => {
+      drainThenStop('idle');
+    }, LEXI_IDLE_CLOSE_MS);
+  };
+
+  const stopMicTracks = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+    }
+  };
+
+  const drainThenStop = (reason) => {
+    if (pendingStopRef.current && endReasonRef.current) return;
+    pendingStopRef.current = true;
+    endReasonRef.current = reason;
+    intentionalStopRef.current = true;
+    sessionRequestedRef.current = false;
+    clearClientIdle();
+    idleWarningRef.current = false;
+    setIdleWarning(false);
+    stopMicTracks();
+    if (reason === 'goodbye') setClosingNote('Lexi is saying goodbye…');
+    const started = Date.now();
+    const finish = () => {
+      drainTimerRef.current = null;
+      stopSession();
+      setClosingNote('');
+      if (reason === 'idle') {
+        setError('Lexi closed after a minute of silence. Tap “Talk with Lexi” to start again.');
+      }
+    };
+    const tick = () => {
+      const quiet = !isPlayingRef.current && audioQueueRef.current.length === 0 && !isSpeakingRef.current;
+      if (quiet || Date.now() - started >= LEXI_GOODBYE_DRAIN_MS) finish();
+      else drainTimerRef.current = setTimeout(tick, 120);
+    };
+    tick();
+  };
+
   const startSession = async (isRecovery = false) => {
     if (!isRecovery) {
       nativeOwnerClaimingRef.current = true;
@@ -1031,7 +1105,14 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
       return;
     }
     if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+    if (drainTimerRef.current) { clearTimeout(drainTimerRef.current); drainTimerRef.current = null; }
+    clearClientIdle();
     intentionalStopRef.current = false;
+    pendingStopRef.current = false;
+    endReasonRef.current = '';
+    idleWarningRef.current = false;
+    setIdleWarning(false);
+    setClosingNote('');
     wakeLockReleasedRef.current = false;
     const sessionGeneration = ++sessionGenerationRef.current;
     setError("");
@@ -1214,13 +1295,15 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
               setError("");
               lastActivityRef.current = Date.now();
               if (autoStopTimerRef.current) { clearInterval(autoStopTimerRef.current); autoStopTimerRef.current = null; }
-              // Voice sessions stay continuous in every mode. The server owns the
-              // 15-minute abandoned-session cap, where it can distinguish real
-              // conversation activity from the microphone's continuous frames.
-              // A client-side silence timer can terminate a normal pause between
-              // turns and makes the upstream close look like a Gemini failure.
+              // The server owns both the 15-minute billing cap and, in standard
+              // mode, the 45s warning / 60s silence close. This backup uses the
+              // same window and does not restart when the warning is spoken.
+              // Hands-free and Drive Mode stay open through silence.
               if (handsFreeModeRef.current) {
+                clearClientIdle();
                 acquireWakeLock();
+              } else {
+                armClientIdle();
               }
             } else if (msg.status === 'reconnecting') {
               // The browser socket is still open — this is the SAME session
@@ -1256,6 +1339,11 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
             if (msg.role === 'assistant' && bargeInPendingRef.current) return;
             if (msg.role === 'user') bargeInPendingRef.current = false;
             lastActivityRef.current = Date.now();
+            if (msg.role === 'user' && !pendingStopRef.current) {
+              idleWarningRef.current = false;
+              setIdleWarning(false);
+              armClientIdle();
+            }
             setTranscript(prev => {
               const last = prev[prev.length - 1];
               if (last && last.role === msg.role) {
@@ -1339,7 +1427,22 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
             playNextChunk();
           }
 
+          if (msg.type === 'idle_warning') {
+            idleWarningRef.current = true;
+            setIdleWarning(true);
+          }
+
+          if (msg.type === 'session_ending') {
+            if (msg.cancelled) setClosingNote('');
+            else setClosingNote('Lexi is saying goodbye…');
+          }
+
+          if (msg.type === 'session_end') {
+            drainThenStop(msg.reason === 'idle' ? 'idle' : 'goodbye');
+          }
+
           if (msg.type === 'turn_complete') {
+            if (!pendingStopRef.current && !idleWarningRef.current) armClientIdle();
             if (!hasEverReceivedAudioRef.current && assistantTextBufferRef.current) {
               console.log("[Lexi Native] Turn complete with no audio — TTS fallback for buffered text");
               setTtsFallbackActive(true);
@@ -1395,6 +1498,7 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
           // Lexi after the server's idle cap.
           if (e.code === 4002) {
             sessionRequestedRef.current = false;
+            intentionalStopRef.current = true;
             if (reconnectTimerRef.current) {
               clearTimeout(reconnectTimerRef.current);
               reconnectTimerRef.current = null;
@@ -1408,7 +1512,30 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
               setError("Lexi ended the session after a long silence. Tap “Talk with Lexi” to start again.");
             }
           }
+          if (e.code === 4003) {
+            sessionRequestedRef.current = false;
+            intentionalStopRef.current = true;
+            if (reconnectTimerRef.current) {
+              clearTimeout(reconnectTimerRef.current);
+              reconnectTimerRef.current = null;
+            }
+            const replacementWs = wsRef.current;
+            if (replacementWs && replacementWs !== ws) {
+              wsRef.current = null;
+              try { replacementWs.close(); } catch (err) {}
+              cleanupSession();
+              setStatus('idle');
+            }
+          }
           console.log('[Lexi Native] Ignoring close from superseded browser socket');
+          return;
+        }
+        const goodbyeClose = e.code === 4003 || endReasonRef.current === 'goodbye';
+        if (pendingStopRef.current || goodbyeClose) {
+          intentionalStopRef.current = true;
+          sessionRequestedRef.current = false;
+          if (wsRef.current === ws) wsRef.current = null;
+          if (!pendingStopRef.current) drainThenStop(goodbyeClose ? 'goodbye' : (endReasonRef.current || 'idle'));
           return;
         }
         console.log("[Lexi Native] WS Closed", {
@@ -1425,11 +1552,13 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
         // mobile networks drop briefly (tunnels, tower handoffs) far more often
         // than a desktop connection does.
         const maxReconnects = handsFreeModeRef.current ? 5 : 2;
-        // 4002: the server ended a long-idle session on purpose. Retrying would
+        // 4002: the server ended an idle session on purpose. Retrying would
         // just re-open a session nobody is using, so treat it as a clean stop.
         if (e.code === 4002) {
           sessionRequestedRef.current = false;
-          setError("Lexi ended the session after a long silence. Tap “Talk with Lexi” to start again.");
+          if (endReasonRef.current !== 'idle') {
+            setError("Lexi ended the session after a long silence. Tap “Talk with Lexi” to start again.");
+          }
           return;
         }
         const budgetLeft = reconnectAttemptsRef.current < maxReconnects
@@ -1514,6 +1643,10 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
     if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
     reconnectAttemptsRef.current = 0;
     if (autoStopTimerRef.current) { clearInterval(autoStopTimerRef.current); autoStopTimerRef.current = null; }
+    if (drainTimerRef.current) { clearTimeout(drainTimerRef.current); drainTimerRef.current = null; }
+    clearClientIdle();
+    idleWarningRef.current = false;
+    setIdleWarning(false);
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
@@ -1651,7 +1784,7 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
                           ? 'Always on in Drive Mode — the session stays open through silence'
                           : handsFreeMode
                             ? 'On — stays open through silence, better for driving & Bluetooth speakers'
-                            : 'Off — snappier response, ends after 10s of silence'}
+                            : 'Off — snappier response, closes after about a minute of silence'}
                       </p>
                     </div>
                   </div>
@@ -1767,7 +1900,13 @@ export default function GeminiLiveNativeClient({ companyId, onFallbackToTTS, dri
                 aria-live="polite"
                 aria-atomic="true"
               >
-                <span>{isSpeaking ? 'Lexi is responding — tap orb to interrupt' : activityLabel}</span>
+                <span>
+                  {closingNote
+                    ? closingNote
+                    : idleWarning && !isSpeaking
+                      ? 'Still there? I\'ll close soon.'
+                      : (isSpeaking ? 'Lexi is responding — tap orb to interrupt' : activityLabel)}
+                </span>
                 {showActivityDots && <ActivityDots />}
               </p>
 
