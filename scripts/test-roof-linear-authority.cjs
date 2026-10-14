@@ -65,20 +65,48 @@ function seg(eastFt, northFt, azimuth, A = 12, B = 30) {
     seg(0, 0, 180),
     seg(80, 80, 90),
   ]);
+  const disconnectedTotals = computeEdgeTotals(disconnected);
   const disconnectedResult = reconcileRoofLinearsWithFacetEdges(
-    heuristic, computeEdgeTotals(disconnected), disconnected
+    heuristic, disconnectedTotals, disconnected
   );
   assert.equal(disconnectedResult.trace_quality.reason, 'disconnected_facets');
-  assert.deepEqual(disconnectedResult.linears, heuristic);
+  assert.equal(disconnectedResult.trace_quality.usable, false);
+  if (disconnectedTotals.rake > 0) {
+    assert.equal(disconnectedResult.source, 'roof_facet_edges_rake_kept');
+    assert.equal(disconnectedResult.linears.rake_lf, disconnectedTotals.rake);
+  } else {
+    assert.deepEqual(disconnectedResult.linears, heuristic);
+  }
 
   const unresolved = structuredClone(completeGable);
   const provisionalRidge = unresolved[0].edges.find(edge => edge.type === 'ridge');
   provisionalRidge.shared_with = null;
+  const unresolvedTotals = computeEdgeTotals(unresolved);
   const unresolvedResult = reconcileRoofLinearsWithFacetEdges(
-    heuristic, computeEdgeTotals(unresolved), unresolved
+    heuristic, unresolvedTotals, unresolved
   );
   assert.equal(unresolvedResult.trace_quality.reason, 'unresolved_uphill_edges');
-  assert.deepEqual(unresolvedResult.linears, heuristic);
+  assert.equal(unresolvedResult.trace_quality.usable, false);
+  if (unresolvedTotals.rake > 0) {
+    assert.equal(unresolvedResult.source, 'roof_facet_edges_rake_kept');
+    assert.equal(unresolvedResult.linears.rake_lf, unresolvedTotals.rake);
+    assert.equal(unresolvedResult.linears.hip_lf, unresolvedTotals.hip);
+  } else {
+    assert.deepEqual(unresolvedResult.linears, heuristic);
+  }
+
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const recorded = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'hover-roof-5688-gemini-ct.json'), 'utf8'));
+  const gemini = buildRoofFacetsFromSolarSegments(recorded.solar.solarPotential.roofSegmentStats);
+  const geminiTotals = computeEdgeTotals(gemini);
+  const geminiResult = reconcileRoofLinearsWithFacetEdges({
+    ridge_lf: 20, hip_lf: 80, valley_lf: 0, rake_lf: 0, eave_lf: 197,
+  }, geminiTotals, gemini);
+  assert.equal(geminiResult.trace_quality.usable, true);
+  assert.equal(geminiResult.source, 'roof_facet_edges');
+  assert.equal(geminiResult.linears.valley_lf, 0);
+  assert.ok(Math.abs((geminiResult.linears.eave_lf + geminiResult.linears.rake_lf) - 284.2) < 0.2);
 
   console.log('roof linear authority: all assertions passed');
 })().catch(error => {

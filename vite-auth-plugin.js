@@ -6,7 +6,10 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import memoize from "memoizee";
 import pkg from "pg";
+import { createRequire } from "module";
 const { Pool } = pkg;
+const require = createRequire(import.meta.url);
+const { stripUserSecrets } = require("./lib/stripUserSecrets.cjs");
 
 function getPool() {
   if (!getPool._pool) {
@@ -81,11 +84,19 @@ export default function authPlugin() {
     name: 'replit-auth',
     async configureServer(server) {
       try {
+        // Replit OIDC needs REPL_ID. A missing or empty id throws
+        // "clientId must be a non-empty string" and used to skip every route
+        // in this plugin, including local password login. Local signup, login,
+        // and password reset must still mount when OIDC is unavailable.
         let config = null;
-        try {
-          config = await getOidcConfig();
-        } catch (oidcErr) {
-          console.warn('[Auth] OIDC discovery unavailable, local login still available:', oidcErr.message);
+        if (process.env.REPL_ID) {
+          try {
+            config = await getOidcConfig();
+          } catch (oidcErr) {
+            console.warn('[Auth] Replit OIDC unavailable; local password routes stay available:', oidcErr.message);
+          }
+        } else {
+          console.warn('[Auth] REPL_ID is not set; Replit OIDC login is disabled. Local password routes stay available.');
         }
 
         const verify = async (tokens, verified) => {
@@ -96,7 +107,7 @@ export default function authPlugin() {
         };
 
         const ensureStrategy = (domain) => {
-          if (!config) return;
+          if (!config) return false;
           const strategyName = `replitauth:${domain}`;
           if (!registeredStrategies.has(strategyName)) {
             const strategy = new Strategy(
@@ -111,6 +122,7 @@ export default function authPlugin() {
             passport.use(strategy);
             registeredStrategies.add(strategyName);
           }
+          return true;
         };
 
         passport.serializeUser((user, cb) => cb(null, user));
@@ -285,6 +297,11 @@ export default function authPlugin() {
           }
 
           if (url === '/api/callback') {
+            if (!config) {
+              res.writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Replit login is not configured' }));
+              return;
+            }
             const domain = req.headers.host;
             ensureStrategy(domain);
             return passport.authenticate(`replitauth:${domain}`, {
@@ -298,6 +315,11 @@ export default function authPlugin() {
             const postLogoutUri = `https://${req.headers.host}`;
             const doRedirect = () => {
               try {
+                if (!config) {
+                  res.writeHead(302, { Location: '/', 'Set-Cookie': clearCookieHeader });
+                  res.end();
+                  return;
+                }
                 const redirectUrl = client.buildEndSessionUrl(config, {
                   client_id: process.env.REPL_ID,
                   post_logout_redirect_uri: postLogoutUri,
@@ -351,7 +373,7 @@ export default function authPlugin() {
                 }
                 if (userRow) {
                   res.writeHead(200, { 'Content-Type': 'application/json' });
-                  res.end(JSON.stringify({ ...userRow, is_administrator }));
+                  res.end(JSON.stringify(stripUserSecrets({ ...userRow, is_administrator })));
                 } else {
                   res.writeHead(200, { 'Content-Type': 'application/json' });
                   res.end(JSON.stringify({

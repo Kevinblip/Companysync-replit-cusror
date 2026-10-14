@@ -48,22 +48,42 @@ function openingPerimeterLf(o) {
  * measurements that predate roof-edge classification.
  */
 export function resolveSidingRoofEdges(sidingMeasurement = {}, satelliteAnalysis = {}) {
-  const facetEdges = sidingMeasurement?.roof_edge_source === 'roof_facets';
   const sidingEave = Number(sidingMeasurement?.eave_lf) || 0;
   const sidingRake = Number(sidingMeasurement?.rake_lf) || 0;
-  if (facetEdges && sidingEave > 0) {
+  const edgeSource = sidingMeasurement?.roof_edge_source;
+  // Classified facet edges on the siding result are the photo/roof measurement.
+  if (edgeSource === 'roof_facets' && sidingEave > 0) {
     return {
       eaveLf: sidingEave,
       rakeLf: sidingRake,
       source: 'roof_facets',
     };
   }
+  // The photo handler sets this when it did not accept a facet trace. Keep
+  // those numbers. Replacing them with a previous aerial model prints that
+  // model's drip edge as if the photos had measured it.
+  if (edgeSource === 'footprint_fallback' && (sidingEave > 0 || sidingRake > 0)) {
+    return {
+      eaveLf: sidingEave,
+      rakeLf: sidingRake,
+      source: 'siding_estimate',
+    };
+  }
+  const satelliteEave = Number(satelliteAnalysis?.eave_lf) || 0;
+  const satelliteRake = Number(satelliteAnalysis?.rake_lf) || 0;
+  if (!edgeSource && (satelliteEave > 0 || satelliteRake > 0)) {
+    return {
+      eaveLf: satelliteEave,
+      rakeLf: satelliteRake,
+      source: 'satellite_analysis',
+    };
+  }
   return {
-    eaveLf: Number(satelliteAnalysis?.eave_lf) || sidingEave,
-    rakeLf: Number(satelliteAnalysis?.rake_lf) || sidingRake,
-    source: (Number(satelliteAnalysis?.eave_lf) || Number(satelliteAnalysis?.rake_lf))
-      ? 'satellite_analysis'
-      : (sidingEave || sidingRake ? 'siding_fallback' : 'unavailable'),
+    eaveLf: sidingEave || satelliteEave,
+    rakeLf: sidingRake || satelliteRake,
+    source: (sidingEave || sidingRake)
+      ? 'siding_fallback'
+      : ((satelliteEave || satelliteRake) ? 'satellite_analysis' : 'unavailable'),
   };
 }
 
@@ -79,6 +99,7 @@ export function resolveSidingRoofEdges(sidingMeasurement = {}, satelliteAnalysis
  * @param {number} [args.levelSoffitDepthFt]  level/eave soffit depth (defaults to overhangFt)
  * @param {number} [args.slopedSoffitDepthFt] sloped/rake soffit depth (defaults to overhangFt)
  * @param {boolean}[args.hipRoof]          hip roofs carry eaves (and soffit) on all sides
+ * @param {boolean|null}[args.edgesMeasured] true only for classified facet edges. Satellite and footprint numbers stay estimated.
  * @returns {{ fasciaLf:number, roofPerimeterLf:number, soffitSqft:number,
  *             trimSqft:number, trimBreakdown:object, overhangFt:number,
  *             eaveLfUsed:number, rakeLfUsed:number, soffitBreakdown:object,
@@ -95,6 +116,7 @@ export function computeDerivedExteriorQuantities({
   levelSoffitDepthFt,
   slopedSoffitDepthFt,
   hipRoof = false,
+  edgesMeasured = null,
 } = {}) {
   const oh = Number(overhangFt) > 0 ? Number(overhangFt) : DEFAULT_OVERHANG_FT;
   const levelDepth = Number(levelSoffitDepthFt) > 0 ? Number(levelSoffitDepthFt) : oh;
@@ -115,7 +137,7 @@ export function computeDerivedExteriorQuantities({
     if (eave > 0 && rake === 0) rakeM = Math.round(eave * 0.45);
     else if (rake > 0 && eave === 0) eaveM = Math.round(rake * 2.2);
   }
-  const edgeSource = complete ? 'measured' : 'estimated';
+  const edgeSource = edgesMeasured === false || !complete ? 'estimated' : 'measured';
   const roofPerimeterLf = (eaveM + rakeM) > 0
     ? Math.round(eaveM + rakeM)
     : Math.round(perim * 1.15); // no edges at all: gable allowance over wall perimeter

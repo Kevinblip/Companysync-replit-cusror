@@ -813,7 +813,7 @@ export default function Utilities() {
       )}
 
       {/* Toggle for Advanced Tools - Only for Super Admin/Owner */}
-      {(myStaffProfile?.is_super_admin || myCompany?.created_by === user?.email || myCompany?.id === 'companysync_master_001') && (
+      {(myStaffProfile?.is_super_admin || myCompany?.created_by === user?.email) && (
         <Card className="bg-gray-50 border-gray-300">
           <CardContent className="py-4">
             <Button

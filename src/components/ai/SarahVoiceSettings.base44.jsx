@@ -39,7 +39,7 @@ export default function SarahVoiceSettings({ companyId }) {
     retryDelay: 1000
   });
 
-  const currentVoice = settings?.voice_id || 'Kore';
+  const currentVoice = settings?.voice_id || 'Puck';
 
   const handleVoiceChange = async (voiceId) => {
     if (!companyId) {
@@ -87,14 +87,20 @@ export default function SarahVoiceSettings({ companyId }) {
     const utterance = new SpeechSynthesisUtterance(phrase);
     
     const voices = window.speechSynthesis.getVoices();
-    const genderPref = voice?.gender || 'female';
+    const genderPref = voice?.gender || '';
     const langVoices = voices.filter(v => v.lang.startsWith('en'));
-    
-    const femaleVoice = langVoices.find(v => /female|samantha|karen|victoria|zira/i.test(v.name));
-    if (femaleVoice) utterance.voice = femaleVoice;
+    const matcher = genderPref === 'female'
+      ? /female|samantha|karen|victoria|zira/i
+      : genderPref === 'male'
+        ? /male|daniel|fred|tom/i
+        : null;
+    if (matcher) {
+      const picked = langVoices.find(v => matcher.test(v.name));
+      if (picked) utterance.voice = picked;
+    }
 
     utterance.rate = 1.0;
-    utterance.pitch = 1.1;
+    utterance.pitch = 1.0;
     
     utterance.onend = () => setTestingVoice(null);
     utterance.onerror = () => setTestingVoice(null);
@@ -110,7 +116,7 @@ export default function SarahVoiceSettings({ companyId }) {
         <div className="flex items-center gap-2">
           <Volume2 className="w-5 h-5 text-blue-600" />
           <div>
-            <CardTitle>Sarah's Voice</CardTitle>
+            <CardTitle>Alex's Voice</CardTitle>
             <CardDescription>Choose the voice for incoming and outgoing calls</CardDescription>
           </div>
         </div>

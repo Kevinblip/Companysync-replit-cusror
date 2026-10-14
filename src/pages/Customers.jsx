@@ -250,7 +250,7 @@ export default function Customers() {
   // 🔐 Filter customers based on role permissions using the hook
   const customers = useMemo(() => {
     // SAFETY CHECK: If platform admin, always show all customers to prevent filtering issues
-    if (user?.platform_role === 'super_admin' || myCompany?.id === 'companysync_master_001') {
+    if (user?.platform_role === 'super_admin') {
       return allCustomers;
     }
     return filterCustomers(allCustomers);

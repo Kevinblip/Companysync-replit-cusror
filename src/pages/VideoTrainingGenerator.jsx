@@ -65,7 +65,7 @@ export default function VideoTrainingGenerator() {
 
   const geminiVoices = [
     { id: "Aoede",  name: "Aoede — Warm Female (Lexi)" },
-    { id: "Sage",   name: "Sage — Calm Male (Sarah)" },
+    { id: "Sage",   name: "Sage — Calm (Alex)" },
     { id: "Kore",   name: "Kore — Bright Female" },
     { id: "Puck",   name: "Puck — Expressive Neutral" },
     { id: "Charon", name: "Charon — Deep Male" },

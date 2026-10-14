@@ -1175,45 +1175,27 @@ async function genericBulkCreate(pool, entityType, items) {
 }
 
 let _backfillSkipLogged = false;
-async function backfillOrphanedRecords(pool, companyId) {
-  const companyCount = await pool.query('SELECT COUNT(*) as cnt FROM companies WHERE (is_deleted IS NULL OR is_deleted = false)');
-  const totalCompanies = parseInt(companyCount.rows[0].cnt);
-  if (totalCompanies > 1) {
-    if (!_backfillSkipLogged) {
-      console.log(`[Backfill] Skipping orphan backfill - ${totalCompanies} companies exist, cannot safely assign orphaned records`);
-      _backfillSkipLogged = true;
-    }
-    return;
-  }
-  const tables = ['leads', 'customers', 'estimates', 'invoices', 'payments', 'projects', 'tasks', 'calendar_events', 'communications'];
-  let totalFixed = 0;
+async function backfillOrphanedRecords(pool, _companyId) {
+  const tables = ['leads', 'customers', 'estimates', 'invoices', 'payments', 'projects', 'tasks', 'calendar_events', 'communications', 'generic_entities'];
+  let totalOrphans = 0;
   for (const table of tables) {
     try {
       const result = await pool.query(
-        `UPDATE ${table} SET company_id = $1 WHERE company_id IS NULL`,
-        [companyId]
+        `SELECT COUNT(*)::int AS n FROM ${table} WHERE company_id IS NULL`
       );
-      if (result.rowCount > 0) {
-        console.log(`[Backfill] Assigned ${result.rowCount} orphaned ${table} records to company ${companyId}`);
-        totalFixed += result.rowCount;
+      const count = result.rows[0]?.n || 0;
+      if (count > 0) {
+        console.warn(`[Backfill] ${count} ${table} rows have no company_id; left untouched`);
+        totalOrphans += count;
       }
     } catch (err) {
-      console.error(`[Backfill] Error on ${table}:`, err.message);
+      console.error(`[Backfill] Error counting ${table}:`, err.message);
     }
   }
-  try {
-    const result = await pool.query(
-      `UPDATE generic_entities SET company_id = $1 WHERE company_id IS NULL`,
-      [companyId]
-    );
-    if (result.rowCount > 0) {
-      console.log(`[Backfill] Assigned ${result.rowCount} orphaned generic_entities to company ${companyId}`);
-      totalFixed += result.rowCount;
-    }
-  } catch (err) {
-    console.error('[Backfill] Error on generic_entities:', err.message);
+  if (totalOrphans > 0 && !_backfillSkipLogged) {
+    console.warn(`[Backfill] ${totalOrphans} company-less rows left untouched`);
+    _backfillSkipLogged = true;
   }
-  if (totalFixed > 0) console.log(`[Backfill] Total fixed: ${totalFixed} orphaned records`);
 }
 
 function getDefaultTemplates(companyId, companyName) {
@@ -1619,6 +1601,9 @@ export default function dbPlugin() {
           dbReady = true;
           databaseInitAttempts = 0;
           console.log('[DB Plugin] Database ready');
+          nodeRequire('./lib/reencryptSecrets.cjs').reencryptStoredSecrets(getPool()).catch((error) => {
+            console.warn('[reencrypt] skipped:', error.message);
+          });
 
           (async () => {
             try {

@@ -27,6 +27,24 @@ import {
 } from './functions/utils/roofImageryTakeoff.js';
 import { fetchWaybackIds } from './src/lib/mapImagery.js';
 import { resolveVerticalScale, materialToSidingProfile, processShutters, processAwnings } from './src/utils/companySyncFormulas.js';
+import { countFootprintCorners, cornersFromElevationPhotos } from './src/utils/footprintCorners.js';
+import { calculateSidingWaste } from './src/utils/sidingWaste.js';
+import { resolveRoofWaste } from './src/utils/roofWaste.js';
+
+async function mapWithConcurrency(items, limit, fn) {
+  const list = Array.isArray(items) ? items : [];
+  const results = new Array(list.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, list.length || 1)) }, async () => {
+    while (cursor < list.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await fn(list[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 import { appendInsuranceSettlementPdf } from './lib/insuranceSettlement.js';
 import { parseCsv, preparePriceListRows } from './src/lib/priceListImport.js';
 import { buildCityBoundaryQuery } from './src/lib/stormAddressUtils.js';
@@ -45,8 +63,10 @@ const { handleWorkOrderRoute } = nodeRequire('./lib/workOrders.cjs');
 const crewPhotoSharing = nodeRequire('./lib/crewPhotoSharing.cjs');
 const { handleEmailDeliveryWebhook } = nodeRequire('./lib/emailDeliveryWebhook.cjs');
 const { canonicalizeGenericEntityType, normalizeGenericEntityData } = nodeRequire('./lib/expenseNormalize.cjs');
+const { resolveAssistantName } = nodeRequire('./lib/assistantName.cjs');
 const { buildMaterialList, materialListLineItems } = nodeRequire('./lib/materialList.cjs');
 const { buildLexiSystemPrompt, getLexiTools } = nodeRequire('./lib/lexiSystemPrompt.cjs');
+const callerMemory = nodeRequire('./lib/callerMemory.cjs');
 const { confirmScheduleAndCreate } = nodeRequire('./lib/lexiScheduleConfirmation.cjs');
 const { expandFinancialFollowup } = nodeRequire('./lib/lexiFollowupContext.cjs');
 const { buildLexiToolFallback } = nodeRequire('./lib/lexiToolFallback.cjs');
@@ -1859,6 +1879,7 @@ function trialEmailShell(title, bodyHtml, accent = '#7c3aed') {
       <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
         ${bodyHtml}
         <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 24px;">CompanySync • Smart Business Management for Roofing Contractors</p>
+        <p style="color: #9ca3af; font-size: 12px; text-align: center;"><a href="{{UNSUBSCRIBE_URL}}" style="color:#6b7280;">Unsubscribe</a> from these emails</p>
       </div>
     </div>`;
 }
@@ -2136,7 +2157,9 @@ async function sendTrialDayTouch(company, day, ctx, recipients) {
   let succeeded = 0;
   const tpl = getTrialEmailTemplate(day, company.company_name || 'there', ctx);
   if (tpl && recipients.emails.length > 0) {
+    const emailUnsubscribe = nodeRequire('./lib/emailUnsubscribe.cjs');
     for (const to of recipients.emails) {
+      if (await emailUnsubscribe.isUnsubscribed(getPool(), to)) continue;
       attempted++;
       try {
          await sendPlatformSubscriberEmail({
@@ -2144,7 +2167,7 @@ async function sendTrialDayTouch(company, day, ctx, recipients) {
            replyTo: PLATFORM_EMAIL_REPLY_TO,
            to,
            subject: tpl.subject,
-           html: tpl.html,
+           html: emailUnsubscribe.stampUnsubscribeLink(tpl.html, TRIAL_APP_URL(), to),
            context: { source: 'trial-lifecycle', companyId: company.id },
          });
         succeeded++;
@@ -2212,34 +2235,12 @@ const SMTP_AUTO_DETECT_MAP = {
   'verizon.net': { host: 'smtp.verizon.net', port: 465, encryption: 'SSL/TLS' },
 };
 
-function getEncryptionKey() {
-  const keyHex = process.env.ENCRYPTION_KEY;
-  if (!keyHex) throw new Error('ENCRYPTION_KEY environment variable not set');
-  return Buffer.from(keyHex, 'hex');
-}
-
 function encryptApiKey(rawKey) {
-  if (!rawKey) return null;
-  const key = getEncryptionKey();
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  let encrypted = cipher.update(rawKey, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  const authTag = cipher.getAuthTag().toString('hex');
-  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+  return nodeRequire('./lib/encryption.cjs').encryptApiKey(rawKey);
 }
 
 function decryptApiKey(encrypted) {
-  if (!encrypted) return null;
-  const parts = encrypted.split(':');
-  if (parts.length !== 3) throw new Error('Invalid encrypted key format');
-  const [ivHex, authTagHex, ciphertext] = parts;
-  const key = getEncryptionKey();
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
-  decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
-  let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
+  return nodeRequire('./lib/encryption.cjs').decryptApiKey(encrypted);
 }
 
 function maskApiKey(raw) {
@@ -2407,7 +2408,7 @@ async function getUserFromRequest(req) {
         // users.company_id is authoritative; staff_profiles.company_id is a fallback for
         // staff accounts that only exist as a StaffProfile row (no matching users row field).
         const company_id = userRow?.company_id || staffRow?.company_id || null;
-        const is_super_admin = staffRow?.is_super_admin === true || platform_role === 'super_admin' || company_id === 'companysync_master_001';
+        const is_super_admin = staffRow?.is_super_admin === true || platform_role === 'super_admin';
         return { email, platform_role, company_id, is_super_admin, is_administrator: staffRow?.is_administrator === true };
       }
     }
@@ -5918,7 +5919,7 @@ ${sourceName ? `SOURCE NAME: ${sourceName}\n` : ''}${sourceText ? `SOURCE (docum
       if (signupEventClaimed) (async () => {
         try {
           const adminEmail = process.env.ADMIN_EMAIL || 'io.companysync@gmail.com';
-          const adminPhone = process.env.ADMIN_PHONE || null;
+          const adminPhone = nodeRequire('./lib/phoneE164.cjs').toE164(process.env.ADMIN_PHONE);
           const compName = updated.company_name || updated.name || companyId;
           const ownerEmail = updated.created_by || updated.email || caller.email || 'unknown';
           // Skip alert for automated smoke-test accounts (@example.com is RFC-reserved for testing)
@@ -10362,14 +10363,19 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       ? `Automatic measurement was stopped because the Solar roof model appears incomplete. ${sourceQualityFlags.join(' ')} Use Manual Drawing, enter verified dimensions, or upload a trusted measurement report before generating the estimate.`
       : (sourceQualityFlags.length ? sourceQualityFlags.join(' ') : null);
 
-    let wastePercent = 10, wasteReason = 'Simple Gable';
-    if (pitchVal >= 10 || numSegments > 10) { wastePercent = 15; wasteReason = pitchVal >= 10 ? 'Steep Pitch (10/12+)' : 'Complex Roof (>10 Facets)'; }
-    else if ((pitchVal >= 7 && pitchVal <= 9) || hipLf > 0 || (valleyLf > 0 && pitchVal !== 4)) { wastePercent = 12; wasteReason = hipLf > 0 ? 'Hip/Valley Present' : 'Standard Pitch (7-9/12)'; }
-    const wasteFactor = 1 + (wastePercent / 100);
-    const finalOrderQty = Number((roofAreaSquares * wasteFactor).toFixed(2));
+    let roofWaste = resolveRoofWaste({
+      pitchVal,
+      numSegments,
+      hipLf,
+      valleyLf,
+      overridePct: params.waste_override_pct,
+    });
+    let wastePercent = roofWaste.waste_percentage;
+    let wasteReason = roofWaste.waste_reason;
+    let finalOrderQty = Number((roofAreaSquares * (1 + wastePercent / 100)).toFixed(2));
 
     debugLogs.push(`Area: ${totalAreaSqFt.toFixed(0)} sqft (${areaMethod}), Pitch: ${pitchStr}, Type: ${roofType}`);
-    debugLogs.push(`Waste: ${wastePercent}% (${wasteReason}), Order: ${finalOrderQty} SQ`);
+    debugLogs.push(`Waste: ${wastePercent}% (${wasteReason}; recommended ${roofWaste.waste_recommended_pct}%), Order: ${finalOrderQty} SQ`);
 
     // ─── Derive drawable line geometry as ROTATED rectangles per roof plane ───
     // The Solar API gives an axis-aligned bounding box, the plane center, and the
@@ -10570,6 +10576,18 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       valleyLf = reconciliation.linears.valley_lf;
       rakeLf = reconciliation.linears.rake_lf;
       eaveLf = reconciliation.linears.eave_lf;
+      // Waste follows the linears we bill. A hip formula that the trace replaced
+      // must not keep a "Hip/Valley Present" reason after those lengths are zero.
+      roofWaste = resolveRoofWaste({
+        pitchVal,
+        numSegments,
+        hipLf,
+        valleyLf,
+        overridePct: params.waste_override_pct,
+      });
+      wastePercent = roofWaste.waste_percentage;
+      wasteReason = roofWaste.waste_reason;
+      finalOrderQty = Number((roofAreaSquares * (1 + wastePercent / 100)).toFixed(2));
       debugLogs.push(`Roof linear authority: ${roofLinearSource}`);
       if (Object.keys(roofLinearDifferences).length > 0) {
         debugLogs.push(`Roof linear differences reconciled: ${JSON.stringify(roofLinearDifferences)}`);
@@ -10599,7 +10617,15 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       area_is_slope_adjusted: true,
       roof_type: roofType, roof_type_confidence: typeConfidence,
       final_order_quantity_sq: finalOrderQty,
-      waste_percentage: wastePercent, waste_reason: wasteReason,
+      waste_percentage: wastePercent,
+      waste_recommended_pct: roofWaste.waste_recommended_pct,
+      waste_reason: wasteReason,
+      waste_override_pct: roofWaste.waste_override_pct,
+      ridge_count: roofFacetEdgeTotals?.counts?.ridge || 0,
+      hip_count: roofFacetEdgeTotals?.counts?.hip || 0,
+      valley_count: roofFacetEdgeTotals?.counts?.valley || 0,
+      rake_count: roofFacetEdgeTotals?.counts?.rake || 0,
+      eave_count: roofFacetEdgeTotals?.counts?.eave || 0,
       num_segments: roofSegments.length, area_method: areaMethod,
       calibration_applied: calibrationApplied,
       calibration_details: calibrationDetails,
@@ -10828,8 +10854,10 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     // instead, which extrudes real edges and punches actual window/door holes.
     let footprintPolygonXY = null;
     let footprintGeometry = 'rectangle_estimate';
+    let tracedFacets = [];
     try {
       const facetsForTrace = buildRoofFacetsFromSolarSegments(roofSegments);
+      tracedFacets = Array.isArray(facetsForTrace) ? facetsForTrace : [];
       if (Array.isArray(facetsForTrace) && facetsForTrace.length > 0) {
         const fp = buildFootprintFromFacets(facetsForTrace, {
           overhangFt: DEFAULT_EAVE_OVERHANG_FT,
@@ -10904,8 +10932,9 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     // Linear measurements
     const wallTopLf = Math.round(perimeterFt);
     const wallBottomLf = Math.round(perimeterFt);
-    const outsideCornersCount = isGable ? 4 : 8;
-    const outsideCornersLf = outsideCornersCount * totalWallHeightFt;
+    const footprintCorners = countFootprintCorners(footprintPolygonXY, totalWallHeightFt);
+    const outsideCornersCount = footprintCorners.outside_count;
+    const outsideCornersLf = footprintCorners.outside_lf;
 
     // Confidence scoring
     let confidence = 68;
@@ -10924,8 +10953,8 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     let recommendedWastePct = 10;
     let wasteReason = '';
     if (isGable && numSegs <= 4 && outsideCornersCount <= 4) {
-      recommendedWastePct = 8;
-      wasteReason = `Simple gable roof with ${numSegs} segments — straightforward cuts`;
+      recommendedWastePct = 10;
+      wasteReason = `10% floor. Simple gable roof with ${numSegs} segments — straightforward cuts`;
     } else if (!isGable && numSegs <= 6) {
       recommendedWastePct = 10;
       wasteReason = `Hip roof with ${numSegs} segments — moderate cut complexity`;
@@ -10940,11 +10969,52 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     }
     if (dimensionCapped) wasteReason += ' (note: building shape uncertain from satellite)';
 
-    // Hover-style derived measurements
-    // Fascia: runs along eave edges. Gable → 2 long sides; Hip → full perimeter
-    const fasciaLf = isGable ? Math.round(2 * buildingLengthFt) : Math.round(perimeterFt);
-    // Soffit: horizontal ceiling under eaves. Standard overhang = 18" (1.5ft)
-    const soffitSqFt = Math.round(fasciaLf * 1.5);
+    // No elevation photo on this path, so soffit depth stays the 2.0/1.5 estimate.
+    const roofEdgeTotals = computeRoofEdgeTotals(tracedFacets);
+    const hasFacetEdges = roofEdgeTotals.eave > 0;
+    const eaveLfRaw = hasFacetEdges ? roofEdgeTotals.eave : (isGable ? 2 * buildingLengthFt : perimeterFt);
+    const rakeLfRaw = hasFacetEdges ? roofEdgeTotals.rake : 0;
+    const fasciaLf = Math.round(hasFacetEdges ? (eaveLfRaw + rakeLfRaw) : (isGable ? 2 * buildingLengthFt : perimeterFt));
+    const soffitLevelDepthFt = hasFacetEdges ? 2.0 : 1.5;
+    const soffitSlopedDepthFt = hasFacetEdges ? 1.5 : 1.5;
+    const soffitLevelSqft = Math.round(eaveLfRaw * soffitLevelDepthFt);
+    const soffitSlopedSqft = Math.round(rakeLfRaw * soffitSlopedDepthFt);
+    const soffitSqFt = soffitLevelSqft + soffitSlopedSqft;
+    const sidingWaste = calculateSidingWaste({
+      openingCount: 0,
+      outsideCorners: outsideCornersCount,
+      insideCorners: footprintCorners.inside_count,
+      gableAreaSqft: gableAreaSqFt,
+    });
+    let trimTotals = {
+      j_channel_lf: 0,
+      starter_strip_lf: Math.round(perimeterFt * 100) / 100,
+      outside_corner_lf: Math.round(outsideCornersLf),
+      inside_corner_lf: footprintCorners.inside_lf,
+      outside_corners_count: outsideCornersCount,
+      inside_corners_count: footprintCorners.inside_count,
+    };
+    try {
+      const trimGraph = buildSidingMeasurementGraph({
+        perPhotoResults: [],
+        perimeterFt,
+        storyCount: stories,
+        wallHeightFt: totalWallHeightFt,
+        grossWallAreaSqft: grossWallAreaSqFt,
+        buildingWidthFt,
+        buildingLengthFt,
+        footprintSource: osmUsed ? 'osm' : 'solar',
+        roofFacets: tracedFacets,
+        openingDeductMinSqft: 20,
+      });
+      trimTotals = {
+        ...trimTotals,
+        j_channel_lf: trimGraph.totals.j_channel_lf,
+        starter_strip_lf: trimGraph.totals.starter_strip_lf,
+      };
+    } catch (trimErr) {
+      debugLogs.push(`Trim graph skipped: ${trimErr.message}`);
+    }
     // Trim: estimated from typical residential window/door count (use % deduction to back-calculate)
     const typicalWindows = Math.round(flatFootprintSqFt / 120); // ~1 window per 120 sqft footprint
     const typicalDoors = stories <= 1 ? 2 : 3;
@@ -10963,8 +11033,10 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       wall_bottom_lf: wallBottomLf,
       outside_corners_count: outsideCornersCount,
       outside_corners_lf: Math.round(outsideCornersLf),
-      inside_corners_count: 0,
-      inside_corners_lf: 0,
+      inside_corners_count: footprintCorners.inside_count,
+      inside_corners_lf: footprintCorners.inside_lf,
+      corner_source: footprintCorners.source,
+      wall_total_quality: 'estimated',
       building_length_ft: Math.round(buildingLengthFt),
       building_width_ft: Math.round(buildingWidthFt),
       perimeter_ft: Math.round(perimeterFt),
@@ -10985,7 +11057,20 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       waste_reason: wasteReason,
       analysis_notes: `${osmUsed ? '📍 OSM footprint' : '📡 Solar-derived'} perimeter: ${Math.round(perimeterFt)}ft. ${roofSegments.length} roof segments. ~${Math.round(buildingLengthFt)}ft × ${Math.round(buildingWidthFt)}ft ${roofType} building. ${stories} stor${stories === 1 ? 'y' : 'ies'} × ${storyHt}ft. ${openDeduct}% opening deduction.`,
       fascia_lf: fasciaLf,
+      eave_lf: Math.round(eaveLfRaw * 10) / 10,
+      rake_lf: Math.round(rakeLfRaw * 10) / 10,
       soffit_sqft: soffitSqFt,
+      soffit_level_sqft: soffitLevelSqft,
+      soffit_sloped_sqft: soffitSlopedSqft,
+      soffit_level_depth_ft: soffitLevelDepthFt,
+      soffit_sloped_depth_ft: soffitSlopedDepthFt,
+      soffit_depth_source: 'estimated',
+      siding_waste_percentage: sidingWaste.applied_pct,
+      siding_waste_recommended_pct: sidingWaste.recommended_pct,
+      siding_waste_reason: sidingWaste.reason,
+      siding_waste_override_pct: sidingWaste.override_pct,
+      opening_deduct_min_sqft: 20,
+      trim_totals: trimTotals,
       trim_sqft: trimSqFt,
       estimated_windows: typicalWindows,
       estimated_doors: typicalDoors,
@@ -11385,6 +11470,12 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
   "wall_height_ft": <number, full wall height including gable if gable end>,
   "eave_height_ft": <number, height from ground to EAVE LINE ONLY — NOT the ridge or peak>,
   "gable_rise_ft": <number, vertical height of triangular gable ABOVE the eave line; 0 if no gable>,
+  "soffit_depth_ft": <number, horizontal depth of the visible eave soffit in feet; 0 if the overhang is not measurable in this photo>,
+  "gutter_run_lf": <number, length of gutter along THIS wall's eave; 0 if no gutter is visible or the run cannot be measured>,
+  "gutter_visible": <boolean, true only when a gutter is clearly visible on this elevation>,
+  "outside_corners_visible": <number 0-2, vertical outside corners on THIS elevation whose full height is in frame>,
+  "inside_corners_visible": <number, inside corners visible on this elevation; 0 if none>,
+  "elevation_usable": <boolean, false when the wall edges are cropped, dark, obstructed, or too oblique to measure — do not invent width, openings, or corners>,
   "has_gable_end": <boolean, true if this wall face has a triangular gable peak>,
   "has_visible_rake": <boolean, true only if an actual measurable roof rake is visible>,
   "is_corner_shot": <boolean, true if two walls are both visible at an angle>,
@@ -11560,6 +11651,10 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
           }
 
           result.wall_height_ft = result.eave_height_ft + (result.gable_rise_ft || 0);
+          if (result.elevation_usable === false) {
+            result.occluded = true;
+            result.elevation_poor = true;
+          }
           result.openings = (Array.isArray(result.openings) ? result.openings : [])
             .filter(o => o && Number(o.width_ft) > 0.5 && Number(o.height_ft) > 0.5 &&
                          Number(o.width_ft) <= 20 && Number(o.height_ft) <= 12)
@@ -11616,7 +11711,10 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       }
     };
 
-    const photoAnalysisResults = await Promise.all(photos.map(analyzeOnePhoto));
+    // A phone upload of four elevations plus detail shots used to fire every
+    // Gemini call at once and die on the function timeout. Keep a few in
+    // flight so the whole set can finish.
+    const photoAnalysisResults = await mapWithConcurrency(photos, 3, analyzeOnePhoto);
 
     // ── Street View recapture ───────────────────────────────────────────────
     // A machine-aimed Street View frame that turned out to be trees, sky, or
@@ -12486,6 +12584,7 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       buildingLengthFt,
       footprintSource,
       smallOpeningsInWaste: params.small_openings_in_waste === true,
+      openingDeductMinSqft: Number(params.opening_deduct_min_sqft) === 33 ? 33 : 20,
       roofFacets: roofFacetsForGraph || undefined,
     });
     totalWindows = measurementGraph.counts.window_assemblies;
@@ -12527,7 +12626,18 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       confidence: group.confidence,
       component_count: group.component_ids.length || (group.type === 'window' ? 1 : 0),
     }));
-    const outsideCornersLf = Math.round(4 * totalWallHt);
+    const footprintCorners = countFootprintCorners(footprintPolygonXY, totalWallHt);
+    const photoCorners = cornersFromElevationPhotos(perPhotoResults, totalWallHt);
+    const cornerTotals = photoCorners || footprintCorners;
+    const outsideCornersLf = cornerTotals.outside_lf;
+    const insideCornersLf = cornerTotals.inside_lf;
+    const sidingWaste = calculateSidingWaste({
+      openingCount: (totalWindows || 0) + (totalDoors || 0) + (totalGarageDoors || 0),
+      outsideCorners: cornerTotals.outside_count,
+      insideCorners: cornerTotals.inside_count,
+      gableAreaSqft: gableAreaSqFt,
+      overridePct: params.siding_waste_override_pct,
+    });
     if (canonicalMasonrySqFt > 0) debugLogs.push(`Masonry/non-siding map: ${dominantNonSidingMaterial || 'mixed'} = −${canonicalMasonrySqFt} sqft`);
 
     // Sanity ratio is diagnostic-only. The canonical measured area is never
@@ -12583,8 +12693,15 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     // it includes pitch rather than collapsing the gable edge onto the footprint.
     // Retain the historical footprint calculation only when roof facets are absent.
     const EAVE_OVERHANG_FT = 1.5;
-    const LEVEL_SOFFIT_DEPTH_FT = 2.0;
-    const SLOPED_SOFFIT_DEPTH_FT = 1.5;
+    const measuredSoffitDepths = perPhotoResults
+      .map(r => Number(r.soffit_depth_ft))
+      .filter(n => n >= 0.5 && n <= 6);
+    const measuredSoffitDepthFt = measuredSoffitDepths.length
+      ? Math.round((measuredSoffitDepths.reduce((sum, n) => sum + n, 0) / measuredSoffitDepths.length) * 10) / 10
+      : null;
+    const soffitDepthSource = measuredSoffitDepthFt ? 'measured' : 'estimated';
+    const LEVEL_SOFFIT_DEPTH_FT = measuredSoffitDepthFt || 2.0;
+    const SLOPED_SOFFIT_DEPTH_FT = measuredSoffitDepthFt || 1.5;
     const hasGable = gableResults.length > 0;
     const expandedLengthFt = buildingLengthFt + 2 * EAVE_OVERHANG_FT;
     const expandedWidthFt  = buildingWidthFt  + 2 * EAVE_OVERHANG_FT;
@@ -12680,10 +12797,11 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       wall_area_sq: Math.round(netWallSQ * 100) / 100,
       wall_top_lf: Math.round(perimeterFt),
       wall_bottom_lf: Math.round(perimeterFt),
-      outside_corners_count: 4,
+      outside_corners_count: cornerTotals.outside_count,
       outside_corners_lf: outsideCornersLf,
-      inside_corners_count: 0,
-      inside_corners_lf: 0,
+      inside_corners_count: cornerTotals.inside_count,
+      inside_corners_lf: insideCornersLf,
+      corner_source: cornerTotals.source,
       building_length_ft: Math.round(buildingLengthFt),
       building_width_ft: Math.round(buildingWidthFt),
       perimeter_ft: Math.round(perimeterFt),
@@ -12712,10 +12830,44 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       soffit_sqft: photoSoffitSqFt,
       eave_lf: Math.round(roofEaveLf),
       rake_lf: Math.round(roofRakeLf),
+      gutter_lf: (() => {
+        const byFace = new Map();
+        for (const result of perPhotoResults) {
+          const face = String(result.wall_face || result.view_label || '').toLowerCase();
+          const canonical = face.includes('front') ? 'front'
+            : (face.includes('back') || face.includes('rear')) ? 'back'
+            : face.includes('left') ? 'left'
+            : face.includes('right') ? 'right'
+            : '';
+          if (!canonical) continue;
+          if (result.gutter_visible === true || Number(result.gutter_run_lf) > 0) {
+            byFace.set(canonical, Math.max(byFace.get(canonical) || 0, Number(result.gutter_run_lf) || 0));
+          }
+        }
+        const photoSum = [...byFace.values()].reduce((sum, n) => sum + n, 0);
+        const graphLf = roofMeasurementGraph?.coverage?.gutter_coverage_complete
+          ? Number(roofMeasurementGraph?.totals?.gutter_lf) || 0
+          : 0;
+        if (byFace.size >= 4 && photoSum > 0) return Math.round(photoSum);
+        if (graphLf > 0) return Math.round(graphLf);
+        return Math.round(roofEaveLf);
+      })(),
+      gutter_source: (() => {
+        const graphComplete = roofMeasurementGraph?.coverage?.gutter_coverage_complete === true
+          && Number(roofMeasurementGraph?.totals?.gutter_lf) > 0;
+        const photoComplete = ['front', 'back', 'left', 'right'].every(face =>
+          perPhotoResults.some(result => {
+            const label = String(result.wall_face || result.view_label || '').toLowerCase();
+            return label.includes(face === 'back' ? 'back' : face) && (result.gutter_visible === true || Number(result.gutter_run_lf) > 0);
+          })
+        );
+        return (photoComplete || graphComplete) ? 'photos' : 'estimated_from_eave';
+      })(),
       soffit_level_sqft: levelSoffitSqFt,
       soffit_sloped_sqft: slopedSoffitSqFt,
-      soffit_level_depth_ft: hasMeasuredRoofEdges ? LEVEL_SOFFIT_DEPTH_FT : EAVE_OVERHANG_FT,
-      soffit_sloped_depth_ft: hasMeasuredRoofEdges ? SLOPED_SOFFIT_DEPTH_FT : EAVE_OVERHANG_FT,
+      soffit_level_depth_ft: soffitDepthSource === 'measured' ? LEVEL_SOFFIT_DEPTH_FT : (hasMeasuredRoofEdges ? LEVEL_SOFFIT_DEPTH_FT : EAVE_OVERHANG_FT),
+      soffit_sloped_depth_ft: soffitDepthSource === 'measured' ? SLOPED_SOFFIT_DEPTH_FT : (hasMeasuredRoofEdges ? SLOPED_SOFFIT_DEPTH_FT : EAVE_OVERHANG_FT),
+      soffit_depth_source: soffitDepthSource,
       roof_edge_source: hasMeasuredRoofEdges ? 'roof_facets' : 'footprint_fallback',
       trim_sqft: photoTrimSqFt,
       masonry_deduction_sqft: canonicalMasonrySqFt,
@@ -12724,6 +12876,13 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       masonry_material: dominantNonSidingMaterial,
       gable_area_sqft: gableAreaSqFt,
       gable_rise_ft: Math.round(avgGableRise),
+      wall_total_quality: measurementGraph.totals.wall_total_quality || 'estimated',
+      poor_faces: measurementGraph.totals.poor_faces || [],
+      siding_waste_percentage: sidingWaste.applied_pct,
+      siding_waste_recommended_pct: sidingWaste.recommended_pct,
+      siding_waste_reason: sidingWaste.reason,
+      siding_waste_override_pct: sidingWaste.override_pct,
+      opening_deduct_min_sqft: Number(params.opening_deduct_min_sqft) === 33 ? 33 : 20,
       opening_deduct_sqft: Math.round(openDeductSqFt),
       opening_deduction_sqft: Math.round(openDeductSqFt),
       gross_wall_area_sqft: Math.round(grossWallSqFt),
@@ -12760,9 +12919,9 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
         j_channel_lf: measurementGraph.totals.j_channel_lf,
         starter_strip_lf: measurementGraph.totals.starter_strip_lf,
         outside_corner_lf: outsideCornersLf,
-        inside_corner_lf: 0,
-        outside_corners_count: 4,
-        inside_corners_count: 0,
+        inside_corner_lf: insideCornersLf,
+        outside_corners_count: cornerTotals.outside_count,
+        inside_corners_count: cornerTotals.inside_count,
       },
       openings_detail: canonicalOpenings,
       // Per-wall record of what happened to each auto-fetched Street View
@@ -12985,6 +13144,11 @@ Identify and count roofing features. Return JSON with these exact fields:
       wastePercent = 10;
       wasteReason = finalValleyLf > 0 ? 'Minor Complexity (Low Pitch + Small Valleys)' : finalHipLf > 0 ? 'Simple Hip (<=6/12, No Valleys)' : 'Simple Gable (<=6/12)';
     }
+    wastePercent = Math.max(10, wastePercent);
+    const wasteRecommendedPct = wastePercent;
+    const geminiOverrideNum = Number(params.waste_override_pct);
+    const wasteOverridePct = Number.isFinite(geminiOverrideNum) ? Math.max(10, geminiOverrideNum) : null;
+    if (wasteOverridePct != null) wastePercent = wasteOverridePct;
     const wasteFactor = 1 + (wastePercent / 100);
     const finalOrderQuantitySq = Number((roofAreaSquares * wasteFactor).toFixed(2));
 
@@ -13007,7 +13171,7 @@ Identify and count roofing features. Return JSON with these exact fields:
     return {
       success: true,
       roof_area_sq: roofAreaSquares, roof_area_sqft: roofAreaSqFt,
-      final_order_quantity_sq: finalOrderQuantitySq, waste_percentage: wastePercent, waste_reason: wasteReason,
+      final_order_quantity_sq: finalOrderQuantitySq, waste_percentage: wastePercent, waste_recommended_pct: wasteRecommendedPct, waste_reason: wasteReason, waste_override_pct: wasteOverridePct,
       has_significant_obstructions: visionAnalysis?.has_significant_obstructions || false,
       warning_message: warningMessage,
       ridge_lf: finalRidgeLf, hip_lf: finalHipLf, valley_lf: finalValleyLf,
@@ -15415,10 +15579,12 @@ ${categoryXml}
     return { success: true, available: true, imageUrl, address, heading: Math.round(heading) };
   },
 
-  async getGoogleMapsApiKey() {
-    const key = process.env.GOOGLE_MAPS_API_KEY || "AIzaSyD-TEST-KEY-FOR-TRIALS";
-    console.log(`[Functions] getGoogleMapsApiKey: ${key ? 'Key found' : 'NOT configured'}`);
-    return { apiKey: key, api_key: key };
+  async getGoogleMapsApiKey(_params, _apiKey, req) {
+    const user = req ? await getUserFromRequest(req) : null;
+    if (!user?.email) return { error: 'Authentication required' };
+    const browserKey = process.env.GOOGLE_MAPS_BROWSER_KEY;
+    if (!browserKey) return { error: 'Google Maps browser key is not configured' };
+    return { apiKey: browserKey, api_key: browserKey };
   },
 
   async transcribeVoiceNote(params, apiKey, req) {
@@ -15487,6 +15653,16 @@ ${categoryXml}
     if (!smsGuard.ok) {
       console.warn(`[sendSMS] Skipped recipient ${recipientId || leadId || 'unknown'}: ${smsGuard.reason}`);
       return { success: false, skipped: true, reason: smsGuard.reason };
+    }
+    try {
+      const smsOptOut = nodeRequire('./lib/smsOptOut.cjs');
+      const optStatus = await smsOptOut.optOutStatus(getPool(), to, params.companyId || params.company_id);
+      if (optStatus === 'out') {
+        console.warn(`[sendSMS] Skipped opted-out recipient`);
+        return { success: false, skipped: true, reason: 'opted_out' };
+      }
+    } catch (optErr) {
+      console.warn('[sendSMS] opt-out lookup failed:', optErr.message);
     }
     const normalizedTo = smsGuard.normalizedPhone;
 
@@ -16207,7 +16383,7 @@ ${categoryXml}
           [company_id]
         );
         const sd = settingsRes.rows[0]?.data || {};
-        if (sd.assistant_name) assistantName = sd.assistant_name.charAt(0).toUpperCase() + sd.assistant_name.slice(1);
+        assistantName = resolveAssistantName(sd.intent_templates?._assistant_display_name, sd.assistant_name);
         if (sd.brand_short_name) companyName = sd.brand_short_name;
         if (sd.knowledge_base) knowledgeBase = sd.knowledge_base;
         if (sd.custom_system_prompt) customSystemPrompt = sd.custom_system_prompt;
@@ -21431,9 +21607,10 @@ Return JSON:
     if (!staffEmail || !companyId) return { success: false, error: 'staffEmail and companyId required' };
     const user = req ? await getUserFromRequest(req) : null;
     if (!user?.email) return { success: false, error: 'Not authenticated' };
-    // Validate caller is owner or admin
+    // Validate caller is owner or admin of THIS company, and only update that company.
     const callerResult = await pool.query(
-      'SELECT is_administrator FROM staff_profiles WHERE (user_email = $1 OR email = $1) LIMIT 1', [user.email]
+      'SELECT is_administrator FROM staff_profiles WHERE (user_email = $1 OR email = $1) AND company_id = $2 LIMIT 1',
+      [user.email, companyId]
     );
     const companyResult = await pool.query(
       `SELECT data->>'created_by' as created_by FROM generic_entities WHERE entity_type = 'Company' AND id = $1 LIMIT 1`, [companyId]
@@ -21444,14 +21621,14 @@ Return JSON:
     const adminVal = isAdmin ? true : false;
     // Update staff_profiles (what auth reads)
     await pool.query(
-      `UPDATE staff_profiles SET is_administrator = $1, updated_at = NOW() WHERE (user_email = $2 OR email = $2)`,
-      [adminVal, staffEmail]
+      `UPDATE staff_profiles SET is_administrator = $1, updated_at = NOW() WHERE (user_email = $2 OR email = $2) AND company_id = $3`,
+      [adminVal, staffEmail, companyId]
     );
     // Sync to generic_entities (what UI reads)
     await pool.query(
       `UPDATE generic_entities SET data = jsonb_set(data, '{is_administrator}', $1::jsonb), updated_date = NOW()
-       WHERE entity_type = 'StaffProfile' AND (data->>'user_email' = $2 OR data->>'email' = $2)`,
-      [JSON.stringify(adminVal), staffEmail]
+       WHERE entity_type = 'StaffProfile' AND company_id = $3 AND (data->>'user_email' = $2 OR data->>'email' = $2)`,
+      [JSON.stringify(adminVal), staffEmail, companyId]
     );
     console.log(`[grantStaffAdminAccess] ${adminVal ? 'Granted' : 'Revoked'} admin for ${staffEmail} by ${user.email}`);
     return { success: true };
@@ -21460,12 +21637,10 @@ Return JSON:
   async fixInvoiceStatuses(params) {
     const pool = getPool();
     const { companyId } = params || {};
+    if (!companyId) return { success: false, error: 'company_id is required' };
     console.log('[Functions] fixInvoiceStatuses: Starting bulk recalculation...');
     try {
-      const query = companyId
-        ? `SELECT * FROM invoices WHERE company_id = $1`
-        : `SELECT * FROM invoices`;
-      const invoicesRes = await pool.query(query, companyId ? [companyId] : []);
+      const invoicesRes = await pool.query(`SELECT * FROM invoices WHERE company_id = $1`, [companyId]);
       const invoices = invoicesRes.rows;
       let fixed = 0;
       for (const invoice of invoices) {
@@ -21812,9 +21987,11 @@ Return JSON:
     const pool = getPool();
     try {
       // Find invoice linked to this estimate
+      const companyId = params.company_id || params.companyId;
+      if (!companyId) return { success: false, error: 'company_id is required' };
       const invRes = await pool.query(
-        `SELECT id, total_amount, amount_paid, items, data FROM invoices WHERE data->>'estimate_id' = $1 ORDER BY created_at DESC LIMIT 1`,
-        [estimate_id]
+        `SELECT id, total_amount, amount_paid, items, data FROM invoices WHERE data->>'estimate_id' = $1 AND company_id = $2 ORDER BY created_at DESC LIMIT 1`,
+        [estimate_id, companyId]
       );
       if (invRes.rows.length === 0) {
         return { success: false, skipped: true, reason: 'No linked invoice found' };
@@ -22902,6 +23079,34 @@ Return JSON:
     return { success: true, file_url: fileUrl, document_id: docId };
   },
 
+  async getCallerMemory(params, _apiKey, req) {
+    const pool = getPool();
+    const companyId = params?.companyId || params?.company_id;
+    const authz = await functionHandlers._authorizeJobNimbusCompany(pool, req, companyId);
+    if (!authz.ok) return { found: false, error: authz.error };
+    try {
+      const memory = await callerMemory.loadCallerMemory(pool, {
+        companyId,
+        phone: params?.phone,
+        customerId: params?.customerId || params?.customer_id,
+        leadId: params?.leadId || params?.lead_id,
+      });
+      if (!memory || memory.company_id !== companyId) return { found: false, company_id: companyId };
+      return {
+        found: true,
+        company_id: memory.company_id,
+        contact_name: memory.contact_name,
+        summary: memory.summary,
+        facts: memory.facts,
+        older_summary: memory.older_summary,
+        updated_at: memory.updated_at,
+        word_count: memory.word_count,
+      };
+    } catch (err) {
+      return { found: false, error: err.message };
+    }
+  },
+
   async lexiChat(params, apiKey, req) {
     if (!apiKey) throw new Error('GOOGLE_GEMINI_API_KEY not configured');
     const { message, conversationHistory = [], companyId, userEmail, userName, file_urls } = params;
@@ -23085,7 +23290,7 @@ Return JSON:
       const todayISO = now.toISOString().split('T')[0];
       const currentTime = now.toLocaleString('en-US', { timeZone: userTimeZone });
 
-      const systemPrompt = buildLexiSystemPrompt({
+      let systemPrompt = buildLexiSystemPrompt({
         companyName: company?.company_name || 'the company',
         effectiveName,
         effectiveEmail,
@@ -23099,6 +23304,20 @@ Return JSON:
         tzOffset,
         todayISO,
       });
+      try {
+        const viewing = params.viewingContact || params.viewing_contact || null;
+        if (viewing && (viewing.phone || viewing.customerId || viewing.customer_id || viewing.leadId || viewing.lead_id)) {
+          const memory = await callerMemory.loadCallerMemory(pool, {
+            companyId: actualCompanyId,
+            phone: viewing.phone,
+            customerId: viewing.customerId || viewing.customer_id,
+            leadId: viewing.leadId || viewing.lead_id,
+          });
+          systemPrompt += callerMemory.instructionBlock(memory);
+        }
+      } catch (memErr) {
+        console.warn('[Lexi] caller memory unavailable:', memErr.message);
+      }
 
       const tools = getLexiTools();
 
@@ -24688,6 +24907,19 @@ Return JSON:
                   } catch (gmErr) { toolResult = { error: `Gmail error: ${gmErr.message}` }; }
                 }
               }
+            } else if (fname === 'lookup_customer') {
+              try {
+                const detail = await callerMemory.lookupCustomerDetail(pool, {
+                  companyId: actualCompanyId,
+                  phone: args.phone || '',
+                  customerId: args.customer_id || args.customerId || '',
+                  leadId: args.lead_id || args.leadId || '',
+                });
+                toolResult = detail;
+                actionsExecuted.push({ tool_name: 'lookup_customer', result: detail.found ? 'Caller memory found' : 'No caller memory' });
+              } catch (lookupErr) {
+                toolResult = { error: `Lookup failed: ${lookupErr.message}` };
+              }
             } else if (fname === 'lookup_customer_by_phone') {
               // Full caller snapshot: identity + project + build schedule + tasks + balance
               const rawPhone = String(args.phone || '').replace(/[^\d+]/g, '');
@@ -25101,10 +25333,12 @@ Return JSON:
           return null;
         }
       };
-      // Build the AI-identification prefix ("This is Sarah, Acme's AI assistant.")
+      // Build the AI-identification prefix ("This is Alex, Acme's AI assistant.")
       const buildAiLine = (assistant, companyName) => {
-        const rawName = assistant?.assistant_name || 'Alex';
-        const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+        const displayName = resolveAssistantName(
+          assistant?.intent_templates?._assistant_display_name,
+          assistant?.assistant_name
+        );
         const tmpl = assistant?.ai_identification_line || "This is {assistant}, {company}'s AI assistant.";
         return tmpl
           .replace(/\{assistant\}/g, displayName)
@@ -25563,10 +25797,17 @@ Return JSON:
     }
     const toE164 = `+1${normalized}`;
 
-    // 2) Honor STOP / opt-out. Best-effort lookup of the customer's own inbound
-    // STOP message; never blocks the send if the lookup itself fails.
+    // 2) Honor STOP / opt-out. A durable opt-out wins. An explicit START
+    // overrides older STOP history. If neither is recorded, fall back to
+    // inbound message history so older stops still hold.
     try {
       const p = getPool();
+      const smsOptOut = nodeRequire('./lib/smsOptOut.cjs');
+      const durable = await smsOptOut.optOutStatus(p, toE164, companyId);
+      if (durable === 'out') return { success: false, skipped: 'opted_out' };
+      if (durable === 'in') {
+        // explicit resume
+      } else {
       const opt = await p.query(
         `SELECT 1 FROM generic_entities
            WHERE entity_type = 'Communication' AND company_id = $1
@@ -25586,6 +25827,7 @@ Return JSON:
         [companyId, normalized]
       );
       if (dedicatedOpt.rows.length > 0) return { success: false, skipped: 'opted_out' };
+      }
     } catch (_) { /* non-fatal */ }
 
     // 3) Respect business hours unless a human explicitly approved this send.
@@ -29936,21 +30178,23 @@ Return JSON:
                 ]
               );
             }
+            const emailUnsubscribe = nodeRequire('./lib/emailUnsubscribe.cjs');
             for (const to of emails) {
+              if (await emailUnsubscribe.isUnsubscribed(pool, to)) continue;
               try {
                  await sendPlatformSubscriberEmail({
                    from: PLATFORM_EMAIL_FROM,
                    replyTo: PLATFORM_EMAIL_REPLY_TO,
                    to,
                   subject: `⚠️ ${company.company_name} - Your Trial Has Expired`,
-                  html: trialEmailShell('🚫 Your Trial Has Expired', `
+                  html: emailUnsubscribe.stampUnsubscribeLink(trialEmailShell('🚫 Your Trial Has Expired', `
                     <p style="color:#374151;font-size:16px;line-height:1.6;">Hi ${company.company_name} team,</p>
                     <p style="color:#374151;font-size:16px;line-height:1.6;">Your free trial ended on <strong>${fmtTrialDate(trialEnd)}</strong>. Your data is safe, but access to features will be limited until you subscribe.</p>
                     <div style="background:#fef3c7;border:2px solid #fbbf24;border-radius:8px;padding:16px;margin:20px 0;text-align:center;">
                       <p style="color:#92400e;font-weight:bold;font-size:18px;margin:0 0 8px 0;">🎁 ${OFFER}</p>
                     </div>
                     ${trialCtaButton(`${APP_URL}/Pricing`, 'Subscribe Now & Get 7 Free Days →', '#dc2626')}
-                  `, '#dc2626'),
+                  `, '#dc2626'), APP_URL, to),
                 });
               } catch (e) {
                 console.error(`[Cron:processTrialLifecycle] expiration email to ${to} failed:`, e.message);
@@ -29978,7 +30222,7 @@ Return JSON:
             if (claim.rowCount === 0) { /* another runner won the race */ }
             else {
             const adminEmail = process.env.ADMIN_EMAIL || 'io.companysync@gmail.com';
-            const adminPhone = process.env.ADMIN_PHONE || null;
+            const adminPhone = nodeRequire('./lib/phoneE164.cjs').toE164(process.env.ADMIN_PHONE);
             const ownerEmail = company.created_by || company.email || emails[0] || 'unknown';
             let warnDelivered = false;
             if (!String(ownerEmail).endsWith('@example.com')) {
@@ -38090,8 +38334,8 @@ functionHandlers.runLaunchTest = async (params, apiKey, req) => {
   };
 
   const stripeCheck = async (live, requireConnect) => {
-    const secret = process.env.STRIPE_SECRET_KEY;
-    if (!secret) return { passed: false, error: 'STRIPE_SECRET_KEY is not configured on the server' };
+    const secret = nodeRequire('./lib/stripeEnv.cjs').resolveStripeApiKey();
+    if (!secret) return { passed: false, error: 'Stripe API key is not configured (set STRIPE_API_KEY to an sk_ key)' };
     if (requireConnect && !company.stripe_account_id) return { passed: false, error: 'Stripe Connect account not set up for this company' };
     if (!live) return { passed: true };
     try {
@@ -38674,7 +38918,24 @@ export default function viteFunctionsPlugin() {
   return {
     name: 'vite-functions-plugin',
     configureServer(server) {
+      try {
+        nodeRequire('./lib/startupSecrets.cjs').assertStartupSecrets();
+      } catch (err) {
+        console.error('[startup] secret check failed:', err.message);
+      }
       server.middlewares.use(async (req, res, next) => {
+        const earlyUrl = new URL(req.url || '/', 'http://localhost');
+        if (earlyUrl.pathname === '/api/email/unsubscribe' && req.method === 'GET') {
+          const { checkRateLimit, getClientIp } = nodeRequire('./lib/rateLimit.cjs');
+          const limit = checkRateLimit(`email-unsub:${getClientIp(req)}`, { max: 30, windowMs: 15 * 60 * 1000 });
+          if (!limit.allowed) {
+            res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+            res.end('Too many requests.');
+            return;
+          }
+          await nodeRequire('./lib/emailUnsubscribe.cjs').handleUnsubscribeRequest(req, res, getPool());
+          return;
+        }
         const inspectionReportUrl = new URL(req.url || '/', 'http://localhost');
         if (inspectionReportUrl.pathname === '/api/inspection-reports/upload') {
           if (req.method !== 'POST') {
@@ -40973,7 +41234,8 @@ export default function viteFunctionsPlugin() {
             // Internal RPC dispatcher — some handlers (analyzePhoto, etc.) legitimately
             // receive base64 images, so cap at 30 MB rather than the 1 MB default.
             const body = await parseBody(req, 30 * 1024 * 1024);
-            const { functionName, params } = body;
+            const functionName = body?.functionName;
+            let params = body?.params;
             
             if (!functionName) {
               res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -40988,6 +41250,23 @@ export default function viteFunctionsPlugin() {
             if (typeof functionName === 'string' && functionName.startsWith('_')) {
               res.writeHead(403, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Not a callable function', functionName }));
+              return;
+            }
+            if (!params || typeof params !== 'object' || Array.isArray(params)) params = {};
+            const invokeAuth = nodeRequire('./lib/functionInvokeAuth.cjs');
+            const invokeDecision = await invokeAuth.authorizeFunctionInvoke({
+              req,
+              functionName,
+              params,
+              pool: getPool(),
+              resolveContext: tenantGuard.resolveRequestContext,
+            });
+            if (!invokeDecision.ok) {
+              res.writeHead(invokeDecision.status || 401, {
+                'Content-Type': 'application/json',
+                ...(invokeDecision.retryAfterMs ? { 'Retry-After': String(Math.ceil(invokeDecision.retryAfterMs / 1000)) } : {}),
+              });
+              res.end(JSON.stringify({ error: invokeDecision.error }));
               return;
             }
             const handler = functionHandlers[functionName];

@@ -1,4 +1,5 @@
 const http = require("http");
+const { geminiLiveModel } = require("../lib/geminiLiveModel.cjs");
 const { WebSocketServer, WebSocket } = require("ws");
 
 const PORT = process.env.PORT || 8080;
@@ -466,7 +467,7 @@ wss.on("connection", async (twilioWs, req) => {
 
       const setupMsg = {
         setup: {
-          model: "models/gemini-2.5-flash-native-audio-latest",
+          model: geminiLiveModel(),
           generation_config: {
             response_modalities: ["AUDIO"],
             thinking_config: { thinking_budget: 0 },

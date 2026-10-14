@@ -31,3 +31,9 @@ material fallback-vs-trace differences for diagnosis. Solar segment count
 (e.g. 4) routinely under-counts real facets (e.g. 7), so a low segment count is
 an early warning that the shape classification — and therefore every linear —
 is suspect.
+
+A hip or valley is drawn only when the facet rectangles overlap. Nearby corners
+with no overlap are not a valley, and they must not delete the perimeter edges
+beside them. A side that tracks another facet's eave in plan is an eave. Shared
+ridge copies that sit a foot or two apart are the same ridge and are counted
+once. The length Solar never published (the facets it merged away) stays missing.

@@ -113,6 +113,7 @@ import {
   lineItemCents,
 } from "@/lib/changeOrders";
 import ChangeOrderBadge from "@/components/estimates/ChangeOrderBadge";
+import ReviseEstimateDialog, { aiEstimatorEditSearch } from "@/components/estimates/ReviseEstimateDialog";
 
 const cleanContactValue = (value) => {
   if (value == null) return '';
@@ -161,8 +162,6 @@ export default function EstimateEditor() {
   const [selectedContactType, setSelectedContactType] = useState(null); // 'customer' or 'lead'
   const [showCreateContactDialog, setShowCreateContactDialog] = useState(false);
   const [showSupplementConfirm, setShowSupplementConfirm] = useState(false);
-  const [supplementKind, setSupplementKind] = useState('supplement');
-  const [changeOrderReason, setChangeOrderReason] = useState('');
   const [showChangeOrderDetail, setShowChangeOrderDetail] = useState(true);
   const [contactSearch, setContactSearch] = useState("");
   const [isPreviewing, setIsPreviewing] = useState(false);
@@ -2255,6 +2254,22 @@ Categories: Roofing, Gutters, Siding, Windows, Interior, Labor, Debris Removal, 
     );
   }
 
+  const openThisEstimateInAiEstimator = () => {
+    const search = aiEstimatorEditSearch({
+      customer_name: formData.customer_name || '',
+      customer_email: formData.customer_email || '',
+      customer_phone: formData.customer_phone || '',
+      property_address: formData.property_address || '',
+      insurance_company: formData.insurance_company || '',
+      claim_number: formData.claim_number || '',
+      adjuster_name: formData.adjuster_name || '',
+      adjuster_phone: formData.adjuster_phone || '',
+      id: estimate?.id,
+      estimate_number: estimate?.estimate_number || '',
+    });
+    navigate(createPageUrl('AIEstimator') + '?' + search);
+  };
+
   return (
     <div className="p-3 sm:p-6 space-y-6 bg-gray-50 min-h-screen min-w-0 w-full max-w-full">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between min-w-0">
@@ -2334,23 +2349,7 @@ Categories: Roofing, Gutters, Siding, Windows, Interior, Labor, Debris Removal, 
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
           <Button
             variant="outline"
-            onClick={() => {
-              const params = new URLSearchParams({
-                customer_name: formData.customer_name || '',
-                customer_email: formData.customer_email || '',
-                customer_phone: formData.customer_phone || '',
-                property_address: formData.property_address || '',
-                insurance_company: formData.insurance_company || '',
-                claim_number: formData.claim_number || '',
-                adjuster_name: formData.adjuster_name || '',
-                adjuster_phone: formData.adjuster_phone || '',
-              });
-              if (estimate?.id) {
-                params.set('edit_estimate_id', estimate.id);
-                params.set('estimate_number', estimate.estimate_number || '');
-              }
-              navigate(createPageUrl('AIEstimator') + '?' + params.toString());
-            }}
+            onClick={openThisEstimateInAiEstimator}
             className="bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700"
           >
             <Sparkles className="w-4 h-4 mr-2" />
@@ -2375,10 +2374,10 @@ Categories: Roofing, Gutters, Siding, Windows, Interior, Labor, Debris Removal, 
             disabled={!estimate}
             className="border-amber-400 text-amber-700 hover:bg-amber-50"
             data-testid="button-revise-supplement"
-            title="Create a revision or insurance supplement based on this estimate"
+            title="Edit this estimate, or copy a supplement after it has been sent"
           >
-            <Copy className="w-4 h-4 mr-2" />
-            Revise / Supplement
+            <Pencil className="w-4 h-4 mr-2" />
+            Change estimate
           </Button>
 
           <Button
@@ -2518,12 +2517,12 @@ Categories: Roofing, Gutters, Siding, Windows, Interior, Labor, Debris Removal, 
                 )}
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={handleCreateSupplement}
+                onClick={() => setShowSupplementConfirm(true)}
                 disabled={!estimate}
                 data-testid="menu-revise-supplement"
               >
-                <Copy className="w-4 h-4 mr-2 text-amber-600" />
-                Revise / Supplement
+                <Pencil className="w-4 h-4 mr-2 text-amber-600" />
+                Change estimate
               </DropdownMenuItem>
               <DropdownMenuItem 
                 onClick={() => {
@@ -5161,83 +5160,24 @@ Categories: Roofing, Gutters, Siding, Windows, Interior, Labor, Debris Removal, 
         </DialogContent>
       </Dialog>
 
-      {/* Check Missing Items Dialog */}
-      <Dialog
+      <ReviseEstimateDialog
         open={showSupplementConfirm}
-        onOpenChange={(open) => {
-          setShowSupplementConfirm(open);
-          if (!open) { setSupplementKind('supplement'); setChangeOrderReason(''); }
+        onOpenChange={setShowSupplementConfirm}
+        estimate={{
+          estimate_number: estimate?.estimate_number,
+          customer_name: formData.customer_name,
+          status: formData.status || estimate?.status || 'draft',
         }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create Supplement / Change Order?</DialogTitle>
-            <DialogDescription>
-              This will create a new draft estimate copied from <strong>{estimate?.estimate_number || 'this estimate'}</strong>. The new estimate won't affect the original until you save and send it.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setSupplementKind('supplement')}
-                className={`rounded-lg border p-3 text-left transition-colors ${supplementKind === 'supplement' ? 'border-orange-400 bg-orange-50' : 'border-gray-200 hover:bg-gray-50'}`}
-                data-testid="button-kind-supplement"
-              >
-                <div className="text-sm font-semibold text-gray-900">Insurance supplement</div>
-                <div className="text-xs text-gray-500 mt-0.5">Extra scope submitted to the carrier</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setSupplementKind('change_order')}
-                className={`rounded-lg border p-3 text-left transition-colors ${supplementKind === 'change_order' ? 'border-purple-400 bg-purple-50' : 'border-gray-200 hover:bg-gray-50'}`}
-                data-testid="button-kind-change-order"
-              >
-                <div className="text-sm font-semibold text-gray-900">Change order</div>
-                <div className="text-xs text-gray-500 mt-0.5">Scope change approved in the office</div>
-              </button>
-            </div>
-
-            {supplementKind === 'change_order' && (
-              <div>
-                <Label htmlFor="editor-co-reason" className="text-sm">Why is the scope changing?</Label>
-                <Textarea
-                  id="editor-co-reason"
-                  value={changeOrderReason}
-                  onChange={(e) => setChangeOrderReason(e.target.value)}
-                  placeholder="e.g. Homeowner upgraded to architectural shingle; added 2 skylights"
-                  rows={2}
-                  className="mt-1"
-                  data-testid="input-change-order-reason"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  It'll be created pending approval. Nothing reaches an invoice until the office approves it.
-                </p>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => { setShowSupplementConfirm(false); setSupplementKind('supplement'); setChangeOrderReason(''); }}>Cancel</Button>
-            <Button
-              className={supplementKind === 'change_order' ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-amber-600 hover:bg-amber-700 text-white'}
-              disabled={supplementKind === 'change_order' && !changeOrderReason.trim()}
-              onClick={() => {
-                const asChangeOrder = supplementKind === 'change_order';
-                const reason = changeOrderReason;
-                setShowSupplementConfirm(false);
-                setSupplementKind('supplement');
-                setChangeOrderReason('');
-                handleCreateSupplement({ asChangeOrder, reason });
-              }}
-              data-testid="button-create-supplement-confirm"
-            >
-              {supplementKind === 'change_order' ? 'Create Change Order' : 'Create Supplement'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onEditHere={() => setShowSupplementConfirm(false)}
+        onOpenAiEstimator={() => {
+          setShowSupplementConfirm(false);
+          openThisEstimateInAiEstimator();
+        }}
+        onCreateCopy={({ asChangeOrder, reason }) => {
+          setShowSupplementConfirm(false);
+          handleCreateSupplement({ asChangeOrder, reason });
+        }}
+      />
 
       {/* Document Picker */}
       <DocumentPickerDialog

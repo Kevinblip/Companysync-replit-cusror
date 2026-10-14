@@ -43,6 +43,8 @@ const {
   loadManagedStripeWebhookSecret,
   persistManagedStripeWebhookSecret,
 } = require('./lib/stripeWebhookSecret.cjs');
+const { resolveStripeApiKey, resolveStripeWebhookSecret, mapAppSubscriptionStatus } = require('./lib/stripeEnv.cjs');
+const { geminiLiveModel, isAllowedGeminiLiveEngine } = require('./lib/geminiLiveModel.cjs');
 const { authenticateLexiWs } = require('./lib/lexiWsAuth.cjs');
 const { confirmScheduleAndCreate } = require('./lib/lexiScheduleConfirmation.cjs');
 const { assertBuildDate, buildDayRange } = require('./lib/buildScheduleTime.cjs');
@@ -423,10 +425,9 @@ async function registerStripeWebhook() {
     // Resolve the actual Stripe API key. Historically STRIPE_SECRET_KEY was
     // incorrectly set to a whsec_* signing secret; STRIPE_API_KEY holds the
     // real sk_* key in that case, so we check both and pick the sk_ one.
-    const stripeSecretKey = [process.env.STRIPE_SECRET_KEY, process.env.STRIPE_API_KEY]
-      .find(k => k?.startsWith('sk_')) || process.env.STRIPE_SECRET_KEY || process.env.STRIPE_API_KEY;
+    const stripeSecretKey = resolveStripeApiKey();
     if (!stripeSecretKey) {
-      console.warn('[Stripe] Webhook registration skipped: no Stripe API key found (set STRIPE_SECRET_KEY or STRIPE_API_KEY)');
+      console.warn('[Stripe] Webhook registration skipped: no sk_ API key found (set STRIPE_API_KEY)');
       return;
     }
 
@@ -647,6 +648,7 @@ function setCachedSubscriber(phoneNumber, data) {
 // customers, or leads (in that priority order). Extracted to lib/ so it can
 // be unit tested in isolation. See lib/lookupCallerByCrmPhone.cjs.
 const { lookupCallerByCrmPhone, invalidateCallerCache, invalidateCallerCacheForCompany } = require('./lib/lookupCallerByCrmPhone.cjs');
+const callerMemory = require('./lib/callerMemory.cjs');
 const smsAssistant = require('./lib/smsAssistant.cjs');
 const { handleWhatsAppPhotoUpload, resolveInstallerPendingChoice } = require('./lib/whatsappPhotoHandler.cjs');
 
@@ -952,22 +954,11 @@ const RATE_LIMITS = {
   reset:  { window: 60_000, max: 5 },
 };
 function getClientIps(req) {
-  // Return BOTH the XFF-derived IP and the raw socket IP. Rate-limiting checks
-  // against both so an attacker spoofing X-Forwarded-For cannot bypass the
-  // per-socket bucket. (XFF is set by the Replit proxy in production but is
-  // ultimately client-controllable since we don't enforce a trusted-proxy IP
-  // allow-list yet — defence in depth.)
-  const ips = new Set();
-  const xff = req.headers['x-forwarded-for'];
-  if (xff) {
-    // First (leftmost) entry is the original client per RFC 7239 convention.
-    const first = String(xff).split(',')[0].trim();
-    if (first) ips.add(first);
-  }
-  const socketIp = req.socket?.remoteAddress;
-  if (socketIp) ips.add(socketIp);
-  if (ips.size === 0) ips.add('unknown');
-  return [...ips];
+  // The leftmost X-Forwarded-For hop is client-supplied. When a proxy is
+  // trusted, rate-limit the rightmost hop it appended and ignore the shared
+  // proxy socket so one client cannot fill the bucket for everyone.
+  const { getClientIp } = require('./lib/rateLimit.cjs');
+  return [getClientIp(req)];
 }
 function checkRateLimit(req, res, kind) {
   const cfg = RATE_LIMITS[kind];
@@ -1034,7 +1025,7 @@ function loadSettings() {
     }
   } catch (e) {}
   return {
-    voice: 'Kore',
+    voice: 'Puck',
     response_speed: 'normal',
     background_audio: 'none',
     interim_audio: 'typing',
@@ -1079,8 +1070,7 @@ async function getAuthenticatedProdUser(req) {
     platform_role: userRow?.platform_role || null,
     company_id,
     is_super_admin: staffRow?.is_super_admin === true
-      || userRow?.platform_role === 'super_admin'
-      || company_id === 'companysync_master_001',
+      || userRow?.platform_role === 'super_admin',
     is_administrator: staffRow?.is_administrator === true,
   };
 }
@@ -1224,9 +1214,10 @@ async function localGetSettings(companyId) {
     const companyTimezone = company.data?.timezone || 'America/New_York';
     const preferredLanguage = company.preferred_language || 'en';
 
-    let rawName = (settings.assistant_name || 'Alex').trim();
-    if (/^\{.*\}$/.test(rawName)) rawName = 'Alex';
-    const assistantDisplayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+    const assistantDisplayName = resolveAssistantName(
+      settings.intent_templates?._assistant_display_name,
+      settings.assistant_name
+    );
 
     let knowledgeParts = [];
 
@@ -2453,7 +2444,8 @@ const CRM_TOOLS = [
   { name: "schedule_inspection", description: "Submit a roof inspection request for staff approval. This does NOT create a calendar event or confirm the appointment. Only call after checking availability and explicitly reading back the caller's full name, callback number, exact property address, exact date, and exact time, then receiving a clear confirmation. Never pass vague times such as 'tomorrow morning'.", parameters: { type: "object", properties: { date_time: { type: "string", description: "Exact date and time for the inspection, preferably ISO format; vague times are not allowed" }, customer_name: { type: "string", description: "Full name, read back and confirmed by the caller" }, customer_phone: { type: "string", description: "Callback phone number; use the caller's verified number when available" }, address: { type: "string", description: "Complete property address, read back and confirmed by the caller" }, notes: { type: "string", description: "Special notes about the inspection" }, assigned_to: { type: "string", description: "Staff member name or email to assign this inspection to" } }, required: ["date_time", "customer_name", "address"] } },
   { name: "notify_rep", description: "Send an SMS or WhatsApp notification to a specific sales rep about a new lead, appointment, or update.", parameters: { type: "object", properties: { rep_name: { type: "string", description: "Name of the rep to notify" }, rep_phone: { type: "string", description: "Phone number of the rep" }, message: { type: "string", description: "The notification message to send" }, notification_type: { type: "string", description: "Type: new_lead, inspection_scheduled, callback_request, general" } }, required: ["message"] } },
   { name: "transfer_call", description: "Transfer the current call to a staff member's cell phone. BEFORE calling this you MUST have already collected and confirmed THREE things: the caller's name, a callback phone number, and the reason for their call. Never transfer without all three. Use this when: 1) the caller asks to speak to a specific person by name (pass target_person), or 2) the call routing mode is sarah_then_transfer and you have gathered the caller's info. If the transfer cannot be completed, take a message instead of dropping the call. When call screening is active, always include screening_outcome.", parameters: { type: "object", properties: { reason: { type: "string", description: "The reason the caller is calling / why the call is being transferred" }, target_person: { type: "string", description: "Name of the specific staff member the caller wants to speak to (e.g. 'Vicky', 'Kevin'). Leave empty to transfer to the default rep." }, caller_name: { type: "string", description: "The caller's full name — must be collected and confirmed before transferring" }, callback_number: { type: "string", description: "A phone number to reach the caller back on — must be collected and confirmed before transferring" }, screening_outcome: { type: "string", enum: ["approved", "self_handled", "declined"], description: "Result of call screening: 'approved' if caller was screened and approved for transfer, 'self_handled' if inspection/appointment was booked directly without a transfer, 'declined' if call was ended (solicitor, robocall). Omit if screening is not enabled." } }, required: ["caller_name", "callback_number", "reason"] } },
-  { name: "collect_caller_name", description: "Record the caller's name when they introduce themselves or say their name during the conversation. Call this as soon as you learn the caller's name so the call log can reference them by name instead of 'Voice Caller'.", parameters: { type: "object", properties: { name: { type: "string", description: "The caller's name as they stated it" } }, required: ["name"] } }
+  { name: "collect_caller_name", description: "Record the caller's name when they introduce themselves or say their name during the conversation. Call this as soon as you learn the caller's name so the call log can reference them by name instead of 'Voice Caller'.", parameters: { type: "object", properties: { name: { type: "string", description: "The caller's name as they stated it" } }, required: ["name"] } },
+  callerMemory.LOOKUP_CUSTOMER_TOOL
 ];
 
 const VALID_GEMINI_VOICES = ['Aoede', 'Charon', 'Fenrir', 'Kore', 'Leda', 'Orus', 'Puck', 'Zephyr'];
@@ -2638,6 +2630,21 @@ async function handleToolCall(functionCall, companyId, context = {}) {
     case 'notify_rep': return callBase44API('notifyRep', companyId, parsedArgs);
     case 'transfer_call': return { success: true, message: 'Transfer initiated' };
     case 'collect_caller_name': return { success: true, message: `Caller name recorded: ${parsedArgs.name || ''}` };
+    case 'lookup_customer': {
+      if (!companyId) return { found: false, error: 'company_id is required' };
+      if (context.customerLexiVoiceEnabled) return { found: false, error: 'Caller memory is not available on the homeowner line.' };
+      try {
+        return await callerMemory.lookupCustomerDetail(prodDb.getPool(), {
+          companyId,
+          phone: parsedArgs.phone || context.callerPhone || '',
+          customerId: parsedArgs.customer_id || '',
+          leadId: parsedArgs.lead_id || '',
+        });
+      } catch (lookupErr) {
+        console.warn('[Sarah CRM] lookup_customer failed:', lookupErr.message);
+        return { found: false, error: 'Lookup failed' };
+      }
+    }
     default: return { error: `Unknown tool: ${name}` };
   }
 }
@@ -4712,8 +4719,7 @@ const server = http.createServer(async (req, res) => {
       const tokenResp = await fetch('https://hover.to/oauth/token', { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: `${appUrl}/api/hover-callback`, client_id: process.env.HOVER_CLIENT_ID || '', client_secret: process.env.HOVER_CLIENT_SECRET || '' }) });
       const tokens = await tokenResp.json();
       if (!tokenResp.ok || !tokens.access_token || !tokens.refresh_token) throw new Error('HOVER authorization failed');
-      const encrypt = (raw) => { const key = Buffer.from(process.env.ENCRYPTION_KEY || '', 'hex'); const iv = crypto.randomBytes(12); const cipher = crypto.createCipheriv('aes-256-gcm', key, iv); const body = Buffer.concat([cipher.update(raw, 'utf8'), cipher.final()]); return `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${body.toString('hex')}`; };
-      const data = { access_token_enc: encrypt(tokens.access_token), refresh_token_enc: encrypt(tokens.refresh_token), token_expires_at: new Date(Date.now() + Number(tokens.expires_in || 3600) * 1000).toISOString(), connected_by: inner.user_email, connected_at: new Date().toISOString(), status: 'connected', is_connected: true };
+      const data = { access_token_enc: prodDb.encryptApiKey(tokens.access_token), refresh_token_enc: prodDb.encryptApiKey(tokens.refresh_token), token_expires_at: new Date(Date.now() + Number(tokens.expires_in || 3600) * 1000).toISOString(), connected_by: inner.user_email, connected_at: new Date().toISOString(), status: 'connected', is_connected: true };
       const found = await pool.query(`SELECT id FROM generic_entities WHERE entity_type='HoverOAuthConnection' AND company_id=$1 LIMIT 1`, [inner.company_id]);
       if (found.rows[0]) await pool.query(`UPDATE generic_entities SET data=$1, updated_date=NOW() WHERE id=$2`, [JSON.stringify(data), found.rows[0].id]);
       else await pool.query(`INSERT INTO generic_entities (id,company_id,entity_type,data,created_date,updated_date) VALUES ($1,$2,'HoverOAuthConnection',$3,NOW(),NOW())`, [`hover_oauth_${inner.company_id}`, inner.company_id, JSON.stringify(data)]);
@@ -6505,6 +6511,22 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ==========================================
+  // MARKETING / TRIAL EMAIL UNSUBSCRIBE
+  // ==========================================
+  if (pathname === '/api/email/unsubscribe' && req.method === 'GET') {
+    const { checkRateLimit, getClientIp } = require('./lib/rateLimit.cjs');
+    const ip = getClientIp(req);
+    const limit = checkRateLimit(`email-unsub:${ip}`, { max: 30, windowMs: 15 * 60 * 1000 });
+    if (!limit.allowed) {
+      res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end('Too many requests.');
+      return;
+    }
+    await require('./lib/emailUnsubscribe.cjs').handleUnsubscribeRequest(req, res, prodDb.getPool());
+    return;
+  }
+
+  // ==========================================
   // STRIPE WEBHOOK — invoice payment recording
   // ==========================================
   if (pathname === '/api/stripe/webhook' && req.method === 'POST') {
@@ -6517,9 +6539,8 @@ const server = http.createServer(async (req, res) => {
         const signature = req.headers['stripe-signature'];
         // Resolve the actual Stripe API key — STRIPE_SECRET_KEY may have been
         // incorrectly set to a whsec_* signing secret; fall back to STRIPE_API_KEY.
-        const stripeSecretKey = [process.env.STRIPE_SECRET_KEY, process.env.STRIPE_API_KEY]
-          .find(k => k?.startsWith('sk_')) || process.env.STRIPE_SECRET_KEY || process.env.STRIPE_API_KEY;
-        const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+        const stripeSecretKey = resolveStripeApiKey();
+        const webhookSecret = resolveStripeWebhookSecret();
         let event;
 
         // SECURITY: never fall back to trusting an unsigned/unverified payload.
@@ -6573,10 +6594,58 @@ const server = http.createServer(async (req, res) => {
           }
         }
 
+        async function writeCompanySubscriptionStatus(targetCompanyId, appStatus) {
+          if (!targetCompanyId || !appStatus) return;
+          await pool.query(
+            `UPDATE companies
+             SET subscription_status = $2,
+                 data = (CASE WHEN jsonb_typeof(data) = 'object' THEN data ELSE '{}'::jsonb END)
+                        || jsonb_build_object('subscription_status', $3::text),
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [targetCompanyId, appStatus, appStatus]
+          );
+        }
+
         if (event?.type === 'checkout.session.completed') {
           const session = event.data.object;
           const companyId = session.metadata?.company_id;
           const purchaseType = session.metadata?.purchase_type;
+
+          if (session.mode === 'subscription') {
+            try {
+              let subCompanyId = companyId || null;
+              const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id || null;
+              if (!subCompanyId && customerId) {
+                const byCust = await pool.query(
+                  `SELECT id FROM companies WHERE stripe_customer_id = $1 AND NOT is_deleted LIMIT 1`,
+                  [customerId]
+                );
+                subCompanyId = byCust.rows[0]?.id || null;
+              }
+              if (subCompanyId) {
+                const subObj = session.subscription && typeof session.subscription === 'object' ? session.subscription : null;
+                const appStatus = subObj?.status
+                  ? mapAppSubscriptionStatus(subObj.status)
+                  : (session.payment_status === 'paid' ? 'active' : 'trial');
+                await writeCompanySubscriptionStatus(subCompanyId, appStatus);
+                const subId = typeof session.subscription === 'string' ? session.subscription : subObj?.id || null;
+                if (subId || customerId) {
+                  await pool.query(
+                    `UPDATE companies
+                     SET stripe_subscription_id = COALESCE(stripe_subscription_id, $2),
+                         stripe_customer_id = COALESCE(stripe_customer_id, $3),
+                         updated_at = NOW()
+                     WHERE id = $1`,
+                    [subCompanyId, subId, customerId]
+                  );
+                }
+                console.log(`[StripeWebhook] checkout subscription: company ${subCompanyId} → ${appStatus}`);
+              }
+            } catch (checkoutSubErr) {
+              console.error('[StripeWebhook] checkout subscription status error:', checkoutSubErr.message);
+            }
+          }
 
           // Helper: notify admins in-app + email + SMS
           async function notifyAndEmailAdmins(companyId, title, message, type, extraEmailBody, dedupeKey = null) {
@@ -7039,7 +7108,11 @@ const server = http.createServer(async (req, res) => {
                  WHERE id = $4`,
                 [amountDollars, stripeStatus, sub.id, companyId]
               );
-              console.log(`[StripeWebhook] ${event.type}: company ${companyId} → $${amountDollars}/mo (${stripeStatus})`);
+              const appStatus = mapAppSubscriptionStatus(stripeStatus, {
+                deleted: event.type === 'customer.subscription.deleted',
+              });
+              await writeCompanySubscriptionStatus(companyId, appStatus);
+              console.log(`[StripeWebhook] ${event.type}: company ${companyId} → $${amountDollars}/mo (${stripeStatus}, app ${appStatus})`);
             } else {
               console.warn(`[StripeWebhook] ${event.type}: no matching company for sub ${sub.id} / customer ${sub.customer}`);
             }
@@ -8174,6 +8247,19 @@ const server = http.createServer(async (req, res) => {
           const lookup = await callBase44API('lookupByPhone', null, { phone_number: e164To });
           if (lookup?.success && lookup.company_id) resolvedCompanyId = lookup.company_id;
         } catch (e) {}
+      }
+      try {
+        const smsOptOut = require('./lib/smsOptOut.cjs');
+        const keyword = smsOptOut.classifyInboundSms(messageBody);
+        if (keyword) {
+          await smsOptOut.setOptOut(pool, cleanFrom, resolvedCompanyId, keyword === 'stop');
+          const reply = smsOptOut.optOutReply(keyword);
+          res.writeHead(200, { 'Content-Type': 'text/xml' });
+          res.end(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${reply}</Message></Response>`);
+          return;
+        }
+      } catch (optErr) {
+        console.warn('[SMS] opt-out handling failed:', optErr.message);
       }
       if (!resolvedCompanyId) { res.writeHead(200, { 'Content-Type': 'text/xml' }); res.end('<?xml version="1.0" encoding="UTF-8"?><Response></Response>'); return; }
 
@@ -10238,7 +10324,7 @@ const server = http.createServer(async (req, res) => {
           [email]
         );
         const staffRow = staffResult.rows[0];
-        const is_super_admin = staffRow?.is_super_admin === true || platform_role === 'super_admin' || userRow?.company_id === 'companysync_master_001';
+        const is_super_admin = staffRow?.is_super_admin === true || platform_role === 'super_admin';
         return { email, platform_role, is_super_admin, is_administrator: staffRow?.is_administrator === true };
       } catch (e) {
         console.error('[PortalAPI] getUserFromRequest error:', e.message);
@@ -11173,6 +11259,34 @@ twilioWss.on('connection', async (twilioWs, req) => {
       })();
     }
 
+    // Rolling caller memory. Uses the saved transcript, compresses older turns
+    // before the Flash call, and never blocks or fails the call log.
+    if (transcript && callerPhone && callCompanyId && !staffCandidate) {
+      (async () => {
+        try {
+          const memPool = prodDb.getPool();
+          let customerId = null;
+          let leadId = null;
+          try {
+            const lookup = await lookupCallerByCrmPhone(memPool, callCompanyId, callerPhone);
+            if (lookup?.source === 'customer') customerId = lookup.record?.id || null;
+            if (lookup?.source === 'crm_lead' || lookup?.source === 'lead') leadId = lookup.record?.id || null;
+          } catch (_) {}
+          await callerMemory.rememberCall(memPool, {
+            companyId: callCompanyId,
+            phone: callerPhone,
+            transcript,
+            apiKey: geminiApiKey,
+            sourceCallId: commId,
+            customerId,
+            leadId,
+          });
+        } catch (e) {
+          console.warn(`[${assistantName}] Caller memory failed:`, e.message);
+        }
+      })();
+    }
+
     // Send post-call notifications (non-blocking)
     if (dur >= 5) {
       sendPostCallNotifications(callCompanyId, {
@@ -11262,7 +11376,7 @@ twilioWss.on('connection', async (twilioWs, req) => {
 
   async function connectGemini(isReconnect = false) {
     const currentSettings = loadSettings();
-    let voiceName = currentSettings.voice || 'Kore';
+    let voiceName = currentSettings.voice || 'Puck';
 
     let inboundGreeting = '';
     let callTransferInstructions = '';
@@ -11272,6 +11386,7 @@ twilioWss.on('connection', async (twilioWs, req) => {
     // Gemini WebSocket handshake IN PARALLEL. Previously each step waited for
     // the one before it (settings → socket → setup → history → greeting),
     // and every millisecond of that chain was dead air for the caller.
+    let callerMemoryInjected = false;
     const historyPromise = (!isReconnect && callerPhone && callCompanyId)
       ? (async () => {
           try {
@@ -11290,7 +11405,18 @@ twilioWss.on('connection', async (twilioWs, req) => {
                 lastComm = commResult.rows[0] || null;
               } catch (_) {}
             }
-            return { ...lookup, lastComm };
+            let memory = null;
+            try {
+              memory = await callerMemory.loadCallerMemory(histPool, {
+                companyId: callCompanyId,
+                phone: callerPhone,
+                customerId: lookup?.source === 'customer' ? (lookup.record?.id || null) : null,
+                leadId: (lookup?.source === 'crm_lead' || lookup?.source === 'lead') ? (lookup.record?.id || null) : null,
+              });
+            } catch (memErr) {
+              console.warn(`[${assistantName}] Caller memory lookup failed:`, memErr.message);
+            }
+            return { ...lookup, lastComm, memory };
           } catch (e) {
             console.log(`[Sarah] No prior history found for ${callerPhone}`);
             return null;
@@ -11344,21 +11470,15 @@ twilioWss.on('connection', async (twilioWs, req) => {
         typingSoundsEnabled = rawInterimAudio === 'typing' && rawResponseSpeed === 'normal';
         console.log(`[Sarah] Typing sounds: ${typingSoundsEnabled} (interim_audio=${rawInterimAudio}, response_speed=${rawResponseSpeed})`);
         // Wire the AI Engine setting into the call model (only native-audio models are valid here)
-        const VALID_NATIVE_AUDIO_MODELS = [
-          'gemini-2.5-flash-native-audio-latest',
-          'gemini-2.5-flash-native-audio-preview-12-2025',
-          'gemini-2.5-flash-native-audio-preview-09-2025',
-          'gemini-3.1-flash-live-preview',
-        ];
         const rawEngine = crm.settings?.engine || currentSettings.engine || '';
-        if (rawEngine && VALID_NATIVE_AUDIO_MODELS.includes(rawEngine)) {
-          subscriberGeminiModel = `models/${rawEngine}`;
+        if (rawEngine && isAllowedGeminiLiveEngine(rawEngine)) {
+          subscriberGeminiModel = geminiLiveModel(rawEngine);
           console.log(`[Sarah] Engine override: ${subscriberGeminiModel}`);
         }
       } catch (e) { console.warn('[Sarah] CRM load failed:', e.message); }
     }
 
-    if (!VALID_GEMINI_VOICES.includes(voiceName)) { console.warn(`[Sarah] Invalid voice "${voiceName}", using Kore`); voiceName = 'Kore'; }
+    if (!VALID_GEMINI_VOICES.includes(voiceName)) { console.warn(`[Sarah] Invalid voice "${voiceName}", using Puck`); voiceName = 'Puck'; }
     console.log(`[Sarah] Connecting Gemini: voice=${voiceName}, company=${companyName}, assistant=${assistantName}`);
     })();
 
@@ -11441,6 +11561,22 @@ Keep responses brief, conversational, and in the caller's language.`;
         prompt = buildStaffPhonePrompt(companyName, assistantName, staffCandidate.fullName, staffCandidate.timezone);
       }
 
+      // Caller memory belongs in the system instructions for the customer-facing
+      // receptionist. Staff PIN mode and the homeowner progress line stay lean.
+      if (!staffCandidate && !customerLexiVoiceEnabled && callerPhone && callCompanyId) {
+        const racedMemory = await Promise.race([
+          historyPromise.then((h) => h?.memory || null),
+          new Promise((resolve) => setTimeout(() => resolve('__PENDING__'), 400)),
+        ]);
+        if (racedMemory && racedMemory !== '__PENDING__') {
+          const block = callerMemory.instructionBlock(racedMemory);
+          if (block) {
+            prompt += block;
+            callerMemoryInjected = true;
+          }
+        }
+      }
+
       // Turn-taking speed follows the subscriber's response_speed setting.
       // silence_duration_ms is how long Gemini waits after the caller stops
       // talking before it starts answering — the single biggest lever on
@@ -11457,10 +11593,8 @@ Keep responses brief, conversational, and in the caller's language.`;
 
       thisWs.send(JSON.stringify({
         setup: applyTwilioLineProfile({
-          // Default verified against live ListModels + a real Live-API setup
-          // handshake (3.1-flash-live-preview supersedes the 2.5 native-audio
-          // line with better turn-taking/latency). Env var overrides for rollback.
-          model: subscriberGeminiModel || process.env.GEMINI_NATIVE_AUDIO_MODEL || "models/gemini-3.1-flash-live-preview",
+          // Gemini 3.8 Live is the default. A saved allowed engine wins.
+          model: subscriberGeminiModel || geminiLiveModel(),
           generation_config: { response_modalities: ["AUDIO"], speech_config: { voice_config: { prebuilt_voice_config: { voice_name: voiceName } } } },
           input_audio_transcription: {},
           output_audio_transcription: {},
@@ -11574,6 +11708,10 @@ Keep responses brief, conversational, and in the caller's language.`;
               console.log(`[${assistantName}] Caller history not ready within ${HISTORY_WAIT_MS}ms — greeting now, will inject context when it lands`);
             } else {
               returningLeadContext = applyCallerContext(raced, false);
+              if (!callerMemoryInjected && raced?.memory && !staffCandidate && !customerLexiVoiceEnabled) {
+                returningLeadContext += callerMemory.instructionBlock(raced.memory);
+                callerMemoryInjected = true;
+              }
             }
           }
 
@@ -11675,7 +11813,7 @@ Keep responses brief, conversational, and in the caller's language.`;
 
           // Late-arriving caller history: append it silently (turn_complete:false)
           // so Gemini knows who it's talking to without speaking an extra turn.
-          if (historyStillPending && !customerLexiVoiceEnabled) {
+          if (historyStillPending && !customerLexiVoiceEnabled && !staffCandidate) {
             const lateWs = geminiWs;
             historyPromise.then((h) => {
               // Guard BEFORE applyCallerContext: its side effects (collectedCallerName,
@@ -11683,11 +11821,13 @@ Keep responses brief, conversational, and in the caller's language.`;
               // live=true would be re-upserted after the close handler finalized the call.
               if (callTerminated || lateWs !== geminiWs || lateWs.readyState !== WebSocket.OPEN) return;
               const ctx = applyCallerContext(h, true);
-              if (!ctx) return;
+              const mem = !callerMemoryInjected && h?.memory ? callerMemory.instructionBlock(h.memory) : '';
+              if (!ctx && !mem) return;
+              if (mem) callerMemoryInjected = true;
               console.log(`[${assistantName}] Late caller history arrived — injecting context`);
               lateWs.send(JSON.stringify({
                 client_content: {
-                  turns: [{ role: "user", parts: [{ text: `[System context — do not read aloud or respond to this directly: ${ctx.trim()} Use their name naturally from now on and don't ask for info you already have.]` }] }],
+                  turns: [{ role: "user", parts: [{ text: `[System context — do not read aloud or respond to this directly: ${`${ctx} ${mem}`.trim()} Use their name naturally from now on and don't ask for info you already have.]` }] }],
                   turn_complete: false
                 }
               }));
@@ -12874,6 +13014,12 @@ lexiWss.on('connection', async (clientWs, req) => {
 prodDb.initDatabase().then(async () => {
   console.log('[Production] Local database ready');
   try {
+    const { reencryptStoredSecrets } = require('./lib/reencryptSecrets.cjs');
+    await reencryptStoredSecrets(prodDb.getPool());
+  } catch (e) {
+    console.warn('[reencrypt] skipped:', e.message);
+  }
+  try {
     const pool = prodDb.getPool();
     const { rows } = await pool.query(
       `SELECT id, data FROM generic_entities WHERE entity_type = 'AssistantSettings' AND data->>'voice_id' IS NOT NULL`
@@ -12883,11 +13029,11 @@ prodDb.initDatabase().then(async () => {
       const voiceId = row.data?.voice_id;
       if (voiceId && !VALID_GEMINI_VOICES.includes(voiceId)) {
         await pool.query(
-          `UPDATE generic_entities SET data = jsonb_set(data::jsonb, '{voice_id}', '"Kore"'), updated_date = NOW() WHERE id = $1`,
+          `UPDATE generic_entities SET data = jsonb_set(data::jsonb, '{voice_id}', '"Puck"'), updated_date = NOW() WHERE id = $1`,
           [row.id]
         );
         fixed++;
-        console.log(`[VoiceMigration] Fixed invalid voice_id "${voiceId}" -> "Kore" for AssistantSettings ${row.id}`);
+        console.log(`[VoiceMigration] Fixed invalid voice_id "${voiceId}" -> "Puck" for AssistantSettings ${row.id}`);
       }
     }
     if (fixed > 0) console.log(`[VoiceMigration] Cleaned up ${fixed} invalid voice IDs`);
@@ -13468,7 +13614,9 @@ async function fireGeminiApiHealthAlert(errorReason, closeCode) {
     // so the production path is identical to the unit-tested helper.
     // No LIMIT — must reach every super-admin regardless of org size.
     const { rows: adminRows } = await pool.query(
-      `SELECT user_email, email FROM staff_profiles WHERE (is_super_admin = true OR company_id = 'companysync_master_001') AND is_active = true`
+      `SELECT user_email, email FROM staff_profiles WHERE is_super_admin = true AND is_active = true
+       UNION
+       SELECT email AS user_email, email FROM users WHERE platform_role = 'super_admin'`
     );
     const adminEmails = normalizeRecipientEmails(adminRows);
     // Always include ADMIN_PHONE owner email if set in the environment
@@ -13538,6 +13686,8 @@ setInterval(async () => {
     console.error('[Cron:geminiLiveProbe] Unexpected error:', err.message);
   }
 }, 2 * 60 * 60 * 1000);
+
+require('./lib/startupSecrets.cjs').assertStartupSecrets();
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[Production] Server running on port ${PORT}`);

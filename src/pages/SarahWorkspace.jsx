@@ -4,6 +4,7 @@ import { fnData, fnError, fnNumber } from "@/lib/functionResult";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { usePageVisibility } from "@/hooks/usePageVisibility";
 import { pickCanonicalSettings, healDuplicateSettings, upsertSarahSettings } from "@/utils/assistantSettingsRecord";
+import { resolveAssistantName } from "@/utils/assistantDisplayName";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -547,7 +548,7 @@ function CampaignEditor({ campaign, onSave, onCancel, agentName }) {
       </div>
       <div>
         <Label className="text-xs">Introduction Script for {agentName}</Label>
-        <Textarea value={form.intro_script} onChange={(e) => setForm({...form, intro_script: e.target.value})} placeholder="How Alex should introduce herself on this type of call..." rows={3} data-testid="input-campaign-intro" />
+        <Textarea value={form.intro_script} onChange={(e) => setForm({...form, intro_script: e.target.value})} placeholder="How Alex should introduce themself on this type of call..." rows={3} data-testid="input-campaign-intro" />
         <p className="text-xs text-muted-foreground mt-1">Variables: {'{agent}'}, {'{brand}'}, {'{lead_name}'}, {'{lead_service}'}, {'{from_number}'}</p>
       </div>
       <div>
@@ -741,7 +742,7 @@ function CampaignEditor({ campaign, onSave, onCancel, agentName }) {
                     rows={10}
                     data-testid="input-knowledge-base"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">Teach {agentName} everything she needs to know for this campaign type</p>
+                  <p className="text-xs text-muted-foreground mt-1">Teach {agentName} everything they need to know for this campaign type</p>
                 </div>
               </TabsContent>
 
@@ -989,7 +990,7 @@ function CampaignEditor({ campaign, onSave, onCancel, agentName }) {
                     rows={3}
                     data-testid="input-bailout-message"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">What {agentName} says if the connection drops or she encounters a technical issue</p>
+                  <p className="text-xs text-muted-foreground mt-1">What {agentName} says if the connection drops or they encounter a technical issue</p>
                 </div>
               </TabsContent>
             </Tabs>
@@ -1083,10 +1084,10 @@ export default function SarahWorkspace() {
   const [form, setForm] = useState({
     assistant_name: "sarah",
     avatar_url: "",
-    engine: "gemini-3.1-flash-live-preview",
+    engine: "gemini-3.8-live",
     live_mode: false,
     voice_enabled: false,
-    voice_id: "Kore",
+    voice_id: "Puck",
     response_speed: "normal",
     background_audio: "none",
     interim_audio: "typing", // Default to typing for new setups
@@ -1179,7 +1180,10 @@ export default function SarahWorkspace() {
   const [showSMS, setShowSMS] = useState(false);
   const [selectedContact, setSelectedContact] = useState({ name: "", phone: "" });
 
-  const agentName = form.assistant_name ? form.assistant_name.charAt(0).toUpperCase() + form.assistant_name.slice(1) : "Alex";
+  const agentName = resolveAssistantName(
+    form.intent_templates?._assistant_display_name,
+    form.assistant_name
+  );
 
   const handleCallContact = (conv) => {
     setSelectedContact({ name: conv.name, phone: conv.phone });
@@ -1459,11 +1463,12 @@ export default function SarahWorkspace() {
         setForm({
           assistant_name: rec.assistant_name || "sarah",
           avatar_url: rec.avatar_url || "",
-          engine: rec.engine || "gemini-3.1-flash-live-preview",
+          engine: ["gemini-3.8-live", "gemini-3.1-flash-live-preview"].includes(rec.engine) ? rec.engine : "gemini-3.8-live",
           live_mode: !!rec.live_mode,
           voice_enabled: !!rec.voice_enabled,
-          // Only load Gemini-compatible voices; fall back to Kore for Polly/ElevenLabs/empty IDs
-          voice_id: ['Aoede','Kore','Leda','Zephyr','Charon','Fenrir','Orus','Puck'].includes(rec.voice_id) ? rec.voice_id : "Kore",
+          // Keep a saved voice. Only an empty or retired id falls back, and that
+          // fallback is Puck so a missing choice is not forced to a female voice.
+          voice_id: ['Aoede','Kore','Leda','Zephyr','Charon','Fenrir','Orus','Puck'].includes(rec.voice_id) ? rec.voice_id : "Puck",
           response_speed: rec.response_speed || "normal",
           knowledge_base: rec.knowledge_base || "",
           system_prompt: rec.system_prompt || DEFAULT_PROMPT,
@@ -2032,7 +2037,7 @@ export default function SarahWorkspace() {
                 <CardDescription className="text-xs">{selectedCampaign.description}</CardDescription>
               </CardHeader>
               <CardContent className="text-xs text-muted-foreground space-y-1">
-                <p><strong>Alex will:</strong> {selectedCampaign.intro_script?.replace(/\{agent\}/g, agentName).replace(/\{brand\}/g, form.brand_short_name || 'your company').substring(0, 200)}...</p>
+                <p><strong>{agentName} will:</strong> {selectedCampaign.intro_script?.replace(/\{agent\}/g, agentName).replace(/\{brand\}/g, form.brand_short_name || 'your company').substring(0, 200)}...</p>
                 {selectedCampaign.follow_up_enabled && (
                   <p className="flex items-center gap-1">
                     <MessageSquare className="w-3 h-3" /> SMS after {selectedCampaign.follow_up_sms_delay}min
@@ -2683,13 +2688,16 @@ export default function SarahWorkspace() {
                 <div className="flex-1">
                   <Label>Assistant Name</Label>
                   <Input 
-                    value={form.assistant_name || ""}
-                    onChange={(e) => onChange('assistant_name', e.target.value)}
+                    value={form.intent_templates?._assistant_display_name ?? ""}
+                    onChange={(e) => onChange('intent_templates', {
+                      ...(form.intent_templates || {}),
+                      _assistant_display_name: e.target.value,
+                    })}
                     placeholder="Alex"
                     className="mt-1"
                     data-testid="input-assistant-display-name"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Your assistant will introduce herself by this name on calls and messages. Default is "Alex".</p>
+                  <p className="text-xs text-gray-500 mt-1">Your assistant introduces themself by this name on calls and messages. Leave blank to use Alex. A name you already saved is kept.</p>
                 </div>
               </div>
             </CardContent>
@@ -2720,7 +2728,7 @@ export default function SarahWorkspace() {
                 data-testid="input-general-knowledge-base"
                 value={form.knowledge_base || ''}
                 onChange={(e) => onChange('knowledge_base', e.target.value)}
-                placeholder={`Tell ${agentName} everything she needs to know about your company. Examples:\n\nCOMPANY:\nAcme Roofing — licensed roofing contractor serving the Greater Metro Area.\nPhone: (555) 000-0100 | Website: acmeroofing.com\n\nSERVICES:\n- Free roof inspections (15–30 min, no obligation)\n- Full roof replacements — residential & commercial\n- Repairs: leaks, missing shingles, storm/hail damage\n- Insurance claims assistance (we handle the paperwork)\n- Gutters, skylights, ventilation\n\nSERVICE AREA:\nList your cities and surrounding areas here.\n\nSTAFF:\n- Jane Smith — Owner/Sales\n- Mike — Project Manager\n- Lisa — Office Manager\n\nPRICING:\nFree inspections. Estimates provided after inspection. We work with all major insurance companies. Homeowners typically only pay their deductible for covered claims.\n\nFAQs:\n- How long does an inspection take? About 15–30 minutes.\n- Do you work with insurance? Yes — we handle the claim process end to end.\n- Are you licensed and insured? Yes, fully licensed and insured.`}
+                placeholder={`Tell ${agentName} everything they need to know about your company. Examples:\n\nCOMPANY:\nAcme Roofing — licensed roofing contractor serving the Greater Metro Area.\nPhone: (555) 000-0100 | Website: acmeroofing.com\n\nSERVICES:\n- Free roof inspections (15–30 min, no obligation)\n- Full roof replacements — residential & commercial\n- Repairs: leaks, missing shingles, storm/hail damage\n- Insurance claims assistance (we handle the paperwork)\n- Gutters, skylights, ventilation\n\nSERVICE AREA:\nList your cities and surrounding areas here.\n\nSTAFF:\n- Jane Smith — Owner/Sales\n- Mike — Project Manager\n- Lisa — Office Manager\n\nPRICING:\nFree inspections. Estimates provided after inspection. We work with all major insurance companies. Homeowners typically only pay their deductible for covered claims.\n\nFAQs:\n- How long does an inspection take? About 15–30 minutes.\n- Do you work with insurance? Yes — we handle the claim process end to end.\n- Are you licensed and insured? Yes, fully licensed and insured.`}
               />
               <p className="text-xs text-gray-500">
                 Write it like you're briefing a new receptionist. Include services, service area, staff names, pricing philosophy, FAQs — anything a caller might ask. Campaigns can add their own extra knowledge on top of this.
@@ -2768,13 +2776,12 @@ export default function SarahWorkspace() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="gemini-3.1-flash-live-preview">Gemini 3.1 Flash Live (Recommended)</SelectItem>
-                    <SelectItem value="gemini-2.5-flash-native-audio-latest">Gemini 2.5 Flash Native Audio (Latest)</SelectItem>
-                    <SelectItem value="gemini-2.5-flash-native-audio-preview-12-2025">Gemini 2.5 Flash Native Audio (Dec 2025)</SelectItem>
+                    <SelectItem value="gemini-3.8-live">Gemini 3.8 Live (Recommended)</SelectItem>
+                    <SelectItem value="gemini-3.1-flash-live-preview">Gemini 3.1 Flash Live</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-gray-500 mt-2">
-                  Selects the Gemini model used for live phone calls. "Latest" always uses the newest stable native-audio version.
+                  Selects the Gemini Live model used for phone calls. Gemini 3.8 Live is the current default.
                 </p>
               </div>
             </CardContent>
@@ -2821,7 +2828,7 @@ export default function SarahWorkspace() {
                 <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-sm">2</div>
                 <CardTitle>Phone Numbers & Activation</CardTitle>
               </div>
-              <CardDescription>Configure {agentName}'s phone numbers and activate her voice.</CardDescription>
+              <CardDescription>Configure {agentName}'s phone numbers and turn on the voice.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex items-start gap-3 p-4 bg-gray-50 rounded-lg border border-gray-100">

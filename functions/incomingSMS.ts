@@ -224,8 +224,12 @@ Deno.serve(async (req) => {
         }
 
         // STOP Check
-        if (textLower.match(/^(stop|unsubscribe|cancel)\b/)) {
+        if (textLower.match(/^(stop|stopall|unsubscribe|cancel|end|quit)\b/)) {
             const reply = "You're unsubscribed. Reply START to opt back in.";
+            return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${reply}</Message></Response>`, { headers: { 'Content-Type': 'text/xml' } });
+        }
+        if (textLower.match(/^(start|unstop)\b/)) {
+            const reply = "You're opted back in and can receive texts again.";
             return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${reply}</Message></Response>`, { headers: { 'Content-Type': 'text/xml' } });
         }
 

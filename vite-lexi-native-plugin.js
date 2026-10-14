@@ -7,6 +7,7 @@ const nodeRequire = createRequire(import.meta.url);
 const { fetchWithRetry } = nodeRequire('./lib/fetchWithRetry.cjs');
 const { canonicalizeGenericEntityType, normalizeGenericEntityData } = nodeRequire('./lib/expenseNormalize.cjs');
 const { authenticateLexiWs } = nodeRequire('./lib/lexiWsAuth.cjs');
+const { geminiLiveModel } = nodeRequire('./lib/geminiLiveModel.cjs');
 const { confirmScheduleAndCreate } = nodeRequire('./lib/lexiScheduleConfirmation.cjs');
 const { accessDenied: lexiAccessDenied, buildLexiAccessPolicy } = nodeRequire('./lib/lexiAccessPolicy.cjs');
 const { assertBuildDate, buildDayRange } = nodeRequire('./lib/buildScheduleTime.cjs');
@@ -2211,7 +2212,7 @@ export default function lexiNativePlugin() {
               setup: {
                 // Keep in lockstep with the Lexi bridge in prod-server.cjs.
                 // Env var overrides for rollback (same lever as the phone bridges).
-                model: process.env.GEMINI_NATIVE_AUDIO_MODEL || "models/gemini-3.1-flash-live-preview",
+                model: geminiLiveModel(),
                 generation_config: {
                   response_modalities: ["AUDIO"],
                   speech_config: {
