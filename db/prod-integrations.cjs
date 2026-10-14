@@ -2601,7 +2601,8 @@ async function handleFunctionInvoke(req, res) {
       // See the matching comment in vite-functions-plugin.js: external calls are
       // marked so email handlers can fail closed when a request never reaches them.
       const result = await handlers[functionName]({ ...(params || {}), __externalCall: true }, process.env.GOOGLE_GEMINI_API_KEY, req);
-      sendJson(res, { data: result });
+      const { redactUserSecrets } = require('../lib/stripUserSecrets.cjs');
+      sendJson(res, { data: redactUserSecrets(result) });
       return;
     }
 
