@@ -87,6 +87,14 @@ function copyProdServer() {
         compressedCount++;
       }
       console.log(`[Build] Precompressed ${compressedCount} generated assets for faster mobile loading.`);
+
+      // Plugins imported by this config (pg pools, cron timers) keep the Node
+      // process alive after a successful build, so `vite build` never exits on
+      // hosts like Railway and the build times out. Same fix as
+      // cursor/local-cursor-dev-0f16. Skip for --watch builds.
+      if (!process.argv.includes('--watch')) {
+        setTimeout(() => process.exit(0), 500);
+      }
     }
   };
 }
