@@ -28,6 +28,7 @@ import {
 import { fetchWaybackIds } from './src/lib/mapImagery.js';
 import { resolveVerticalScale, materialToSidingProfile, processShutters, processAwnings } from './src/utils/companySyncFormulas.js';
 import { appendInsuranceSettlementPdf } from './lib/insuranceSettlement.js';
+import { parseCsv, preparePriceListRows } from './src/lib/priceListImport.js';
 import { buildCityBoundaryQuery } from './src/lib/stormAddressUtils.js';
 
 const nodeRequire = createRequire(import.meta.url);
@@ -34656,6 +34657,79 @@ Return JSON:
     return { success: true, restored, source };
   },
 
+  // Price Lists page upload (Xactimate Excel or Symbility CSV).
+  // Auth and the batched insert live in bulkImportPriceList.
+  async importXactimateExcel(params, apiKey, req) {
+    const { file_url, company_id, source_override } = params || {};
+    if (!file_url) throw new Error('file_url is required');
+    if (!company_id) throw new Error('company_id is required');
+
+    const fs = await import('fs');
+    const path = await import('path');
+    let buffer = null;
+    const uploadsMatch = String(file_url).match(/\/uploads\/([^?#]+)/);
+    if (uploadsMatch) {
+      const localPath = path.default.join(process.cwd(), 'public', 'uploads', uploadsMatch[1]);
+      if (fs.default.existsSync(localPath)) buffer = fs.default.readFileSync(localPath);
+    }
+    if (!buffer && String(file_url).startsWith('http')) {
+      const resp = await fetch(file_url, { signal: AbortSignal.timeout(30000) });
+      if (!resp.ok) throw new Error(`Failed to fetch file: ${resp.status}`);
+      buffer = Buffer.from(await resp.arrayBuffer());
+    }
+    if (!buffer) throw new Error('Could not read the uploaded price list');
+
+    const fileName = decodeURIComponent(String(file_url).split('/').pop() || '');
+    const isZip = buffer.length > 2 && buffer[0] === 0x50 && buffer[1] === 0x4b;
+    let rows = [];
+    let totalSheets = 1;
+    if (!isZip) {
+      rows = parseCsv(buffer.toString('utf8'));
+    } else {
+      let XLSX;
+      try {
+        XLSX = (await import('xlsx')).default || await import('xlsx');
+      } catch {
+        throw new Error('Excel import needs the xlsx package. Export the price list as CSV and upload that.');
+      }
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      totalSheets = workbook.SheetNames.length;
+      for (const sheetName of workbook.SheetNames) {
+        const sheetRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+        rows.push(...sheetRows.map((row) => ({ ...row, _sheet: sheetName })));
+      }
+    }
+
+    const source = source_override || 'Xactimate_New';
+    const prepared = preparePriceListRows(rows.map((row) => ({ ...row, source })));
+    if (!prepared.items.length) {
+      return {
+        success: false,
+        error: 'No valid line items found. Page headers and blank rows are skipped.',
+        errors: prepared.skipped.length,
+        total_sheets: totalSheets,
+        items_imported: 0,
+      };
+    }
+
+    const result = await functionHandlers.bulkImportPriceList({
+      items: prepared.items.map((item) => ({ ...item, source, company_id, is_active: true })),
+      source,
+      company_id,
+      merge: false,
+    }, apiKey, req);
+
+    console.log(`[importXactimateExcel] ${fileName}: imported ${result.imported}, skipped ${prepared.skipped.length}`);
+    return {
+      success: true,
+      total_sheets: totalSheets,
+      total_items_found: rows.length,
+      items_imported: result.imported,
+      errors: prepared.skipped.length,
+      skipped: prepared.skipped.length,
+    };
+  },
+
   // ── Import Xactimate price list from a PDF using Gemini AI ──────────────────
   // Large price lists (100+ pages) take several minutes, so this runs as a
   // background job: the call returns { jobId } immediately and the client
@@ -34836,18 +34910,17 @@ ${text}`;
     items.length = 0;
     items.push(...deduped);
 
-    // Normalise items
-    const clean = items
-      .filter(it => it && it.description)
-      .map(it => ({
-        code: String(it.code || it.description || '').replace(/\s+/g, '_').replace(/[^\w_]/g, '').slice(0, 30).toUpperCase() || 'ITEM',
-        description: String(it.description || '').trim(),
-        price: Number(String(it.price || '0').replace(/[$,]/g, '')) || 0,
-        unit: String(it.unit || 'EA').toUpperCase().trim(),
-        category: String(it.category || 'Other').trim(),
-        source,
-        is_active: true,
-      }))
+    // Drop page headers, fix categories, and keep every code unique.
+    const preparedPdf = preparePriceListRows(items.filter(it => it && it.description).map(it => ({
+      code: it.code,
+      description: it.description,
+      price: it.price,
+      unit: it.unit,
+      category: it.category,
+      source,
+    })));
+    const clean = preparedPdf.items
+      .map(it => ({ ...it, source, is_active: true }))
       .filter(it => it.price > 0 || it.description);
 
     // Bulk insert — optionally clear existing same-source items first

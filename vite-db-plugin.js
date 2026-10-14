@@ -1127,15 +1127,49 @@ async function genericDelete(pool, entityType, id) {
 }
 
 async function genericBulkCreate(pool, entityType, items) {
-  const results = [];
-  for (const item of items) {
-    const dupCheck = await checkDuplicateBeforeCreate(pool, entityType, item);
-    if (dupCheck) {
-      results.push({ skipped: true, duplicate: true, message: dupCheck.message, existing_id: dupCheck.existingId });
-      continue;
+  if (!items?.length) return [];
+  // Dedicated tables and entities with a duplicate rule stay on the per-row
+  // path. Price-list and other generic rows insert in one statement per chunk
+  // so a few hundred items do not wait on hundreds of round trips.
+  if (isDedicatedTable(entityType) || DUPLICATE_CHECK_RULES[entityType]) {
+    const results = [];
+    for (const item of items) {
+      const dupCheck = await checkDuplicateBeforeCreate(pool, entityType, item);
+      if (dupCheck) {
+        results.push({ skipped: true, duplicate: true, message: dupCheck.message, existing_id: dupCheck.existingId });
+        continue;
+      }
+      results.push(await genericCreate(pool, entityType, item));
     }
-    const created = await genericCreate(pool, entityType, item);
-    results.push(created);
+    return results;
+  }
+
+  const results = [];
+  const CHUNK = 200;
+  for (let offset = 0; offset < items.length; offset += CHUNK) {
+    const chunk = items.slice(offset, offset + CHUNK);
+    const values = [];
+    const placeholders = chunk.map((item, idx) => {
+      const id = item.id || `local_${Date.now()}_${offset + idx}_${Math.random().toString(36).slice(2, 8)}`;
+      const companyId = item.company_id || null;
+      const data = { ...item };
+      delete data.id;
+      delete data.company_id;
+      values.push(id, entityType, companyId, JSON.stringify(data));
+      const base = idx * 4;
+      chunk[idx] = { id, company_id: companyId, ...data };
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}::jsonb, NOW(), NOW())`;
+    });
+    await pool.query(
+      `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT (id, entity_type) DO UPDATE SET data = EXCLUDED.data, updated_date = NOW()`,
+      values
+    );
+    const now = new Date();
+    for (const created of chunk) {
+      results.push({ ...created, created_date: now, updated_date: now });
+    }
   }
   return results;
 }

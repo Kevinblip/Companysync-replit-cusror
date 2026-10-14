@@ -1445,8 +1445,38 @@ async function universalDelete(p, entityType, id) {
 }
 
 async function universalBulkCreate(p, entityType, items) {
+  if (!items?.length) return [];
+  // LOCKSTEP: generic bulk insert in vite-db-plugin.js genericBulkCreate.
+  if (isDedicatedTable(entityType)) {
+    const results = [];
+    for (const item of items) results.push(await universalCreate(p, entityType, item));
+    return results;
+  }
   const results = [];
-  for (const item of items) { results.push(await universalCreate(p, entityType, item)); }
+  const CHUNK = 200;
+  for (let offset = 0; offset < items.length; offset += CHUNK) {
+    const chunk = items.slice(offset, offset + CHUNK);
+    const values = [];
+    const placeholders = chunk.map((item, idx) => {
+      const id = item.id || `local_${Date.now()}_${offset + idx}_${Math.random().toString(36).slice(2, 8)}`;
+      const companyId = item.company_id || null;
+      const data = { ...item };
+      delete data.id;
+      delete data.company_id;
+      values.push(id, entityType, companyId, JSON.stringify(data));
+      const base = idx * 4;
+      chunk[idx] = { id, company_id: companyId, ...data };
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}::jsonb, NOW(), NOW())`;
+    });
+    await p.query(
+      `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT (id, entity_type) DO UPDATE SET data = EXCLUDED.data, updated_date = NOW()`,
+      values
+    );
+    const now = new Date();
+    for (const created of chunk) results.push({ ...created, created_date: now, updated_date: now });
+  }
   return results;
 }
 

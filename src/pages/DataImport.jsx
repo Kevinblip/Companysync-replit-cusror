@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { parseCsv, preparePriceListRows, ITEM_IMPORT_BATCH, withTimeout } from "@/lib/priceListImport";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -288,6 +289,8 @@ export default function DataImport() {
   const [columnMapping, setColumnMapping] = useState({});
   const [step, setStep] = useState(1);
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(null);
+  const [itemPrep, setItemPrep] = useState(null);
   const [importResult, setImportResult] = useState(null);
   const [errorDetails, setErrorDetails] = useState([]);
   const [migrationStage, setMigrationStage] = useState('closed');
@@ -388,6 +391,7 @@ export default function DataImport() {
       { key: 'price', label: 'Price', required: true },
       { key: 'cost', label: 'Cost', required: false },
       { key: 'sku', label: 'SKU', required: false },
+      { key: 'source', label: 'Source', required: false },
       { key: 'invoice_number', label: 'Invoice #', required: false },
       { key: 'customer_name', label: 'Customer', required: false },
       { key: 'amount', label: 'Amount', required: false },
@@ -505,6 +509,13 @@ export default function DataImport() {
       { key: 'status', label: 'Status', required: false },
     ],
   };
+
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get('entity');
+    if (requested && Object.prototype.hasOwnProperty.call(entityFields, requested)) {
+      setEntityType(requested);
+    }
+  }, []);
 
   const parseCSV = (text) => {
     // Normalize line endings to handle \r, \n, and \r\n
@@ -682,6 +693,7 @@ export default function DataImport() {
 
     if (entityType === 'Item') {
       patterns.name = ['item name', 'name', 'description', 'item description', 'service name', 'product name', 'title', 'line item'];
+      patterns.source = ['source', 'price list source', 'catalog'];
     }
 
     if (entityType === 'EstimateWithLineItems') {
@@ -762,6 +774,17 @@ export default function DataImport() {
     }
   };
 
+  const planItemImport = () => {
+    const mapped = parseCsv(csvData || '').map((row) => {
+      const record = { company_id: myCompany?.id };
+      Object.entries(columnMapping || {}).forEach(([header, field]) => {
+        if (field && row[header] != null) record[field] = row[header];
+      });
+      return record;
+    });
+    return preparePriceListRows(mapped);
+  };
+
   const handleImport = async () => {
     if (!myCompany) {
       alert("Please set up your company profile first!");
@@ -769,6 +792,7 @@ export default function DataImport() {
     }
 
     setImporting(true);
+    setImportProgress(null);
     setImportResult(null);
     setErrorDetails([]);
 
@@ -1423,69 +1447,98 @@ export default function DataImport() {
       console.log(`Attempting to import ${records.length} ${entityType} records...`);
 
       const apiEntityType = entityType === 'Item' ? 'PriceListItem' : entityType;
+      let rowsToInsert = records;
+      if (entityType === 'Item') {
+        const prepared = itemPrep || planItemImport();
+        rowsToInsert = prepared.items.map((item) => ({ ...item, company_id: myCompany.id }));
+        const parseErrors = errorLog.filter((entry) => String(entry.reason || '').startsWith('Processing error'));
+        errorLog.length = 0;
+        prepared.skipped.forEach((skip) => {
+          errorLog.push({ row: skip.row, reason: skip.reason, data: skip.data });
+        });
+        parseErrors.forEach((entry) => errorLog.push(entry));
+        skippedRequired = prepared.skipped.length;
+        processingErrors = parseErrors.length;
+        setErrorDetails([...errorLog]);
+      }
 
-      // BATCHED IMPORT WITH DELAYS
-      const batchSize = 10; // Reduced from 50 to 10
+      // One statement per chunk on the server. The old 10-row batches waited
+      // 2 seconds between each, so a few thousand items never left "Loading...".
+      const batchSize = entityType === 'Item' ? ITEM_IMPORT_BATCH : 50;
       let imported = 0;
 
-      if (records.length > 0) {
-        for (let i = 0; i < records.length; i += batchSize) {
-          const batch = records.slice(i, i + batchSize);
+      if (rowsToInsert.length > 0) {
+        for (let i = 0; i < rowsToInsert.length; i += batchSize) {
+          const batch = rowsToInsert.slice(i, i + batchSize);
+          const batchLabel = `Batch ${Math.floor(i / batchSize) + 1}`;
+          setImportProgress({ done: i, total: rowsToInsert.length });
           try {
-            await base44.entities[apiEntityType].bulkCreate(batch);
-            imported += batch.length;
-          } catch (batchErr) {
-            console.error(`[Import] Batch ${Math.floor(i/batchSize)+1} failed:`, batchErr.message);
-            for (const item of batch) {
-              try {
-                await base44.entities[apiEntityType].create(item);
-                imported += 1;
-              } catch (singleErr) {
-                console.error(`[Import] Single record failed:`, singleErr.message, item);
-                errorLog.push({ row: i + 1, reason: `Import error: ${singleErr.message}`, data: JSON.stringify(item) });
-                processingErrors += 1;
-              }
+            const created = await withTimeout(
+              base44.entities[apiEntityType].bulkCreate(batch),
+              60000,
+              batchLabel,
+            );
+            if (!Array.isArray(created)) {
+              throw new Error(`${batchLabel} returned an unexpected response`);
             }
-          }
-          
-          if (i + batchSize < records.length) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            console.log(`Imported ${imported} of ${records.length}...`);
+            const skippedRows = created.filter((row) => row?.skipped || row?.duplicate);
+            imported += created.length - skippedRows.length;
+            skippedRows.forEach((row) => {
+              errorLog.push({ row: i + 1, reason: row.message || 'Duplicate skipped', data: row.existing_id || '' });
+            });
+            skippedRequired += skippedRows.length;
+            if (created.length < batch.length) {
+              const missing = batch.length - created.length;
+              processingErrors += missing;
+              errorLog.push({ row: i + 1, reason: `${batchLabel} saved ${created.length} of ${batch.length} rows`, data: `${missing} rows` });
+            }
+          } catch (batchErr) {
+            console.error(`[Import] ${batchLabel} failed:`, batchErr.message);
+            processingErrors += batch.length;
+            errorLog.push({ row: i + 1, reason: `${batchLabel} failed: ${batchErr.message}`, data: `${batch.length} rows` });
           }
         }
+        setImportProgress({ done: rowsToInsert.length, total: rowsToInsert.length });
       }
 
       const importEndTime = new Date();
 
-      await base44.entities.ImportLog.create({
-        company_id: myCompany.id,
-        import_name: file.name,
-        entity_type: entityType,
-        file_name: file.name,
-        total_rows: lines.length - 1,
-        imported_count: imported,
-        skipped_count: skippedRequired,
-        error_count: processingErrors,
-        status: (skippedRequired + processingErrors) > 0 ? 'completed_with_errors' : 'completed',
-        column_mapping: columnMapping,
-        preview_data: previewRows,
-        source_platform: migrationPlatform || null,
-        import_method: migrationPlatform ? 'migration_hub' : 'manual',
-        start_time: importStartTime.toISOString(),
-        end_time: importEndTime.toISOString()
-      });
+      try {
+        await withTimeout(base44.entities.ImportLog.create({
+          company_id: myCompany.id,
+          import_name: file.name,
+          entity_type: entityType,
+          file_name: file.name,
+          total_rows: lines.length - 1,
+          imported_count: imported,
+          skipped_count: skippedRequired,
+          error_count: processingErrors,
+          status: (skippedRequired + processingErrors) > 0 ? 'completed_with_errors' : 'completed',
+          column_mapping: columnMapping,
+          preview_data: previewRows,
+          source_platform: migrationPlatform || null,
+          import_method: migrationPlatform ? 'migration_hub' : 'manual',
+          start_time: importStartTime.toISOString(),
+          end_time: importEndTime.toISOString()
+        }), 20000, 'Import log');
+      } catch (logErr) {
+        console.warn('[Import] Could not save import log:', logErr.message);
+      }
 
+      setErrorDetails(errorLog);
       setImportResult({
-        success: true,
+        success: processingErrors === 0,
         imported: imported,
         skipped: skippedRequired,
-        errors: processingErrors
+        errors: processingErrors,
+        message: `Imported ${imported}. Skipped ${skippedRequired}. ${processingErrors} error${processingErrors === 1 ? '' : 's'}.`,
       });
 
       queryClient.invalidateQueries({ queryKey: ['leads'] });
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['items'] });
+      queryClient.invalidateQueries({ queryKey: ['price-list-items'] });
       queryClient.invalidateQueries({ queryKey: ['estimates'] });
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -1522,6 +1575,8 @@ export default function DataImport() {
     setStep(1);
     setImportResult(null);
     setErrorDetails([]);
+    setImportProgress(null);
+    setItemPrep(null);
   };
 
   return (
@@ -1919,6 +1974,7 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
                     return;
                   }
 
+                  if (entityType === 'Item') setItemPrep(planItemImport());
                   setStep(3);
                 }}
                 className="bg-blue-600 hover:bg-blue-700"
@@ -1939,17 +1995,22 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
             <Alert className="bg-yellow-50 border-yellow-200">
               <AlertCircle className="w-4 h-4 text-yellow-600" />
               <AlertDescription>
-                <strong>Ready to {t.common.import}?</strong> This will create new {entityType} records. Duplicates will be skipped.
+                <strong>Ready to {t.common.import}?</strong> This will create new {entityType} records.
+                {entityType === 'Item' && itemPrep ? ` ${itemPrep.items.length} line items are ready. ${itemPrep.skipped.length} rows (page headers, footers, or blanks) will be skipped.` : ' Duplicates will be skipped.'}
               </AlertDescription>
             </Alert>
 
             <div>
-              <h3 className="font-semibold mb-3">Preview (First 5 rows)</h3>
+              <h3 className="font-semibold mb-3">{entityType === 'Item' && itemPrep ? `Ready to import (${itemPrep.items.length})` : 'Preview (First 5 rows)'}</h3>
               <div className="border rounded-lg overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
-                      {Object.keys(columnMapping).filter(k => columnMapping[k]).map(header => (
+                      {entityType === 'Item' && itemPrep ? (
+                        ['Item Name', 'Category', 'SKU', 'Unit', 'Price'].map((label) => (
+                          <th key={label} className="px-3 py-2 text-left font-medium text-gray-700">{label}</th>
+                        ))
+                      ) : Object.keys(columnMapping).filter(k => columnMapping[k]).map(header => (
                         <th key={header} className="px-3 py-2 text-left font-medium text-gray-700">
                           {entityFields[entityType].find(f => f.key === columnMapping[header])?.label}
                         </th>
@@ -1957,9 +2018,23 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
                     </tr>
                   </thead>
                   <tbody>
-                    {previewRows.map((row, idx) => (
+                    {(entityType === 'Item' && itemPrep ? itemPrep.items.slice(0, 8).map((item) => ({
+                      name: item.description,
+                      category: item.category,
+                      sku: item.code,
+                      price: item.price,
+                      unit: item.unit,
+                    })) : previewRows).map((row, idx) => (
                       <tr key={idx} className="border-t">
-                        {Object.keys(columnMapping).filter(k => columnMapping[k]).map(header => (
+                        {entityType === 'Item' && itemPrep ? (
+                          <>
+                            <td className="px-3 py-2">{row.name}</td>
+                            <td className="px-3 py-2">{row.category}</td>
+                            <td className="px-3 py-2">{row.sku}</td>
+                            <td className="px-3 py-2">{row.unit}</td>
+                            <td className="px-3 py-2">{row.price}</td>
+                          </>
+                        ) : Object.keys(columnMapping).filter(k => columnMapping[k]).map(header => (
                           <td key={header} className="px-3 py-2">
                             {row[header] || '-'}
                           </td>
@@ -1983,7 +2058,9 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
                 {importing ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    {t.common.loading}
+                    {importProgress
+                      ? `Importing ${importProgress.done} of ${importProgress.total}…`
+                      : 'Importing…'}
                   </>
                 ) : (
                   <>
@@ -2015,7 +2092,7 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
                 <Alert className={importResult.errors > 0 ? "bg-yellow-50 border-yellow-200" : "bg-green-50 border-green-200"}>
                   {importResult.errors > 0 ? <AlertCircle className="w-4 h-4 text-yellow-600" /> : <CheckCircle2 className="w-4 h-4 text-green-600" />}
                   <AlertDescription>
-                    <strong>{importResult.errors > 0 ? 'Partial Success' : 'Success!'}</strong> Your data has been processed.
+                    <strong>{importResult.errors > 0 ? 'Partial Success' : 'Success!'}</strong> {importResult.message || 'Your data has been processed.'}
                   </AlertDescription>
                 </Alert>
 
@@ -2029,7 +2106,7 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
                   <Card className="bg-yellow-50 border-yellow-200">
                     <CardContent className="p-4">
                       <div className="text-3xl font-bold text-yellow-700">{importResult.skipped}</div>
-                      <div className="text-sm text-yellow-600">Skipped (Required Fields)</div>
+                      <div className="text-sm text-yellow-600">Skipped</div>
                     </CardContent>
                   </Card>
                   <Card className="bg-red-50 border-red-200">
@@ -2045,7 +2122,7 @@ Estimate-1600,Edward Simmons,accepted,2025-06-07,11,Flashing - Pipe Jack,2,EA,87
             {errorDetails && errorDetails.length > 0 && (
               <Card className="bg-red-50 border-red-200">
                 <CardHeader>
-                  <CardTitle className="text-red-900">Error Details ({errorDetails.length} rows failed)</CardTitle>
+                  <CardTitle className="text-red-900">Rows not imported ({errorDetails.length})</CardTitle
                 </CardHeader>
                 <CardContent className="max-h-96 overflow-y-auto">
                   <div className="space-y-2">

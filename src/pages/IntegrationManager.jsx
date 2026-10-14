@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { isEstimateChrome, preparePriceListRows } from "@/lib/priceListImport";
 import { BulkDeleteButton } from "@/components/BulkDeleteControls";
 import useTranslation from "@/hooks/useTranslation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -379,6 +380,9 @@ export default function IntegrationManager() {
           } else {
             combinedLines.push(line);
           }
+        } else if (isEstimateChrome(line)) {
+          // Page headers and footers are not part of the next line item.
+          currentDescription = '';
         } else {
           // Continuation of description from previous line
           currentDescription += (currentDescription ? ' ' : '') + line;
@@ -576,6 +580,12 @@ export default function IntegrationManager() {
         }
       }
 
+      const preparedPaste = preparePriceListRows(items);
+      items.length = 0;
+      items.push(...preparedPaste.items.map((item) => ({ ...item, source: pasteSource })));
+      if (preparedPaste.skipped.length) {
+        console.log(`[PasteImport] Skipped ${preparedPaste.skipped.length} header/footer rows`);
+      }
       console.log(`✅ Parsed ${items.length} valid items`);
 
       if (items.length === 0) {
