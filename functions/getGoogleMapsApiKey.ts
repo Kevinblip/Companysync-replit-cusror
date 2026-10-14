@@ -9,10 +9,10 @@ Deno.serve(async (req) => {
             return Response.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const apiKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+        const apiKey = Deno.env.get("GOOGLE_MAPS_BROWSER_KEY") || Deno.env.get("GOOGLE_MAPS_API_KEY");
 
         if (!apiKey) {
-            return Response.json({ error: "GOOGLE_MAPS_API_KEY not configured" }, { status: 500 });
+            return Response.json({ error: "Google Maps browser key is not configured. Set GOOGLE_MAPS_BROWSER_KEY in Secrets. GOOGLE_MAPS_API_KEY is also accepted until a separate browser key is added." }, { status: 500 });
         }
 
         return Response.json({ apiKey });
