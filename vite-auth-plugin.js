@@ -84,7 +84,12 @@ export default function authPlugin() {
     name: 'replit-auth',
     async configureServer(server) {
       try {
-        const config = await getOidcConfig();
+        let config = null;
+        try {
+          config = await getOidcConfig();
+        } catch (oidcErr) {
+          console.warn('[Auth] OIDC discovery unavailable, local login still available:', oidcErr.message);
+        }
 
         const verify = async (tokens, verified) => {
           const user = {};
@@ -94,6 +99,7 @@ export default function authPlugin() {
         };
 
         const ensureStrategy = (domain) => {
+          if (!config) return;
           const strategyName = `replitauth:${domain}`;
           if (!registeredStrategies.has(strategyName)) {
             const strategy = new Strategy(
@@ -268,6 +274,11 @@ export default function authPlugin() {
           }
 
           if (url === '/api/login') {
+            if (!config) {
+              res.writeHead(302, { Location: '/login' });
+              res.end();
+              return;
+            }
             const domain = req.headers.host;
             ensureStrategy(domain);
             return passport.authenticate(`replitauth:${domain}`, {

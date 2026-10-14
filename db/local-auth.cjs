@@ -194,7 +194,7 @@ async function handleSignup(req, res, pool) {
       return;
     }
 
-    const existingUser = await pool.query('SELECT id FROM users WHERE email = $1', [emailLower]);
+    const existingUser = await pool.query('SELECT id FROM users WHERE LOWER(email) = $1', [emailLower]);
     if (existingUser.rows.length > 0) {
       res.writeHead(409, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'An account with this email already exists. Please log in instead.' }));
@@ -830,7 +830,7 @@ async function handleLoginLocal(req, res, pool) {
     }
 
     const result = await pool.query(
-      'SELECT * FROM users WHERE email = $1 AND is_local_auth = true',
+      'SELECT * FROM users WHERE LOWER(email) = $1 AND is_local_auth = true',
       [emailLower]
     );
 
@@ -970,7 +970,7 @@ async function handleForgotPassword(req, res, pool) {
     }
 
     // Check if user exists in users table
-    const userResult = await pool.query('SELECT id, email FROM users WHERE email = $1', [emailLower]);
+    const userResult = await pool.query('SELECT id, email FROM users WHERE LOWER(email) = $1', [emailLower]);
     const userExists = userResult.rows.length > 0;
 
     // Also check if they have a staff profile (invited staff with no account yet)
@@ -1004,7 +1004,7 @@ async function handleForgotPassword(req, res, pool) {
     }
 
     // Delete any existing tokens for this email
-    await pool.query('DELETE FROM password_reset_tokens WHERE email = $1', [emailLower]);
+    await pool.query('DELETE FROM password_reset_tokens WHERE LOWER(email) = $1', [emailLower]);
 
     // Create reset token
     const token = generateToken();
@@ -1220,7 +1220,7 @@ async function handleAdminSetStaffPassword(req, res, pool) {
     const passwordHash = await bcrypt.hash(password, 10);
 
     // Upsert the user account
-    const existingUser = await pool.query('SELECT id, first_name, last_name FROM users WHERE email = $1', [staffEmailLower]);
+    const existingUser = await pool.query('SELECT id, first_name, last_name FROM users WHERE LOWER(email) = $1', [staffEmailLower]);
     if (existingUser.rows.length > 0) {
       const existing = existingUser.rows[0];
       // Update password, and backfill name if currently empty

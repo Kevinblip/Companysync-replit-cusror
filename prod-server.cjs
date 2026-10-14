@@ -642,6 +642,7 @@ function setCachedSubscriber(phoneNumber, data) {
 // customers, or leads (in that priority order). Extracted to lib/ so it can
 // be unit tested in isolation. See lib/lookupCallerByCrmPhone.cjs.
 const { lookupCallerByCrmPhone, invalidateCallerCache, invalidateCallerCacheForCompany } = require('./lib/lookupCallerByCrmPhone.cjs');
+const callerMemory = require('./lib/callerMemory.cjs');
 const smsAssistant = require('./lib/smsAssistant.cjs');
 const { handleWhatsAppPhotoUpload, resolveInstallerPendingChoice } = require('./lib/whatsappPhotoHandler.cjs');
 
@@ -2449,7 +2450,8 @@ const CRM_TOOLS = [
   { name: "schedule_inspection", description: "Submit a roof inspection request for staff approval. This does NOT create a calendar event or confirm the appointment. Only call after checking availability and explicitly reading back the caller's full name, callback number, exact property address, exact date, and exact time, then receiving a clear confirmation. Never pass vague times such as 'tomorrow morning'.", parameters: { type: "object", properties: { date_time: { type: "string", description: "Exact date and time for the inspection, preferably ISO format; vague times are not allowed" }, customer_name: { type: "string", description: "Full name, read back and confirmed by the caller" }, customer_phone: { type: "string", description: "Callback phone number; use the caller's verified number when available" }, address: { type: "string", description: "Complete property address, read back and confirmed by the caller" }, notes: { type: "string", description: "Special notes about the inspection" }, assigned_to: { type: "string", description: "Staff member name or email to assign this inspection to" } }, required: ["date_time", "customer_name", "address"] } },
   { name: "notify_rep", description: "Send an SMS or WhatsApp notification to a specific sales rep about a new lead, appointment, or update.", parameters: { type: "object", properties: { rep_name: { type: "string", description: "Name of the rep to notify" }, rep_phone: { type: "string", description: "Phone number of the rep" }, message: { type: "string", description: "The notification message to send" }, notification_type: { type: "string", description: "Type: new_lead, inspection_scheduled, callback_request, general" } }, required: ["message"] } },
   { name: "transfer_call", description: "Transfer the current call to a staff member's cell phone. BEFORE calling this you MUST have already collected and confirmed THREE things: the caller's name, a callback phone number, and the reason for their call. Never transfer without all three. Use this when: 1) the caller asks to speak to a specific person by name (pass target_person), or 2) the call routing mode is sarah_then_transfer and you have gathered the caller's info. If the transfer cannot be completed, take a message instead of dropping the call. When call screening is active, always include screening_outcome.", parameters: { type: "object", properties: { reason: { type: "string", description: "The reason the caller is calling / why the call is being transferred" }, target_person: { type: "string", description: "Name of the specific staff member the caller wants to speak to (e.g. 'Vicky', 'Kevin'). Leave empty to transfer to the default rep." }, caller_name: { type: "string", description: "The caller's full name — must be collected and confirmed before transferring" }, callback_number: { type: "string", description: "A phone number to reach the caller back on — must be collected and confirmed before transferring" }, screening_outcome: { type: "string", enum: ["approved", "self_handled", "declined"], description: "Result of call screening: 'approved' if caller was screened and approved for transfer, 'self_handled' if inspection/appointment was booked directly without a transfer, 'declined' if call was ended (solicitor, robocall). Omit if screening is not enabled." } }, required: ["caller_name", "callback_number", "reason"] } },
-  { name: "collect_caller_name", description: "Record the caller's name when they introduce themselves or say their name during the conversation. Call this as soon as you learn the caller's name so the call log can reference them by name instead of 'Voice Caller'.", parameters: { type: "object", properties: { name: { type: "string", description: "The caller's name as they stated it" } }, required: ["name"] } }
+  { name: "collect_caller_name", description: "Record the caller's name when they introduce themselves or say their name during the conversation. Call this as soon as you learn the caller's name so the call log can reference them by name instead of 'Voice Caller'.", parameters: { type: "object", properties: { name: { type: "string", description: "The caller's name as they stated it" } }, required: ["name"] } },
+  callerMemory.LOOKUP_CUSTOMER_TOOL
 ];
 
 const VALID_GEMINI_VOICES = ['Aoede', 'Charon', 'Fenrir', 'Kore', 'Leda', 'Orus', 'Puck', 'Zephyr'];
@@ -2634,6 +2636,21 @@ async function handleToolCall(functionCall, companyId, context = {}) {
     case 'notify_rep': return callBase44API('notifyRep', companyId, parsedArgs);
     case 'transfer_call': return { success: true, message: 'Transfer initiated' };
     case 'collect_caller_name': return { success: true, message: `Caller name recorded: ${parsedArgs.name || ''}` };
+    case 'lookup_customer': {
+      if (!companyId) return { found: false, error: 'company_id is required' };
+      if (context.customerLexiVoiceEnabled) return { found: false, error: 'Caller memory is not available on the homeowner line.' };
+      try {
+        return await callerMemory.lookupCustomerDetail(prodDb.getPool(), {
+          companyId,
+          phone: parsedArgs.phone || context.callerPhone || '',
+          customerId: parsedArgs.customer_id || '',
+          leadId: parsedArgs.lead_id || '',
+        });
+      } catch (lookupErr) {
+        console.warn('[Sarah CRM] lookup_customer failed:', lookupErr.message);
+        return { found: false, error: 'Lookup failed' };
+      }
+    }
     default: return { error: `Unknown tool: ${name}` };
   }
 }
@@ -11169,6 +11186,34 @@ twilioWss.on('connection', async (twilioWs, req) => {
       })();
     }
 
+    // Rolling caller memory. Uses the saved transcript, compresses older turns
+    // before the Flash call, and never blocks or fails the call log.
+    if (transcript && callerPhone && callCompanyId && !staffCandidate) {
+      (async () => {
+        try {
+          const memPool = prodDb.getPool();
+          let customerId = null;
+          let leadId = null;
+          try {
+            const lookup = await lookupCallerByCrmPhone(memPool, callCompanyId, callerPhone);
+            if (lookup?.source === 'customer') customerId = lookup.record?.id || null;
+            if (lookup?.source === 'crm_lead' || lookup?.source === 'lead') leadId = lookup.record?.id || null;
+          } catch (_) {}
+          await callerMemory.rememberCall(memPool, {
+            companyId: callCompanyId,
+            phone: callerPhone,
+            transcript,
+            apiKey: geminiApiKey,
+            sourceCallId: commId,
+            customerId,
+            leadId,
+          });
+        } catch (e) {
+          console.warn(`[${assistantName}] Caller memory failed:`, e.message);
+        }
+      })();
+    }
+
     // Send post-call notifications (non-blocking)
     if (dur >= 5) {
       sendPostCallNotifications(callCompanyId, {
@@ -11268,6 +11313,7 @@ twilioWss.on('connection', async (twilioWs, req) => {
     // Gemini WebSocket handshake IN PARALLEL. Previously each step waited for
     // the one before it (settings → socket → setup → history → greeting),
     // and every millisecond of that chain was dead air for the caller.
+    let callerMemoryInjected = false;
     const historyPromise = (!isReconnect && callerPhone && callCompanyId)
       ? (async () => {
           try {
@@ -11286,7 +11332,18 @@ twilioWss.on('connection', async (twilioWs, req) => {
                 lastComm = commResult.rows[0] || null;
               } catch (_) {}
             }
-            return { ...lookup, lastComm };
+            let memory = null;
+            try {
+              memory = await callerMemory.loadCallerMemory(histPool, {
+                companyId: callCompanyId,
+                phone: callerPhone,
+                customerId: lookup?.source === 'customer' ? (lookup.record?.id || null) : null,
+                leadId: (lookup?.source === 'crm_lead' || lookup?.source === 'lead') ? (lookup.record?.id || null) : null,
+              });
+            } catch (memErr) {
+              console.warn(`[${assistantName}] Caller memory lookup failed:`, memErr.message);
+            }
+            return { ...lookup, lastComm, memory };
           } catch (e) {
             console.log(`[Sarah] No prior history found for ${callerPhone}`);
             return null;
@@ -11437,6 +11494,22 @@ Keep responses brief, conversational, and in the caller's language.`;
         prompt = buildStaffPhonePrompt(companyName, assistantName, staffCandidate.fullName, staffCandidate.timezone);
       }
 
+      // Caller memory belongs in the system instructions for the customer-facing
+      // receptionist. Staff PIN mode and the homeowner progress line stay lean.
+      if (!staffCandidate && !customerLexiVoiceEnabled && callerPhone && callCompanyId) {
+        const racedMemory = await Promise.race([
+          historyPromise.then((h) => h?.memory || null),
+          new Promise((resolve) => setTimeout(() => resolve('__PENDING__'), 400)),
+        ]);
+        if (racedMemory && racedMemory !== '__PENDING__') {
+          const block = callerMemory.instructionBlock(racedMemory);
+          if (block) {
+            prompt += block;
+            callerMemoryInjected = true;
+          }
+        }
+      }
+
       // Turn-taking speed follows the subscriber's response_speed setting.
       // silence_duration_ms is how long Gemini waits after the caller stops
       // talking before it starts answering — the single biggest lever on
@@ -11570,6 +11643,10 @@ Keep responses brief, conversational, and in the caller's language.`;
               console.log(`[${assistantName}] Caller history not ready within ${HISTORY_WAIT_MS}ms — greeting now, will inject context when it lands`);
             } else {
               returningLeadContext = applyCallerContext(raced, false);
+              if (!callerMemoryInjected && raced?.memory && !staffCandidate && !customerLexiVoiceEnabled) {
+                returningLeadContext += callerMemory.instructionBlock(raced.memory);
+                callerMemoryInjected = true;
+              }
             }
           }
 
@@ -11671,7 +11748,7 @@ Keep responses brief, conversational, and in the caller's language.`;
 
           // Late-arriving caller history: append it silently (turn_complete:false)
           // so Gemini knows who it's talking to without speaking an extra turn.
-          if (historyStillPending && !customerLexiVoiceEnabled) {
+          if (historyStillPending && !customerLexiVoiceEnabled && !staffCandidate) {
             const lateWs = geminiWs;
             historyPromise.then((h) => {
               // Guard BEFORE applyCallerContext: its side effects (collectedCallerName,
@@ -11679,11 +11756,13 @@ Keep responses brief, conversational, and in the caller's language.`;
               // live=true would be re-upserted after the close handler finalized the call.
               if (callTerminated || lateWs !== geminiWs || lateWs.readyState !== WebSocket.OPEN) return;
               const ctx = applyCallerContext(h, true);
-              if (!ctx) return;
+              const mem = !callerMemoryInjected && h?.memory ? callerMemory.instructionBlock(h.memory) : '';
+              if (!ctx && !mem) return;
+              if (mem) callerMemoryInjected = true;
               console.log(`[${assistantName}] Late caller history arrived — injecting context`);
               lateWs.send(JSON.stringify({
                 client_content: {
-                  turns: [{ role: "user", parts: [{ text: `[System context — do not read aloud or respond to this directly: ${ctx.trim()} Use their name naturally from now on and don't ask for info you already have.]` }] }],
+                  turns: [{ role: "user", parts: [{ text: `[System context — do not read aloud or respond to this directly: ${`${ctx} ${mem}`.trim()} Use their name naturally from now on and don't ask for info you already have.]` }] }],
                   turn_complete: false
                 }
               }));

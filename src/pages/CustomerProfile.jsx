@@ -8,6 +8,8 @@ import MissingPurchaseMaterials from "@/components/estimates/MissingPurchaseMate
 import MaterialPurchaseRow from "@/components/estimates/MaterialPurchaseRow";
 import { BulkDeleteButton } from "@/components/BulkDeleteControls";
 import useRoleBasedData from "@/components/hooks/useRoleBasedData";
+import CallerMemoryCard from "@/components/ai/CallerMemoryCard";
+import { setViewingContact } from "@/utils/viewingContact";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -362,6 +364,16 @@ export default function CustomerProfile() {
     enabled: !!customerId && !isLoadingCustomers && !customer,
     staleTime: 60000,
   });
+
+  useEffect(() => {
+    if (!customer?.id || !myCompany?.id) return;
+    setViewingContact({
+      phone: customer.phone || customer.phone_2 || '',
+      customerId: customer.id,
+      name: customer.name || '',
+      companyId: myCompany.id,
+    });
+  }, [customer?.id, customer?.phone, customer?.phone_2, customer?.name, myCompany?.id]);
 
   const candidateVerdict = nameCandidates ? classifyNameCandidates(nameCandidates) : null;
   let candidateTarget = candidateVerdict?.action === 'open' ? candidateVerdict.target : null;
@@ -3713,6 +3725,12 @@ ${isNewlyAssigned ? '<p class="success">✓ You have been assigned to a new cust
 
             <TabsContent value="communications" className="mt-0">
               {activeSection === "communications" && (
+                <div className="space-y-4">
+                <CallerMemoryCard
+                  companyId={myCompany?.id}
+                  phone={customer?.phone || customer?.phone_2}
+                  customerId={customer?.id}
+                />
                 <Card>
                   <CardHeader className="border-b pb-3">
                     <div className="flex items-center justify-between flex-wrap gap-2">
@@ -3841,6 +3859,7 @@ ${isNewlyAssigned ? '<p class="success">✓ You have been assigned to a new cust
                     )}
                   </CardContent>
                 </Card>
+                </div>
               )}
             </TabsContent>
 

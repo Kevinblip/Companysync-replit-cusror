@@ -9,6 +9,7 @@ import GeminiLiveNativeClient from "@/components/ai/GeminiLiveNativeClient";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { format } from "date-fns";
 import { claimLexiDailyGreeting } from "@/utils/lexiGreeting";
+import { viewingContactPayload } from "@/utils/viewingContact";
 import {
   acquireLexiVoiceOwner,
   isLexiVoiceOwner,
@@ -1011,6 +1012,7 @@ export default function AIAssistant() {
             sessionId: currentSessionId,
             file_urls: uploadedFiles.length > 0 ? uploadedFiles.map(f => ({ url: f.url, name: f.name, type: f.type || '' })) : undefined,
             confirmation_token: confirmationToken || undefined,
+            viewingContact: viewingContactPayload(myCompany.id),
           });
         
         // Check if this request was superseded

@@ -13,6 +13,7 @@ import {
   isChangeOrder,
 } from "@/lib/changeOrders";
 import ChangeOrderBadge from "@/components/estimates/ChangeOrderBadge";
+import ReviseEstimateDialog, { aiEstimatorEditSearch } from "@/components/estimates/ReviseEstimateDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -157,8 +158,6 @@ export default function EstimatesPage() {
   const [dupEstConfirmed, setDupEstConfirmed] = useState(false);
   const [selectedContact, setSelectedContact] = useState({ name: "", phone: "", email: "" });
   const [supplementTarget, setSupplementTarget] = useState(null);
-  const [supplementKind, setSupplementKind] = useState('supplement');
-  const [changeOrderReason, setChangeOrderReason] = useState('');
 
   // Column visibility state
   const [visibleColumns, setVisibleColumns] = useState({
@@ -2036,7 +2035,8 @@ export default function EstimatesPage() {
                             variant="ghost"
                             onClick={() => handleCreateSupplement(estimate)}
                             className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                            title="Create revision / supplement estimate"
+                            title="Change this estimate"
+                            data-testid={`button-change-estimate-${estimate.id}`}
                           >
                             <Copy className="w-4 h-4" />
                           </Button>
@@ -2423,82 +2423,29 @@ export default function EstimatesPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <ReviseEstimateDialog
         open={!!supplementTarget}
         onOpenChange={(open) => {
-          if (!open) { setSupplementTarget(null); setSupplementKind('supplement'); setChangeOrderReason(''); }
+          if (!open) setSupplementTarget(null);
         }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create Supplement / Change Order?</DialogTitle>
-            <DialogDescription>
-              This will create a new draft estimate copied from <strong>{supplementTarget?.estimate_number || 'this estimate'}</strong> for <strong>{supplementTarget?.customer_name || 'this customer'}</strong>. The new estimate won't affect the original until you save and send it.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setSupplementKind('supplement')}
-                className={`rounded-lg border p-3 text-left transition-colors ${supplementKind === 'supplement' ? 'border-orange-400 bg-orange-50' : 'border-gray-200 hover:bg-gray-50'}`}
-                data-testid="button-kind-supplement"
-              >
-                <div className="text-sm font-semibold text-gray-900">Insurance supplement</div>
-                <div className="text-xs text-gray-500 mt-0.5">Extra scope submitted to the carrier</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setSupplementKind('change_order')}
-                className={`rounded-lg border p-3 text-left transition-colors ${supplementKind === 'change_order' ? 'border-purple-400 bg-purple-50' : 'border-gray-200 hover:bg-gray-50'}`}
-                data-testid="button-kind-change-order"
-              >
-                <div className="text-sm font-semibold text-gray-900">Change order</div>
-                <div className="text-xs text-gray-500 mt-0.5">Scope change approved in the office</div>
-              </button>
-            </div>
-
-            {supplementKind === 'change_order' && (
-              <div>
-                <Label htmlFor="co-reason" className="text-sm">Why is the scope changing?</Label>
-                <Textarea
-                  id="co-reason"
-                  value={changeOrderReason}
-                  onChange={(e) => setChangeOrderReason(e.target.value)}
-                  placeholder="e.g. Homeowner upgraded to architectural shingle; added 2 skylights"
-                  rows={2}
-                  className="mt-1"
-                  data-testid="input-change-order-reason"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  It'll be created pending approval. Nothing reaches an invoice until the office approves it.
-                </p>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => { setSupplementTarget(null); setSupplementKind('supplement'); setChangeOrderReason(''); }}>Cancel</Button>
-            <Button
-              className={supplementKind === 'change_order' ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-amber-600 hover:bg-amber-700 text-white'}
-              disabled={supplementKind === 'change_order' && !changeOrderReason.trim()}
-              onClick={() => {
-                const t = supplementTarget;
-                const asChangeOrder = supplementKind === 'change_order';
-                const reason = changeOrderReason;
-                setSupplementTarget(null);
-                setSupplementKind('supplement');
-                setChangeOrderReason('');
-                doCreateSupplement(t, { asChangeOrder, reason });
-              }}
-              data-testid="button-create-supplement-confirm"
-            >
-              {supplementKind === 'change_order' ? 'Create Change Order' : 'Create Supplement'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        estimate={supplementTarget}
+        onEditHere={() => {
+          const id = supplementTarget?.id;
+          setSupplementTarget(null);
+          if (id) navigate(createPageUrl('EstimateEditor') + '?estimate_id=' + id);
+        }}
+        onOpenAiEstimator={() => {
+          const target = supplementTarget;
+          setSupplementTarget(null);
+          if (!target) return;
+          navigate(createPageUrl('AIEstimator') + '?' + aiEstimatorEditSearch(target));
+        }}
+        onCreateCopy={({ asChangeOrder, reason }) => {
+          const target = supplementTarget;
+          setSupplementTarget(null);
+          if (target) doCreateSupplement(target, { asChangeOrder, reason });
+        }}
+      />
     </div>
   );
 }

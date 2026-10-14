@@ -28,6 +28,7 @@ assert.match(ownRecordCondition('tasks'), /assignees/);
 assert.match(ownRecordCondition('calendar_events'), /attendees/);
 assert.equal(accessDenied().code, 'LEXI_ACCESS_DENIED');
 assert.equal(isRestrictedRepTool('lookup_customer_by_phone'), true, 'customer snapshots must be denied to reps unless ownership can be verified');
+assert.equal(isRestrictedRepTool('lookup_customer'), true, 'caller memory lookup must be denied to reps unless ownership can be verified');
 assert.equal(isRestrictedRepTool('get_customer_build_schedule'), true);
 assert.equal(isRestrictedRepTool('get_build_schedule'), true, 'legacy restricted list must explicitly identify build reads');
 assert.equal(isRestrictedRepTool('get_customer_open_tasks'), true);
