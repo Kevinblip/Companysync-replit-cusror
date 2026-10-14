@@ -12796,7 +12796,7 @@ prodDb.initDatabase().then(async () => {
     console.warn('[Security] Server startup admin flag cleanup failed:', e.message);
   }
 
-
+  startProductionServer();
 }).catch(err => {
   // Weak item #10: crash loudly on init failure so the supervisor restarts us
   // with a fresh attempt, instead of silently warning and continuing in a
@@ -13393,6 +13393,7 @@ setInterval(async () => {
   }
 }, 2 * 60 * 60 * 1000);
 
+function startProductionServer() {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[Production] Server running on port ${PORT}`);
   console.log(`[Production] Auth: /api/login, /api/callback, /api/auth/user, /api/logout, /api/auth/google, /api/auth/google/callback, /api/login-local, /api/signup, /api/confirm-email, /api/change-password`);
@@ -13413,3 +13414,4 @@ server.listen(PORT, '0.0.0.0', () => {
     console.warn('[Stripe] Startup webhook registration failed:', err.message);
   });
 });
+}

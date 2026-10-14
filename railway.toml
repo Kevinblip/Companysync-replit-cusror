@@ -1,12 +1,15 @@
 # Railway config-as-code for the CompanySync web app (ignored by Replit).
 # Replit keeps using .replit [deployment]; this file only affects Railway.
+#
+# Do not set PORT here. Railway injects PORT and prod-server.cjs listens on it.
 [build]
-buildCommand = "npm run build"
+builder = "RAILPACK"
+buildCommand = "npm ci && npm run build"
 
 [deploy]
-# scripts/start-production.sh looks for Node inside Replit's /nix/store,
-# which does not exist on Railway, so start the server directly.
-startCommand = "node prod-server.cjs"
+# Schema setup finishes before the server process starts. The Replit start
+# script looks for Node inside /nix/store, which does not exist on Railway.
+startCommand = "node scripts/ensure-schema.cjs && node prod-server.cjs"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"

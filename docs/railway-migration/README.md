@@ -10,8 +10,13 @@ Base: `replit-live` (snapshot of the code running on getcompanysync.com). Nothin
 - `.dockerignore` (from PR #11, adjusted so app icons are not excluded).
 - `package-lock.json`: 150 packages pointed at Replit's private npm mirror; now registry.npmjs.org (same versions/hashes).
 - `vite.config.js`: build process exits when done (it hung forever before).
-- `railway.toml` + `.node-version`: Railway builds with `npm run build` and starts
-  `node prod-server.cjs` (the Replit start script needs Replit's Nix store).
+- `railway.toml`, `railpack.json`, `nixpacks.toml`, and `.node-version`: Node 20.
+  `main.py` is a Replit stub and is not part of the web process, so the build is
+  pinned to the Node provider and runs `npm ci` (Python detection was skipping
+  Node packages). `PORT` stays whatever Railway injects. The Replit start script
+  is not used; it looks for Node inside `/nix/store`.
+- Schema: `scripts/ensure-schema.cjs` runs before `node prod-server.cjs` and adds
+  any missing tables or columns. Additive only (no drops, no data rewrites).
 - `.replit`: ENCRYPTION_KEY, SARAH_BRIDGE_SECRET, LEXI_NATIVE_BRIDGE_SECRET removed;
   read from environment only. Startup now logs a warning if a critical secret is missing.
   **Add these to Replit Secrets before this ever reaches live Replit.**

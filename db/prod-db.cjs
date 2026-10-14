@@ -26,6 +26,10 @@ function getPool() {
 
 async function initDatabase() {
   const p = getPool();
+  // Fresh Railway databases do not get Replit's publish/db push. Create every
+  // missing table and column before seeding. Additive only: no drops, no retypes.
+  const { ensureSchema } = require('./ensure-schema.cjs');
+  await ensureSchema(p);
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS companies (
