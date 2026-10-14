@@ -90,6 +90,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import LineItemEditor from "../components/estimates/LineItemEditor";
+import { roofWasteRecommendation } from "@/utils/roofWaste";
 import XactimateExportDialog from "../components/estimates/XactimateExportDialog";
 import { GoogleAddressAutocomplete } from "../components/GoogleAddressAutocomplete";
 import { useNavigate } from "react-router-dom";
@@ -1152,6 +1153,33 @@ export default function AIEstimator() {
   const [showSidingSetup, setShowSidingSetup] = useState(false);
   const [showMeasureHelp, setShowMeasureHelp] = useState(false);
   const [showQuickAddons, setShowQuickAddons] = useState(false);
+  const [showScopeChecklist, setShowScopeChecklist] = useState(false);
+  const [reviewTrade, setReviewTrade] = useState('roof');
+  const ESTIMATOR_STEPS = [
+    { id: 'property', label: 'Property', hint: 'Who is this estimate for?' },
+    { id: 'measure', label: 'Measure', hint: 'Upload a report, or measure from satellite.' },
+    { id: 'review', label: 'Review', hint: 'Check roof, siding, and gutters before you price.' },
+    { id: 'pricing', label: 'Line items', hint: 'Prices, format, waste, and add-ons.' },
+    { id: 'export', label: 'Estimate', hint: 'Check the total, then save or export the PDF.' },
+  ];
+  const [estimatorStep, setEstimatorStep] = useState('property');
+  const [maxReachedStep, setMaxReachedStep] = useState(0);
+  const estimatorStepIndex = Math.max(0, ESTIMATOR_STEPS.findIndex(step => step.id === estimatorStep));
+  const goToEstimatorStep = (index) => {
+    if (index < 0 || index > ESTIMATOR_STEPS.length - 1 || index > maxReachedStep) return;
+    setEstimatorStep(ESTIMATOR_STEPS[index].id);
+  };
+  const goNextEstimatorStep = () => {
+    const next = Math.min(estimatorStepIndex + 1, ESTIMATOR_STEPS.length - 1);
+    setMaxReachedStep(reached => Math.max(reached, next));
+    setEstimatorStep(ESTIMATOR_STEPS[next].id);
+  };
+  const goBackEstimatorStep = () => {
+    goToEstimatorStep(estimatorStepIndex - 1);
+  };
+  useEffect(() => {
+    if (estimatorStep === 'property') setShowCustomerInfo(true);
+  }, [estimatorStep]);
   const [isMerging, setIsMerging] = useState(false);
 
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -10650,6 +10678,48 @@ ${insuranceSettlementPrompt}`,
     }
   }, [includeGuttersAI, analyzedStructures]);
 
+  const scopeLineNotes = React.useMemo(() => {
+    const notes = [];
+    const waste = roofWasteRecommendation(satelliteAnalysis);
+    if (satelliteAnalysis) {
+      notes.push({ keywords: ['waste'], text: `Waste ${waste.reason}` });
+    }
+    const hipLf = Number(satelliteAnalysis?.hip_lf) || 0;
+    const valleyLf = Number(satelliteAnalysis?.valley_lf) || 0;
+    if (hipLf > 0) notes.push({ keywords: ['hip'], text: 'Scope: include hip cap on this line.' });
+    if (valleyLf > 0) notes.push({ keywords: ['valley'], text: 'Scope: include valley metal on this line.' });
+    const pitchNum = parseInt(String(satelliteAnalysis?.pitch || '').split('/')[0], 10) || 0;
+    if (pitchNum >= 7) notes.push({ keywords: ['steep'], text: 'Scope: steep-slope labor. Confirm the carrier allows it.' });
+    if ((Number(satelliteAnalysis?.eave_lf) || 0) > 0 || includeGuttersAI) {
+      notes.push({ keywords: ['gutter', 'downspout'], text: 'Scope: include miters, end caps, and downspouts with the gutter run.' });
+    }
+    if (sidingMeasurements) {
+      notes.push({ keywords: ['siding'], text: 'Scope: confirm wall area, corners, and openings before this price is sent.' });
+    }
+    const photos = Array.isArray(linkedJobMedia) ? linkedJobMedia : [];
+    if (photos.length > 0) {
+      let hail = 0;
+      let wind = 0;
+      let missing = 0;
+      const confidences = [];
+      photos.forEach(photo => {
+        hail += Number(photo.hail_count) || 0;
+        wind += Number(photo.wind_count) || 0;
+        missing += Number(photo.missing_count) || 0;
+        const confidence = photo.confidence ?? photo.overall_confidence ?? photo.ai_confidence;
+        if (confidence != null && confidence !== '') confidences.push(Number(confidence));
+      });
+      const confidenceText = confidences.length
+        ? ` · confidence ${Math.round(confidences.reduce((sum, value) => sum + value, 0) / confidences.length)}%`
+        : '';
+      const photoText = `${photos.length} PhotoSync photo${photos.length === 1 ? '' : 's'}`;
+      if (hail > 0) notes.push({ keywords: ['hail'], text: `Damage: ${hail} hail hits in ${photoText}${confidenceText}` });
+      if (wind > 0) notes.push({ keywords: ['wind'], text: `Damage: ${wind} wind hits in ${photoText}${confidenceText}` });
+      if (missing > 0) notes.push({ keywords: ['missing'], text: `Damage: ${missing} missing shingles in ${photoText}${confidenceText}` });
+    }
+    return notes;
+  }, [satelliteAnalysis, sidingMeasurements, includeGuttersAI, linkedJobMedia]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4 md:p-6 pb-24 md:pb-6">
       <div className="max-w-5xl mx-auto">
@@ -10660,7 +10730,7 @@ ${insuranceSettlementPrompt}`,
                 <Sparkles className="w-8 h-8 text-purple-600" />
                 {t.sidebar.aiEstimator}
               </h1>
-              <p className="text-sm text-gray-500 mt-1">Start from a report you already have, or measure the property from satellite.</p>
+              <p className="text-sm text-gray-500 mt-1">{ESTIMATOR_STEPS[estimatorStepIndex].hint}</p>
             </div>
             <div className="flex gap-2 flex-wrap justify-end items-center">
               {estimateHistory.length > 0 && (
@@ -10698,10 +10768,29 @@ ${insuranceSettlementPrompt}`,
               </DropdownMenu>
             </div>
           </div>
-
+          <div className="mt-4 grid grid-cols-5 gap-1" data-testid="estimator-stepper">
+            {ESTIMATOR_STEPS.map((step, index) => {
+              const reached = index <= maxReachedStep;
+              const active = index === estimatorStepIndex;
+              return (
+                <button
+                  key={step.id}
+                  type="button"
+                  data-testid={`estimator-step-${step.id}`}
+                  disabled={!reached}
+                  onClick={() => goToEstimatorStep(index)}
+                  className={`rounded-lg border px-2 py-2 text-left ${active ? 'border-purple-600 bg-purple-600 text-white' : reached ? 'border-gray-200 bg-white text-gray-800 hover:border-purple-300' : 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'}`}
+                >
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide opacity-80">Step {index + 1}</span>
+                  <span className="block text-sm font-semibold">{step.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="mb-4 space-y-2">
+          {estimatorStep === 'measure' && (
           <Tabs value={selectedMode} onValueChange={setSelectedMode}>
             <TabsList className="grid w-full grid-cols-2 h-11">
                 <TabsTrigger
@@ -10720,8 +10809,9 @@ ${insuranceSettlementPrompt}`,
                 </TabsTrigger>
             </TabsList>
           </Tabs>
+          )}
 
-          {!currentEstimate && (
+          {estimatorStep === 'pricing' && (
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2">
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 shrink-0">Format</span>
@@ -10755,6 +10845,27 @@ ${insuranceSettlementPrompt}`,
             </div>
           )}
 
+          {estimatorStep === 'review' && (
+            <div className="grid grid-cols-3 gap-2" data-testid="review-trade-tabs">
+              {[
+                { id: 'roof', label: 'Roof' },
+                { id: 'siding', label: 'Siding' },
+                { id: 'gutters', label: 'Gutters' },
+              ].map(trade => (
+                <button
+                  key={trade.id}
+                  type="button"
+                  data-testid={`review-tab-${trade.id}`}
+                  onClick={() => setReviewTrade(trade.id)}
+                  className={`rounded-lg border px-3 py-2 text-sm font-semibold ${reviewTrade === trade.id ? 'border-purple-600 bg-purple-50 text-purple-800' : 'border-gray-200 bg-white text-gray-700'}`}
+                >
+                  {trade.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {estimatorStep === 'review' && reviewTrade === 'siding' && (
           <div>
             <button
               type="button"
@@ -10795,6 +10906,7 @@ ${insuranceSettlementPrompt}`,
               </div>
             )}
           </div>
+          )}
         </div>
 
         <Dialog open={showConfig} onOpenChange={setShowConfig}>
@@ -12540,7 +12652,43 @@ ${insuranceSettlementPrompt}`,
         </Dialog>
 
         <div className="space-y-6">
-          {selectedMode === "document" && (!currentEstimate || uploadedFiles.length > 0 || isProcessing || isInsuranceJob || linkedInspectionJobId) && (
+          {estimatorStep === 'review' && !satelliteAnalysis && !sidingMeasurements && uploadedFiles.length === 0 && (
+            <Card className="bg-white border border-gray-200">
+              <CardContent className="p-6 text-sm text-gray-600">
+                No measurements yet. Go back to Measure and upload a report or run satellite.
+              </CardContent>
+            </Card>
+          )}
+          {estimatorStep === 'pricing' && !currentEstimate && (
+            <Card className="bg-white border border-gray-200">
+              <CardContent className="p-6 space-y-3">
+                <p className="text-sm text-gray-600">No line items yet. Measure the property, or start a blank estimate and type the items yourself.</p>
+                <Button
+                  type="button"
+                  data-testid="button-start-manual-estimate-pricing"
+                  onClick={() => {
+                    setCurrentEstimate({ title: 'Manual Estimate', roof_area_sq: 0 });
+                    setLineItems([{
+                      line: 1, code: '', description: '', long_description: '',
+                      quantity: 0, unit: 'EA', rate: 0, rcv: 0, acv: 0, amount: 0,
+                      depreciation: 0, depreciation_percent: 0, color: '', brand: '',
+                    }]);
+                  }}
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Start Manual Estimate
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+          {estimatorStep === 'export' && !currentEstimate && (
+            <Card className="bg-white border border-gray-200">
+              <CardContent className="p-6 text-sm text-gray-600">
+                Build the line items first. The PDF and save actions are on this step once an estimate exists.
+              </CardContent>
+            </Card>
+          )}
+          {estimatorStep === 'measure' && selectedMode === "document" && (!currentEstimate || uploadedFiles.length > 0 || isProcessing || isInsuranceJob || linkedInspectionJobId) && (
             <Card className="bg-white shadow-sm border border-gray-200">
               <CardContent className="p-0">
                 {uploadedFiles.length > 0 && !isProcessing && (
@@ -12876,7 +13024,7 @@ ${insuranceSettlementPrompt}`,
             </Card>
           )}
 
-          {selectedMode === "satellite" && (
+          {((estimatorStep === 'measure' && selectedMode === "satellite") || (estimatorStep === 'review' && (selectedMode === "satellite" || satelliteAnalysis || sidingMeasurements))) && (
             <div className="space-y-6">
               <Card className="bg-white shadow-sm border border-gray-200">
                 <CardContent className="p-3 sm:p-6 space-y-4">
@@ -12897,7 +13045,7 @@ ${insuranceSettlementPrompt}`,
                     </div>
                   )}
 
-                  {googleMapsLoaded && (!satelliteAddress || showStructureSelector || isAddingStructure) && (
+                  {estimatorStep === 'measure' && googleMapsLoaded && (!satelliteAddress || showStructureSelector || isAddingStructure) && (
                     <div>
                       <Label className="text-lg font-semibold mb-3 block">
                         <MapPin className="w-5 h-5 inline mr-2" />
@@ -13095,7 +13243,7 @@ ${insuranceSettlementPrompt}`,
                   )}
 
                   {/* STEP 1: Confirm address pin on satellite map */}
-                  {pendingSatelliteAddress && !satelliteAddress && (
+                  {estimatorStep === 'measure' && pendingSatelliteAddress && !satelliteAddress && (
                     <AddressConfirmMap
                       pending={pendingSatelliteAddress}
                       onConfirm={handleConfirmSatelliteAddress}
@@ -13105,7 +13253,7 @@ ${insuranceSettlementPrompt}`,
                   )}
 
                   {/* STEP 2: Choose measurement method after address confirmed */}
-                  {satelliteAddress && !useManualDrawing && !isSatelliteAnalyzing && !satelliteAnalysis && !showStructureSelector && (
+                  {estimatorStep === 'measure' && satelliteAddress && !useManualDrawing && !isSatelliteAnalyzing && !satelliteAnalysis && !showStructureSelector && (
                     <div className="space-y-4">
                       <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-lg p-6 border-2 border-blue-200">
                         <p className="text-lg font-semibold text-gray-900 mb-4">
@@ -13153,7 +13301,7 @@ ${insuranceSettlementPrompt}`,
                     </div>
                   )}
 
-                  {isSatelliteAnalyzing && (
+                  {estimatorStep === 'measure' && isSatelliteAnalyzing && (
                     <div className="text-center py-12">
                       <div className="relative inline-block mb-6">
                         <div className="absolute inset-0 animate-ping opacity-30">
@@ -13198,7 +13346,7 @@ ${insuranceSettlementPrompt}`,
                     </div>
                   )}
 
-                  {satelliteAddress && satelliteAnalysis && !isSatelliteAnalyzing && !useManualDrawing && !showStructureSelector && analyzedStructures.length > 0 && (
+                  {estimatorStep === 'review' && reviewTrade === 'roof' && satelliteAddress && satelliteAnalysis && !isSatelliteAnalyzing && !useManualDrawing && !showStructureSelector && analyzedStructures.length > 0 && (
                   <div className="space-y-4">
                       <Card className="overflow-hidden relative">
                          <div 
@@ -13584,39 +13732,6 @@ ${insuranceSettlementPrompt}`,
                          </div>
                          )}
 
-                         {/* ── STEP INDICATOR ── */}
-                         {(() => {
-                           const steps = [
-                             { label: 'Address Confirmed', done: !!satelliteAddress },
-                             { label: 'AI Measured',       done: !!satelliteAnalysis },
-                             { label: 'Review Results',    done: showRoofDetails || !!currentEstimate },
-                             { label: 'Estimate Ready',    done: !!currentEstimate },
-                           ];
-                           const activeIdx = steps.findIndex(s => !s.done);
-                           const active = activeIdx === -1 ? steps.length - 1 : activeIdx;
-                           return (
-                             <div className="flex items-start mb-4 px-1 select-none">
-                               {steps.map((step, i) => (
-                                 <React.Fragment key={step.label}>
-                                   <div className="flex flex-col items-center gap-0.5 flex-1 min-w-0">
-                                     <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                                       step.done ? 'bg-green-500 text-white' : i === active ? 'bg-blue-600 text-white ring-2 ring-blue-200' : 'bg-gray-100 text-gray-400 border border-gray-200'
-                                     }`}>
-                                       {step.done ? '✓' : i + 1}
-                                     </div>
-                                     <span className={`text-[10px] leading-tight text-center w-full font-medium mt-0.5 px-0.5 ${
-                                       step.done ? 'text-green-700' : i === active ? 'text-blue-700' : 'text-gray-400'
-                                     }`}>{step.label}</span>
-                                   </div>
-                                   {i < steps.length - 1 && (
-                                     <div className={`h-0.5 w-4 sm:w-8 flex-shrink-0 rounded-full mt-3 mx-0.5 ${step.done ? 'bg-green-400' : 'bg-gray-200'}`} />
-                                   )}
-                                 </React.Fragment>
-                               ))}
-                             </div>
-                           );
-                         })()}
-
                           {satelliteAnalysis && (
                             <div
                               className="flex items-center gap-3 py-2"
@@ -13753,14 +13868,17 @@ ${insuranceSettlementPrompt}`,
                             </div>
                           </div>
 
-                          {correctedSq > 0 && (
+                          {correctedSq > 0 && (() => {
+                            const waste = roofWasteRecommendation(satelliteAnalysis);
+                            return (
                             <div className="bg-green-50 rounded p-3 shadow-sm border border-green-100">
                               <span className="text-green-800 block mb-1 text-xs font-bold">Order Qty:</span>
-                              <span className="font-bold text-xl text-green-700">{(correctedSq * (1 + (satelliteAnalysis.waste_percentage || 12) / 100)).toFixed(2)}</span>
+                              <span className="font-bold text-xl text-green-700">{(correctedSq * (1 + waste.pct / 100)).toFixed(2)}</span>
                               <span className="text-xs text-green-600 ml-1">SQ</span>
-                              <p className="text-xs text-green-600 mt-1">+{satelliteAnalysis.waste_percentage || 12}% waste included</p>
+                              <p className="text-xs text-green-600 mt-1" data-testid="text-waste-reason">{waste.reason}</p>
                             </div>
-                          )}
+                            );
+                          })()}
 
                           <div className="bg-white rounded p-3 shadow-sm">
                             <span className="text-gray-600 block mb-1 text-xs">Pitch Multiplier:</span>
@@ -14137,6 +14255,7 @@ ${insuranceSettlementPrompt}`,
                     </div>
                   )}
 
+                  {estimatorStep === 'review' && reviewTrade === 'siding' && (<>
                   {/* SIDING MEASUREMENT SUMMARY — deliberately OUTSIDE the satellite-analysis
                       gate above. A siding-only job never runs the roof measurement, so keeping
                       the review panel (and its "Build Siding Estimate" button) inside that gate
@@ -16624,152 +16743,75 @@ ${insuranceSettlementPrompt}`,
                           )}
                         </div>
                       )}
+                  </>)}
 
-                  {satelliteAddress && satelliteAnalysis && !isSatelliteAnalyzing && !useManualDrawing && !showStructureSelector && analyzedStructures.length > 0 && (
+                  {estimatorStep === 'review' && satelliteAddress && satelliteAnalysis && !isSatelliteAnalyzing && !useManualDrawing && !showStructureSelector && analyzedStructures.length > 0 && (
                     <div className="space-y-4">
-                      {/* ── AI DAMAGE OBSERVATIONS (multi-trade) ─────────────────── */}
-                      {(satelliteAnalysis || sidingMeasurements) && (() => {
-                        const ra = satelliteAnalysis || {};
-                        const sd = sidingMeasurements || {};
-
-                        // ── Roof signals ──────────────────────────────────────────
-                        const roofSegs = Number(ra.num_segments) || 0;
-                        const roofType = ra.roof_type || '';
-                        const roofConf = Number(ra.overall_confidence) || 85;
-                        const wastePct = Number(ra.waste_percentage) || 12;
-                        const pitchStr = ra.pitch || '';
-                        const pitchNum = pitchStr ? Number(pitchStr.split('/')[0]) : 0;
-                        const valleyLF = Number(ra.valley_lf) || 0;
-                        const hipLF = Number(ra.hip_lf) || 0;
-                        const eaveLF = Number(ra.eave_lf) || 0;
-                        const rakeLF = Number(ra.rake_lf) || 0;
-                        const stepFlashLF = Number(ra.step_flashing_lf) || 0;
-                        const apronFlashLF = Number(ra.apron_flashing_lf) || 0;
-                        const roofAreaSQ = Number(ra.roof_area_sq) || 0;
-                        const isVeryComplexRoof = roofType === 'very_complex' || roofType === 'complex' || roofSegs >= 10;
-                        const isComplexRoof = roofSegs >= 6 && !isVeryComplexRoof;
-                        const isLowRoofConf = roofConf < 70 && satelliteAnalysis;
-                        const isSteepPitch = pitchNum >= 8;
-
-                        // ── Siding signals ────────────────────────────────────────
-                        const wallAreaSF = Number(sd.wall_area_sqft) || (Number(sd.wall_area_sq) || 0) * 100;
-                        const isCapped = !!sd.dimension_capped;
-                        const isLowSidingConf = (Number(sd.overall_confidence) || 100) < 75 && sidingMeasurements;
-                        const cornersCount = Number(sd.outside_corners_count) || 0;
-                        const gableAreaSF = Number(sd.gable_area_sqft) || 0;
-                        const perimeterLF = Number(sd.perimeter_ft) || eaveLF;
-                        const storyCount = Number(sd.story_count) || 1;
-                        const footprintSF = Number(sd.footprint_sqft) || 0;
-
-                        // ── Overall risk ──────────────────────────────────────────
-                        const highFlags = [isVeryComplexRoof, (isCapped && isLowSidingConf)].filter(Boolean).length;
-                        const medFlags = [isComplexRoof, isCapped, isLowSidingConf, isLowRoofConf, isSteepPitch, wastePct > 15].filter(Boolean).length;
-                        const overallRisk = highFlags >= 1 ? 'HIGH' : medFlags >= 2 ? 'MEDIUM' : medFlags >= 1 ? 'LOW' : 'LOW';
-                        const riskClasses = {
-                          HIGH: { card: 'bg-red-50 border-red-200', head: 'text-red-700', badge: 'bg-red-600', icon: 'text-red-600', obs: 'text-red-800' },
-                          MEDIUM: { card: 'bg-orange-50 border-orange-200', head: 'text-orange-700', badge: 'bg-orange-500', icon: 'text-orange-500', obs: 'text-orange-800' },
-                          LOW: { card: 'bg-green-50 border-green-200', head: 'text-green-700', badge: 'bg-green-600', icon: 'text-green-600', obs: 'text-green-800' },
-                        }[overallRisk];
-
-                        // ── Build trade-grouped observations ──────────────────────
-                        const trades = [];
-
-                        // ROOFING
-                        if (satelliteAnalysis) {
-                          const roofObs = [];
-                          if (isVeryComplexRoof) roofObs.push(`${roofSegs > 0 ? roofSegs + '-segment' : ''} ${roofType.replace(/_/g,' ')} roof — high cut waste (${wastePct}%). Strong basis for supplement claim on complexity.`);
-                          else if (isComplexRoof) roofObs.push(`${roofSegs}-segment roof — above-average cut waste (${wastePct}%). Document all hips and valleys on scope.`);
-                          else roofObs.push(`${roofSegs > 0 ? roofSegs + '-segment' : 'Standard'} ${roofType.replace(/_/g,' ')} roof — ${wastePct}% waste. Normal scope expected.`);
-                          if (isSteepPitch) roofObs.push(`Steep pitch (${pitchStr}) — labor steep-slope supplement applicable. Verify carrier allows.`);
-                          if (isLowRoofConf) roofObs.push(`AI confidence ${roofConf}% — measurements may carry ±15%. Upload EagleView/HOVER for adjuster-grade accuracy.`);
-                          if (hipLF > 0 && valleyLF > 0) roofObs.push(`${hipLF} LF hip + ${valleyLF} LF valley — cap/valley metal both in scope; measure cut-and-cobble waste separately.`);
-                          else if (hipLF > 0) roofObs.push(`${hipLF} LF hip cap — include in scope; often missed on quick adjuster sketches.`);
-                          trades.push({ trade: 'Roofing', icon: '🏠', obs: roofObs, risk: isVeryComplexRoof ? 'HIGH' : isComplexRoof ? 'MEDIUM' : 'LOW' });
+                      {/* Scope checklist — reminders only. Damage is reserved for PhotoSync findings. */}
+                      {(satelliteAnalysis || sidingMeasurements || (linkedJobMedia || []).length > 0) && (() => {
+                        const waste = roofWasteRecommendation(satelliteAnalysis);
+                        const reminders = [];
+                        if (satelliteAnalysis) reminders.push({ trade: 'Roof', text: `Waste ${waste.reason}.` });
+                        if ((Number(satelliteAnalysis?.hip_lf) || 0) > 0 || (Number(satelliteAnalysis?.valley_lf) || 0) > 0) {
+                          reminders.push({ trade: 'Roof', text: 'Include hip cap and valley metal on the matching line items.' });
                         }
-
-                        // GUTTERS
-                        if (eaveLF > 0) {
-                          const gutterObs = [];
-                          gutterObs.push(`${eaveLF} LF eave — full perimeter gutter replacement in scope. ${eaveLF > 200 ? 'Large run; include all downspouts and end caps.' : 'Include all downspout drops and miters.'}`);
-                          if (roofType.includes('hip')) gutterObs.push('Hip roof — gutters wrap entire perimeter. Verify adjuster captured all four sides.');
-                          if (eaveLF > 150) gutterObs.push('Inspect fascia board for rot/hail damage before gutter install — often supplemented.');
-                          trades.push({ trade: 'Gutters & Fascia', icon: '🌧️', obs: gutterObs, risk: eaveLF > 200 ? 'MEDIUM' : 'LOW' });
+                        const pitchNum = parseInt(String(satelliteAnalysis?.pitch || '').split('/')[0], 10) || 0;
+                        if (pitchNum >= 7) reminders.push({ trade: 'Roof', text: 'Steep-slope labor may apply. Confirm the carrier allows it.' });
+                        if ((Number(satelliteAnalysis?.eave_lf) || 0) > 0) {
+                          reminders.push({ trade: 'Gutters', text: 'Include downspouts, miters, and end caps with the gutter run.' });
                         }
-
-                        // SOFT METALS / FLASHING
-                        const totalFlashLF = valleyLF + stepFlashLF + apronFlashLF;
-                        if (totalFlashLF > 0 || satelliteAnalysis) {
-                          const metalObs = [];
-                          if (valleyLF > 0) metalObs.push(`${valleyLF} LF valley metal — include in scope. W-metal or ice-and-water underlap required.`);
-                          if (stepFlashLF > 0) metalObs.push(`${stepFlashLF} LF step flashing — walls/dormers present. Verify each run matches adjuster scope.`);
-                          if (apronFlashLF > 0) metalObs.push(`${apronFlashLF} LF apron/kickout flashing — critical for water intrusion claims.`);
-                          if (rakeLF > 0) metalObs.push(`${rakeLF} LF rake — include drip edge on all rake edges per code.`);
-                          if (eaveLF > 0) metalObs.push(`${eaveLF} LF eave drip edge — required along all eaves per IRC R905.`);
-                          if (metalObs.length === 0) metalObs.push('No flashing data yet — measure roof first to get valley/step/apron LF.');
-                          trades.push({ trade: 'Soft Metals & Flashing', icon: '🔩', obs: metalObs, risk: stepFlashLF > 0 || apronFlashLF > 0 ? 'MEDIUM' : 'LOW' });
+                        if ((Number(satelliteAnalysis?.step_flashing_lf) || 0) > 0 || (Number(satelliteAnalysis?.apron_flashing_lf) || 0) > 0) {
+                          reminders.push({ trade: 'Roof', text: 'Check step and apron flashing against the line items.' });
                         }
-
-                        // SIDING
-                        if (sidingMeasurements) {
-                          const sidingObs = [];
-                          if (wallAreaSF > 0) sidingObs.push(`${Math.round(wallAreaSF)} ft² net wall area${storyCount > 1 ? `, ${storyCount}-story building` : ''} — verify each elevation with adjuster.`);
-                          if (gableAreaSF > 0) sidingObs.push(`${Math.round(gableAreaSF)} ft² gable siding — often excluded from adjuster scope. Add explicitly.`);
-                          if (cornersCount > 0) sidingObs.push(`${cornersCount} outside corners (${sd.outside_corners_lf || cornersCount * 9} LF) — include all corner trim in scope.`);
-                          if (isCapped) sidingObs.push('Building dimensions hit satellite estimation ceiling — field measure all wall lengths before submitting claim.');
-                          if (isLowSidingConf) sidingObs.push(`Siding confidence ${sd.overall_confidence}% (±${sd.tolerance_pct}%) — walk perimeter to verify before claim.`);
-                          if (sidingObs.length === 0) sidingObs.push('Standard wall profile. Measure complete and within normal bounds.');
-                          trades.push({ trade: 'Siding', icon: '🏗️', obs: sidingObs, risk: isCapped || isLowSidingConf ? 'MEDIUM' : 'LOW' });
+                        if (sidingMeasurements) reminders.push({ trade: 'Siding', text: 'Confirm wall area, corners, and openings before you price siding.' });
+                        const photos = Array.isArray(linkedJobMedia) ? linkedJobMedia : [];
+                        if (photos.length > 0) {
+                          let hail = 0, wind = 0, missing = 0;
+                          const confidences = [];
+                          photos.forEach(photo => {
+                            hail += Number(photo.hail_count) || 0;
+                            wind += Number(photo.wind_count) || 0;
+                            missing += Number(photo.missing_count) || 0;
+                            const confidence = photo.confidence ?? photo.overall_confidence ?? photo.ai_confidence;
+                            if (confidence != null && confidence !== '') confidences.push(Number(confidence));
+                          });
+                          const confidenceText = confidences.length
+                            ? `, confidence ${Math.round(confidences.reduce((sum, value) => sum + value, 0) / confidences.length)}%`
+                            : '';
+                          const photoText = `${photos.length} PhotoSync photo${photos.length === 1 ? '' : 's'}`;
+                          if (hail > 0) reminders.push({ trade: 'Damage', text: `${hail} hail hits in ${photoText}${confidenceText}.` });
+                          if (wind > 0) reminders.push({ trade: 'Damage', text: `${wind} wind hits in ${photoText}${confidenceText}.` });
+                          if (missing > 0) reminders.push({ trade: 'Damage', text: `${missing} missing shingles in ${photoText}${confidenceText}.` });
                         }
-
-                        // WINDOWS & FLASHING
-                        {
-                          const winObs = [];
-                          if (cornersCount >= 4 || footprintSF > 1200) winObs.push(`Building complexity suggests multiple window/door surrounds. Inspect each for seal failure and cracked casing.`);
-                          if (storyCount > 1) winObs.push(`${storyCount}-story building — include second-floor window wrap/flashing in scope; frequently missed by adjusters.`);
-                          if (stepFlashLF > 0) winObs.push(`Step flashing present — check adjacent window head flashing and J-channel integration.`);
-                          if (winObs.length === 0 && (satelliteAnalysis || sidingMeasurements)) winObs.push('Inspect all window seals and head flashing for hail/wind damage before scope is closed.');
-                          if (winObs.length > 0) trades.push({ trade: 'Windows & Flashing', icon: '🪟', obs: winObs, risk: storyCount > 1 ? 'MEDIUM' : 'LOW' });
-                        }
-
-                        // GARAGE DOORS
-                        {
-                          const garageObs = [];
-                          if (footprintSF > 1500 || perimeterLF > 180) garageObs.push('Larger building footprint — likely has attached garage. Inspect door panel faces for hail dents and check weatherstripping.');
-                          if (roofAreaSQ > 35) garageObs.push('Property size suggests garage or outbuilding. Document all overhead doors and springs in photo evidence.');
-                          if (garageObs.length === 0) garageObs.push('Inspect garage door panels, trim, and J-channel for hail damage. Include in claim if dented.');
-                          trades.push({ trade: 'Garage Doors', icon: '🚗', obs: garageObs, risk: 'LOW' });
-                        }
-
-                        const tradeRiskOrder = { HIGH: 0, MEDIUM: 1, LOW: 2 };
-                        const sortedTrades = [...trades].sort((a, b) => tradeRiskOrder[a.risk] - tradeRiskOrder[b.risk]);
-
                         return (
-                          <div className={`mt-3 rounded-lg border p-3 ${riskClasses.card}`} data-testid="panel-ai-damage-observations">
-                            <div className="flex items-center gap-2 mb-3">
-                              <AlertTriangle className={`w-4 h-4 ${riskClasses.icon}`} />
-                              <span className={`text-sm font-semibold ${riskClasses.head}`}>AI Damage Observations</span>
-                              <Badge className={`${riskClasses.badge} text-white text-xs ml-auto`}>{overallRisk} RISK</Badge>
-                            </div>
-                            <div className="space-y-2.5">
-                              {sortedTrades.map((t, ti) => (
-                                <div key={ti} className="bg-white/60 rounded p-2">
-                                  <p className="text-xs font-semibold text-gray-700 mb-1">{t.icon} {t.trade}</p>
-                                  <div className="space-y-1">
-                                    {t.obs.map((o, oi) => (
-                                      <p key={oi} className={`text-xs ${riskClasses.obs}`}>• {o}</p>
-                                    ))}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                            <p className="text-xs text-gray-400 mt-2 pt-2 border-t border-gray-200">
-                              {[satelliteAnalysis && `${roofAreaSQ.toFixed(1)} SQ roof`, sidingMeasurements && `${Math.round(wallAreaSF)} ft² walls`].filter(Boolean).join(' · ')} · AI-derived scope — verify field measurements before claim submission
-                            </p>
+                          <div className="rounded-lg border border-gray-200 bg-white" data-testid="panel-scope-checklist">
+                            <button
+                              type="button"
+                              onClick={() => setShowScopeChecklist(v => !v)}
+                              className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left"
+                              data-testid="toggle-scope-checklist"
+                            >
+                              <span className="text-sm font-semibold text-gray-800">Scope checklist</span>
+                              <span className="text-xs text-gray-500">{showScopeChecklist ? 'Hide' : `${reminders.length} reminders`}</span>
+                            </button>
+                            {showScopeChecklist && (
+                              <div className="px-3 pb-3 space-y-1.5 border-t border-gray-100 pt-2">
+                                {reminders.length === 0 && (
+                                  <p className="text-xs text-gray-500">Nothing to flag yet.</p>
+                                )}
+                                {reminders.map((item, index) => (
+                                  <p key={index} className="text-xs text-gray-700">
+                                    <span className="font-semibold">{item.trade}.</span> {item.text}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         );
                       })()}
 
-                      {satelliteAnalysis?.calibration_applied && satelliteAnalysis?.uncalibrated_linears && satelliteAnalysis?.calibrated_linears && (() => {
+
+                      {reviewTrade === 'roof' && satelliteAnalysis?.calibration_applied && satelliteAnalysis?.uncalibrated_linears && satelliteAnalysis?.calibrated_linears && (() => {
                         const useLearned = satelliteAnalysis.learned_corrections_active !== false;
                         const FIELD_NAMES = { ridge: 'Ridge', hip: 'Hip', valley: 'Valley', rake: 'Rake', eave: 'Eave', roof_area_sq: 'Area' };
                         const details = satelliteAnalysis.calibration_details || {};
@@ -16811,7 +16853,7 @@ ${insuranceSettlementPrompt}`,
                         );
                       })()}
 
-                      {measurementCrossCheck && (() => {
+                      {reviewTrade === 'roof' && measurementCrossCheck && (() => {
                         const cc = measurementCrossCheck;
                         const tone = cc.overall === 'disagree'
                           ? { border: 'border-red-300', bg: 'bg-red-50/60', badge: 'bg-red-600', title: 'Measurements Don\u2019t Match' }
@@ -16863,7 +16905,7 @@ ${insuranceSettlementPrompt}`,
                         );
                       })()}
 
-                      {reportMeasurements && satelliteAnalysis && (() => {
+                      {reviewTrade === 'roof' && reportMeasurements && satelliteAnalysis && (() => {
                         const aiM = {
                           roof_area_sqft: Number(satelliteAnalysis.roof_area_sqft) || (Number(satelliteAnalysis.roof_area_sq) || 0) * 100,
                           ridge_lf: Number(satelliteAnalysis.ridge_lf) || 0,
@@ -16999,6 +17041,7 @@ ${insuranceSettlementPrompt}`,
                         );
                       })()}
 
+                      {reviewTrade === 'gutters' && (
                       <Card>
                         <CardHeader>
                           <div className="flex items-center justify-between">
@@ -17059,6 +17102,7 @@ ${insuranceSettlementPrompt}`,
                           </CardContent>
                         )}
                       </Card>
+                      )}
 
                       {/* NEW: Action buttons with multi-structure support */}
                       <div className="flex flex-col gap-2">
@@ -17954,8 +17998,7 @@ ${insuranceSettlementPrompt}`,
             </div>
           )}
 
-          {/* NEW: Chat Interface for AI Adjustments - Shows after estimate is created */}
-          {currentEstimate && (
+          {estimatorStep === 'pricing' && currentEstimate && (
             <Card className="bg-white shadow-lg">
               <CardContent className="p-0">
 
@@ -18146,45 +18189,15 @@ ${insuranceSettlementPrompt}`,
             </Card>
           )}
 
-          {currentEstimate && (
-            <>
+          {estimatorStep === 'property' && (
               <Card className="bg-white shadow-lg">
                 <CardHeader className={`${getHeaderColorClass(currentFormat)} text-white`}>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <CardTitle className="flex items-center gap-2">
                         <UserCircle className="w-5 h-5" />
-                        {t.estimates.customer}
+                        Property
                       </CardTitle>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                      <span className="text-sm text-white/90">Template:</span>
-                      <Select value={selectedFormatId || ''} onValueChange={handleFormatChange}>
-                        <SelectTrigger className="w-full sm:w-64 bg-white/20 text-white border-white/30">
-                          <SelectValue placeholder="Auto (based on pricing)" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">None (Default)</SelectItem>
-                          {formats.map(format => (
-                            <SelectItem key={format.id} value={format.id}>
-                              {format.format_name} {format.insurance_company ? `(${format.insurance_company})` : ''}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-
-                      <span className="text-sm text-white/90">Pricing:</span>
-                      <Select value={pricingSource} onValueChange={handlePricingSourceChange}>
-                        <SelectTrigger className="w-full sm:w-40 bg-white/20 text-white border-white/30">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="xactimate_new">Xactimate</SelectItem>
-                          <SelectItem value="symbility">Symbility</SelectItem>
-                          <SelectItem value="custom">Custom</SelectItem>
-                        </SelectContent>
-                      </Select>
                     </div>
                   </div>
                 </CardHeader>
@@ -18456,7 +18469,9 @@ ${insuranceSettlementPrompt}`,
                   </>)}
                 </CardContent>
               </Card>
+          )}
 
+          {(estimatorStep === 'pricing' || estimatorStep === 'export') && currentEstimate && (<>
                <div
                  className="flex items-center gap-3 py-2"
                  data-testid="divider-estimator-editor"
@@ -18604,13 +18619,28 @@ ${insuranceSettlementPrompt}`,
                       )}
                     </div>
                   )}
+                  {estimatorStep === 'export' ? (
+                    <details className="p-4 border-b">
+                      <summary className="cursor-pointer text-sm font-medium text-gray-700">Line items ({lineItems.length})</summary>
+                      <LineItemEditor
+                        items={lineItems}
+                        onChange={setLineItems}
+                        format={currentFormat}
+                        isInsuranceJob={isInsuranceJob}
+                        acvAdjustment={currentEstimate?.acv_adjustment_amount}
+                        lineNotes={scopeLineNotes}
+                      />
+                    </details>
+                  ) : (
                   <LineItemEditor
                     items={lineItems}
                     onChange={setLineItems}
                     format={currentFormat}
                     isInsuranceJob={isInsuranceJob}
                     acvAdjustment={currentEstimate?.acv_adjustment_amount}
+                    lineNotes={scopeLineNotes}
                   />
+                  )}
                   <InsuranceSettlementSummary
                     value={currentEstimate?.insurance_settlement}
                     repairTotal={currentEstimate?.total_rcv}
@@ -19030,7 +19060,21 @@ ${insuranceSettlementPrompt}`,
                   </div>
                 </CardContent>
               </Card>
-            </>
+          </>)}
+        </div>
+
+        <div className="mt-6 flex items-center justify-between gap-3 border-t border-gray-200 pt-4" data-testid="estimator-step-nav">
+          <Button type="button" variant="outline" onClick={goBackEstimatorStep} disabled={estimatorStepIndex === 0} data-testid="estimator-back">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back
+          </Button>
+          <span className="text-sm text-gray-500">Step {estimatorStepIndex + 1} of {ESTIMATOR_STEPS.length}</span>
+          {estimatorStepIndex < ESTIMATOR_STEPS.length - 1 ? (
+            <Button type="button" onClick={goNextEstimatorStep} data-testid="estimator-next">
+              Next
+            </Button>
+          ) : (
+            <span className="text-sm text-gray-500">Ready to save or export</span>
           )}
         </div>
       </div>

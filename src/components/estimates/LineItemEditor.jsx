@@ -40,6 +40,7 @@ function LineItemEditor({
   format = {},
   isInsuranceJob = false,
   acvAdjustment = 0,
+  lineNotes = [],
 }) {
   const [editingCell, setEditingCell] = useState(null);
   const [showBrowser, setShowBrowser] = useState(false);
@@ -637,6 +638,9 @@ function LineItemEditor({
                                       </TooltipContent>
                                     </Tooltip>
                                   )}
+                                  {lineNotes.filter(note => note.keywords.some(keyword => (item.description || '').toLowerCase().includes(keyword))).map(note => (
+                                    <p key={note.text} className="mt-1 text-[11px] leading-snug text-amber-800" data-testid="line-scope-note">{note.text}</p>
+                                  ))}
                                   
                                   {activeAutocomplete === index && autocompleteSearch.length >= 2 && (
                                     <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
