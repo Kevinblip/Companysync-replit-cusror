@@ -84,6 +84,7 @@ const {
   deriveWallHeight: _deriveWallHeight,
   deriveBuildingDimensions: _deriveBuildingDimensions,
   computeGableArea: _computeGableArea,
+  sumDistinctWallPlanes: _sumDistinctWallPlanes,
 } = nodeRequire('./db/siding-aggregate.cjs');
 const {
   analyzePropertyPhotos,
@@ -11256,6 +11257,12 @@ A satellite estimate for this wall's axis is ${satelliteWallWidthFt} feet. It is
 - Use a door, garage door, or siding course for scale, and use the satellite length only to cross-check that scale when the full wall is in frame.
 - Use that scale, corrected for perspective, to measure grade-to-eave height, gable rise, windows, doors, and non-siding areas.
 - Report "satellite_width_${satelliteWallWidthFt}ft" in reference_anchor only as the scale you cross-checked, never as a substitute for the measured length.
+- If trees or the frame hide part of the wall, set occluded=true and occlusion_pct to the hidden share. width_ft is still the full corner-to-corner length. A visible fragment is not the wall.
+`
+          : '';
+        const footprintHint = promptFootprintAnchor
+          ? `
+SATELLITE FOOTPRINT: the building plan is about ${promptFootprintAnchor.length_ft} ft on the long axis and ${promptFootprintAnchor.width_ft} ft on the short axis. A wall hidden by trees keeps that full edge. Do not shrink it to the visible fragment.
 `
           : '';
         if (satelliteWallWidthFt > 0) {
@@ -11266,6 +11273,19 @@ A satellite estimate for this wall's axis is ${satelliteWallWidthFt} feet. It is
 
 Analyze this exterior building wall photo labeled "${viewLabel}" to estimate dimensions.
 ${satelliteScaleContext}
+${footprintHint}
+
+WALL PLANES (required when the photo shows more than one wall):
+This building may not be a four-wall rectangle. Return one wall_planes entry for every distinct wall surface in the photo. Do not add a garage, a two-story gable, and a one-story wing into a single wall_width_ft.
+- A two-story gable end is its own plane: story_count 2, eave_height_ft from grade to the eave ABOVE the second row of windows (16–20 ft, never the first-floor head height), gable_rise_ft only the triangle above that eave, gable_sided true.
+- A one-story hip wall is its own plane with gable_rise_ft 0.
+- An attached garage gable is its own plane with gable_sided true.
+- An open porch (posts, white trim, no siding in the gable) is role "porch", sided false, gable_sided false. Do not bill that open gable or the unsided area under the porch roof. The sided wall behind the porch is a separate plane.
+- A brick chimney is role "chimney", sided false. Do not add its width to a siding plane.
+- A stone or brick band, and the block foundation below the siding, stay on the siding plane. Set non_siding_pct to their share of that plane. Do not mark the whole wall as brick.
+- Trees: if foliage hides part of a plane, set occluded true and estimate the full corner-to-corner width. The visible piece is not the wall.
+- Count each vertical corner on exactly one plane. An outside corner is a convex turn. An inside corner is where a wing meets the main wall. Do not count the same corner twice.
+wall_width_ft remains the width of the single most prominent sided plane, not the sum of the planes.
 
 PHOTO USABILITY AND ANGLE (MANDATORY):
 - A straight elevation must show one dominant wall plane nearly head-on with
@@ -11480,7 +11500,24 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
   "has_visible_rake": <boolean, true only if an actual measurable roof rake is visible>,
   "is_corner_shot": <boolean, true if two walls are both visible at an angle>,
   "wall_face": "front" | "back" | "left_side" | "right_side" | "unknown",
-  "wall_width_ft": <number, estimated TOTAL width of the PRIMARY wall face>,
+  "wall_width_ft": <number, width of the PRIMARY sided plane only — not the sum of every plane>,
+  "wall_planes": [{
+    "plane_id": "<same id for the same physical wall in every photo: two_story_gable, garage_gable, hip_side, rear_wall, porch_open, chimney>",
+    "role": "gable_end" | "garage" | "wing" | "main" | "porch" | "chimney",
+    "face": "front" | "back" | "left_side" | "right_side" | "unknown",
+    "width_ft": <full corner-to-corner length of THIS plane>,
+    "eave_height_ft": <grade to eave of THIS plane>,
+    "gable_rise_ft": <triangle above the eave; 0 for a hip>,
+    "gable_sided": <false when the gable is an open porch with no siding>,
+    "sided": <false for an open porch and a brick chimney>,
+    "story_count": <1 or 2>,
+    "non_siding_pct": <0-100, brick/stone/block share of THIS plane>,
+    "non_siding_material": "brick" | "stone" | "block" | "none",
+    "occluded": <true when trees hide part of this plane>,
+    "occlusion_pct": <0-100>,
+    "outside_corners": <outside corners that belong to this plane only>,
+    "inside_corners": <inside corners that belong to this plane only>
+  }],
   "reference_anchor": "<what you used to estimate width and height>",
   "windows_count": <number, WALL windows only — NOT glass panels in garage doors>,
   "window_zones": <array of zone strings, one per window: "far_left"|"center_left"|"center"|"center_right"|"far_right">,
@@ -12510,7 +12547,7 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     }
 
     // Gable area — routed through shared module; uses correct base dim per wall_face (tested in test:siding-aggregate)
-    const { gableAreaSqft: gableAreaSqFt } = _computeGableArea(gableResults, buildingWidthFt, buildingLengthFt);
+    let { gableAreaSqft: gableAreaSqFt } = _computeGableArea(gableResults, buildingWidthFt, buildingLengthFt);
     const avgGableRise = gableResults.length > 0
       ? gableResults.reduce((s, r) => s + (Number(r.gable_rise_ft) || 0), 0) / gableResults.length
       : 0;
@@ -12565,7 +12602,22 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       ? nonSidingMaterials.sort((a, b) => nonSidingMaterials.filter(v => v===b).length - nonSidingMaterials.filter(v => v===a).length)[0]
       : null;
 
-    const grossWallSqFt = (perimeterFt * totalWallHt) + gableAreaSqFt;
+    const rectangleGableSqFt = gableAreaSqFt;
+    const rectangleGrossSqFt = (perimeterFt * totalWallHt) + rectangleGableSqFt;
+    const planeTakeoff = _sumDistinctWallPlanes(perPhotoResults, {
+      satelliteAxes: usedSatellite ? {
+        front: buildingWidthFt,
+        back: buildingWidthFt,
+        left_side: buildingLengthFt,
+        right_side: buildingLengthFt,
+      } : null,
+      tracedPerimeterFt: footprintGeometry === 'traced_polygon' ? perimeterFt : 0,
+    });
+    if (planeTakeoff.authoritative) {
+      gableAreaSqFt = planeTakeoff.gable_area_sqft;
+      debugLogs.push(`Wall planes: ${planeTakeoff.planes.filter(p => p.sided).length} sided surfaces, gross ${planeTakeoff.gross_wall_sqft} sqft, sided gables ${planeTakeoff.gable_area_sqft} sqft, excluded open/masonry planes ${planeTakeoff.excluded_sqft} sqft`);
+    }
+    const grossWallSqFt = rectangleGrossSqFt;
     const masonryDeductSqFt = avgNonSidingPct > 2 ? Math.round(grossWallSqFt * (avgNonSidingPct / 100)) : 0;
     // Feed the original observations to the graph. It owns both measured-opening
     // identity dedupe and count-only reconciliation; rebuilding one synthetic
@@ -12588,6 +12640,7 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       smallOpeningsInWaste: params.small_openings_in_waste === true,
       openingDeductMinSqft: Number(params.opening_deduct_min_sqft) === 33 ? 33 : 20,
       roofFacets: roofFacetsForGraph || undefined,
+      explicitWallPlanes: planeTakeoff.authoritative ? planeTakeoff.planes : undefined,
     });
     totalWindows = measurementGraph.counts.window_assemblies;
     totalDoors = measurementGraph.counts.entry_doors;
@@ -12630,7 +12683,21 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     }));
     const footprintCorners = countFootprintCorners(footprintPolygonXY, totalWallHt);
     const photoCorners = cornersFromElevationPhotos(perPhotoResults, totalWallHt);
-    const cornerTotals = photoCorners || footprintCorners;
+    const footprintIsBox = footprintGeometry === 'rectangle_estimate'
+      && (footprintCorners.inside_count || 0) === 0
+      && (footprintCorners.outside_count || 0) <= 4;
+    const planeCorners = planeTakeoff.authoritative && planeTakeoff.outside_corners > 0
+      ? {
+        outside_count: planeTakeoff.outside_corners,
+        inside_count: planeTakeoff.inside_corners,
+        outside_lf: planeTakeoff.outside_corners_lf,
+        inside_lf: planeTakeoff.inside_corners_lf,
+        source: 'wall_planes',
+      }
+      : null;
+    const cornerTotals = footprintIsBox
+      ? (planeCorners || photoCorners || footprintCorners)
+      : footprintCorners;
     const outsideCornersLf = cornerTotals.outside_lf;
     const insideCornersLf = cornerTotals.inside_lf;
     const sidingWaste = calculateSidingWaste({
@@ -12807,7 +12874,27 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       building_length_ft: Math.round(buildingLengthFt),
       building_width_ft: Math.round(buildingWidthFt),
       perimeter_ft: Math.round(perimeterFt),
-      story_count: storyCount,
+      story_count: planeTakeoff.authoritative ? Math.max(storyCount, planeTakeoff.stories || 1) : storyCount,
+      wall_plane_breakdown: planeTakeoff.planes.map(plane => ({
+        plane_id: plane.plane_id,
+        role: plane.role,
+        face: plane.face,
+        width_ft: plane.width_ft,
+        eave_height_ft: plane.eave_height_ft,
+        gable_rise_ft: plane.gable_sided ? plane.gable_rise_ft : 0,
+        gable_sided: plane.gable_sided,
+        sided: plane.sided,
+        excluded: plane.excluded,
+        width_source: plane.width_source,
+        occluded: plane.occluded,
+        non_siding_pct: plane.non_siding_pct,
+        gross_area_sqft: plane.gross_area_sqft,
+        gable_area_sqft: plane.gable_area_sqft,
+        masonry_area_sqft: plane.masonry_area_sqft,
+        siding_area_sqft: plane.siding_area_sqft,
+        outside_corners: plane.outside_corners,
+        inside_corners: plane.inside_corners,
+      })),
       // Keep half-foot precision: Math.round(9.5) = 10 silently inflated every
       // rebuild by 0.5 ft on the Hover garage benchmark. avgEaveHt is already
       // rounded to the nearest 0.5 by deriveWallHeight.

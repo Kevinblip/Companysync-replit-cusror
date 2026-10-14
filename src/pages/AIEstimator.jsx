@@ -16117,6 +16117,18 @@ ${insuranceSettlementPrompt}`,
                                                {extrusionSanity && (
                                                  <p className="text-[10px] text-amber-700 mt-1">{extrusionSanity}</p>
                                                )}
+                                               {Array.isArray(activeMeasurement.wall_plane_breakdown) && activeMeasurement.wall_plane_breakdown.length > 0 && (
+                                                 <div className="mt-1 space-y-0.5">
+                                                   {activeMeasurement.wall_plane_breakdown.map((plane) => (
+                                                     <p key={`${plane.plane_id}-${plane.face}`} className="text-[10px] text-gray-500">
+                                                       {plane.excluded ? 'Excluded' : 'Siding'} {plane.plane_id || plane.role}: {Math.round(plane.width_ft || 0)} ft × {plane.eave_height_ft} ft
+                                                       {plane.gable_area_sqft > 0 ? ` + ${Math.round(plane.gable_area_sqft)} ft² gable` : ''}
+                                                       {plane.excluded ? ' (not sided)' : ` → ${Math.round(plane.siding_area_sqft || 0).toLocaleString()} ft²`}
+                                                       {plane.width_source === 'satellite_footprint' ? ' · footprint length' : ''}
+                                                     </p>
+                                                   ))}
+                                                 </div>
+                                               )}
                                                 {materialMap && (
                                                   <div
                                                     className={`mt-2 rounded border px-2 py-1.5 text-[11px] ${materialMap.review_required ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-sky-200 bg-sky-50 text-sky-800'}`}
