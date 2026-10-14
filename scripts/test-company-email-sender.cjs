@@ -233,7 +233,9 @@ if (createBackupMatch >= 0) {
 const actionEscalationMatch = pluginSrc.indexOf('async processActionItemEscalation');
 if (actionEscalationMatch >= 0) {
   const start = actionEscalationMatch;
-  const end = start + 6000;
+  // The live function groups overdue items into one digest before sending,
+  // so the email guard sits further down than the original per-item path.
+  const end = start + 12000;
   const scopeSrc = pluginSrc.slice(start, end);
   // Action-item escalation calls sendEmailWithResend({ companyId: item.company_id, ... })
   // The companyId triggers auto-resolve via companyFrom in sendEmailWithResend
@@ -243,10 +245,17 @@ if (actionEscalationMatch >= 0) {
     hasCompanyId,
     hasCompanyId ? 'companyId found' : 'companyId NOT found in escalation email call'
   );
+  // Digest path validates digest.recipientEmail and logs "Skipping digest email".
+  // The older per-item `!isValidEmailAddress(recipientEmail)` form still counts.
+  const skipsNonEmail =
+    (scopeSrc.includes('isValidEmailAddress(digest.recipientEmail)')
+      && scopeSrc.includes('Skipping digest email'))
+    || (scopeSrc.includes('!isValidEmailAddress(recipientEmail)')
+      && scopeSrc.includes('Skipping email'));
   ok(
     'processActionItemEscalation skips recipients that are not email addresses',
-    scopeSrc.includes('!isValidEmailAddress(recipientEmail)') && scopeSrc.includes('Skipping email'),
-    scopeSrc.includes('!isValidEmailAddress(recipientEmail)')
+    skipsNonEmail,
+    skipsNonEmail
   );
   // Also verify sendEmailWithResend auto-resolve logic exists in the file
   const autoResolveMatch = pluginSrc.match(/if\s*\(\s*!fromAddr\s*&&\s*companyId\s*\)/);

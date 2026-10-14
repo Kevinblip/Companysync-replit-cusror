@@ -126,9 +126,36 @@ NULL_SHA="0000000000000000000000000000000000000000"
 CHANGED_FILES_TMP="$(mktemp)"
 trap 'rm -f "$CHANGED_FILES_TMP"' EXIT
 
+# Nearest remote-tracking ancestor of $1, otherwise the empty tree.
+# A brand-new branch has no remote SHA. Diffing that push against an empty
+# tree marks every file in the repo as changed and runs checks for code the
+# branch did not touch. Use the closest ancestor already on origin so the
+# checks follow the commits being pushed.
+nearest_pushed_base() {
+  local sha="$1"
+  local tip distance best_tip="" best_distance=""
+  while read -r tip; do
+    [ -n "$tip" ] || continue
+    if git merge-base --is-ancestor "$tip" "$sha" 2>/dev/null; then
+      distance="$(git rev-list --count "${tip}..${sha}" 2>/dev/null || echo 999999)"
+      if [ -z "$best_distance" ] || [ "$distance" -lt "$best_distance" ]; then
+        best_distance="$distance"
+        best_tip="$tip"
+      fi
+    fi
+  done < <(git for-each-ref --format='%(objectname)' refs/remotes/origin)
+  if [ -n "$best_tip" ]; then
+    printf '%s\n' "$best_tip"
+  else
+    git hash-object -t tree /dev/null
+  fi
+}
+
 while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
-  if [ "$remote_sha" = "$NULL_SHA" ]; then
-    BASE=$(git hash-object -t tree /dev/null)
+  if [ "$local_sha" = "$NULL_SHA" ]; then
+    continue
+  elif [ "$remote_sha" = "$NULL_SHA" ]; then
+    BASE="$(nearest_pushed_base "$local_sha")"
   else
     BASE="$remote_sha"
   fi
