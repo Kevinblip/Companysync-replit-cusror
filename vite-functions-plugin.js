@@ -7,6 +7,8 @@ import { buildSidingMeasurementGraph, collectFaceMasonryPct } from './functions/
 import { buildMultiViewPhotoEvidence } from './functions/utils/multiViewPhotoEvidence.js';
 import { buildRoofFacetsFromSolarSegments, computeEdgeTotals as computeRoofEdgeTotals } from './functions/utils/roofFacetGeometry.js';
 import { reconcileRoofLinearsWithFacetEdges } from './functions/utils/roofLinearAuthority.js';
+import { solarTraceAccepted, solarTraceAreaDelta } from './functions/utils/solarDataLayers.js';
+import { beginSolarRoofTrace, describeSolarTraceFailure, SOLAR_TRACE_TIMEOUT_MS, withTimeout } from './functions/utils/solarRoofTraceCache.js';
 import {
   buildFootprintFromFacets,
   polygonPerimeterFt,
@@ -9689,6 +9691,19 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       };
     }
 
+    // dataLayers overlaps the rest of this measurement. Rasters stay in memory;
+    // only the derived JSON is cached. The timeout is the estimator's wait cap
+    // from the moment the trace starts, not an extra wait after this handler.
+    const solarTraceStarted = Date.now();
+    const solarTraceJob = beginSolarRoofTrace({
+      latitude,
+      longitude,
+      address,
+      companyId,
+      apiKey: googleApiKey,
+      query: companyId ? ((sql, params) => getPool().query(sql, params)) : null,
+    });
+
     let roofAreaSquares = Math.round((totalAreaSqFt / 100) * 100) / 100;
     // Reassigned when an imagery takeoff supersedes Solar's segment count.
     let numSegments = roofSegments.length;
@@ -10595,6 +10610,87 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       debugLogs.push(`3D facet geometry failed (non-fatal): ${facetErr.message}`);
     }
 
+    const pitchBuckets = new Map();
+    for (const seg of segmentPitches) {
+      pitchBuckets.set(seg.pitch, (pitchBuckets.get(seg.pitch) || 0) + (Number(seg.area_sqft) || 0));
+    }
+    let pitchAreas = [...pitchBuckets.entries()]
+      .map(([pitch, area_sqft]) => ({ pitch, area_sqft: Math.round(area_sqft) }))
+      .sort((a, b) => b.area_sqft - a.area_sqft);
+    let datalayersStatus = 'disabled';
+    let datalayersBytes = null;
+    let datalayersMs = null;
+    let datalayersDelta = null;
+    try {
+      const solarTraceRemaining = Math.max(0, SOLAR_TRACE_TIMEOUT_MS - (Date.now() - solarTraceStarted));
+      const waited = await withTimeout(solarTraceJob, solarTraceRemaining);
+      if (waited.timedOut) {
+        datalayersStatus = 'fallback_timeout';
+        debugLogs.push('Solar dataLayers trace exceeded the estimator timeout; Building Insights geometry kept');
+      } else if (waited.error) {
+        datalayersStatus = 'fallback_error';
+        debugLogs.push(`Solar dataLayers trace failed: ${describeSolarTraceFailure(waited.error)}`);
+      } else {
+        const outcome = waited.value || { status: 'disabled' };
+        datalayersStatus = outcome.status || 'disabled';
+        datalayersBytes = outcome.payload_bytes ?? null;
+        datalayersMs = outcome.trace_ms ?? null;
+        const payload = outcome.payload;
+        if (payload && (outcome.status === 'traced' || outcome.status === 'cache_hit')) {
+          const delta = solarTraceAreaDelta(payload.area_sqft, totalAreaSqFt);
+          datalayersDelta = Math.round(delta * 1000) / 10;
+          if (solarTraceAccepted(payload, totalAreaSqFt)) {
+            totalAreaSqFt = payload.area_sqft;
+            roofAreaSquares = Math.round((totalAreaSqFt / 100) * 100) / 100;
+            areaMethod = 'datalayers_polygons';
+            ridgeLf = payload.linears?.ridge || 0;
+            hipLf = payload.linears?.hip || 0;
+            valleyLf = payload.linears?.valley || 0;
+            rakeLf = payload.linears?.rake || 0;
+            eaveLf = payload.linears?.eave || 0;
+            roofFacets3d = (payload.facets || []).map((facet) => ({
+              id: facet.id,
+              provenance: 'google_solar_datalayers',
+              pitch: facet.pitch,
+              pitch_degrees: facet.pitch_degrees,
+              azimuth_degrees: facet.azimuth_degrees,
+              area_sqft: facet.area_sqft,
+              polygon: (facet.polygon || []).map(([x, y, h]) => ({ x, y, h })),
+              edges: [],
+            }));
+            roofFacetEdgeTotals = {
+              eave: eaveLf,
+              ridge: ridgeLf,
+              hip: hipLf,
+              valley: valleyLf,
+              rake: rakeLf,
+              counts: payload.counts || {},
+            };
+            roofLinearSource = 'solar_datalayers';
+            pitchAreas = payload.pitch_areas || pitchAreas;
+            numSegments = roofFacets3d.length || numSegments;
+            roofWaste = resolveRoofWaste({
+              pitchVal,
+              numSegments,
+              hipLf,
+              valleyLf,
+              overridePct: params.waste_override_pct,
+            });
+            wastePercent = roofWaste.waste_percentage;
+            wasteReason = roofWaste.waste_reason;
+            finalOrderQty = Number((roofAreaSquares * (1 + wastePercent / 100)).toFixed(2));
+            debugLogs.push(`Solar dataLayers trace accepted (${datalayersDelta}% from Building Insights, ${datalayersBytes} bytes cached, ${datalayersMs} ms)`);
+          } else {
+            datalayersStatus = 'fallback_area';
+            debugLogs.push(`Solar dataLayers trace discarded: area differs from Building Insights by ${datalayersDelta}% (limit 8%)`);
+          }
+        }
+      }
+    } catch (traceErr) {
+      datalayersStatus = 'fallback_error';
+      debugLogs.push(`Solar dataLayers trace failed: ${describeSolarTraceFailure(traceErr)}`);
+    }
+
     return {
       success: true,
       detectedLines,
@@ -10611,6 +10707,11 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       pitch: pitchStr, is_flat_roof: isFlatRoof,
       pitch_source: pitchSource, pitch_confidence: pitchConfidence,
       segment_pitches: segmentPitches,
+      pitch_areas: pitchAreas,
+      datalayers_status: datalayersStatus,
+      datalayers_cache_bytes: datalayersBytes,
+      datalayers_trace_ms: datalayersMs,
+      datalayers_area_delta_pct: datalayersDelta,
       // Solar API segment areas are already slope-adjusted — consumers must
       // NOT apply a pitch multiplier again (double-count risk).
       area_is_slope_adjusted: true,
@@ -10625,7 +10726,7 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       valley_count: roofFacetEdgeTotals?.counts?.valley || 0,
       rake_count: roofFacetEdgeTotals?.counts?.rake || 0,
       eave_count: roofFacetEdgeTotals?.counts?.eave || 0,
-      num_segments: roofSegments.length, area_method: areaMethod,
+      num_segments: numSegments, area_method: areaMethod,
       calibration_applied: calibrationApplied,
       calibration_details: calibrationDetails,
       uncalibrated_linears: uncalibratedLinears,
