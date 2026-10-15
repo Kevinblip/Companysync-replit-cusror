@@ -1,13 +1,15 @@
 import { Pool } from 'pg';
 import crypto from 'crypto';
 import { createRequire } from 'node:module';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { promises as dnsPromises } from 'node:dns';
 import { createStripeHandlers } from './vite-stripe-plugin.js';
 import { buildSidingMeasurementGraph, collectFaceMasonryPct } from './functions/utils/sidingMeasurementGraph.js';
 import { buildMultiViewPhotoEvidence } from './functions/utils/multiViewPhotoEvidence.js';
 import { buildRoofFacetsFromSolarSegments, computeEdgeTotals as computeRoofEdgeTotals } from './functions/utils/roofFacetGeometry.js';
-import { reconcileRoofLinearsWithFacetEdges } from './functions/utils/roofLinearAuthority.js';
-import { solarTraceAccepted, solarTraceAreaDelta } from './functions/utils/solarDataLayers.js';
+import { adoptMeasuredGables, reconcileRoofLinearsWithFacetEdges } from './functions/utils/roofLinearAuthority.js';
+import { maskPitchAreaAccepted, maskPlanSlopeSqft, solarTraceAccepted, solarTraceAreaDelta } from './functions/utils/solarDataLayers.js';
 import { beginSolarRoofTrace, describeSolarTraceFailure, SOLAR_TRACE_TIMEOUT_MS, withTimeout } from './functions/utils/solarRoofTraceCache.js';
 import {
   buildFootprintFromFacets,
@@ -19,6 +21,7 @@ import {
   isPerimeterSafeOsmGeometryOverride,
   tracedOutlineOutranksShortEave,
   rectangleUndercutsSolarPlan,
+  outlineElevations,
   DEFAULT_EAVE_OVERHANG_FT,
 } from './functions/utils/footprintPolygon.js';
 import { buildRoofMeasurementGraph, summarizeRoofMeasurement } from './functions/utils/roofMeasurementGraph.js';
@@ -2688,7 +2691,26 @@ function detectImageMime(buf, headerMime) {
 // Fetch an image URL and return base64 + a reliable, Gemini-supported MIME type.
 // Throws a clear, user-friendly error when the photo can't be loaded so the AI
 // feature degrades with a readable message instead of a bare 500.
+function readLocalUpload(url) {
+  const match = String(url || '').match(/\/uploads\/([A-Za-z0-9-]{8,}\.[A-Za-z0-9]+)/);
+  if (!match) return null;
+  const filePath = path.join(process.cwd(), 'public', 'uploads', match[1]);
+  try {
+    if (!existsSync(filePath)) return null;
+    const bytes = readFileSync(filePath);
+    return bytes.length ? bytes : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchImageAsBase64(url, { timeoutMs = 20000 } = {}) {
+  const local = readLocalUpload(url);
+  if (local) {
+    const mimeType = detectImageMime(local, null);
+    if (!mimeType) throw new Error("The file doesn't appear to be a valid image. Please re-upload the photo.");
+    return { base64: local.toString('base64'), mimeType, bytes: local.length };
+  }
   let target = url;
   if (typeof target === 'string' && target.startsWith('/')) {
     const base = process.env.VITE_REPLIT_APP_URL || process.env.PUBLIC_APP_URL || '';
@@ -9899,6 +9921,8 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
             const osmEaveFt = 2 * (best.nsFt + best.ewFt);
             const ratio = osmEaveFt / solarEaveFt;
             if (ratio >= 0.5 && ratio <= 2.5) {
+              const solarEstLength = estLength;
+              const solarEstWidth = estWidth;
               estLength = Math.max(best.nsFt, best.ewFt);
               estWidth  = Math.min(best.nsFt, best.ewFt);
               // Extract polygon XY for 3D viewer (feet, centred at building centroid)
@@ -9976,6 +10000,15 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
               }
               if (!(osmFootprintSqFt > 0)) osmFootprintSqFt = best.nsFt * best.ewFt;
               debugLogs.push(`OSM footprint used: L=${estLength.toFixed(1)}ft W=${estWidth.toFixed(1)}ft (ratio=${ratio.toFixed(2)}, ${openOsmNodes.length} vertices)`);
+              // A rotated building's north-south box is much larger than the
+              // house. Using that box as the length and width turns the whole
+              // perimeter into eave. Keep the Solar dimensions for the formula.
+              const bboxAreaFt = best.nsFt * best.ewFt;
+              if (osmFootprintSqFt > 0 && bboxAreaFt > osmFootprintSqFt * 1.35) {
+                estLength = solarEstLength;
+                estWidth = solarEstWidth;
+                debugLogs.push(`OSM bounding box is rotated (${Math.round(bboxAreaFt)} sqft vs ${Math.round(osmFootprintSqFt)} sqft traced); roof formula kept the Solar dimensions`);
+              }
             } else {
               debugLogs.push(`OSM perimeter rejected (ratio=${ratio.toFixed(2)}) — using Solar azimuth estimate`);
             }
@@ -10597,6 +10630,19 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       valleyLf = reconciliation.linears.valley_lf;
       rakeLf = reconciliation.linears.rake_lf;
       eaveLf = reconciliation.linears.eave_lf;
+      const adopted = adoptMeasuredGables({
+        ridge_lf: ridgeLf,
+        hip_lf: hipLf,
+        valley_lf: valleyLf,
+        rake_lf: rakeLf,
+        eave_lf: eaveLf,
+      }, roofFacetEdgeTotals, roofLinearSource);
+      ridgeLf = adopted.linears.ridge_lf;
+      hipLf = adopted.linears.hip_lf;
+      valleyLf = adopted.linears.valley_lf;
+      rakeLf = adopted.linears.rake_lf;
+      eaveLf = adopted.linears.eave_lf;
+      roofLinearSource = adopted.source;
       // Waste follows the linears we bill. A hip formula that the trace replaced
       // must not keep a "Hip/Valley Present" reason after those lengths are zero.
       roofWaste = resolveRoofWaste({
@@ -10646,15 +10692,28 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
         if (payload && (outcome.status === 'traced' || outcome.status === 'cache_hit')) {
           const delta = solarTraceAreaDelta(payload.area_sqft, totalAreaSqFt);
           datalayersDelta = Math.round(delta * 1000) / 10;
-          if (solarTraceAccepted(payload, totalAreaSqFt)) {
-            totalAreaSqFt = payload.area_sqft;
+          const biAreaSqFt = totalAreaSqFt;
+          const planSlope = maskPlanSlopeSqft(payload.plan_sqft, pitchStr);
+          const dsmSlope = Number(payload.area_sqft) || 0;
+          const pitchAccepted = maskPitchAreaAccepted(planSlope, biAreaSqFt);
+          const dsmAccepted = solarTraceAccepted(payload, biAreaSqFt);
+          if (pitchAccepted || dsmAccepted) {
+            let billedArea = dsmAccepted ? dsmSlope : planSlope;
+            if (pitchAccepted) {
+              billedArea = planSlope;
+              if (dsmSlope > billedArea && dsmSlope <= billedArea * 1.08) {
+                billedArea = Math.round(dsmSlope * 10) / 10;
+              }
+            }
+            totalAreaSqFt = billedArea;
             roofAreaSquares = Math.round((totalAreaSqFt / 100) * 100) / 100;
-            areaMethod = 'datalayers_polygons';
+            areaMethod = pitchAccepted ? 'datalayers_mask_pitch' : 'datalayers_polygons';
             // A trace that classifies most of the roof edge as something else
             // (or clips it) comes back with a tiny eave. Keep the Solar edge
-            // lengths in that case; the area is still the traced surface.
+            // lengths in that case. The wider mask-pitch acceptance never
+            // replaces linears; those DSM edges are a different measurement.
             const traceEave = Number(payload.linears?.eave) || 0;
-            const trustTraceLinears = !(eaveLf > 40 && traceEave < eaveLf * 0.5);
+            const trustTraceLinears = dsmAccepted && !(eaveLf > 40 && traceEave < eaveLf * 0.5);
             if (trustTraceLinears) {
               ridgeLf = payload.linears?.ridge || 0;
               hipLf = payload.linears?.hip || 0;
@@ -10693,7 +10752,7 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
             wastePercent = roofWaste.waste_percentage;
             wasteReason = roofWaste.waste_reason;
             finalOrderQty = Number((roofAreaSquares * (1 + wastePercent / 100)).toFixed(2));
-            debugLogs.push(`Solar dataLayers trace accepted (${datalayersDelta}% from Building Insights, ${datalayersBytes} bytes cached, ${datalayersMs} ms)${trustTraceLinears ? '' : '; kept Solar edge lengths because the traced eave was much shorter'}`);
+            debugLogs.push(`Solar dataLayers trace accepted (${datalayersDelta}% from Building Insights, ${datalayersBytes} bytes cached, ${datalayersMs} ms, billed ${Math.round(totalAreaSqFt)} sqft from ${areaMethod})${trustTraceLinears ? '' : '; kept Solar edge lengths'}`);
           } else {
             datalayersStatus = 'fallback_area';
             debugLogs.push(`Solar dataLayers trace discarded: area differs from Building Insights by ${datalayersDelta}% (limit 8%)`);
@@ -10704,6 +10763,24 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       datalayersStatus = 'fallback_error';
       debugLogs.push(`Solar dataLayers trace failed: ${describeSolarTraceFailure(traceErr)}`);
     }
+
+    // Gutters hang on the eaves. Downspouts are placed at outside corners of
+    // the traced wall line. Story height is not invented here, so downspout
+    // length stays unset until an elevation photo measures the wall.
+    let wallOutline = null;
+    let wallElevations = null;
+    let wallCorners = null;
+    try {
+      wallOutline = buildFootprintFromFacets(roofFacets3d, { overhangFt: DEFAULT_EAVE_OVERHANG_FT });
+      if (wallOutline?.polygon) {
+        wallElevations = outlineElevations(wallOutline.polygon);
+        wallCorners = countFootprintCorners(wallOutline.polygon, 0);
+      }
+    } catch (outlineErr) {
+      debugLogs.push(`Wall outline skipped: ${outlineErr.message}`);
+    }
+    const gutterLf = Math.round(eaveLf * 10) / 10;
+    const downspoutCount = wallCorners?.outside_count > 0 ? wallCorners.outside_count : null;
 
     return {
       success: true,
@@ -10716,6 +10793,15 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       roof_area_sq: roofAreaSquares, roof_area_sqft: totalAreaSqFt,
       ridge_lf: ridgeLf, hip_lf: hipLf, valley_lf: valleyLf,
       rake_lf: rakeLf, eave_lf: eaveLf,
+      gutter_lf: gutterLf,
+      downspout_count: downspoutCount,
+      fascia_eave_lf: gutterLf,
+      fascia_rake_lf: rakeLf,
+      wall_perimeter_ft: wallOutline?.perimeter_ft ?? null,
+      wall_elevations: wallElevations,
+      outside_corners: wallCorners?.outside_count ?? null,
+      inside_corners: wallCorners?.inside_count ?? null,
+      level_starter_lf: wallOutline?.perimeter_ft ?? null,
       step_flashing_lf: stepFlashingLf,
       apron_flashing_lf: apronFlashingLf || 0,
       pitch: pitchStr, is_flat_roof: isFlatRoof,
@@ -11352,11 +11438,19 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       const localLogs = [];
       try {
         localLogs.push(`Analyzing ${photo.label || 'photo'}...`);
-        const resp = await fetch(photo.url);
-        if (!resp.ok) { localLogs.push(`Fetch failed (${resp.status}): ${photo.url}`); return { result: null, logs: localLogs }; }
-        const buf = await resp.arrayBuffer();
+        const localPhoto = readLocalUpload(photo.url);
+        let buf;
+        let mimeType;
+        if (localPhoto) {
+          buf = localPhoto;
+          mimeType = detectImageMime(localPhoto, null) || 'image/jpeg';
+        } else {
+          const resp = await fetch(photo.url);
+          if (!resp.ok) { localLogs.push(`Fetch failed (${resp.status}): ${photo.url}`); return { result: null, logs: localLogs }; }
+          buf = Buffer.from(await resp.arrayBuffer());
+          mimeType = resp.headers.get('content-type') || 'image/jpeg';
+        }
         const b64 = Buffer.from(buf).toString('base64');
-        const mimeType = resp.headers.get('content-type') || 'image/jpeg';
         const viewLabel = photo.label || 'elevation';
         const satelliteWallWidthFt = Number(photo.satellite_wall_width_ft) || widthAnchorForLabel(viewLabel);
         const satelliteScaleContext = satelliteWallWidthFt > 0

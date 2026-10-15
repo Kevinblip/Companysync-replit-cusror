@@ -18,6 +18,8 @@ const {
   traceRoofFromRasters,
   solarTraceAccepted,
   solarTraceAreaDelta,
+  maskPlanSlopeSqft,
+  maskPitchAreaAccepted,
   SOLAR_AREA_GATE,
 } = await import('../functions/utils/solarDataLayers.js');
 const {
@@ -36,6 +38,10 @@ check('trace within 8% of Solar is kept', solarTraceAccepted({ area_sqft: 2450 }
 check('trace beyond 8% of Solar is discarded', !solarTraceAccepted({ area_sqft: 2800 }, 2345));
 check('missing area is not accepted', !solarTraceAccepted({ area_sqft: 0 }, 2345));
 check('delta is relative to Building Insights', Math.abs(solarTraceAreaDelta(2500, 2345) - (155 / 2345)) < 0.001);
+check('5/12 mask plan slopes to the roof surface', Math.abs(maskPlanSlopeSqft(2292, '5/12') - 2483) < 1.5, String(maskPlanSlopeSqft(2292, '5/12')));
+check('mask pitch within 25% of Building Insights can correct an undercount', maskPitchAreaAccepted(1683, 1477));
+check('a mask from a different building is rejected', !maskPitchAreaAccepted(2000, 1000));
+check('missing plan area is not a mask pitch', maskPlanSlopeSqft(0, '6/12') == null);
 
 check('address cache key is normalized', normalizeSolarAddress('  5688 Gemini Ct, Solon, OH  ', 1, 2) === '5688 gemini ct solon oh');
 const keyA = normalizeSolarAddress('1721 Oak St, Girard, OH 44420', 0, 0);
@@ -73,6 +79,7 @@ check('gable has a per-pitch area breakdown', gable.pitch_areas.some((row) => ro
 check('gable polygons are stored', gable.facets.every((facet) => facet.polygon.length >= 3));
 check('derived cache payload stays under 8 KB', gableBytes < 8000, `${gableBytes} bytes`);
 check('payload has no raster fields', !('dsm' in gable) && !('mask' in gable) && !JSON.stringify(gable).includes('dsmUrl'));
+check('trace keeps the center-building plan area', gable.v === 2 && gable.plan_sqft > 400, String(gable.plan_sqft));
 
 const memory = new Map();
 const query = async (sql, params) => {

@@ -568,4 +568,46 @@ export function buildFootprintFromFacets(facets, opts = {}) {
   };
 }
 
+/**
+ * Split a wall outline into the four compass elevations.
+ * Each edge is billed to the side its outward normal faces, so a wing
+ * that sticks out is added to that elevation instead of a rectangle side.
+ */
+export function outlineElevations(polygon) {
+  const points = (Array.isArray(polygon) ? polygon : []).map((point) => {
+    if (Array.isArray(point)) return [Number(point[0]), Number(point[1])];
+    return [Number(point?.x), Number(point?.y)];
+  }).filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+  if (points.length < 3) return null;
+  let winding = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    winding += a[0] * b[1] - b[0] * a[1];
+  }
+  const outward = winding >= 0 ? 1 : -1;
+  const faces = { north: 0, east: 0, south: 0, west: 0 };
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const length = Math.hypot(dx, dy);
+    if (length < 0.5) continue;
+    const nx = dy * outward;
+    const ny = -dx * outward;
+    const scale = Math.hypot(nx, ny) || 1;
+    const azimuth = (Math.atan2(nx / scale, ny / scale) * 180 / Math.PI + 360) % 360;
+    const face = azimuth < 45 || azimuth >= 315 ? 'north'
+      : azimuth < 135 ? 'east'
+      : azimuth < 225 ? 'south'
+      : 'west';
+    faces[face] += length;
+  }
+  return Object.fromEntries(Object.entries(faces).map(([face, length]) => [
+    face,
+    { length_ft: Math.round(length * 10) / 10 },
+  ]));
+}
+
 export default buildFootprintFromFacets;

@@ -183,7 +183,9 @@ export function beginSolarRoofTrace({ latitude, longitude, address, companyId, a
     if (!enabled) return { status: 'disabled', address_key: addressKey };
     if (!addressKey) return { status: 'fallback_error', error: 'Address is required to cache a Solar trace' };
     const cached = await readSolarTraceCache(query, companyId, addressKey);
-    if (cached?.payload) {
+    // v2 carries the center-building plan area used to slope the mask. An
+    // older compact payload is recomputed; the rasters are still not stored.
+    if (cached?.payload?.v === 2 && Number(cached.payload.plan_sqft) > 0) {
       return {
         status: 'cache_hit',
         address_key: addressKey,

@@ -26,7 +26,7 @@ function seg(eastFt, northFt, azimuth, A = 12, B = 30) {
 (async () => {
   const { buildRoofFacetsFromSolarSegments, computeEdgeTotals } =
     await import('../functions/utils/roofFacetGeometry.js');
-  const { reconcileRoofLinearsWithFacetEdges } =
+  const { adoptMeasuredGables, reconcileRoofLinearsWithFacetEdges } =
     await import('../functions/utils/roofLinearAuthority.js');
 
   const completeGable = buildRoofFacetsFromSolarSegments([
@@ -107,6 +107,36 @@ function seg(eastFt, northFt, azimuth, A = 12, B = 30) {
   assert.equal(geminiResult.source, 'roof_facet_edges');
   assert.equal(geminiResult.linears.valley_lf, 0);
   assert.ok(Math.abs((geminiResult.linears.eave_lf + geminiResult.linears.rake_lf) - 284.2) < 0.2);
+
+  const gables = adoptMeasuredGables({
+    ridge_lf: 74, hip_lf: 114, valley_lf: 44, rake_lf: 19, eave_lf: 303,
+  }, {
+    ridge: 222.7, hip: 13.3, valley: 32, rake: 259.6, eave: 336.7,
+  }, 'roof_type_heuristic');
+  assert.equal(gables.source, 'solar_segment_adjacency');
+  assert.equal(gables.linears.rake_lf, 259.6);
+  assert.equal(gables.linears.eave_lf, 303);
+  assert.equal(gables.linears.valley_lf, 44);
+  assert.equal(gables.linears.ridge_lf, 222.7);
+  assert.equal(gables.linears.hip_lf, 13.3);
+
+  const rotatedBox = adoptMeasuredGables({
+    ridge_lf: 23, hip_lf: 253, valley_lf: 44, rake_lf: 19, eave_lf: 387,
+  }, {
+    ridge: 222.7, hip: 13.3, valley: 32, rake: 259.6, eave: 336.7,
+  }, 'roof_type_heuristic');
+  assert.equal(rotatedBox.linears.ridge_lf, 222.7);
+  assert.equal(rotatedBox.linears.hip_lf, 13.3);
+  assert.equal(rotatedBox.linears.eave_lf, 336.7);
+  assert.equal(rotatedBox.linears.rake_lf, 259.6);
+  assert.equal(rotatedBox.linears.valley_lf, 44);
+
+  const alreadyTraced = adoptMeasuredGables({
+    ridge_lf: 57.6, hip_lf: 0, valley_lf: 0, rake_lf: 115.8, eave_lf: 161.7,
+  }, { ridge: 10, hip: 10, valley: 80, rake: 400, eave: 10 }, 'roof_facet_edges');
+  assert.equal(alreadyTraced.source, 'roof_facet_edges');
+  assert.equal(alreadyTraced.linears.rake_lf, 115.8);
+  assert.equal(alreadyTraced.linears.valley_lf, 0);
 
   console.log('roof linear authority: all assertions passed');
 })().catch(error => {

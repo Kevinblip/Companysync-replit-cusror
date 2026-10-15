@@ -961,7 +961,10 @@ export default function AIEstimator() {
   useEffect(() => {
     try {
       // Strip blob: previews — they don't survive a reload; the UI falls back to `url`.
-      const persistable = housePhotos.map(({ preview, ...rest }) => rest);
+      const persistable = housePhotos.map(({ preview, ...rest }) => {
+        const match = String(rest.url || '').match(/\/uploads\/([A-Za-z0-9-]{8,}\.[A-Za-z0-9]+)/);
+        return match ? { ...rest, url: `/uploads/${match[1]}` } : rest;
+      });
       sessionStorage.setItem(HOUSE_PHOTOS_STORAGE_KEY, JSON.stringify({ scope: housePhotosScope, photos: persistable }));
     } catch { /* storage full/unavailable — persistence is best-effort */ }
   }, [housePhotos, housePhotosScope]);

@@ -783,9 +783,14 @@ export async function traceRoofFromRasters({ dsm, mask, width, height }) {
     .map(([pitch, area]) => ({ pitch, area_sqft: Math.round(area) }))
     .sort((p, q) => q.area_sqft - p.area_sqft);
 
+  let roofPixels = 0;
+  for (let i = 0; i < cropped.roof.length; i++) if (cropped.roof[i]) roofPixels++;
+  const planSqft = Math.round(roofPixels * 0.01 * SQFT_PER_M2 * 10) / 10;
+
   const payload = {
-    v: 1,
+    v: 2,
     area_sqft: Math.round(areaSqft * 10) / 10,
+    plan_sqft: planSqft,
     pitch_areas,
     linears,
     counts,
@@ -815,4 +820,29 @@ export function solarTraceAreaDelta(traceAreaSqft, solarAreaSqft) {
 
 export function solarTraceAccepted(trace, solarAreaSqft) {
   return solarTraceAreaDelta(trace?.area_sqft, solarAreaSqft) <= SOLAR_AREA_GATE;
+}
+
+export function slopeFactorForPitch(pitch) {
+  const match = String(pitch || '').match(/(\d+(?:\.\d+)?)\/12/);
+  if (!match) return null;
+  const rise = Number(match[1]);
+  if (!(rise >= 0) || rise > 24) return null;
+  return Math.sqrt(1 + (rise / 12) ** 2);
+}
+
+/** Horizontal mask area, sloped at the Solar pitch. Null when either input is missing. */
+export function maskPlanSlopeSqft(planSqft, pitch) {
+  const factor = slopeFactorForPitch(pitch);
+  const plan = Number(planSqft) || 0;
+  if (!(factor > 0) || !(plan > 0)) return null;
+  return Math.round(plan * factor * 10) / 10;
+}
+
+/**
+ * The mask plan at the Solar pitch may correct a Building Insights undercount.
+ * Farther than 25% means the mask is a different building or a broken trace.
+ */
+export function maskPitchAreaAccepted(pitchedSqft, solarAreaSqft) {
+  if (!(pitchedSqft > 0) || !(solarAreaSqft > 0)) return false;
+  return Math.abs(pitchedSqft - solarAreaSqft) / solarAreaSqft <= 0.25;
 }

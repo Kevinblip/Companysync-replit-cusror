@@ -346,6 +346,11 @@ export function classifyFacetEdges(facets) {
     delete f._clips;
   }
 
+  // Planes that drain toward each other meet in a valley even when the
+  // bounding-box rectangles only touch at a corner. The overlap test above
+  // misses that valley and leaves both gable edges billed as rake.
+  addFacingValleys(facets, down, centroid);
+
   // A cross-roof side often runs in plan along the main gutter. The rectangle
   // axis labels that side a rake, which under-counts the eave and over-counts
   // the rake. When the footprints do not overlap (this is not a hip cut) and
@@ -502,6 +507,69 @@ function convexOverlapArea(polyA, polyB) {
     poly = clipPolyHalfPlane(poly, a, b, keep);
   }
   return poly.length >= 3 ? polyPlanArea(poly) : 0;
+}
+
+function pairAlreadyJoined(a, b) {
+  return a.edges.some(edge => edge.shared_with === b.id);
+}
+
+function addFacingValleys(facets, down, centroid) {
+  for (let i = 0; i < facets.length; i++) {
+    for (let j = i + 1; j < facets.length; j++) {
+      if (pairAlreadyJoined(facets[i], facets[j])) continue;
+      const azd = azimuthDiff(facets[i].azimuth_degrees, facets[j].azimuth_degrees);
+      if (azd < 40 || azd > 155) continue;
+      if (rectGapFt(facets[i], facets[j]) > 8) continue;
+      const delta = [centroid[j][0] - centroid[i][0], centroid[j][1] - centroid[i][1]];
+      const dist = Math.hypot(delta[0], delta[1]) || 1;
+      const downI = (delta[0] * down[i][0] + delta[1] * down[i][1]) / dist;
+      const downJ = (-delta[0] * down[j][0] - delta[1] * down[j][1]) / dist;
+      // Both planes drain toward the shared corner. One plane draining away
+      // is a hip or a passing eave, not a valley.
+      if (!(downI > 0.2 && downJ > 0.2)) continue;
+
+      const minI = Math.min(...facets[i].polygon.map(point => point.h));
+      const minJ = Math.min(...facets[j].polygon.map(point => point.h));
+      const maxI = Math.max(...facets[i].polygon.map(point => point.h));
+      const maxJ = Math.max(...facets[j].polygon.map(point => point.h));
+      const lowI = facets[i].polygon.filter(point => Math.abs(point.h - minI) < 0.05);
+      const lowJ = facets[j].polygon.filter(point => Math.abs(point.h - minJ) < 0.05);
+      const highI = facets[i].polygon.filter(point => Math.abs(point.h - maxI) < 0.05);
+      const highJ = facets[j].polygon.filter(point => Math.abs(point.h - maxJ) < 0.05);
+      const lowPair = closestPair(lowI, lowJ);
+      const highPair = closestPair(highI, highJ);
+      if (!lowPair || !highPair || lowPair.dist > 14) continue;
+      const lx = (lowPair.a.x + lowPair.b.x) / 2;
+      const ly = (lowPair.a.y + lowPair.b.y) / 2;
+      const hx = (highPair.a.x + highPair.b.x) / 2;
+      const hy = (highPair.a.y + highPair.b.y) / 2;
+      const hLow = (lowPair.a.h + lowPair.b.h) / 2;
+      const hHigh = (highPair.a.h + highPair.b.h) / 2;
+      const length = Math.round(Math.hypot(hx - lx, hy - ly, hHigh - hLow) * 10) / 10;
+      if (length < 2) continue;
+      const junction = {
+        type: 'valley',
+        role: 'junction',
+        x1: lx, y1: ly, h1: hLow,
+        x2: hx, y2: hy, h2: hHigh,
+        length_ft: length,
+      };
+      facets[i].edges.push({ ...junction, shared_with: facets[j].id });
+      facets[j].edges.push({ ...junction, shared_with: facets[i].id });
+      const mid = [(lx + hx) / 2, (ly + hy) / 2];
+      for (const facet of [facets[i], facets[j]]) {
+        let best = null;
+        let bestD = Infinity;
+        for (const edge of facet.edges) {
+          if (edge.role !== 'side' || edge.type !== 'rake') continue;
+          const [mx, my] = edgeMid(edge);
+          const distance = Math.hypot(mx - mid[0], my - mid[1]);
+          if (distance < bestD) { bestD = distance; best = edge; }
+        }
+        if (best && bestD < Math.max(10, best.length_ft * 0.75)) best.type = 'none';
+      }
+    }
+  }
 }
 
 function absorbGutterLineRakes(facets) {

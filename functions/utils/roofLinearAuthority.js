@@ -133,3 +133,54 @@ export function reconcileRoofLinearsWithFacetEdges(headlineLinears, facetEdgeTot
     counts: facetEdgeTotals?.counts || null,
   };
 }
+
+/**
+ * A roof-type formula can call a complex roof a hip and emit almost no rake,
+ * while the segment edges still measured the gable walls. Adopt those measured
+ * gable edges, and the measured ridge, without replacing an eave the rectangles
+ * drew longer than the formula. Valleys only move up: a facing-plane valley
+ * the formula missed is real, and a short corner valley must not erase a
+ * longer formula valley.
+ */
+export function adoptMeasuredGables(headlineLinears, facetEdgeTotals, source) {
+  const linears = {
+    ridge_lf: roundLf(headlineLinears?.ridge_lf),
+    hip_lf: roundLf(headlineLinears?.hip_lf),
+    valley_lf: roundLf(headlineLinears?.valley_lf),
+    rake_lf: roundLf(headlineLinears?.rake_lf),
+    eave_lf: roundLf(headlineLinears?.eave_lf),
+  };
+  if (source !== 'roof_type_heuristic' || !facetEdgeTotals) {
+    return { linears, source };
+  }
+  let nextSource = source;
+  const facetRake = roundLf(facetEdgeTotals.rake);
+  const facetValley = roundLf(facetEdgeTotals.valley);
+  const facetRidge = roundLf(facetEdgeTotals.ridge);
+  const facetHip = roundLf(facetEdgeTotals.hip);
+  const facetEave = roundLf(facetEdgeTotals.eave);
+  if (facetRake > linears.rake_lf * 3 && facetRake > 40) {
+    linears.rake_lf = facetRake;
+    nextSource = 'solar_segment_adjacency';
+  }
+  const facetRh = facetRidge + facetHip;
+  const heuristicRh = linears.ridge_lf + linears.hip_lf;
+  const rectanglesRanLong = linears.eave_lf > 40 && facetEave > linears.eave_lf * 1.2;
+  const ridgeSplit = facetRidge > 0 && linears.ridge_lf > 0
+    && Math.abs(facetRidge - linears.ridge_lf) / Math.max(facetRidge, linears.ridge_lf) >= 0.4;
+  if (!rectanglesRanLong && facetRh > 40 && facetRidge > 0
+      && (heuristicRh === 0 || ridgeSplit || Math.abs(facetRh - heuristicRh) / Math.max(facetRh, heuristicRh) >= 0.12)) {
+    linears.ridge_lf = facetRidge;
+    linears.hip_lf = facetHip;
+    nextSource = 'solar_segment_adjacency';
+  }
+  if (facetEave > 40 && linears.eave_lf > facetEave * 1.1) {
+    linears.eave_lf = facetEave;
+    nextSource = 'solar_segment_adjacency';
+  }
+  if (facetValley > linears.valley_lf) {
+    linears.valley_lf = facetValley;
+    nextSource = 'solar_segment_adjacency';
+  }
+  return { linears, source: nextSource };
+}
