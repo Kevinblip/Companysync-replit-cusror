@@ -164,10 +164,13 @@ async function cleanup() {
       },
     });
     const unauthorizedNormalResult = unauthorizedNormal.body?.data ?? unauthorizedNormal.body ?? {};
+    const normalAuthGate = unauthorizedNormal.status === 401
+      && /authentication required/i.test(unauthorizedNormalResult.error || '');
+    const normalFunctionGate = unauthorizedNormal.status === 200
+      && unauthorizedNormalResult.success === false
+      && /only run from the server/i.test(unauthorizedNormalResult.error || '');
     ok('unauthenticated normal scheduler invocations are rejected',
-      unauthorizedNormal.status === 200
-        && unauthorizedNormalResult.success === false
-        && /only run from the server/i.test(unauthorizedNormalResult.error || ''),
+      normalAuthGate || normalFunctionGate,
       unauthorizedNormalResult,
     );
     const afterUnauthorized = await pool.query(
@@ -189,10 +192,13 @@ async function cleanup() {
       },
     });
     const unauthorizedResult = unauthorized.body?.data ?? unauthorized.body ?? {};
+    const overrideAuthGate = unauthorized.status === 401
+      && /authentication required/i.test(unauthorizedResult.error || '');
+    const overrideFunctionGate = unauthorized.status === 200
+      && unauthorizedResult.success === false
+      && /super-admin authentication/i.test(unauthorizedResult.error || '');
     ok('unauthenticated scheduler overrides are rejected',
-      unauthorized.status === 200
-        && unauthorizedResult.success === false
-        && /super-admin authentication/i.test(unauthorizedResult.error || ''),
+      overrideAuthGate || overrideFunctionGate,
       unauthorizedResult,
     );
 

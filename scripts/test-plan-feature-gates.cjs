@@ -25,6 +25,7 @@
 
 const { createPool } = require('./lib/db-pool.cjs');
 const http     = require('http');
+const crypto   = require('crypto');
 
 const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
 const pool     = createPool({ connectionString: process.env.DATABASE_URL });
@@ -68,12 +69,48 @@ function fetchJson(url, opts = {}) {
   });
 }
 
-async function invokeFunction(name, params = {}) {
+const PLAN_GATE_SESSION_ID = 'plan_gate_smoke_session';
+const PLAN_GATE_USER_EMAIL = 'test@basic.test';
+
+function signedSessionCookie(sid) {
+  const secret = process.env.SESSION_SECRET || '';
+  if (!secret) throw new Error('SESSION_SECRET is required to call checkSubscriptionLimits');
+  const signature = crypto.createHmac('sha256', secret).update(sid).digest('base64').replace(/=+$/, '');
+  return `connect.sid=${encodeURIComponent(`s:${sid}.${signature}`)}`;
+}
+
+async function invokeFunction(name, params = {}, headers = {}) {
   const r = await fetchJson(`${BASE_URL}/api/functions/invoke`, {
     method: 'POST',
+    headers,
     body: { functionName: name, params },
   });
   return r.body?.data ?? r.body;
+}
+
+async function openPlanGateSession() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      sid TEXT PRIMARY KEY,
+      sess JSONB NOT NULL,
+      expire TIMESTAMP NOT NULL
+    )
+  `);
+  const user = await pool.query('SELECT id, email FROM users WHERE LOWER(email) = $1', [PLAN_GATE_USER_EMAIL]);
+  if (!user.rows[0]) {
+    throw new Error(`Seeded plan user ${PLAN_GATE_USER_EMAIL} is missing. Run: npm run seed:plan-companies`);
+  }
+  const session = {
+    cookie: { originalMaxAge: 3600000, httpOnly: true, path: '/' },
+    passport: { user: { claims: { email: user.rows[0].email } } },
+  };
+  await pool.query(
+    `INSERT INTO sessions (sid, sess, expire)
+     VALUES ($1, $2::jsonb, $3)
+     ON CONFLICT (sid) DO UPDATE SET sess = EXCLUDED.sess, expire = EXCLUDED.expire`,
+    [PLAN_GATE_SESSION_ID, JSON.stringify(session), new Date(Date.now() + 3600000)],
+  );
+  return signedSessionCookie(PLAN_GATE_SESSION_ID);
 }
 
 // ── Load gate logic from the real source of truth ────────────────────────────
@@ -305,6 +342,11 @@ try {
     // ════════════════════════════════════════════════════════════════════════
     console.log('\n[ 3 ] Numeric limits — checkSubscriptionLimits API\n');
 
+    // checkSubscriptionLimits is session-gated. A signed cookie for the seeded
+    // Basic admin is enough: the handler is not an admin-only function.
+    const sessionCookie = await openPlanGateSession();
+    const authHeaders = { Cookie: sessionCookie };
+
     const ENTITY_TYPES = ['staff', 'lead', 'customer'];
     const EXPECTED_LIMITS = {
       [BASIC_ID]:      { staff: 5,      lead: 250,   customer: 100  },
@@ -320,7 +362,7 @@ try {
     for (const [companyId, expected] of Object.entries(EXPECTED_LIMITS)) {
       const label = PLAN_LABELS[companyId];
       for (const entityType of ENTITY_TYPES) {
-        const r = await invokeFunction('checkSubscriptionLimits', { company_id: companyId, entity_type: entityType });
+        const r = await invokeFunction('checkSubscriptionLimits', { company_id: companyId, entity_type: entityType }, authHeaders);
         const gotLimit = r?.limit;
         const expLimit = expected[entityType];
         ok(
@@ -355,6 +397,9 @@ try {
     console.error('\n✗ Unexpected error:', err.message);
     process.exit(1);
   } finally {
+    try {
+      await pool.query('DELETE FROM sessions WHERE sid = $1', [PLAN_GATE_SESSION_ID]);
+    } catch { /* table may not exist if setup failed first */ }
     await pool.end();
   }
 })();
