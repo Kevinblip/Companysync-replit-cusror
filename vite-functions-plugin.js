@@ -30910,22 +30910,27 @@ Return JSON:
 
         // Email/SMS: collect one digest per recipient per cron pass. The
         // per-item in-app reminders above remain intact for item-level history.
+        // User ids, names, blanks, and phone numbers must never reach the mail sender.
         if (item.type !== 'stale_lead' && newLevel >= 1 && recipientEmail && minutesSinceEmail >= 1440) {
-          const digestKey = `${item.company_id}:${recipientEmail.toLowerCase()}`;
-          const digest = externalDigestCandidates.get(digestKey) || {
-            companyId: item.company_id,
-            recipientEmail,
-            items: [],
-            hasCritical: false,
-          };
-          digest.items.push({
-            rowId: row.id,
-            item,
-            hoursOverdue,
-            level: newLevel,
-          });
-          digest.hasCritical ||= newLevel >= 2;
-          externalDigestCandidates.set(digestKey, digest);
+          if (!isValidEmailAddress(recipientEmail)) {
+            console.warn(`[Cron:processActionItemEscalation] Skipping email: recipient "${recipientEmail}" is not an email address`);
+          } else {
+            const digestKey = `${item.company_id}:${recipientEmail.toLowerCase()}`;
+            const digest = externalDigestCandidates.get(digestKey) || {
+              companyId: item.company_id,
+              recipientEmail,
+              items: [],
+              hasCritical: false,
+            };
+            digest.items.push({
+              rowId: row.id,
+              item,
+              hoursOverdue,
+              level: newLevel,
+            });
+            digest.hasCritical ||= newLevel >= 2;
+            externalDigestCandidates.set(digestKey, digest);
+          }
         }
 
         const updatedData = {
