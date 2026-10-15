@@ -100,7 +100,7 @@ import { getFormatInstructions, formatLabel } from "@/utils/symbilityExport";
 import { analyzeEstimateCompleteness, generateMaterialList } from "@/lib/functions";
 import MissingPurchaseMaterials from "@/components/estimates/MissingPurchaseMaterials";
 import useHiddenFeatures from "@/hooks/useHiddenFeatures";
-import { getPitchMultiplier, calculateRealConfidence, applyPhotoPitchToAnalysis } from "@/lib/satelliteUtils";
+import { getPitchMultiplier, calculateRealConfidence, applyPhotoPitchToAnalysis, satellitePitchOutranksPhoto } from "@/lib/satelliteUtils";
 import {
   createTiltControl,
   getImageryBaseType,
@@ -252,13 +252,17 @@ const describePitchDetection = (analysis) => {
   }
   const facets = Array.isArray(analysis.segment_pitches) ? analysis.segment_pitches : [];
   const distinct = [...new Set(facets.map(f => f.pitch))];
+  const pitchAreas = Array.isArray(analysis.pitch_areas) ? analysis.pitch_areas : [];
+  const areaNote = pitchAreas.length
+    ? ` Areas by pitch: ${pitchAreas.slice(0, 4).map((row) => `${row.pitch} ${row.area_sqft} sqft`).join(', ')}.`
+    : '';
   if (facets.length >= 2 && distinct.length > 1) {
-    return ` (averaged across ${facets.length} roof sections: ${distinct.slice(0, 4).join(', ')})`;
+    return ` (averaged across ${facets.length} roof sections: ${distinct.slice(0, 4).join(', ')})${areaNote}`;
   }
   if (facets.length >= 2) {
-    return ` (measured across ${facets.length} roof sections)`;
+    return ` (measured across ${facets.length} roof sections)${areaNote}`;
   }
-  return ' (measured from 1 roof section)';
+  return ` (measured from 1 roof section)${areaNote}`;
 };
 import {
   smartDescriptionMatch,
@@ -957,7 +961,10 @@ export default function AIEstimator() {
   useEffect(() => {
     try {
       // Strip blob: previews — they don't survive a reload; the UI falls back to `url`.
-      const persistable = housePhotos.map(({ preview, ...rest }) => rest);
+      const persistable = housePhotos.map(({ preview, ...rest }) => {
+        const match = String(rest.url || '').match(/\/uploads\/([A-Za-z0-9-]{8,}\.[A-Za-z0-9]+)/);
+        return match ? { ...rest, url: `/uploads/${match[1]}` } : rest;
+      });
       sessionStorage.setItem(HOUSE_PHOTOS_STORAGE_KEY, JSON.stringify({ scope: housePhotosScope, photos: persistable }));
     } catch { /* storage full/unavailable — persistence is best-effort */ }
   }, [housePhotos, housePhotosScope]);
@@ -1608,14 +1615,16 @@ export default function AIEstimator() {
         let apiKey = sessionStorage.getItem('_gmaps_key');
         if (!apiKey) {
           const response = await base44.functions.invoke('getGoogleMapsApiKey');
-          apiKey = response.data?.apiKey;
+          apiKey = response.data?.apiKey || response.data?.api_key || '';
           if (apiKey) {
             sessionStorage.setItem('_gmaps_key', apiKey);
+          } else if (response.data?.error || response.error) {
+            throw new Error(response.data?.error || response.error);
           }
         }
 
         if (!apiKey) {
-          throw new Error('Google Maps API key not configured');
+          throw new Error('Google Maps browser key is not configured. Set GOOGLE_MAPS_BROWSER_KEY in Secrets. GOOGLE_MAPS_API_KEY is also accepted until a separate browser key is added.');
         }
 
         const existingScript = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
@@ -2651,7 +2660,14 @@ Choose your mode: Upload documents OR use satellite measurements!`,
       // the pitch multiplier and steep-labour applicability.
       // A hand-picked pitch outranks the photo pitch. It is property-scoped and
       // cleared whenever a new address is confirmed, so it can't bleed jobs.
-      const preConfPitch = manualPitchOverride || photoPitch;
+      // A high-confidence Solar segment pitch that already disagrees by a full
+      // rise is kept: re-projecting that slope-adjusted area with one photo
+      // reading is what shrank a 6/12 roof down to 5/12.
+      const solarPitchWins = !manualPitchOverride && satellitePitchOutranksPhoto(analysis, photoPitch);
+      if (solarPitchWins) {
+        console.log(`📐 Kept Solar pitch ${analysis.pitch} (${analysis.pitch_source}); photo pitch ${photoPitch} was not applied`);
+      }
+      const preConfPitch = manualPitchOverride || (solarPitchWins ? null : photoPitch);
       if (preConfPitch) {
         analysis.original_satellite_pitch = analysis.pitch; // capture BEFORE overwriting
         analysis.pitch                  = preConfPitch;
@@ -2702,7 +2718,7 @@ Choose your mode: Upload documents OR use satellite measurements!`,
       // satellite's 3D surface area and re-project the isolated 2D footprint
       // with the photo pitch (calculateRealConfidence keeps slope-adjusted
       // areas as-is, so this must run after it).
-      if (photoPitch) {
+      if (photoPitch && !solarPitchWins) {
         Object.assign(analysis, applyPhotoPitchToAnalysis(analysis, photoPitch));
         console.log(`📐 Fused geometry: area re-projected with photo pitch ${photoPitch} → ${analysis.corrected_area_sq} SQ (footprint ${analysis.footprint_sqft_2d || '?'} sqft)`);
       }
@@ -3740,9 +3756,12 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
         story_count_override: storyCountOverride,
         storyHeightFt: Number(config.storyHeightFt) || 9,
         openingDeductionPct: Number(config.openingDeductionPct) || 15,
-        latitude: (!isGarageMode && useSatelliteMode) ? (satelliteAddress?.coordinates?.lat || satelliteAddress?.lat || null) : null,
-        longitude: (!isGarageMode && useSatelliteMode) ? (satelliteAddress?.coordinates?.lng || satelliteAddress?.lng || null) : null,
-        use_satellite: !isGarageMode && useSatelliteMode,
+        // A confirmed house address always supplies coordinates, even when the
+        // satellite toggle is off. The toggle still controls wall-width anchors.
+        // Without coordinates the footprint falls back to the photo rectangle.
+        latitude: (!isGarageMode) ? (satelliteAddress?.coordinates?.lat || satelliteAddress?.lat || null) : null,
+        longitude: (!isGarageMode) ? (satelliteAddress?.coordinates?.lng || satelliteAddress?.lng || null) : null,
+        use_satellite: !isGarageMode && !!(satelliteAddress?.coordinates?.lat || satelliteAddress?.lat),
         structure_type: structureType,
         opening_deduct_min_sqft: Number(openingDeductMinSqft) === 33 ? 33 : 20,
         ...(String(sidingWasteOverridePct).trim() !== '' && Number.isFinite(Number(sidingWasteOverridePct))
@@ -3806,8 +3825,12 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       // store it and immediately update any existing satellite analysis.
       let roofBase = satelliteAnalysis;
       if (data.roof_pitch_detected && ['high', 'medium'].includes(data.roof_pitch_confidence || '')) {
-        setPhotoPitch(data.roof_pitch_detected);
-        roofBase = roofBase ? applyPhotoPitchToAnalysis(roofBase, data.roof_pitch_detected) : roofBase;
+        if (satellitePitchOutranksPhoto(roofBase, data.roof_pitch_detected)) {
+          console.log(`📐 Kept Solar pitch ${roofBase.pitch}; photo pitch ${data.roof_pitch_detected} was not applied`);
+        } else {
+          setPhotoPitch(data.roof_pitch_detected);
+          roofBase = roofBase ? applyPhotoPitchToAnalysis(roofBase, data.roof_pitch_detected) : roofBase;
+        }
       }
       const reconciledRoof = reconcileRoofMeasurement(roofBase, data.roof_measurement_graph);
       if (reconciledRoof) {
@@ -15975,7 +15998,7 @@ ${insuranceSettlementPrompt}`,
                                     : 0;
                                   const sharedMapStoneSqft = sharedMappedMasonryArea('stone');
                                   const sharedMapBrickSqft = sharedMappedMasonryArea('brick');
-                                const perimSource = d.osm_perimeter_used ? '🔒 OSM' : d.used_satellite_footprint ? '🔒 Solar API' : '📷 Photo';
+                                const perimSource = d.osm_perimeter_used ? '🔒 OSM' : d.used_satellite_footprint ? '🔒 Solar API' : d.footprint_source === 'roof_eave' ? '📐 Roof eave' : '📷 Photo';
                                  const fullPlaneHeight = d.wall_height_semantics === 'full_elevation'
                                    || String(d.height_source || '').startsWith('photo_calibration')
                                    || String(d.height_source || '').startsWith('manual_calibration');
@@ -16096,9 +16119,17 @@ ${insuranceSettlementPrompt}`,
                                         : 'Masonry';
                                        const photoPrimary = wallSource?.kind === 'photo_calibration';
                                        const photoArea = photoPresentationReadiness?.photoAreaSqft;
-                                       const extrusionSanity = photoArea && grossSqft > 0
-                                         ? `Satellite extrusion sanity: ${Math.round(grossSqft).toLocaleString()} ft² gross facade · ${Math.round(Math.abs(photoArea - grossSqft) / grossSqft * 100)}% difference`
+                                       const extrusionSqft = Number(gt?.extrusion_wall_area_sqft) || 0;
+                                       const billedGross = grossSqft;
+                                       const footprintCheckBase = extrusionSqft > 0 ? extrusionSqft : billedGross;
+                                       const footprintCheckPct = footprintCheckBase > 0 && billedGross > 0
+                                         ? Math.round(Math.abs(billedGross - footprintCheckBase) / footprintCheckBase * 100)
                                          : null;
+                                       const extrusionSanity = footprintCheckPct > 0
+                                         ? `Footprint check: ${Math.round(footprintCheckBase).toLocaleString()} ft² rectangle · measured elevations are ${footprintCheckPct}% ${billedGross > footprintCheckBase ? 'higher' : 'lower'}`
+                                         : (photoArea && grossSqft > 0 && Math.round(photoArea) !== Math.round(grossSqft)
+                                           ? `Footprint check: ${Math.round(grossSqft).toLocaleString()} ft² rectangle · ${Math.round(Math.abs(photoArea - grossSqft) / grossSqft * 100)}% difference`
+                                           : null);
                                       return (
                                         <div className="bg-white/80 rounded-lg px-3 py-2">
                                           <div className="flex items-center justify-between">
@@ -16108,6 +16139,18 @@ ${insuranceSettlementPrompt}`,
                                                <p className="text-xs text-gray-400">{photoPrimary ? `${Math.round(displaySqft).toLocaleString()} sqft net from photo-calibrated walls` : grossSqft > 0 ? `${Math.round(grossSqft).toLocaleString()} sqft of facade` : `${Math.round(displaySqft).toLocaleString()} sqft net`}</p>
                                                {extrusionSanity && (
                                                  <p className="text-[10px] text-amber-700 mt-1">{extrusionSanity}</p>
+                                               )}
+                                               {Array.isArray(activeMeasurement.wall_plane_breakdown) && activeMeasurement.wall_plane_breakdown.length > 0 && (
+                                                 <div className="mt-1 space-y-0.5">
+                                                   {activeMeasurement.wall_plane_breakdown.map((plane) => (
+                                                     <p key={`${plane.plane_id}-${plane.face}`} className="text-[10px] text-gray-500">
+                                                       {plane.excluded ? 'Excluded' : 'Siding'} {plane.plane_id || plane.role}: {Math.round(plane.width_ft || 0)} ft × {plane.eave_height_ft} ft
+                                                       {plane.gable_area_sqft > 0 ? ` + ${Math.round(plane.gable_area_sqft)} ft² gable` : ''}
+                                                       {plane.excluded ? ' (not sided)' : ` → ${Math.round(plane.siding_area_sqft || 0).toLocaleString()} ft²`}
+                                                       {plane.width_source === 'satellite_footprint' ? ' · footprint length' : ''}
+                                                     </p>
+                                                   ))}
+                                                 </div>
                                                )}
                                                 {materialMap && (
                                                   <div

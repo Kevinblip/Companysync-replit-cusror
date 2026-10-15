@@ -61,4 +61,21 @@ for name in "${live_vars[@]}"; do
   fi
 done
 
+# Preview-only secrets. Always replace inherited values: the tmux server can
+# carry short placeholders, and this process must not reuse a live key.
+# Generated here, never printed, and never written to disk.
+unset ENCRYPTION_KEY_PREVIOUS
+SESSION_SECRET="$(openssl rand -hex 32)"
+ENCRYPTION_KEY="$(openssl rand -hex 32)"
+export SESSION_SECRET ENCRYPTION_KEY
+if [[ ${#SESSION_SECRET} -lt 32 ]]; then
+  echo 'Refusing to start: SESSION_SECRET is too short.' >&2
+  exit 1
+fi
+if [[ ! "$ENCRYPTION_KEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  echo 'Refusing to start: ENCRYPTION_KEY must be 64 hex characters.' >&2
+  exit 1
+fi
+echo 'Preview secrets: SESSION_SECRET and ENCRYPTION_KEY are set for this local process only.'
+
 exec npm run dev

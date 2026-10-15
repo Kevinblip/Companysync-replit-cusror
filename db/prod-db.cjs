@@ -126,6 +126,18 @@ async function initDatabase() {
     -- does not add later columns, so add them before creating their indexes.
     ALTER TABLE property_measurements ADD COLUMN IF NOT EXISTS invoice_id TEXT;
     ALTER TABLE property_measurements ADD COLUMN IF NOT EXISTS job_id TEXT;
+    -- Derived Solar dataLayers traces only. Raw DSM/mask rasters are never stored.
+    CREATE TABLE IF NOT EXISTS solar_roof_trace_cache (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL,
+      address_key TEXT NOT NULL,
+      payload JSONB NOT NULL,
+      payload_bytes INTEGER NOT NULL,
+      trace_ms INTEGER,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE (company_id, address_key)
+    );
     CREATE TABLE IF NOT EXISTS payments (
       id TEXT PRIMARY KEY, base44_id TEXT UNIQUE, company_id TEXT, invoice_id TEXT, customer_id TEXT,
       customer_name TEXT, invoice_number TEXT, payment_number TEXT, amount NUMERIC(12,2) DEFAULT 0,
@@ -626,6 +638,7 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_property_measurements_company ON property_measurements(company_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_property_measurements_invoice ON property_measurements(company_id, invoice_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_property_measurements_job ON property_measurements(company_id, job_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_solar_roof_trace_cache_company ON solar_roof_trace_cache(company_id);
     CREATE INDEX IF NOT EXISTS idx_payments_company ON payments(company_id);
     CREATE INDEX IF NOT EXISTS idx_projects_company ON projects(company_id);
     CREATE INDEX IF NOT EXISTS idx_labor_rates_company ON labor_rates(company_id, is_active);
@@ -1456,8 +1469,38 @@ async function universalDelete(p, entityType, id) {
 }
 
 async function universalBulkCreate(p, entityType, items) {
+  if (!items?.length) return [];
+  // LOCKSTEP: generic bulk insert in vite-db-plugin.js genericBulkCreate.
+  if (isDedicatedTable(entityType)) {
+    const results = [];
+    for (const item of items) results.push(await universalCreate(p, entityType, item));
+    return results;
+  }
   const results = [];
-  for (const item of items) { results.push(await universalCreate(p, entityType, item)); }
+  const CHUNK = 200;
+  for (let offset = 0; offset < items.length; offset += CHUNK) {
+    const chunk = items.slice(offset, offset + CHUNK);
+    const values = [];
+    const placeholders = chunk.map((item, idx) => {
+      const id = item.id || `local_${Date.now()}_${offset + idx}_${Math.random().toString(36).slice(2, 8)}`;
+      const companyId = item.company_id || null;
+      const data = { ...item };
+      delete data.id;
+      delete data.company_id;
+      values.push(id, entityType, companyId, JSON.stringify(data));
+      const base = idx * 4;
+      chunk[idx] = { id, company_id: companyId, ...data };
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}::jsonb, NOW(), NOW())`;
+    });
+    await p.query(
+      `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT (id, entity_type) DO UPDATE SET data = EXCLUDED.data, updated_date = NOW()`,
+      values
+    );
+    const now = new Date();
+    for (const created of chunk) results.push({ ...created, created_date: now, updated_date: now });
+  }
   return results;
 }
 

@@ -24,6 +24,11 @@ const {
 } = require('./lib/spokenBrandName.cjs');
 const { groundingRulesBlock: lexiGroundingRules, annotateToolResult: groundToolResult } = require('./lib/lexiGrounding.cjs');
 const { isVoiceGroundingSensitive, auditVoiceTurn } = require('./lib/lexiVoiceGrounding.cjs');
+const {
+  END_SESSION_TOOL,
+  SESSION_END_INSTRUCTION,
+  createLexiSessionCloser,
+} = require('./lib/lexiSessionEnd.cjs');
 const { getVerifiedLexiChannels, canonicalPhone } = require('./lib/insuranceClaimWelcome.cjs');
 const {
   getCustomerPublicProgress,
@@ -12518,18 +12523,62 @@ lexiWss.on('connection', async (clientWs, req) => {
   const MAX_IDLE_MS = Number(process.env.LEXI_MAX_IDLE_MS || 15 * 60 * 1000);
   let lastActivityAt = Date.now();
   const markActivity = () => { lastActivityAt = Date.now(); };
-  const idleTimer = setInterval(() => {
+  let idleTimer = null;
+  let closerStarted = false;
+  let stopLogged = false;
+  function stopVoiceSession(code, reason) {
+    if (stopLogged) return;
+    stopLogged = true;
+    clientClosed = true;
+    const durationSec = Math.round((Date.now() - sessionStartTime) / 1000);
+    try { geminiWs?.close(); } catch (e) {}
+    saveSession();
+    try { sessionCloser?.dispose(); } catch (e) {}
+    if (idleTimer) clearInterval(idleTimer);
+    if (setupWatchdog) { clearTimeout(setupWatchdog); setupWatchdog = null; }
+    console.log('[Lexi Native] Session fully stopped', {
+      reason,
+      closeCode: code,
+      durationSec,
+      geminiSocket: 'closed',
+      billing: 'saved',
+    });
+    try {
+      if (clientWs.readyState === WebSocket.OPEN || clientWs.readyState === WebSocket.CONNECTING) {
+        if (code === 4002) clientWs.close(4002, reason);
+        else clientWs.close(code, reason);
+      }
+    } catch (e) {}
+  }
+  // Standard Listening mode also closes after about a minute of silence
+  // (warning at 45s). Hands-free / Drive Mode keeps only this billing cap
+  // so a driving pause is not treated as a hang-up. Farewells end both.
+  // Keep in lockstep with vite-lexi-native-plugin.js.
+  const sessionCloser = createLexiSessionCloser({
+    handsFree,
+    sendClient: (msg) => {
+      try {
+        if (clientWs.readyState === WebSocket.OPEN) clientWs.send(JSON.stringify(msg));
+      } catch (e) {}
+    },
+    sendGemini: (payload) => {
+      const sock = geminiWs;
+      if (!sock || sock.readyState !== WebSocket.OPEN || !setupComplete) return false;
+      sock.send(JSON.stringify(payload));
+      return true;
+    },
+    closeAll: (code, reason) => stopVoiceSession(code, reason),
+  });
+  idleTimer = setInterval(() => {
+    if (stopLogged || sessionCloser.isEnding()) return;
     if (Date.now() - lastActivityAt < MAX_IDLE_MS) return;
     console.log('[Lexi Native] Session idle past cap — ending to stop billing', {
       handsFree,
       durationSec: Math.round((Date.now() - sessionStartTime) / 1000),
       idleForSec: Math.round((Date.now() - lastActivityAt) / 1000),
     });
-    clientClosed = true;
     try { clientWs.send(JSON.stringify({ type: 'status', status: 'disconnected', reason: 'idle' })); } catch (e) {}
-    try { geminiWs?.close(); } catch (e) {}
-    saveSession();
-    try { clientWs.close(4002, 'idle'); } catch (e) {}
+    stopVoiceSession(4002, 'idle-cap');
   }, 30000);
 
   let geminiApiKey = process.env.GOOGLE_GEMINI_API_KEY;
@@ -12649,10 +12698,10 @@ lexiWss.on('connection', async (clientWs, req) => {
           },
           system_instruction: { parts: [
             { text: buildLexiSystemPrompt(companyName, userName, timezone, knowledgeBase, customerList, staffList, preferredLanguage, recentSessionContext, spokenName) },
-            { text: 'If the user explicitly says stop, stop talking, or asks you to be quiet, stop the current response immediately and wait silently for their next request. Do not continue or repeat the interrupted answer.' },
+            { text: SESSION_END_INSTRUCTION },
             { text: 'For roof supplement math, call calculate_roof_supplement with the original and revised roofing squares. Ask for missing inputs. Speak the returned formatted USD amount at the fixed $324.69 per square shingles-and-felt rate. This is arithmetic only, not company revenue or a saved estimate; do not claim that it saved or changed a record.' }
           ] },
-          tools: [{ function_declarations: [...LEXI_CRM_TOOLS, SUPPLEMENT_TOOL] }]
+          tools: [{ function_declarations: [...LEXI_CRM_TOOLS, SUPPLEMENT_TOOL, END_SESSION_TOOL] }]
         }
       }));
     });
@@ -12671,6 +12720,10 @@ lexiWss.on('connection', async (clientWs, req) => {
           setupComplete = true;
           if (setupWatchdog) { clearTimeout(setupWatchdog); setupWatchdog = null; }
           markActivity();
+          if (!closerStarted) {
+            closerStarted = true;
+            sessionCloser.start();
+          }
           console.log('[Lexi Native] Setup complete, ready for voice');
           clientWs.send(JSON.stringify({ type: 'status', status: 'ready' }));
           // Re-greeting after every network blip would be jarring in a car; the
@@ -12684,6 +12737,7 @@ lexiWss.on('connection', async (clientWs, req) => {
           const fcs = data.toolCall.functionCalls || [];
           voiceToolCallsInFlight += fcs.length;
           const responses = [];
+          let endSessionCalled = false;
           // Every send below targets thisWs, never the mutable geminiWs: a
           // reconnect during the awaits would otherwise deliver this socket's
           // tool response into a session that never asked for it.
@@ -12691,7 +12745,10 @@ lexiWss.on('connection', async (clientWs, req) => {
             let result;
             try {
               let toolPromise;
-              if (fc.name === 'calculate_roof_supplement') {
+              if (fc.name === 'end_session') {
+                endSessionCalled = true;
+                result = sessionCloser.onEndSessionTool();
+              } else if (fc.name === 'calculate_roof_supplement') {
                 // The socket is already session-authenticated. This tool is
                 // pure arithmetic; all CRM tools keep their existing guards.
                 const args = typeof fc.args === 'string' ? JSON.parse(fc.args) : (fc.args || {});
@@ -12699,8 +12756,10 @@ lexiWss.on('connection', async (clientWs, req) => {
               } else {
                 toolPromise = handleLexiToolCall(fc, companyId, userEmail, timezone, buildConfirmationState);
               }
-              const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Tool call timed out after 8s')), 8000));
-              result = await Promise.race([toolPromise, timeoutPromise]);
+              if (fc.name !== 'end_session') {
+                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Tool call timed out after 8s')), 8000));
+                result = await Promise.race([toolPromise, timeoutPromise]);
+              }
             } catch (err) {
               console.error(`[Lexi] Tool call ${fc.name} failed:`, err.message);
               result = { error: err.message, status: 'failed' };
@@ -12710,7 +12769,9 @@ lexiWss.on('connection', async (clientWs, req) => {
             responses.push({
               id: fc.id,
               name: fc.name,
-              response: groundToolResult(fc.name, typeof result === 'object' ? result : { output: String(result) }),
+              response: fc.name === 'end_session'
+                ? result
+                : groundToolResult(fc.name, typeof result === 'object' ? result : { output: String(result) }),
             });
             voiceToolCallsInFlight = Math.max(0, voiceToolCallsInFlight - 1);
             if (clientWs.readyState === WebSocket.OPEN) {
@@ -12724,25 +12785,29 @@ lexiWss.on('connection', async (clientWs, req) => {
             console.warn('[Lexi Native] Gemini socket superseded during tool call — discarding stale tool response');
           } else if (thisWs.readyState === WebSocket.OPEN) {
             thisWs.send(JSON.stringify({ tool_response: { function_responses: responses } }));
-            const toolSummaries = responses.map(r => {
-              const res = r.response;
-              if (res.error || res.success === false) return `${r.name}: FAILED - ${res.error || 'unknown error'}`;
-              return `${r.name}: SUCCESS - ${res.message || 'done'}`;
-            }).join('; ');
-            thisWs.send(JSON.stringify({
-              client_content: {
-                turns: [{
-                  role: "user",
-                  parts: [{ text: `[System: Tool results: ${toolSummaries}. Respond naturally. If any tool FAILED, tell the user honestly. Keep it brief.]` }]
-                }],
-                turn_complete: true
-              }
-            }));
+            // end_session already spoke its goodbye. A follow-up prompt would keep the call open.
+            if (!endSessionCalled) {
+              const toolSummaries = responses.map(r => {
+                const res = r.response;
+                if (res.error || res.success === false) return `${r.name}: FAILED - ${res.error || 'unknown error'}`;
+                return `${r.name}: SUCCESS - ${res.message || 'done'}`;
+              }).join('; ');
+              thisWs.send(JSON.stringify({
+                client_content: {
+                  turns: [{
+                    role: "user",
+                    parts: [{ text: `[System: Tool results: ${toolSummaries}. Respond naturally. If any tool FAILED, tell the user honestly. Keep it brief.]` }]
+                  }],
+                  turn_complete: true
+                }
+              }));
+            }
           }
         }
         if (data.serverContent?.inputTranscription?.text) {
           const userText = data.serverContent.inputTranscription.text;
           markActivity();
+          sessionCloser.noteUserSpeech(userText);
           if (buildConfirmationState.pendingToken) {
             buildConfirmationState.userReply = userText;
           }
@@ -12836,6 +12901,7 @@ lexiWss.on('connection', async (clientWs, req) => {
               }
             }, 10000);
           }
+          sessionCloser.onTurnComplete();
         }
       } catch (err) { console.error('[Lexi Native] Gemini message error:', err.message); }
     });
@@ -12922,6 +12988,7 @@ lexiWss.on('connection', async (clientWs, req) => {
         if (buildConfirmationState.pendingToken) {
           buildConfirmationState.userReply = String(msg.text || '');
         }
+        sessionCloser.noteUserSpeech(msg.text);
         geminiWs.send(JSON.stringify({ client_content: { turns: [{ role: "user", parts: [{ text: msg.text }] }], turn_complete: true } }));
         conversationLog.push({ role: 'User', text: msg.text });
       }
@@ -12938,13 +13005,9 @@ lexiWss.on('connection', async (clientWs, req) => {
       setupComplete,
       reconnectAttempt: geminiReconnects,
     });
-    if (setupWatchdog) { clearTimeout(setupWatchdog); setupWatchdog = null; }
     // Set BEFORE closing the upstream socket so its close handler treats this
     // as an intentional stop and does not schedule a reconnect.
-    clientClosed = true;
-    saveSession();
-    if (idleTimer) clearInterval(idleTimer);
-    if (geminiWs && (geminiWs.readyState === WebSocket.OPEN || geminiWs.readyState === WebSocket.CONNECTING)) geminiWs.close();
+    stopVoiceSession(code || 1000, 'browser');
   });
 });
 

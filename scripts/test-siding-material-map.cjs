@@ -118,6 +118,77 @@ function ok(label, condition, got, expected) {
   ok('ambiguous material coverage requires review', uncertain.material_map.review_required === true);
   ok('ambiguous material is not charged as siding', uncertain.totals.siding_material_area_sqft === 0);
 
+  const partialUnknown = buildSidingMeasurementGraph({
+    perPhotoResults: [{
+      wall_face: 'front',
+      wall_width_ft: 40,
+      wall_height_ft: 10,
+      eave_height_ft: 10,
+      confidence: 0.9,
+      siding_material: 'vinyl',
+      material_regions: [
+        { material: 'lap_siding', percent: 70 },
+        { material: 'other', percent: 30 },
+      ],
+      openings: [],
+    }],
+    storyCount: 1,
+    wallHeightFt: 10,
+    grossWallAreaSqft: 400,
+    perimeterFt: 40,
+    buildingWidthFt: 40,
+    buildingLengthFt: 0,
+  });
+  ok('a partial unknown region stays in the siding takeoff',
+    Math.abs(partialUnknown.totals.net_siding_area_sqft - 400) < 0.01,
+    partialUnknown.totals.net_siding_area_sqft,
+    400);
+  ok('lap is still the classified siding material',
+    Math.abs(partialUnknown.totals.siding_material_area_sqft - 280) < 0.01,
+    partialUnknown.totals.siding_material_area_sqft,
+    280);
+
+  const glassWall = buildSidingMeasurementGraph({
+    perPhotoResults: [{
+      wall_face: 'front',
+      wall_width_ft: 40,
+      wall_height_ft: 10,
+      eave_height_ft: 10,
+      confidence: 0.9,
+      siding_material: 'vinyl',
+      material_regions: [
+        { material: 'lap_siding', percent: 80 },
+        { material: 'glass', percent: 20 },
+      ],
+      openings: [{
+        type: 'window',
+        width_ft: 8,
+        height_ft: 10,
+        pos_x: 20,
+        pos_y: 5,
+        confidence: 0.9,
+      }],
+    }],
+    storyCount: 1,
+    wallHeightFt: 10,
+    grossWallAreaSqft: 400,
+    perimeterFt: 40,
+    buildingWidthFt: 40,
+    buildingLengthFt: 0,
+  });
+  ok('glass stays in the pre-opening facade',
+    Math.abs(glassWall.totals.siding_facade_area_sqft - 400) < 0.01,
+    glassWall.totals.siding_facade_area_sqft,
+    400);
+  ok('the window is deducted once, not again as glass',
+    Math.abs(glassWall.totals.net_siding_area_sqft - 320) < 0.01,
+    glassWall.totals.net_siding_area_sqft,
+    320);
+  ok('lap siding is still reported without the glass',
+    Math.abs(glassWall.totals.siding_material_area_sqft - 320) < 0.01,
+    glassWall.totals.siding_material_area_sqft,
+    320);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) process.exitCode = 1;
 })().catch((error) => {

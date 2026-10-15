@@ -68,6 +68,49 @@ function robustPhotoHeightAvg(values) {
   return { value: median(survivors), kept: survivors, rejected };
 }
 
+function spreadRatio(values) {
+  if (values.length < 2) return 0;
+  const center = median(values);
+  if (!(center > 0)) return 0;
+  return (Math.max(...values) - Math.min(...values)) / center;
+}
+
+/**
+ * Length of one building axis when both opposite elevations were measured.
+ *
+ * Hover adds the two elevations. A robust average of every side photo pooled
+ * together does the opposite: three short reads of one wall can reject two
+ * agreeing reads of the other wall, and the short length is then mirrored
+ * onto both sides. Each face is reduced on its own first. The two surviving
+ * face lengths are then averaged so `2 × axis = left + right` (or front + back).
+ *
+ * The one exception is the single uncorroborated outlier — one photo of a
+ * wall that disagrees with two or more agreeing photos of the opposite wall.
+ * That is the Hover-garage failure (a back photo that included the background).
+ * Repeating it onto both walls would inflate the building; copying the
+ * corroborated elevation is the right call there.
+ *
+ * @returns {number|null} axis length (the mean of the two elevation lengths)
+ */
+function sumOppositeElevations(aWidths, bWidths) {
+  if (aWidths.length === 0 && bWidths.length === 0) return null;
+  const a = aWidths.length ? robustAvg(aWidths).value : null;
+  const b = bWidths.length ? robustAvg(bWidths).value : null;
+  if (a == null) return b;
+  if (b == null) return a;
+
+  const aStats = robustAvg(aWidths);
+  const bStats = robustAvg(bWidths);
+  const aTight = aWidths.length >= 2 && aStats.rejected.length === 0 && spreadRatio(aWidths) <= 0.15;
+  const bTight = bWidths.length >= 2 && bStats.rejected.length === 0 && spreadRatio(bWidths) <= 0.15;
+  const pooled = robustAvg([...aWidths, ...bWidths]);
+  let aVal = a;
+  let bVal = b;
+  if (aWidths.length === 1 && bTight && pooled.rejected.includes(aWidths[0])) aVal = b;
+  else if (bWidths.length === 1 && aTight && pooled.rejected.includes(bWidths[0])) bVal = a;
+  return (aVal + bVal) / 2;
+}
+
 // ─── 1. Wall height ──────────────────────────────────────────────────────────
 /**
  * Derive wall eave height from per-photo AI results.
@@ -176,22 +219,44 @@ function deriveBuildingDimensions(perPhotoResults, isGarageJob = false) {
     .map(r => Number(r.wall_width_ft) || 0)
     .filter(w => w > 5);
 
+  const widthsFor = (pred) => dimResults
+    .filter(pred)
+    .map(r => Number(r.wall_width_ft) || 0)
+    .filter(w => w > 5);
+  const faceLabel = label;
+  const isLeftFace = (r) => /\bleft\b|left_side|\bwest\b/.test(faceLabel(r));
+  const isRightFace = (r) => /\bright\b|right_side|\beast\b/.test(faceLabel(r));
+  const isFrontFace = (r) => /front|\bsouth\b/.test(faceLabel(r)) && !isLeftFace(r) && !isRightFace(r);
+  const isBackFace = (r) => /back|rear|\bnorth\b/.test(faceLabel(r)) && !isLeftFace(r) && !isRightFace(r);
+  const frontWidths = widthsFor(isFrontFace);
+  const backWidths = widthsFor(isBackFace);
+  const leftWidths = widthsFor(isLeftFace);
+  const rightWidths = widthsFor(isRightFace);
+
   let buildingWidthFt, buildingLengthFt, depthMissing = false;
 
   // Robust means: one photo that mistakes a corner shot for a full facade (or
   // includes a neighboring wall) can inflate a plain average by 20%+.
   const robustWidth = (ws) => Math.round(robustAvg(ws).value);
+  // Opposite elevations are added (each face keeps its own length) unless a
+  // single photo is an outlier against a corroborated opposite wall.
+  const summedFrontBack = (frontWidths.length + backWidths.length) === frontBackWidths.length
+    ? sumOppositeElevations(frontWidths, backWidths)
+    : null;
+  const summedSides = (leftWidths.length + rightWidths.length) === sideWidths.length
+    ? sumOppositeElevations(leftWidths, rightWidths)
+    : null;
 
   if (frontBackWidths.length > 0 && sideWidths.length > 0) {
-    buildingWidthFt  = robustWidth(frontBackWidths);
-    buildingLengthFt = robustWidth(sideWidths);
+    buildingWidthFt  = summedFrontBack != null ? Math.round(summedFrontBack) : robustWidth(frontBackWidths);
+    buildingLengthFt = summedSides != null ? Math.round(summedSides) : robustWidth(sideWidths);
   } else if (frontBackWidths.length > 0) {
     // No side shots — estimate depth, do NOT use width as depth
     buildingWidthFt  = robustWidth(frontBackWidths);
     buildingLengthFt = Math.round(buildingWidthFt * (isGarageJob ? 0.9 : 0.75));
     depthMissing = true;
   } else if (sideWidths.length > 0) {
-    buildingLengthFt = robustWidth(sideWidths);
+    buildingLengthFt = summedSides != null ? Math.round(summedSides) : robustWidth(sideWidths);
     buildingWidthFt  = buildingLengthFt;
   } else if (allWidths.length > 0) {
     buildingWidthFt  = robustWidth(allWidths);
@@ -247,10 +312,255 @@ function computeGableArea(gablePhotos, buildingWidthFt, buildingLengthFt) {
   return { gableAreaSqft, gableBaseFt };
 }
 
+function canonicalPlaneFace(value) {
+  const raw = String(value || '').toLowerCase();
+  if (raw.includes('left')) return 'left_side';
+  if (raw.includes('right')) return 'right_side';
+  if (raw.includes('back') || raw.includes('rear') || raw.includes('north')) return 'back';
+  if (raw.includes('front') || raw.includes('south')) return 'front';
+  return 'unknown';
+}
+
+function normalizeReportedPlane(raw, photo) {
+  if (!raw || typeof raw !== 'object') return null;
+  const width = Number(raw.width_ft ?? raw.wall_width_ft) || 0;
+  const eave = Number(raw.eave_height_ft ?? raw.wall_height_ft) || 0;
+  const role = String(raw.role || 'wall').toLowerCase().replace(/\s+/g, '_');
+  const explicitlyUnsided = raw.sided === false || role === 'chimney' || role === 'masonry';
+  const openPorch = role === 'porch' && raw.sided !== true;
+  const sided = !explicitlyUnsided && !openPorch;
+  if (sided && (width <= 5 || eave <= 0)) return null;
+  if (!sided && (width <= 2 || eave <= 0)) return null;
+  const rise = Math.max(0, Number(raw.gable_rise_ft) || 0);
+  const gableSided = sided && raw.gable_sided !== false && role !== 'porch' && rise > 0;
+  const nonSiding = sided
+    ? Math.max(0, Math.min(100, Number(raw.non_siding_pct) || 0))
+    : 100;
+  const occlusion = Math.max(0, Math.min(100, Number(raw.occlusion_pct) || (raw.occluded === true ? 40 : 0)));
+  const stories = Number(raw.story_count || raw.stories) || (eave >= 16 ? 2 : 1);
+  // A two-story gable measured at a first-floor eave drops the upper wall.
+  const eaveFt = stories >= 2 && eave > 0 && eave < 16 ? 17 : Math.max(0, Math.min(28, eave));
+  return {
+    plane_id: String(raw.plane_id || raw.id || role).toLowerCase().replace(/[^a-z0-9_]+/g, '_').slice(0, 40),
+    role,
+    face: canonicalPlaneFace(raw.face || raw.wall_face || photo?.wall_face),
+    width_ft: width,
+    eave_height_ft: eaveFt,
+    gable_rise_ft: gableSided ? Math.min(rise, 16) : 0,
+    reported_gable_rise_ft: rise,
+    gable_sided: gableSided,
+    sided,
+    include_in_takeoff: sided,
+    non_siding_pct: nonSiding,
+    non_siding_material: raw.non_siding_material && raw.non_siding_material !== 'none'
+      ? String(raw.non_siding_material).toLowerCase()
+      : (role === 'chimney' ? 'brick' : null),
+    occluded: raw.occluded === true || occlusion >= 25,
+    occlusion_pct: occlusion,
+    outside_corners: Math.max(0, Number(raw.outside_corners ?? raw.outside_corners_visible) || 0),
+    inside_corners: Math.max(0, Number(raw.inside_corners ?? raw.inside_corners_visible) || 0),
+    stories,
+    width_source: 'photo',
+  };
+}
+
+function planesAreSameWall(a, b) {
+  if (a.sided !== b.sided) return false;
+  const wallRoles = new Set(['main', 'wing', 'gable_end', 'garage', 'wall']);
+  const bothWalls = wallRoles.has(a.role) && wallRoles.has(b.role);
+  if (!bothWalls && a.role !== b.role) return false;
+  const widthBase = Math.max(a.width_ft, b.width_ft);
+  const eaveBase = Math.max(a.eave_height_ft, b.eave_height_ft);
+  if (!(widthBase > 0) || !(eaveBase > 0)) return false;
+  const widthRatio = Math.min(a.width_ft, b.width_ft) / widthBase;
+  const eaveRatio = Math.min(a.eave_height_ft, b.eave_height_ft) / eaveBase;
+  const sameFace = a.face === b.face || a.face === 'unknown' || b.face === 'unknown';
+  if (a.plane_id && a.plane_id === b.plane_id && widthRatio >= 0.7 && eaveRatio >= 0.7) return true;
+  // A tree-blocked fragment of a wall that another photo already measured.
+  const fragment = a.occluded !== b.occluded
+    && widthRatio >= 0.45 && widthRatio < 0.85
+    && eaveRatio >= 0.45
+    && (sameFace || a.role === b.role);
+  if (fragment) return true;
+  if (a.role !== b.role) return false;
+  return sameFace && widthRatio >= 0.78 && eaveRatio >= 0.8;
+}
+
+function mergePlaneCluster(cluster) {
+  const clear = cluster.filter((plane) => !plane.occluded);
+  const widthPool = clear.length > 0 ? clear : cluster;
+  const width = Math.max(...widthPool.map((plane) => plane.width_ft));
+  const eaves = [...cluster.map((plane) => plane.eave_height_ft)].sort((a, b) => a - b);
+  const eave = eaves[Math.floor(eaves.length / 2)];
+  const face = cluster.find((plane) => plane.face !== 'unknown')?.face || 'unknown';
+  const base = cluster[0];
+  return {
+    ...base,
+    face,
+    width_ft: width,
+    eave_height_ft: eave,
+    gable_rise_ft: Math.max(...cluster.map((plane) => plane.gable_rise_ft)),
+    gable_sided: cluster.some((plane) => plane.gable_sided),
+    non_siding_pct: Math.max(...cluster.map((plane) => plane.non_siding_pct)),
+    non_siding_material: cluster.find((plane) => plane.non_siding_material)?.non_siding_material || null,
+    occluded: cluster.every((plane) => plane.occluded),
+    occlusion_pct: Math.min(...cluster.map((plane) => plane.occlusion_pct)),
+    outside_corners: Math.max(...cluster.map((plane) => plane.outside_corners)),
+    inside_corners: Math.max(...cluster.map((plane) => plane.inside_corners)),
+    stories: Math.max(...cluster.map((plane) => plane.stories)),
+    photo_count: cluster.length,
+    width_source: 'photo',
+  };
+}
+
+/**
+ * Sum every distinct wall plane instead of folding the house into four sides.
+ *
+ * A two-story gable, a garage gable, a one-story hip wall, and the wall behind
+ * a porch are different surfaces. Photos of the same surface are merged.
+ * An open porch and a chimney are reported and then left out of the siding.
+ * A sided gable triangle is added; an open porch gable is not. When trees hide
+ * a wall and a satellite edge for that side is longer, the short visible
+ * fragment is raised to the satellite length.
+ *
+ * @returns {{ authoritative: boolean, planes: object[], gross_wall_sqft: number, gable_area_sqft: number, excluded_sqft: number, outside_corners: number, inside_corners: number, outside_corners_lf: number, inside_corners_lf: number, stories: number }}
+ */
+function sumDistinctWallPlanes(perPhotoResults, options = {}) {
+  const reported = [];
+  for (const photo of perPhotoResults || []) {
+    const planes = Array.isArray(photo?.wall_planes) ? photo.wall_planes : [];
+    for (const raw of planes) {
+      const plane = normalizeReportedPlane(raw, photo);
+      if (plane) reported.push(plane);
+    }
+  }
+  const clusters = [];
+  for (const plane of reported) {
+    const cluster = clusters.find((group) => planesAreSameWall(group[0], plane));
+    if (cluster) cluster.push(plane);
+    else clusters.push([plane]);
+  }
+  const merged = clusters.map(mergePlaneCluster);
+  const satelliteAxes = options.satelliteAxes && typeof options.satelliteAxes === 'object'
+    ? options.satelliteAxes
+    : null;
+  if (satelliteAxes) {
+    const axisValues = ['front', 'back', 'left_side', 'right_side']
+      .map((face) => Number(satelliteAxes[face]) || 0)
+      .filter((value) => value > 0);
+    const shortAxis = axisValues.length ? Math.min(...axisValues) : 0;
+    for (const plane of merged) {
+      if (!plane.sided || !plane.occluded) continue;
+      const faceTarget = Number(satelliteAxes[plane.face]) || 0;
+      // A gable end is the short side of the footprint. The long axis is a
+      // side wall, and copying it onto a gable bills the whole house as one end.
+      const cap = plane.gable_rise_ft > 0 && shortAxis > 0 ? shortAxis : faceTarget;
+      if (!(cap > 0)) continue;
+      const hidden = Math.max(0, Math.min(60, Number(plane.occlusion_pct) || 0)) / 100;
+      if (hidden < 0.15) continue;
+      const inferred = plane.width_ft / (1 - hidden);
+      const next = Math.min(cap, inferred);
+      if (next <= plane.width_ft + 1) continue;
+      plane.measured_width_ft = plane.width_ft;
+      // The triangle belongs to the end that was visible. The restored length
+      // behind the trees is wall, not a wider gable.
+      if (plane.gable_rise_ft > 0 && next > plane.width_ft * 1.25) {
+        plane.gable_base_ft = plane.width_ft;
+      }
+      plane.width_ft = Math.round(next * 10) / 10;
+      plane.width_source = 'satellite_footprint';
+    }
+  }
+
+  const tracedPerimeter = Number(options.tracedPerimeterFt) || 0;
+  if (tracedPerimeter > 0) {
+    const sidedNow = merged.filter((plane) => plane.sided);
+    const porchWidth = merged
+      .filter((plane) => !plane.sided && plane.role === 'porch')
+      .reduce((sum, plane) => sum + plane.width_ft, 0);
+    const sidedWidth = sidedNow.reduce((sum, plane) => sum + plane.width_ft, 0);
+    const target = Math.max(0, tracedPerimeter - porchWidth);
+    const gap = target - sidedWidth;
+    // The photos missed whole walls. The satellite outline still has their length.
+    // One-story eave is the right height for that remainder; it is not a gable.
+    if (gap > 8 && sidedNow.length > 0) {
+      const oneStory = sidedNow.filter((plane) => (plane.stories || 1) < 2);
+      const sample = (oneStory.length ? oneStory : sidedNow)
+        .map((plane) => plane.eave_height_ft)
+        .sort((a, b) => a - b);
+      const eave = sample[Math.floor(sample.length / 2)] || 9;
+      merged.push({
+        plane_id: 'footprint_remainder',
+        role: 'wing',
+        face: 'unknown',
+        width_ft: Math.round(gap * 10) / 10,
+        eave_height_ft: eave,
+        gable_rise_ft: 0,
+        reported_gable_rise_ft: 0,
+        gable_sided: false,
+        sided: true,
+        include_in_takeoff: true,
+        non_siding_pct: 0,
+        non_siding_material: null,
+        occluded: true,
+        occlusion_pct: 100,
+        outside_corners: 0,
+        inside_corners: 0,
+        stories: 1,
+        photo_count: 0,
+        width_source: 'satellite_footprint',
+        measured_width_ft: 0,
+      });
+    }
+  }
+
+  const planes = merged.map((plane) => {
+    const wall = plane.width_ft * plane.eave_height_ft;
+    const gableBase = plane.gable_base_ft || plane.width_ft;
+    const gable = plane.gable_sided ? (gableBase * plane.gable_rise_ft) / 2 : 0;
+    const gross = plane.sided ? wall + gable : 0;
+    const masonry = plane.sided ? gross * (plane.non_siding_pct / 100) : 0;
+    const excludedGable = !plane.gable_sided && plane.reported_gable_rise_ft > 0
+      ? (plane.width_ft * plane.reported_gable_rise_ft) / 2
+      : 0;
+    return {
+      ...plane,
+      wall_area_sqft: Math.round(wall),
+      gable_area_sqft: Math.round(gable),
+      gross_area_sqft: Math.round(gross),
+      masonry_area_sqft: Math.round(masonry),
+      siding_area_sqft: Math.round(Math.max(0, gross - masonry)),
+      excluded_gable_sqft: Math.round(excludedGable),
+      excluded: !plane.sided,
+    };
+  });
+  const included = planes.filter((plane) => plane.sided);
+  const gross = included.reduce((sum, plane) => sum + plane.gross_area_sqft, 0);
+  const gable = included.reduce((sum, plane) => sum + plane.gable_area_sqft, 0);
+  const outside = included.reduce((sum, plane) => sum + plane.outside_corners, 0);
+  const inside = included.reduce((sum, plane) => sum + plane.inside_corners, 0);
+  const outsideLf = included.reduce((sum, plane) => sum + plane.outside_corners * plane.eave_height_ft, 0);
+  const insideLf = included.reduce((sum, plane) => sum + plane.inside_corners * plane.eave_height_ft, 0);
+  return {
+    authoritative: included.length >= 3,
+    planes,
+    gross_wall_sqft: gross,
+    gable_area_sqft: gable,
+    excluded_sqft: planes.filter((plane) => !plane.sided).reduce((sum, plane) => sum + plane.wall_area_sqft + plane.excluded_gable_sqft, 0),
+    outside_corners: outside,
+    inside_corners: inside,
+    outside_corners_lf: Math.round(outsideLf),
+    inside_corners_lf: Math.round(insideLf),
+    stories: included.reduce((max, plane) => Math.max(max, plane.stories || 1), 1),
+  };
+}
+
 module.exports = {
   deriveWallHeight,
   deriveBuildingDimensions,
   computeGableArea,
+  sumDistinctWallPlanes,
+  sumOppositeElevations,
   robustAvg,
   median,
   DEFAULT_EAVE_PER_STORY,

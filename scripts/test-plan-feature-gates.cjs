@@ -68,9 +68,30 @@ function fetchJson(url, opts = {}) {
   });
 }
 
+const crypto = require('crypto');
+let invokeCookie = '';
+
+async function ensureInvokeSession(db) {
+  if (invokeCookie) return;
+  if (!process.env.SESSION_SECRET) throw new Error('SESSION_SECRET is required for checkSubscriptionLimits');
+  const sid = 'plan_gate_session_001';
+  const session = {
+    cookie: { originalMaxAge: 3600000, httpOnly: true, path: '/' },
+    passport: { user: { claims: { email: 'test@basic.test', sub: 'plan_test_user_basic' } } },
+  };
+  await db.query(
+    `INSERT INTO sessions (sid, sess, expire) VALUES ($1, $2::jsonb, $3)
+     ON CONFLICT (sid) DO UPDATE SET sess = EXCLUDED.sess, expire = EXCLUDED.expire`,
+    [sid, JSON.stringify(session), new Date(Date.now() + 3600000)],
+  );
+  const signature = crypto.createHmac('sha256', process.env.SESSION_SECRET).update(sid).digest('base64').replace(/=+$/, '');
+  invokeCookie = `connect.sid=${encodeURIComponent(`s:${sid}.${signature}`)}`;
+}
+
 async function invokeFunction(name, params = {}) {
   const r = await fetchJson(`${BASE_URL}/api/functions/invoke`, {
     method: 'POST',
+    headers: invokeCookie ? { Cookie: invokeCookie } : {},
     body: { functionName: name, params },
   });
   return r.body?.data ?? r.body;
@@ -304,6 +325,7 @@ try {
     // SECTION 3: Numeric limits via checkSubscriptionLimits API
     // ════════════════════════════════════════════════════════════════════════
     console.log('\n[ 3 ] Numeric limits — checkSubscriptionLimits API\n');
+    await ensureInvokeSession(pool);
 
     const ENTITY_TYPES = ['staff', 'lead', 'customer'];
     const EXPECTED_LIMITS = {

@@ -319,6 +319,17 @@ function seg(eastFt, northFt, azimuth, pitchDeg, A, B, areaM2, planeHeightAtCent
     check('5688 does not invent a hip or valley', totals.hip === 0 && totals.valley === 0, totals);
   }
 
+  console.log('\n— facing planes with a corner gap are a valley —');
+  {
+    const facets = buildRoofFacetsFromSolarSegments([
+      seg(0, 0, 180, 26, 12, 30, 40),
+      seg(-20, -6, 90, 26, 12, 24, 30),
+    ]);
+    const totals = computeEdgeTotals(facets);
+    check('valley is measured where both planes drain toward the corner', totals.valley > 0, totals);
+    check('the facing corner does not become a hip', totals.hip === 0, totals);
+  }
+
   console.log('\n— degenerate input —');
   {
     check('empty input → []', buildRoofFacetsFromSolarSegments([]).length === 0);

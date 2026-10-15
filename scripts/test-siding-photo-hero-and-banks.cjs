@@ -183,6 +183,79 @@ function check(name, cond, extra) {
       { flat: flat.photo_wall_area_sqft, gabled: gabled.photo_wall_area_sqft });
   }
 
+  console.log('\n\u2500\u2500 1b. Photo footprint adds the two side elevations \u2500\u2500');
+  {
+    const HT = 10.5;
+    const shortGross = 152 * HT;
+    const sides = [
+      { wall_face: 'left_side', view_label: 'Left', wall_width_ft: 62, eave_height_ft: HT, wall_height_ft: HT, story_count: 1 },
+      { wall_face: 'right_side', view_label: 'Right', wall_width_ft: 58, eave_height_ft: HT, wall_height_ft: HT, story_count: 1 },
+    ];
+    const photo = buildSidingMeasurementGraph({
+      perPhotoResults: sides,
+      storyCount: 1,
+      wallHeightFt: HT,
+      grossWallAreaSqft: shortGross,
+      perimeterFt: 152,
+      buildingWidthFt: 39,
+      buildingLengthFt: 37,
+      footprintSource: 'photos',
+    }).totals;
+    const added = (62 + 58 + 39 + 39) * HT;
+    check('a photo rectangle bills the two measured side walls instead of the short box',
+      photo.gross_wall_area_source === 'photo_wall_planes'
+        && photo.gross_wall_area_sqft > shortGross
+        && Math.abs(photo.gross_wall_area_sqft - added) < 1,
+      { gross: photo.gross_wall_area_sqft, added, shortGross, source: photo.gross_wall_area_source });
+    const traced = buildSidingMeasurementGraph({
+      perPhotoResults: sides,
+      storyCount: 1,
+      wallHeightFt: HT,
+      grossWallAreaSqft: shortGross,
+      perimeterFt: 152,
+      buildingWidthFt: 39,
+      buildingLengthFt: 37,
+      footprintSource: 'solar',
+    }).totals;
+    check('a traced footprint is not inflated by two side photos',
+      traced.gross_wall_area_source === 'footprint_extrusion',
+      traced.gross_wall_area_source);
+  }
+
+  console.log('\n\u2500\u2500 1c. Distinct wall planes replace the four-wall box \u2500\u2500');
+  {
+    const planes = [
+      { plane_id: 'two_story_gable', role: 'gable_end', face: 'front', width_ft: 22, eave_height_ft: 18, gable_rise_ft: 8, gable_sided: true, sided: true, stories: 2 },
+      { plane_id: 'garage_gable', role: 'garage', face: 'front', width_ft: 20, eave_height_ft: 9, gable_rise_ft: 6, gable_sided: true, sided: true, stories: 1 },
+      { plane_id: 'hip_side', role: 'wing', face: 'left_side', width_ft: 36, eave_height_ft: 9, gable_rise_ft: 0, gable_sided: false, sided: true, stories: 1 },
+      { plane_id: 'rear_wall', role: 'main', face: 'back', width_ft: 28, eave_height_ft: 9, gable_rise_ft: 0, sided: true, stories: 1, non_siding_pct: 18, non_siding_material: 'stone' },
+      { plane_id: 'porch_open', role: 'porch', face: 'back', width_ft: 28, eave_height_ft: 10, gable_rise_ft: 9, gable_sided: false, sided: false },
+    ];
+    const graph = buildSidingMeasurementGraph({
+      perPhotoResults: [],
+      explicitWallPlanes: planes,
+      storyCount: 1,
+      wallHeightFt: 10.5,
+      grossWallAreaSqft: 1752,
+      perimeterFt: 152,
+      buildingWidthFt: 39,
+      buildingLengthFt: 37,
+      footprintSource: 'photos',
+    });
+    const expectedGross = 484 + 240 + 324 + 252;
+    check('each wing is billed and the short rectangle is not',
+      graph.totals.gross_wall_area_source === 'photo_wall_planes'
+        && Math.abs(graph.totals.gross_wall_area_sqft - expectedGross) < 1,
+      { gross: graph.totals.gross_wall_area_sqft, expectedGross, source: graph.totals.gross_wall_area_source });
+    check('the open porch is not a billed plane',
+      !graph.wall_facets.some(facet => facet.plane_role === 'porch'),
+      graph.wall_facets.map(facet => facet.plane_role));
+    check('the stone band comes out of the rear wall once',
+      Math.abs(graph.totals.masonry_area_sqft - 45) < 1
+        && graph.totals.net_siding_area_sqft < graph.totals.gross_wall_area_sqft,
+      { masonry: graph.totals.masonry_area_sqft, net: graph.totals.net_siding_area_sqft });
+  }
+
   console.log('\n\u2500\u2500 2. Mullion banks are counting-only \u2500\u2500');
   {
     // Three same-height windows 0.5 ft apart on one wall = one mulled bank.

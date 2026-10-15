@@ -27,6 +27,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { matchesPriceListSearch } from "@/lib/priceListUtils";
 import { loadCompanyPriceCatalog } from "@/lib/loadCompanyPriceCatalog";
 import useCurrentCompany from "@/components/hooks/useCurrentCompany";
+import { useAuth } from "@/lib/AuthContext";
 
 export default function Items() {
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 768px)').matches);
@@ -61,11 +62,7 @@ export default function Items() {
 
   const queryClient = useQueryClient();
 
-  const { data: user } = useQuery({
-    queryKey: ['current-user'],
-    queryFn: () => base44.auth.me(),
-    initialData: null,
-  });
+  const { user } = useAuth();
 
   // Use the same active-company resolution as the app shell. Items must follow
   // the selected/impersonated tenant, not whichever staff profile happens to
@@ -479,6 +476,11 @@ export default function Items() {
   const handleExcelUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (!myCompany?.id) {
+      alert('Your company is still loading. Wait a moment, then upload the price list again.');
+      event.target.value = '';
+      return;
+    }
 
     // If existing Xactimate New items exist, confirm before replacing
     const existingXactNew = allItems.filter(i => i.source === 'Xactimate_New');
@@ -497,17 +499,18 @@ export default function Items() {
       const { file_url } = await base44.integrations.Core.UploadFile({ file });
       
       // Call the import function
-      const { data } = await base44.functions.invoke('importXactimateExcel', {
+      const result = await base44.functions.invoke('importXactimateExcel', {
         file_url,
-        company_id: myCompany?.id
+        company_id: myCompany.id
       });
+      const data = result?.data || {};
       
       if (data.success) {
         alert(`✅ Import Complete!\n\nSheets processed: ${data.total_sheets}\nItems imported: ${data.items_imported}\nErrors: ${data.errors}`);
         queryClient.invalidateQueries({ queryKey: ['price-list-items'] });
         setActiveTab('xactimate_new');
       } else {
-        alert(`❌ Import failed: ${data.error}`);
+        alert(`❌ Import failed: ${data.error || result?.error || result?.warning || 'Unknown error'}`);
       }
     } catch (error) {
       alert(`❌ Import failed: ${error.message}`);
@@ -838,7 +841,7 @@ export default function Items() {
                   <input
                     type="file"
                     ref={fileInputRef}
-                    accept=".xlsx,.xls"
+                    accept=".csv,.xlsx,.xls"
                     onChange={handleExcelUpload}
                     className="hidden"
                   />
@@ -1136,14 +1139,15 @@ export default function Items() {
                                      setIsImportingExcel(true);
                                      try {
                                        const { file_url } = await base44.integrations.Core.UploadFile({ file });
-                                       const { data } = await base44.functions.invoke('importXactimateExcel', {
+                                       const result = await base44.functions.invoke('importXactimateExcel', {
                                          file_url, company_id: myCompany.id, source_override: 'Symbility'
                                        });
-                                       if (data?.items_imported) {
+                                       const data = result?.data || {};
+                                       if (data.success) {
                                          toast({ title: `✅ Imported ${data.items_imported} Symbility items` });
                                          queryClient.invalidateQueries({ queryKey: ['price-list-items'] });
                                        } else {
-                                         toast({ title: '❌ Import failed', description: data?.error || 'Unknown error', variant: 'destructive' });
+                                         toast({ title: '❌ Import failed', description: data.error || result?.error || result?.warning || 'Unknown error', variant: 'destructive' });
                                        }
                                      } catch (err) {
                                        toast({ title: '❌ Import failed', description: err.message, variant: 'destructive' });

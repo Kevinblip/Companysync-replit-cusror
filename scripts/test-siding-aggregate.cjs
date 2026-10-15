@@ -21,6 +21,7 @@ const {
   deriveWallHeight,
   deriveBuildingDimensions,
   computeGableArea,
+  sumDistinctWallPlanes,
   robustAvg,
   DEFAULT_EAVE_PER_STORY,
   PHOTO_CALIBRATION_MIN_FULL_HEIGHT_FT,
@@ -351,6 +352,28 @@ console.log('\n── Building dimensions: width outlier rejected ──');
   ok('side depth = 22', buildingLengthFt === 22, buildingLengthFt, 22);
 }
 
+console.log('\n── Building dimensions: the two side elevations are added ──');
+{
+  // Two agreeing photos of a long left wall, three of a short right wall.
+  // Pooling every side photo and rejecting outliers mirrors the short wall
+  // onto both sides (about 31 ft). Hover adds the elevations: (61 + 31) / 2.
+  const perPhotoResults = [
+    { view_label: 'Front', wall_width_ft: 36 },
+    { view_label: 'Back', wall_width_ft: 36 },
+    { view_label: 'Left Side', wall_width_ft: 60 },
+    { view_label: 'Left Side', wall_width_ft: 62 },
+    { view_label: 'Right Side', wall_width_ft: 30 },
+    { view_label: 'Right Side', wall_width_ft: 31 },
+    { view_label: 'Right Side', wall_width_ft: 32 },
+  ];
+  const { buildingWidthFt, buildingLengthFt } = deriveBuildingDimensions(perPhotoResults, false);
+  ok('gable-end width stays 36 ft', buildingWidthFt === 36, buildingWidthFt, 36);
+  ok('side length adds the long wall to the short wall (46 ft, not the short 31 ft)',
+     buildingLengthFt === 46, buildingLengthFt, 46);
+  ok('both side walls are in the perimeter (2 × 46 = 61 + 31)',
+     2 * buildingLengthFt === 92, 2 * buildingLengthFt, 92);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 5: 5688 Gemini Ct ground-truth benchmark
 // ─────────────────────────────────────────────────────────────────────────────
@@ -448,6 +471,107 @@ console.log('\n── 5688 Gemini Ct: strict siding, roof, and individual-window
      benchmark.roof.sqft === 2481, benchmark.roof.sqft, 2481);
   ok('roof square total is exactly 24.81 SQ',
      benchmark.roof.sq === 24.81, benchmark.roof.sq, 24.81);
+}
+
+// ── Multi-section house: each wing is its own plane ─────────────────────────
+console.log('\n── Multi-section house: wings and gables are summed ──');
+{
+  const photos = [
+    {
+      label: 'Front corner',
+      wall_planes: [
+        { plane_id: 'two_story_gable', role: 'gable_end', face: 'front', width_ft: 22, eave_height_ft: 18, gable_rise_ft: 8, gable_sided: true, sided: true, story_count: 2, outside_corners: 2, inside_corners: 0 },
+        { plane_id: 'garage_gable', role: 'garage', face: 'front', width_ft: 20, eave_height_ft: 9, gable_rise_ft: 6, gable_sided: true, sided: true, story_count: 1, outside_corners: 2 },
+      ],
+    },
+    {
+      label: 'Front corner again',
+      wall_planes: [
+        { plane_id: 'two_story_gable', role: 'gable_end', face: 'front', width_ft: 21, eave_height_ft: 18, gable_rise_ft: 7.5, gable_sided: true, sided: true, story_count: 2, outside_corners: 2 },
+      ],
+    },
+    {
+      label: 'Occluded side',
+      wall_planes: [
+        { plane_id: 'hip_side', role: 'wing', face: 'left_side', width_ft: 22, eave_height_ft: 9, gable_rise_ft: 0, sided: true, story_count: 1, occluded: true, occlusion_pct: 45, outside_corners: 1 },
+      ],
+    },
+    {
+      label: 'Rear porch',
+      wall_planes: [
+        { plane_id: 'rear_wall', role: 'main', face: 'back', width_ft: 28, eave_height_ft: 9, gable_rise_ft: 0, sided: true, story_count: 1, non_siding_pct: 18, non_siding_material: 'stone', inside_corners: 2 },
+        { plane_id: 'porch_open', role: 'porch', face: 'back', width_ft: 28, eave_height_ft: 10, gable_rise_ft: 9, gable_sided: false, sided: false },
+        { plane_id: 'chimney', role: 'chimney', face: 'back', width_ft: 4, eave_height_ft: 18, sided: false, non_siding_material: 'brick' },
+      ],
+    },
+  ];
+  const takeoff = sumDistinctWallPlanes(photos, {
+    satelliteAxes: { front: 42, back: 42, left_side: 36, right_side: 36 },
+  });
+  const byId = Object.fromEntries(takeoff.planes.map(plane => [plane.plane_id, plane]));
+  ok('the two photos of the two-story gable are one plane',
+    takeoff.planes.filter(plane => plane.plane_id === 'two_story_gable').length === 1);
+  ok('two-story gable keeps its own triangle (22 × 18 + ½ × 22 × 8)',
+    byId.two_story_gable.gross_area_sqft === 484, byId.two_story_gable.gross_area_sqft, 484);
+  ok('garage gable is added, not averaged away (20 × 9 + ½ × 20 × 6)',
+    byId.garage_gable.gross_area_sqft === 240, byId.garage_gable.gross_area_sqft, 240);
+  ok('the tree-blocked side uses the satellite length',
+    byId.hip_side.width_ft === 36 && byId.hip_side.width_source === 'satellite_footprint',
+    byId.hip_side.width_ft, 36);
+  ok('open porch gable is not siding',
+    byId.porch_open.excluded === true && byId.porch_open.siding_area_sqft === 0);
+  ok('chimney is not siding',
+    byId.chimney.excluded === true && byId.chimney.siding_area_sqft === 0);
+  ok('stone band is excluded from the rear wall',
+    byId.rear_wall.masonry_area_sqft === 45, byId.rear_wall.masonry_area_sqft, 45);
+  ok('outside corners are the sum of the planes, not a 4-corner box',
+    takeoff.outside_corners === 5, takeoff.outside_corners, 5);
+  ok('inside corners at the wings are kept',
+    takeoff.inside_corners === 2, takeoff.inside_corners, 2);
+  ok('the takeoff is the sum of the sided planes',
+    takeoff.authoritative === true && takeoff.gross_wall_sqft === 484 + 240 + 324 + 252,
+    takeoff.gross_wall_sqft, 484 + 240 + 324 + 252);
+}
+
+console.log('\n── An occluded gable is not stretched to the long satellite side ──');
+{
+  const takeoff = sumDistinctWallPlanes([
+    {
+      label: 'Trees',
+      wall_planes: [
+        { plane_id: 'end_gable', role: 'gable_end', face: 'right_side', width_ft: 16, eave_height_ft: 10, gable_rise_ft: 4, gable_sided: true, sided: true, occluded: true, occlusion_pct: 40 },
+        { plane_id: 'clear_side', role: 'main', face: 'left_side', width_ft: 40, eave_height_ft: 9, sided: true },
+        { plane_id: 'front_wall', role: 'main', face: 'front', width_ft: 30, eave_height_ft: 9, sided: true },
+      ],
+    },
+  ], { satelliteAxes: { front: 40, back: 40, left_side: 105, right_side: 105 } });
+  const gable = takeoff.planes.find(plane => plane.plane_id === 'end_gable');
+  ok('the hidden gable stays on the short footprint axis',
+    gable.width_ft < 40 && gable.width_ft > 16, gable.width_ft);
+  ok('the gable triangle keeps the visible end as its base',
+    gable.gable_area_sqft === 32, gable.gable_area_sqft, 32);
+}
+
+console.log('\n── A traced outline keeps the walls the photos missed ──');
+{
+  const takeoff = sumDistinctWallPlanes([
+    {
+      label: 'Partial',
+      wall_planes: [
+        { plane_id: 'front', role: 'gable_end', face: 'front', width_ft: 24, eave_height_ft: 18, gable_rise_ft: 6, gable_sided: true, sided: true, story_count: 2 },
+        { plane_id: 'side', role: 'main', face: 'left_side', width_ft: 30, eave_height_ft: 9, sided: true, story_count: 1 },
+        { plane_id: 'porch_open', role: 'porch', face: 'back', width_ft: 20, eave_height_ft: 9, gable_rise_ft: 8, gable_sided: false, sided: false },
+      ],
+    },
+  ], { tracedPerimeterFt: 160 });
+  const remainder = takeoff.planes.find(plane => plane.plane_id === 'footprint_remainder');
+  ok('the unseen length is the outline minus the porch',
+    remainder && remainder.width_ft === 160 - 24 - 30 - 20, remainder && remainder.width_ft);
+  ok('the remainder is one-story wall with no gable',
+    remainder && remainder.gable_area_sqft === 0 && remainder.eave_height_ft === 9,
+    remainder && remainder.eave_height_ft);
+  ok('the two-story eave is not dropped to a first-floor reading',
+    takeoff.planes.find(plane => plane.plane_id === 'front').eave_height_ft === 18);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

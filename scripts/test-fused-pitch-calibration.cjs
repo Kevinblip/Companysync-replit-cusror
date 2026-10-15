@@ -19,7 +19,7 @@ const ok = (name, cond, detail = '') => {
 const near = (a, b, tolPct = 0.5) => Math.abs(a - b) <= Math.abs(b) * (tolPct / 100);
 
 (async () => {
-  const { applyPhotoPitchToAnalysis, isolateRoofFootprintSqft, getPitchMultiplier, parsePitchRise } =
+  const { applyPhotoPitchToAnalysis, isolateRoofFootprintSqft, getPitchMultiplier, parsePitchRise, satellitePitchOutranksPhoto } =
     await import('../src/lib/satelliteUtils.js');
 
   // ── 1. Footprint isolation ────────────────────────────────────────────────
@@ -184,6 +184,19 @@ const near = (a, b, tolPct = 0.5) => Math.abs(a - b) <= Math.abs(b) * (tolPct / 
        { corrected_area_sq: 22.36, corrected_area_sqft: 2236, pitch: 'Unknown',
          area_is_slope_adjusted: true, final_order_quantity_sq: 25.71 }, '9/12'
      ).final_order_quantity_sq === 25.71);
+
+  console.log('\n── when a Solar pitch outranks one photo reading ──');
+  const solarPitch = { pitch: '6/12', pitch_source: 'solar_segments_weighted', pitch_confidence: 'high' };
+  ok('high-confidence Solar pitch outranks a photo a full rise away',
+     satellitePitchOutranksPhoto(solarPitch, '5/12') === true);
+  ok('the same Solar pitch does not block a photo that agrees',
+     satellitePitchOutranksPhoto(solarPitch, '6/12') === false);
+  ok('a low-confidence Solar pitch does not outrank the photo',
+     satellitePitchOutranksPhoto({ ...solarPitch, pitch_confidence: 'medium' }, '5/12') === false);
+  ok('a non-solar pitch does not outrank the photo',
+     satellitePitchOutranksPhoto({ ...solarPitch, pitch_source: 'vision_guess' }, '5/12') === false);
+  ok('applyPhotoPitchToAnalysis itself still re-projects when called',
+     applyPhotoPitchToAnalysis(solarAnalysis, '9/12').pitch === '9/12');
 
   // parsePitchRise sanity
   ok('parsePitchRise handles "8/12", "8:12", "8", junk',

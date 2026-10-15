@@ -60,6 +60,8 @@ function rectFacet(x0, y0, x1, y1, azimuth = 180, rotDeg = 0) {
     polygonBBoxDims,
     rectanglePolygon,
     scalePolygonToPerimeter,
+    tracedOutlineOutranksShortEave,
+    rectangleUndercutsSolarPlan,
     DEFAULT_EAVE_OVERHANG_FT,
   } = await import('../functions/utils/footprintPolygon.js');
 
@@ -271,6 +273,14 @@ function rectFacet(x0, y0, x1, y1, azimuth = 180, rotDeg = 0) {
     ok('reconstructed-footprint 0.925 / 0.85 fudge factors are gone',
        !/\*\s*0\.925/.test(reconstruction) && !/rawPerimeter\s*\*\s*0\.85/.test(reconstruction));
   }
+
+  console.log('\n── outline vs short eave / undersized rectangle ──');
+  ok('a short eave does not shrink a traced outline', tracedOutlineOutranksShortEave(367, 104) === true);
+  ok('an eave within 15% may still scale the outline', tracedOutlineOutranksShortEave(367, 340) === false);
+  ok('tiny lengths are left to the caller', tracedOutlineOutranksShortEave(30, 20) === false);
+  ok('a rectangle under 55% of the Solar plan is rejected', rectangleUndercutsSolarPlan(627, 3927) === true);
+  ok('a rectangle near the Solar plan is kept', rectangleUndercutsSolarPlan(3600, 3927) === false);
+  ok('no Solar plan means no rejection', rectangleUndercutsSolarPlan(627, 0) === false);
 
   console.log(`\n${'\u2500'.repeat(55)}`);
   console.log(`Results: ${passed} passed, ${failed} failed`);

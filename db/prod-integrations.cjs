@@ -1945,12 +1945,15 @@ async function handleFunctionInvoke(req, res) {
     }
 
     if (functionName === 'getGoogleMapsApiKey') {
-      const browserKey = process.env.GOOGLE_MAPS_BROWSER_KEY;
-      if (!browserKey) {
-        sendJson(res, { data: { error: 'Google Maps browser key is not configured' } });
+      const resolved = require('../lib/googleMapsKeys.cjs').resolveGoogleMapsBrowserKey();
+      if (!resolved.apiKey) {
+        sendJson(res, { data: { error: resolved.error } });
         return;
       }
-      sendJson(res, { data: { apiKey: browserKey, api_key: browserKey } });
+      if (resolved.fallback) {
+        console.warn('[getGoogleMapsApiKey] GOOGLE_MAPS_BROWSER_KEY is not set; using GOOGLE_MAPS_API_KEY for the browser map.');
+      }
+      sendJson(res, { data: { apiKey: resolved.apiKey, api_key: resolved.apiKey } });
       return;
     }
 

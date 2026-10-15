@@ -73,12 +73,14 @@ const PHOTO_HERO_SANITY_BAND_PCT = 25;
 // this means every meaningful face must be photographed before the prism can
 // bill; a single unphotographed elevation drops coverage well below the floor.
 const PHOTO_HERO_MIN_PERIMETER_COVERAGE = 0.98;
-// For the same reason, four measured planes are a LOWER BOUND on the building's
-// wall area: any wall the camera never saw only adds to it. So the prism may
-// refine the extrusion downward (photos proving a wall is shorter than the
-// extrusion assumed) but it may never inflate it. A prism that comes out ABOVE
-// the extrusion is telling us the FOOTPRINT perimeter is under-called — that is
-// a footprint defect, and correcting it here would paper over it with a box.
+// For the same reason, four measured planes are a LOWER BOUND on a TRACED
+// footprint: any wall the camera never saw only adds to it. So against an
+// OSM/Solar outline the prism may refine the extrusion downward but it may not
+// inflate it. A photo-derived rectangle is not that outline. It is the same
+// photos averaged together, and that average can delete the longer of two
+// side walls. When the footprint source is the photos themselves, Hover's
+// rule wins: add every measured elevation, even when the sum is longer than
+// the rectangle.
 const PHOTO_HERO_MAX_INFLATION = 1.02; // 2% headroom for rounding noise only
 // Grade-B consistency band: how far the photo-measured siding total may sit
 // from the extrusion-derived sanity total and still be treated as corroborated.
@@ -673,7 +675,118 @@ function buildWallFacets(perPhotoResults, dedupedOpenings, multiViewEvidence) {
  * at least MIN_MEASURED_FACES_FOR_PHOTO_HERO real photo planes AND agreement
  * with the extrusion inside PHOTO_HERO_SANITY_BAND_PCT.
  */
+function explicitPlanesToFacets(planes) {
+  return (planes || [])
+    .filter((plane) => plane && plane.sided !== false && plane.include_in_takeoff !== false && num(plane.width_ft) > 0)
+    .map((plane, index) => {
+      const id = `plane_${plane.plane_id || index}`;
+      const nonSiding = Math.max(0, Math.min(100, num(plane.non_siding_pct)));
+      const masonry = String(plane.non_siding_material || 'brick').toLowerCase() === 'stone' ? 'stone' : 'brick';
+      const regions = nonSiding >= 100
+        ? [{ material: masonry, percent: 100 }]
+        : nonSiding > 0
+          ? [
+            { material: 'lap_siding', percent: round(100 - nonSiding, 2) },
+            { material: masonry, percent: round(nonSiding, 2) },
+          ]
+          : [{ material: 'lap_siding', percent: 100 }];
+      return {
+        id,
+        face: id,
+        canonical_face: plane.face || 'unknown',
+        explicit_plane: true,
+        is_unknown: false,
+        photo_count: plane.photo_count || 1,
+        usable_photo_count: 1,
+        straight_elevation_count: 1,
+        corner_overlap_count: 0,
+        confidence: 0.7,
+        occluded: plane.occluded === true,
+        wall_width_ft: round(num(plane.width_ft), 2),
+        wall_height_ft: round(num(plane.eave_height_ft), 2),
+        eave_height_ft: round(num(plane.eave_height_ft), 2),
+        gable_rise_ft: round(plane.gable_sided ? num(plane.gable_rise_ft) : 0, 2),
+        gable_base_ft: plane.gable_base_ft ? round(num(plane.gable_base_ft), 2) : null,
+        has_gable_end: plane.gable_sided === true && num(plane.gable_rise_ft) > 0,
+        story_count: plane.stories || 1,
+        height_semantics: 'full_elevation',
+        stories_multiplier: 1,
+        height_measurement_valid: true,
+        photo_label: plane.plane_id || null,
+        dimension_source: plane.width_source || 'wall_plane',
+        elevation_poor: false,
+        siding_material: nonSiding >= 100 ? masonry : 'vinyl',
+        siding_profile: null,
+        material_regions: regions,
+        material_confidence: 0.7,
+        material_uncertain: false,
+        non_siding_pct: nonSiding,
+        non_siding_material: nonSiding > 0 ? masonry : 'none',
+        accent_material: nonSiding > 0 ? masonry : null,
+        plane_role: plane.role || 'wall',
+      };
+    });
+}
+
+function photoAreaFromExplicitPlanes(explicit, agg) {
+  const faces = {};
+  const measured = [];
+  let area = 0;
+  let measuredPerimeter = 0;
+  for (const facet of explicit) {
+    const width = num(facet.wall_width_ft);
+    const eave = num(facet.eave_height_ft);
+    const gableRise = Math.max(0, num(facet.gable_rise_ft));
+    const gableBase = num(facet.gable_base_ft) || width;
+    const faceArea = round(width * eave + (gableBase * gableRise) / 2, 2);
+    faces[facet.face] = {
+      face: facet.face,
+      canonical_face: facet.canonical_face,
+      source: 'wall_plane',
+      width_ft: round(width, 2),
+      eave_height_ft: round(eave, 2),
+      gable_rise_ft: round(gableRise, 2),
+      height_semantics: 'full_elevation',
+      stories_multiplier: 1,
+      area_sqft: faceArea,
+      role: facet.plane_role || null,
+    };
+    measured.push(facet.face);
+    area += faceArea;
+    measuredPerimeter += width;
+  }
+  const areaSqft = round(area, 2);
+  const extrusionSqft = round(num(agg.grossWallAreaSqft), 2);
+  const deltaPct = extrusionSqft > 0
+    ? round(Math.abs(areaSqft - extrusionSqft) / extrusionSqft * 100, 1)
+    : null;
+  return {
+    area_sqft: areaSqft,
+    faces,
+    measured_faces: measured,
+    substituted_faces: [],
+    prism_perimeter_ft: round(measuredPerimeter, 2),
+    measured_perimeter_ft: round(measuredPerimeter, 2),
+    footprint_perimeter_ft: round(num(agg.perimeterFt), 2),
+    measured_perimeter_coverage: null,
+    measured_perimeter_share: 1,
+    covers_footprint: true,
+    inflates_extrusion: extrusionSqft > 0 && areaSqft > extrusionSqft * PHOTO_HERO_MAX_INFLATION,
+    extrusion_wall_area_sqft: extrusionSqft,
+    delta_vs_extrusion_pct: deltaPct,
+    within_sanity_band: deltaPct == null || deltaPct <= PHOTO_HERO_SANITY_BAND_PCT,
+    sanity_band_pct: PHOTO_HERO_SANITY_BAND_PCT,
+    poor_faces: [],
+    photo_overrides_footprint: areaSqft > 0,
+    sum_measured_elevations: true,
+    explicit_planes: true,
+    usable: areaSqft > 0,
+  };
+}
+
 function buildPhotoWallArea(wallFacets, agg) {
+  const explicit = wallFacets.filter((facet) => facet.explicit_plane && facet.elevation_poor !== true);
+  if (explicit.length >= 3) return photoAreaFromExplicitPlanes(explicit, agg);
   const defaultWidths = {
     front: num(agg.buildingWidthFt),
     back: num(agg.buildingWidthFt),
@@ -754,6 +867,13 @@ function buildPhotoWallArea(wallFacets, agg) {
     : null;
   const coversFootprint = perimeterCoverage != null
     && perimeterCoverage >= PHOTO_HERO_MIN_PERIMETER_COVERAGE;
+  // Photo-only jobs have no traced outline. The rectangle is just the averaged
+  // elevations, so a longer prism is the two (or more) measured walls added
+  // back. A traced OSM/Solar perimeter stays the authority and is not inflated.
+  const sumMeasuredElevations = agg.footprintSource === 'photos'
+    && measured.length >= 2
+    && extrusionSqft > 0
+    && areaSqft > extrusionSqft * PHOTO_HERO_MAX_INFLATION;
   // Diagnostic only — how much of the prism came from photos vs the footprint.
   const measuredPerimeterShare = prismPerimeter > 0
     ? round(measuredPerimeter / prismPerimeter, 3)
@@ -781,14 +901,16 @@ function buildPhotoWallArea(wallFacets, agg) {
     // footprint even when the box and the traced perimeter disagree. A missing
     // elevation does not get to borrow the footprint and call itself measured.
     poor_faces: poorFaces,
-    photo_overrides_footprint: measured.length >= 4 && areaSqft > 0
+    photo_overrides_footprint: (measured.length >= 4 || sumMeasuredElevations) && areaSqft > 0
       && !(withinBand && coversFootprint && !inflatesExtrusion),
+    sum_measured_elevations: sumMeasuredElevations,
     usable: areaSqft > 0 && (
       (measured.length >= MIN_MEASURED_FACES_FOR_PHOTO_HERO
         && withinBand
         && coversFootprint
         && !inflatesExtrusion)
       || measured.length >= 4
+      || sumMeasuredElevations
     ),
   };
 }
@@ -1146,7 +1268,9 @@ function buildMaterialMap(wallFacets, agg) {
     // Match buildPhotoWallArea exactly: a full-height photo plane is one
     // rectangle plus one gable triangle. Never multiply this by story_count;
     // photo height is already grade-to-eave for the visible elevation.
-    const gross = round(width * eaveHeight + (width * gableRise) / 2, 2);
+    // A tree-restored wall keeps the triangle on the end that was visible.
+    const gableBase = num(facet.gable_base_ft) || width;
+    const gross = round(width * eaveHeight + (gableBase * gableRise) / 2, 2);
     const explicitRegions = Array.isArray(facet.material_regions)
       ? facet.material_regions : [];
     const regions = [];
@@ -1216,6 +1340,29 @@ function buildMaterialMap(wallFacets, agg) {
         .reduce((sum, region) => sum + region.percent, 0),
       2,
     );
+    // Glass in the material map is the openings seen as a surface. Hover
+    // deducts those openings once. Leaving glass out of the facade and then
+    // deducting the opening schedule removes the same holes twice.
+    // Unknown/other is neutral when the wall is otherwise siding: it stays in
+    // the takeoff instead of being dropped. A wall that is entirely unknown
+    // is still not billed as siding.
+    const glassPercent = round(
+      regions
+        .filter((region) => region.material === 'glass')
+        .reduce((sum, region) => sum + region.percent, 0),
+      2,
+    );
+    const uncertainPercent = round(
+      regions
+        .filter((region) => region.material === 'unknown' || region.material === 'other')
+        .reduce((sum, region) => sum + region.percent, 0),
+      2,
+    );
+    const neutralUncertain = sidingPercent > 0 ? uncertainPercent : 0;
+    const preOpeningPercent = round(
+      Math.min(100, sidingPercent + glassPercent + neutralUncertain),
+      2,
+    );
     const normalizedRegions = regions.map((region) => ({
       ...region,
       area_sqft: round(gross * region.percent / 100, 2),
@@ -1223,11 +1370,14 @@ function buildMaterialMap(wallFacets, agg) {
     }));
     faces[facet.face] = {
       face: facet.face,
+      canonical_face: facet.canonical_face || facet.face,
+      role: facet.plane_role || null,
       gross_wall_area_sqft: gross,
       regions: normalizedRegions,
       siding_percent: sidingPercent,
       siding_area_sqft: round(gross * sidingPercent / 100, 2),
-      excluded_area_sqft: round(gross * (100 - sidingPercent) / 100, 2),
+      pre_opening_facade_area_sqft: round(gross * preOpeningPercent / 100, 2),
+      excluded_area_sqft: round(gross * (100 - preOpeningPercent) / 100, 2),
       material_confidence: facet.material_confidence ?? facet.confidence ?? null,
       uncertain,
       photo_count: facet.photo_count || 0,
@@ -1235,17 +1385,20 @@ function buildMaterialMap(wallFacets, agg) {
   }
 
   const faceValues = Object.values(faces);
+  const explicitCount = wallFacets.filter((facet) => facet.explicit_plane && !facet.is_unknown).length;
+  const boxComplete = WALL_FACES.every((face) => faces[face])
+    && faceValues.every((face) => !face.uncertain);
+  const planesComplete = explicitCount >= 3
+    && faceValues.length >= explicitCount
+    && faceValues.every((face) => !face.uncertain);
+  const complete = explicitCount >= 3 ? planesComplete : boxComplete;
   return {
     version: 1,
     faces,
-    required_faces: WALL_FACES,
+    required_faces: explicitCount >= 3 ? Object.keys(faces).sort() : WALL_FACES,
     covered_faces: Object.keys(faces).sort(),
-    complete: WALL_FACES.every((face) => faces[face])
-      && faceValues.every((face) => !face.uncertain),
-    review_required: !(
-      WALL_FACES.every((face) => faces[face])
-      && faceValues.every((face) => !face.uncertain)
-    ),
+    complete,
+    review_required: !complete,
     siding_area_sqft: round(faceValues.reduce((sum, face) => sum + face.siding_area_sqft, 0), 2),
     excluded_area_sqft: round(faceValues.reduce((sum, face) => sum + face.excluded_area_sqft, 0), 2),
     unknown_area_sqft: round(faceValues.reduce(
@@ -1284,6 +1437,12 @@ function buildTotals(agg, groups, components, trim, counts) {
   const materialSiding = round(materialFaces.reduce(
     (sum, face) => sum + num(face.siding_area_sqft), 0,
   ), 2);
+  // Lap + vertical is the siding material. Glass is added back here so the
+  // opening schedule can deduct those holes once. Stone, brick, and stucco
+  // stay in the excluded column.
+  const materialPreOpening = round(materialFaces.reduce(
+    (sum, face) => sum + num(face.pre_opening_facade_area_sqft ?? face.siding_area_sqft), 0,
+  ), 2);
   // Photo face dimensions can cover only the measured wall prism. Scale the
   // split once to the canonical gross area instead of silently inventing
   // siding on masonry or unclassified faces.
@@ -1295,7 +1454,7 @@ function buildTotals(agg, groups, components, trim, counts) {
   // portion clad in brick/stone/other non-siding material. What is left is the
   // siding facade — the only column siding openings may be deducted from.
   const sidingFacade = materialFaces.length > 0
-    ? round(Math.max(0, materialSiding * materialScale), 2)
+    ? round(Math.max(0, materialPreOpening * materialScale), 2)
     : round(Math.max(0, gross - accent), 2);
   // With no positive facade there is no siding column to charge openings to.
   // Defaulting the share to 1 here would report a 100 %-siding house that has
@@ -1316,6 +1475,21 @@ function buildTotals(agg, groups, components, trim, counts) {
     : null;
   const sidingFractionForFace = (face) => {
     const materialFace = materialMap?.faces?.[face];
+    const faceGross = num(materialFace?.gross_wall_area_sqft);
+    const preOpening = num(materialFace?.pre_opening_facade_area_sqft);
+    // Glass is part of the pre-opening facade, so an opening cut into that
+    // glass comes out of the siding column once. Using lap-only percent here
+    // would leave part of the same opening in the masonry column.
+    if (materialFace && faceGross > 0 && preOpening > 0) {
+      return clamp01(preOpening / faceGross);
+    }
+    const planeMatches = Object.values(materialMap?.faces || {}).filter((entry) =>
+      entry.canonical_face === face && entry.face !== face);
+    if (planeMatches.length > 0) {
+      const planeGross = planeMatches.reduce((sum, entry) => sum + num(entry.gross_wall_area_sqft), 0);
+      const planePre = planeMatches.reduce((sum, entry) => sum + num(entry.pre_opening_facade_area_sqft), 0);
+      if (planeGross > 0) return clamp01(planePre / planeGross);
+    }
     if (materialFace && Number.isFinite(Number(materialFace.siding_percent))) {
       return clamp01(Number(materialFace.siding_percent) / 100);
     }
@@ -1355,7 +1529,7 @@ function buildTotals(agg, groups, components, trim, counts) {
   const sidingFacadeForGross = (grossArea) => {
     if (!(grossArea > 0)) return 0;
     if (materialFaces.length > 0 && materialGross > 0) {
-      return round(Math.max(0, materialSiding * (grossArea / materialGross)), 2);
+      return round(Math.max(0, materialPreOpening * (grossArea / materialGross)), 2);
     }
     return round(Math.max(0, grossArea - accent), 2);
   };
@@ -1554,7 +1728,10 @@ export function buildSidingMeasurementGraph(input = {}) {
     footprint: input.footprint ?? null,
   };
 
-  const wallFacets = buildWallFacets(perPhotoResults, dedupedOpenings, multiViewEvidence);
+  const explicitFacets = explicitPlanesToFacets(input.explicitWallPlanes);
+  const wallFacets = explicitFacets.length >= 3
+    ? explicitFacets
+    : buildWallFacets(perPhotoResults, dedupedOpenings, multiViewEvidence);
   const materialMap = buildMaterialMap(wallFacets, agg);
   agg.materialMap = materialMap;
   // Photo-measured prism must exist before totals so the hero wall area can

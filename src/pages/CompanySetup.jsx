@@ -240,6 +240,7 @@ export default function CompanySetup() {
     brand_secondary_color: "#8b5cf6",
     time_zone: "America/New_York",
     default_tax_rate: 0,
+    solar_datalayers_enabled: true,
     invoice_prefix: "INV-",
     invoice_next_number: 1,
     estimate_prefix: "EST-",
@@ -568,6 +569,7 @@ export default function CompanySetup() {
         adjuster_review_notify_email: myCompany.settings?.adjuster_review_notify_email !== false,
         adjuster_review_notify_sms: myCompany.settings?.adjuster_review_notify_sms !== false,
         adjuster_review_notify_email_override: myCompany.settings?.adjuster_review_notify_email_override || "",
+        solar_datalayers_enabled: myCompany.settings?.solar_datalayers_enabled !== false,
         voice_cheat_sheet: myCompany.settings?.voice_cheat_sheet || {
           photos: ['take photo', 'photo now', 'snap photo', 'capture now'],
           sections: ['front slope', 'rear elevation', 'right slope', 'left elevation', 'gutters', 'siding', 'interior'],
@@ -619,6 +621,7 @@ export default function CompanySetup() {
         adjuster_review_notify_sms,
         adjuster_review_notify_email_override,
         voice_cheat_sheet,
+        solar_datalayers_enabled,
         ...restOfCompanyData 
       } = data;
 
@@ -637,6 +640,7 @@ export default function CompanySetup() {
         adjuster_review_notify_sms,
         adjuster_review_notify_email_override: adjuster_review_notify_email_override || null,
         voice_cheat_sheet,
+        solar_datalayers_enabled: solar_datalayers_enabled !== false,
       };
 
       const finalPayload = {
@@ -1676,6 +1680,24 @@ export default function CompanySetup() {
           <CardTitle>Business Settings</CardTitle>
         </CardHeader>
         <CardContent className="p-3 sm:p-6 space-y-6">
+          <div className="flex items-center justify-between gap-4 border rounded-lg p-3">
+            <div>
+              <Label htmlFor="solar-datalayers-toggle">Solar roof trace</Label>
+              <p className="text-xs text-gray-500 mt-1">
+                Roof measurements trace Google Solar height data unless this is turned off.
+                The height map is processed in memory and is not saved.
+                Only the traced outline is cached (a few KB per address, about 7.5¢ after the free tier).
+                Later measurements of that address reuse the saved trace.
+              </p>
+            </div>
+            <Switch
+              id="solar-datalayers-toggle"
+              checked={companyData.solar_datalayers_enabled !== false}
+              onCheckedChange={(checked) => setCompanyData({ ...companyData, solar_datalayers_enabled: checked === true })}
+              disabled={!isAdmin}
+            />
+          </div>
+
           <div>
             <Label>{t.settings.defaultTaxRate} (%)</Label>
             <Input

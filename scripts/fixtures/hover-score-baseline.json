@@ -1,0 +1,177 @@
+{
+  "scored_at": "2026-10-15T00:01:47.694Z",
+  "rows": [
+    {
+      "id": "eastview",
+      "label": "17158 Eastview Dr",
+      "actual": {
+        "area": 4923.7,
+        "pitch": "6/12",
+        "rh": 236,
+        "valley": 44,
+        "rake": 259.6,
+        "eave": 303,
+        "gutter": 303
+      },
+      "error": {
+        "area": 9.3,
+        "pitch": 0,
+        "rh": 6.8,
+        "valley": 63.7,
+        "rake": 30.5,
+        "eave": 16.7,
+        "gutter": 16.7
+      },
+      "area_method": "datalayers_mask_pitch",
+      "linear_source": "solar_segment_adjacency",
+      "datalayers": "traced",
+      "wall_perimeter_ft": 367,
+      "outside_corners": 17,
+      "inside_corners": 15,
+      "wall_elevations": {
+        "north": {
+          "length_ft": 81
+        },
+        "east": {
+          "length_ft": 98.9
+        },
+        "south": {
+          "length_ft": 91.7
+        },
+        "west": {
+          "length_ft": 95.8
+        }
+      },
+      "downspout_count": 17
+    },
+    {
+      "id": "gemini",
+      "label": "5688 Gemini Ct",
+      "actual": {
+        "area": 2483.3,
+        "pitch": "5/12",
+        "rh": 57.6,
+        "valley": 0,
+        "rake": 115.8,
+        "eave": 161.7,
+        "gutter": 161.7
+      },
+      "error": {
+        "area": 0.1,
+        "pitch": 0,
+        "rh": 15.8,
+        "valley": 100,
+        "rake": 5.9,
+        "eave": 5.5,
+        "gutter": 5.5
+      },
+      "area_method": "datalayers_mask_pitch",
+      "linear_source": "roof_facet_edges",
+      "datalayers": "traced",
+      "wall_perimeter_ft": 175,
+      "outside_corners": 9,
+      "inside_corners": 5,
+      "wall_elevations": {
+        "north": {
+          "length_ft": 38.9
+        },
+        "east": {
+          "length_ft": 47.5
+        },
+        "south": {
+          "length_ft": 40.4
+        },
+        "west": {
+          "length_ft": 48.3
+        }
+      },
+      "downspout_count": 9
+    },
+    {
+      "id": "oak",
+      "label": "1721 Oak St",
+      "actual": {
+        "area": 1706.3,
+        "pitch": "4/12",
+        "rh": 57.8,
+        "valley": 8.6,
+        "rake": 120.7,
+        "eave": 112.9,
+        "gutter": 112.9
+      },
+      "error": {
+        "area": 4,
+        "pitch": 0,
+        "rh": 9.6,
+        "valley": 65.6,
+        "rake": 7.7,
+        "eave": 6.8,
+        "gutter": 6.8
+      },
+      "area_method": "datalayers_mask_pitch",
+      "linear_source": "roof_facet_edges",
+      "datalayers": "traced",
+      "wall_perimeter_ft": 173,
+      "outside_corners": 9,
+      "inside_corners": 5,
+      "wall_elevations": {
+        "north": {
+          "length_ft": 20.2
+        },
+        "east": {
+          "length_ft": 82.8
+        },
+        "south": {
+          "length_ft": 12.5
+        },
+        "west": {
+          "length_ft": 57
+        }
+      },
+      "downspout_count": 9
+    },
+    {
+      "id": "holmes",
+      "label": "15402 Holmes Ave",
+      "actual": {
+        "area": 1037.8,
+        "pitch": "11/12",
+        "rh": 31.2,
+        "valley": 0,
+        "rake": 67.2,
+        "eave": 61.1,
+        "gutter": 61.1
+      },
+      "error": {
+        "area": 7.8,
+        "pitch": 0,
+        "rh": 38.9,
+        "valley": 0,
+        "rake": 22.2,
+        "eave": 35.5,
+        "gutter": 35.5
+      },
+      "area_method": "datalayers_mask_pitch",
+      "linear_source": "roof_facet_edges",
+      "datalayers": "traced",
+      "wall_perimeter_ft": 96,
+      "outside_corners": 4,
+      "inside_corners": 0,
+      "wall_elevations": {
+        "north": {
+          "length_ft": 19.5
+        },
+        "east": {
+          "length_ft": 28
+        },
+        "south": {
+          "length_ft": 21
+        },
+        "west": {
+          "length_ft": 27
+        }
+      },
+      "downspout_count": 4
+    }
+  ]
+}
