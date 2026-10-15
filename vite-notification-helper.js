@@ -3,13 +3,14 @@ import { createRequire } from 'node:module';
 
 const nodeRequire = createRequire(import.meta.url);
 const { getNotificationQuietHours } = nodeRequire('./lib/notificationQuietHours.cjs');
+const { twilioApiUrl } = nodeRequire('./lib/twilioApiBase.cjs');
 
 async function sendTwilioSms(toPhone, fromPhone, body, accountSid, authToken) {
   if (!accountSid || !authToken || !fromPhone || !toPhone) return false;
   try {
     const authStr = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
     const params = new URLSearchParams({ To: toPhone, From: fromPhone, Body: body });
-    const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+    const resp = await fetch(twilioApiUrl(`/2010-04-01/Accounts/${accountSid}/Messages.json`), {
       method: 'POST',
       headers: { 'Authorization': `Basic ${authStr}`, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString()
