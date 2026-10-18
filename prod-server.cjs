@@ -33,6 +33,63 @@ const {
 } = require('./lib/customerProjectProgress.cjs');
 const { toolDedupeKey, createToolCallCache } = require('./lib/toolDedupe.cjs');
 const { GEMINI_38_MODEL, SUPPLEMENT_TOOL, calculateRoofSupplement, isGemini38Line, applyTwilioLineProfile, invokeRoofSupplement } = require('./lib/twilioLineProfile.cjs');
+const lexiPhone = require('./lib/lexiPhone.cjs');
+
+async function loadLexiPhonePrompt(owner) {
+  let basePrompt = '';
+  let voice = 'Kore';
+  if (owner?.companyId) {
+    try {
+      const settings = await localGetSettings(owner.companyId);
+      if (settings && !settings.error) {
+        basePrompt = buildLexiSystemPrompt(
+          settings.companyName,
+          owner.name || 'Kevin',
+          settings.timezone || 'America/New_York',
+          settings.knowledgeBase || '',
+          '',
+          [],
+          settings.preferredLanguage || 'en',
+          '',
+          settings.settings?.spoken_name || ''
+        );
+        const candidate = settings.settings?.voice_id || settings.settings?.voice || '';
+        if (VALID_GEMINI_VOICES.includes(candidate)) voice = candidate;
+      }
+    } catch (err) {
+      console.warn('[LexiPhone] settings load failed:', err.message);
+    }
+  }
+  const pool = prodDb.getPool();
+  const [memories, recentSessions] = await Promise.all([
+    lexiPhone.loadMemoryBlock(pool, owner).catch(() => ''),
+    lexiPhone.loadRecentSessionBlock(pool, owner).catch(() => ''),
+  ]);
+  return { basePrompt, memories, recentSessions, voice };
+}
+
+async function lexiPhoneSendCustomerMessage(draft) {
+  if (draft?.channel === 'email') {
+    try {
+      await sendEmail({
+        to: draft.to,
+        subject: draft.subject,
+        message: draft.message,
+        html: `<div>${lexiPhone.xmlEscape(draft.message || '')}</div>`,
+      });
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+  return lexiPhone.deliverTwilioSms({
+    to: draft.to,
+    body: draft.message,
+    from: lexiPhone.configFromEnv().lexiNumber,
+    accountSid: process.env.TWILIO_ACCOUNT_SID,
+    authToken: process.env.TWILIO_AUTH_TOKEN,
+  });
+}
 const { canonicalizeGenericEntityType, normalizeGenericEntityData } = require('./lib/expenseNormalize.cjs');
 const emailHealth = require('./lib/emailProviderHealth.cjs');
 const {
@@ -4437,7 +4494,8 @@ const server = http.createServer(async (req, res) => {
       !pathname.startsWith('/api/twiml') &&
       !pathname.startsWith('/api/functions/incoming') &&
       !pathname.startsWith('/api/whatsapp') &&
-      !pathname.startsWith('/api/sarah-')) {
+      !pathname.startsWith('/api/sarah-') &&
+      !pathname.startsWith('/api/lexi-phone')) {
     try {
       const pool = prodDb.getPool();
       const impCtx = await tenantGuard.resolveRequestContext(req, pool);
@@ -4449,6 +4507,45 @@ const server = http.createServer(async (req, res) => {
       }
       req._impersonationCtx = impCtx;
     } catch (_) { /* don't fail unauthenticated routes due to session lookup errors */ }
+  }
+
+  if (pathname === '/api/lexi-phone/voice' || pathname === '/api/lexi-phone/sms') {
+    setCorsHeaders(res, req);
+    try {
+      const rawBody = await readBody(req);
+      const config = lexiPhone.configFromEnv();
+      const verifySignature = async (body) => {
+        const { verifyTwilioWebhook } = require('./lib/twilioSignature.cjs');
+        return verifyTwilioWebhook(req, body, prodDb.getPool(), { companyId: config.companyId || null });
+      };
+      const outcome = pathname === '/api/lexi-phone/voice'
+        ? await lexiPhone.handleVoiceHttp({ rawBody, host: getPublicHost(req.headers), config, verifySignature })
+        : await lexiPhone.handleSmsHttp({
+          rawBody,
+          pool: prodDb.getPool(),
+          config,
+          verifySignature,
+          loadPrompt: loadLexiPhonePrompt,
+          sendCustomerMessage: lexiPhoneSendCustomerMessage,
+          getApiKey: async (owner) => {
+            try {
+              const companyKey = await prodDb.getCompanyGeminiKey(owner?.companyId);
+              if (companyKey) return companyKey;
+            } catch (e) { /* company key is optional */ }
+            return process.env.GOOGLE_GEMINI_API_KEY || '';
+          },
+          generate: ({ body, apiKey }) => lexiPhone.defaultGenerate({ apiKey: apiKey || process.env.GOOGLE_GEMINI_API_KEY, body }),
+        });
+      res.writeHead(outcome.status, { 'Content-Type': outcome.contentType });
+      res.end(outcome.body);
+    } catch (err) {
+      console.error('[LexiPhone] webhook error:', err.message);
+      if (!res.headersSent) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' });
+        res.end('Invalid Twilio signature');
+      }
+    }
+    return;
   }
 
   // Provider bounce/complaint ingress. Public by necessity (the provider calls
@@ -10885,15 +10982,44 @@ const server = http.createServer(async (req, res) => {
 
 const twilioWss = new WebSocketServer({ noServer: true });
 const lexiWss = new WebSocketServer({ noServer: true });
+const lexiPhoneWss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
   if (req.url?.startsWith('/ws/twilio')) {
     twilioWss.handleUpgrade(req, socket, head, ws => twilioWss.emit('connection', ws, req));
   } else if (req.url?.startsWith('/ws/lexi-native')) {
     lexiWss.handleUpgrade(req, socket, head, ws => lexiWss.emit('connection', ws, req));
+  } else if (req.url?.startsWith('/ws/lexi-phone')) {
+    lexiPhoneWss.handleUpgrade(req, socket, head, ws => lexiPhoneWss.emit('connection', ws, req));
   } else {
     socket.destroy();
   }
+});
+
+lexiPhoneWss.on('connection', (ws) => {
+  console.log('[LexiPhone] media stream connected');
+  lexiPhone.attachCallStream(ws, {
+    twilioToGemini,
+    geminiToTwilio,
+    config: lexiPhone.configFromEnv(),
+    pool: () => prodDb.getPool(),
+    geminiApiKey: async (owner) => {
+      try {
+        const companyKey = await prodDb.getCompanyGeminiKey(owner?.companyId);
+        if (companyKey) return companyKey;
+      } catch (e) { /* company key is optional */ }
+      return process.env.GOOGLE_GEMINI_API_KEY || '';
+    },
+    loadPrompt: loadLexiPhonePrompt,
+    sendCustomerMessage: lexiPhoneSendCustomerMessage,
+    sendSummarySms: (payload) => lexiPhone.deliverTwilioSms({
+      to: payload.to,
+      body: payload.body,
+      from: lexiPhone.configFromEnv().lexiNumber,
+      accountSid: process.env.TWILIO_ACCOUNT_SID,
+      authToken: process.env.TWILIO_AUTH_TOKEN,
+    }),
+  });
 });
 
 const transferContextMap = new Map();
@@ -13404,6 +13530,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[Production] Local DB API: /api/local/*`);
   console.log(`[Production] Lexi native bridge: /ws/lexi-native`);
   console.log(`[Production] Sarah voice bridge: /ws/twilio`);
+  console.log(`[Production] Lexi phone: /api/lexi-phone/voice, /api/lexi-phone/sms, /ws/lexi-phone`);
   refreshCacheFromAPI().then(() => {
     console.log(`[Production] Subscriber cache loaded: ${subscriberCache.size} entries`);
   }).catch(err => {

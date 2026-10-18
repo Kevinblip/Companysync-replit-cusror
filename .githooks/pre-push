@@ -456,6 +456,21 @@ if changed_match -E '^(lib/staffVoiceAuth\.cjs|scripts/test-staff-voice-auth\.cj
   fi
 fi
 
+# ── 15d. Lexi by phone (private cell line) ────────────────────────────────────
+if changed_match -E '^(lib/lexiPhone\.cjs|scripts/test-lexi-phone\.cjs|prod-server\.cjs)$'; then
+  echo ""
+  echo "[pre-push] Lexi phone changed — running allowlist, PIN, confirm, and no-delete tests…"
+  echo ""
+  if ! node scripts/test-lexi-phone.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: Lexi phone tests failed — fix the private-line policy before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Lexi phone tests passed. ✓"
+  fi
+fi
+
 # ── 16. Company email sender regression tests ─────────────────────────────────
 if changed_match -E '^(vite-functions-plugin\.js|prod-server\.cjs|scripts/test-company-email-sender\.cjs)$'; then
   echo ""
