@@ -588,6 +588,30 @@ function broadcastLiveCallUpdate(companyId, payload) {
 
 // Cache index.html in memory at startup for instant health-check responses
 let INDEX_HTML_CACHE = null;
+const { resolveAppUrl } = require('./lib/appUrl.cjs');
+const { sendBody } = require('./lib/static-file.cjs');
+
+async function indexHtmlForRequest(req, pathname) {
+  const { applyPublicPageMeta } = await import('./lib/publicPageMeta.js');
+  let origin = resolveAppUrl(req);
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
+    origin = 'https://getcompanysync.com';
+  }
+  return applyPublicPageMeta(INDEX_HTML_CACHE || '', pathname, origin);
+}
+
+async function sendIndexHtml(req, res, pathname) {
+  const html = await indexHtmlForRequest(req, pathname);
+  if (!html) {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
+    return;
+  }
+  sendBody(req, res, html, {
+    contentType: 'text/html; charset=utf-8',
+    cacheControl: 'no-cache',
+  });
+}
 try {
   INDEX_HTML_CACHE = fs.readFileSync(path.join(DIST_DIR, 'index.html'), 'utf8');
   console.log('[Server] index.html cached in memory (' + INDEX_HTML_CACHE.length + ' bytes)');
@@ -5350,8 +5374,7 @@ const server = http.createServer(async (req, res) => {
   // Serve root path instantly from memory cache — must pass Replit health check fast
   if (pathname === '/' && (req.method === 'GET' || req.method === 'HEAD')) {
     if (INDEX_HTML_CACHE) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-      res.end(req.method === 'HEAD' ? '' : INDEX_HTML_CACHE);
+      await sendIndexHtml(req, res, '/');
     } else {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));
@@ -9703,7 +9726,7 @@ const server = http.createServer(async (req, res) => {
         const result = await handlers.createPublicInvoiceCheckout({
           token: body.token,
           invoice_id: body.invoice_id,
-        });
+        }, null, req);
         portalJson(200, result);
       } catch (err) {
         const message = err?.message || 'Unable to start payment';
@@ -11007,8 +11030,11 @@ const server = http.createServer(async (req, res) => {
   }
 
   const indexPath = path.join(DIST_DIR, 'index.html');
-  if (fs.existsSync(indexPath)) {
-    serveStaticFile(req, res, indexPath);
+  if (INDEX_HTML_CACHE || fs.existsSync(indexPath)) {
+    if (!INDEX_HTML_CACHE && fs.existsSync(indexPath)) {
+      INDEX_HTML_CACHE = fs.readFileSync(indexPath, 'utf8');
+    }
+    await sendIndexHtml(req, res, pathname);
   } else {
     res.writeHead(404);
     res.end('Not Found');

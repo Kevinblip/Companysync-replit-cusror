@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Check, Sparkles, Zap, Crown } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import BackToWebsiteLink from "@/components/BackToWebsiteLink";
 
 export default function PublicPricing() {
   const navigate = useNavigate();
@@ -179,6 +180,7 @@ export default function PublicPricing() {
       {/* Pricing Section */}
       <div className="bg-gradient-to-br from-gray-50 to-gray-100 py-16 px-4">
         <div className="max-w-7xl mx-auto">
+          <BackToWebsiteLink className="inline-flex text-sm text-gray-500 hover:text-blue-700 mb-6" />
           <div className="text-center mb-12">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
               Choose Your Plan

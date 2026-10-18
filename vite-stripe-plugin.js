@@ -4,6 +4,7 @@ const require = createRequire(import.meta.url);
 const crypto = require('crypto');
 const chatBot = require('./lib/chatBot.cjs');
 const { loadManagedStripeWebhookSecret } = require('./lib/stripeWebhookSecret.cjs');
+const { resolveAppUrl } = require('./lib/appUrl.cjs');
 const { allocatePaymentNumber } = require('./lib/paymentNumbers.cjs');
 
 // Builds a short-lived Stripe idempotency key so an accidental double-click or a
@@ -102,9 +103,9 @@ async function initStripe(pool) {
         stripeSecretKey: secretKey,
       });
 
-      const domains = process.env.REPLIT_DOMAINS;
-      if (domains) {
-        const webhookBaseUrl = `https://${domains.split(',')[0]}`;
+      const webhookBaseUrl = resolveAppUrl();
+      const webhookIsLocal = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(webhookBaseUrl);
+      if (!webhookIsLocal) {
         try {
           const result = await stripeSync.findOrCreateManagedWebhook(
             `${webhookBaseUrl}/api/stripe/webhook`
@@ -218,7 +219,7 @@ function createStripeHandlers(pool) {
     return access.rows.length > 0;
   }
 
-  async function createInvoiceSession(invoice) {
+  async function createInvoiceSession(invoice, req) {
     if (!invoice) throw new Error('Invoice not found');
     if (invoice.status === 'cancelled') throw new Error('This invoice has been cancelled');
 
@@ -236,8 +237,7 @@ function createStripeHandlers(pool) {
       throw new Error('Online card payments are temporarily unavailable');
     }
 
-    const domains = process.env.REPLIT_DOMAINS;
-    const appUrl = domains ? `https://${domains.split(',')[0]}` : 'http://localhost:5000';
+    const appUrl = resolveAppUrl(req);
     const companyName = company.company_name || company.name || '';
     const safeDesc = (companyName || 'Invoice Payment')
       .replace(/[<>"'\\]/g, '')
@@ -356,7 +356,7 @@ function createStripeHandlers(pool) {
   }
 
   return {
-    async createCheckoutSession(params, userEmail) {
+    async createCheckoutSession(params, userEmail, req) {
       const stripe = await getStripeClient();
       const { priceId, mode = 'subscription', companyId, planName, metadata = {} } = params;
 
@@ -368,8 +368,7 @@ function createStripeHandlers(pool) {
         if (company?.stripe_customer_id) customerId = company.stripe_customer_id;
       }
 
-      const domains = process.env.REPLIT_DOMAINS;
-      const host = domains ? `https://${domains.split(',')[0]}` : 'http://localhost:5000';
+      const host = resolveAppUrl(req);
 
       const sessionConfig = {
         mode: mode === 'subscription' ? 'subscription' : 'payment',
@@ -425,7 +424,7 @@ function createStripeHandlers(pool) {
       };
     },
 
-    async purchaseCredits(params, userEmail) {
+    async purchaseCredits(params, userEmail, req) {
       const stripe = await getStripeClient();
       const { type, credits, amount } = params;
 
@@ -434,8 +433,7 @@ function createStripeHandlers(pool) {
       const companyId = await getCompanyByUser(userEmail);
       if (!companyId) throw new Error('Company not found');
 
-      const domains = process.env.REPLIT_DOMAINS;
-      const host = domains ? `https://${domains.split(',')[0]}` : 'http://localhost:5000';
+      const host = resolveAppUrl(req);
 
       const creditsIdempotencyKey = makeIdempotencyKey(['credits', userEmail, companyId, type, credits, amount]);
       const session = await stripe.checkout.sessions.create({
@@ -474,7 +472,7 @@ function createStripeHandlers(pool) {
     // index, so it can never dictate the amount charged or the credits granted.
     // The webhook (dev: handleStripeEvent; prod: prod-server.cjs) reads the
     // grant amounts back from signed metadata and increments the real columns.
-    async purchaseUsageCredits(params, userEmail) {
+    async purchaseUsageCredits(params, userEmail, req) {
       const stripe = await getStripeClient();
       const { kind, creditType, packageIndex } = params || {};
 
@@ -513,8 +511,7 @@ function createStripeHandlers(pool) {
       const unitAmount = Math.round(priceDollars * 100);
       if (!Number.isInteger(unitAmount) || unitAmount < 50) throw new Error('Invalid package price');
 
-      const domains = process.env.REPLIT_DOMAINS;
-      const host = domains ? `https://${domains.split(',')[0]}` : 'http://localhost:5000';
+      const host = resolveAppUrl(req);
 
       const idempotencyKey = makeIdempotencyKey(['usage_credits', userEmail, companyId, kind || '', creditType || '', String(idx)]);
       const session = await stripe.checkout.sessions.create({
@@ -546,7 +543,7 @@ function createStripeHandlers(pool) {
       return { success: true, url: session.url };
     },
 
-    async createConnectedAccount(params, userEmail) {
+    async createConnectedAccount(params, userEmail, req) {
       const stripe = await getStripeClient();
       const companyId = await getCompanyByUser(userEmail);
       if (!companyId) throw new Error('Company not found');
@@ -554,8 +551,7 @@ function createStripeHandlers(pool) {
       const company = await getCompanyById(companyId);
       if (!company) throw new Error('Company not found');
 
-      const domains = process.env.REPLIT_DOMAINS;
-      const appUrl = domains ? `https://${domains.split(',')[0]}` : 'http://localhost:5000';
+      const appUrl = resolveAppUrl(req);
       const returnPath = params?.return_to === '/QuickSetup' ? '/QuickSetup' : '/settings';
 
       if (company.stripe_account_id) {
@@ -617,7 +613,7 @@ function createStripeHandlers(pool) {
       };
     },
 
-    async createPaymentLinkForInvoice(params, userEmail) {
+    async createPaymentLinkForInvoice(params, userEmail, req) {
       const stripe = await getStripeClient();
       const { invoice_id, custom_amount } = params;
       if (!invoice_id) throw new Error('invoice_id required');
@@ -646,8 +642,7 @@ function createStripeHandlers(pool) {
       const companyId = invoice.company_id;
       const company = companyId ? await getCompanyById(companyId) : null;
 
-      const domains = process.env.REPLIT_DOMAINS;
-      const appUrl = domains ? `https://${domains.split(',')[0]}` : 'http://localhost:5000';
+      const appUrl = resolveAppUrl(req);
 
       const companyName = company?.company_name || company?.name || '';
       const safeDesc = (companyName || 'Invoice Payment')
@@ -718,7 +713,7 @@ function createStripeHandlers(pool) {
       return { success: true, payment_url: session.url, session_id: session.id };
     },
 
-    async createInvoiceCheckout(params, userEmail) {
+    async createInvoiceCheckout(params, userEmail, req) {
       const invoiceId = params?.invoice_id;
       if (!invoiceId) throw new Error('invoice_id required');
       const invoice = await loadInvoice(invoiceId);
@@ -726,10 +721,10 @@ function createStripeHandlers(pool) {
       if (!(await canAuthenticatedUserPay(invoice, userEmail))) {
         throw new Error('You do not have access to this invoice');
       }
-      return createInvoiceSession(invoice);
+      return createInvoiceSession(invoice, req);
     },
 
-    async createPublicInvoiceCheckout(params) {
+    async createPublicInvoiceCheckout(params, req) {
       const invoiceId = params?.invoice_id;
       const portalToken = params?.token;
       if (!invoiceId || !portalToken) throw new Error('token and invoice_id required');
@@ -754,7 +749,7 @@ function createStripeHandlers(pool) {
         );
       if (!belongsToCustomer) throw new Error('Invoice not found');
 
-      return createInvoiceSession(invoice);
+      return createInvoiceSession(invoice, req);
     },
 
     async getInvoicePaymentOptions(params, userEmail) {

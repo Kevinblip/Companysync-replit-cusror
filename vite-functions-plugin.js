@@ -36393,7 +36393,7 @@ try {
   functionHandlers.createCheckoutSession = async (params, apiKey, req) => {
     const email = getUserEmail(req);
     if (!email) throw new Error('Authentication required');
-    return stripeHandlers.createCheckoutSession(params, email);
+    return stripeHandlers.createCheckoutSession(params, email, req);
   };
   functionHandlers.cancelSubscription = async (params, apiKey, req) => {
     const email = getUserEmail(req);
@@ -36403,17 +36403,17 @@ try {
   functionHandlers.purchaseCredits = async (params, apiKey, req) => {
     const email = getUserEmail(req);
     if (!email) throw new Error('Authentication required');
-    return stripeHandlers.purchaseCredits(params, email);
+    return stripeHandlers.purchaseCredits(params, email, req);
   };
   functionHandlers.purchaseUsageCredits = async (params, apiKey, req) => {
     const email = getUserEmail(req);
     if (!email) throw new Error('Authentication required');
-    return stripeHandlers.purchaseUsageCredits(params, email);
+    return stripeHandlers.purchaseUsageCredits(params, email, req);
   };
   functionHandlers.createConnectedAccount = async (params, apiKey, req) => {
     const email = getUserEmail(req);
     if (!email) throw new Error('Authentication required');
-    return stripeHandlers.createConnectedAccount(params, email);
+    return stripeHandlers.createConnectedAccount(params, email, req);
   };
   functionHandlers.checkStripeAccountStatus = async (params, apiKey, req) => {
     const email = getUserEmail(req);
@@ -36423,7 +36423,7 @@ try {
   functionHandlers.createPaymentLinkForInvoice = async (params, apiKey, req) => {
     const email = getUserEmail(req);
     if (!email) throw new Error('Authentication required');
-    return stripeHandlers.createPaymentLinkForInvoice(params, email);
+    return stripeHandlers.createPaymentLinkForInvoice(params, email, req);
   };
   functionHandlers.getStripePublishableKey = async () => {
     return stripeHandlers.getStripePublishableKey();
@@ -36431,7 +36431,7 @@ try {
   functionHandlers.createInvoiceCheckout = async (params, apiKey, req) => {
     const email = getUserEmail(req);
     if (!email) throw new Error('Authentication required');
-    return stripeHandlers.createInvoiceCheckout(params, email);
+    return stripeHandlers.createInvoiceCheckout(params, email, req);
   };
   functionHandlers.getInvoicePaymentOptions = async (params, apiKey, req) => {
     const email = getUserEmail(req);
@@ -36442,8 +36442,8 @@ try {
   // handler rather than by the authenticated function wrapper. Production
   // calls this through its public portal route; the token and invoice
   // ownership checks must remain in createPublicInvoiceCheckout.
-  functionHandlers.createPublicInvoiceCheckout = async (params) => {
-    return stripeHandlers.createPublicInvoiceCheckout(params);
+  functionHandlers.createPublicInvoiceCheckout = async (params, _apiKey, req) => {
+    return stripeHandlers.createPublicInvoiceCheckout(params, req);
   };
   functionHandlers.generateCustomerPortalLink = async (params, apiKey, req) => {
     const { customer_id } = params;
@@ -41294,7 +41294,7 @@ export default function viteFunctionsPlugin() {
               const result = await stripeHandlers.createPublicInvoiceCheckout({
                 token: body.token,
                 invoice_id: body.invoice_id,
-              });
+              }, req);
               portalJson(200, result);
             } catch (err) {
               const message = err?.message || 'Unable to start payment';
