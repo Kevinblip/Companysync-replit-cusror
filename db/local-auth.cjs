@@ -47,6 +47,23 @@ function setCorsHeaders(res, req) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
+function signupTracking(companyId, claimed) {
+  return {
+    event_id: `trial_signup_${companyId}`,
+    is_new_trial: claimed === true,
+  };
+}
+
+async function persistSignupAttribution(pool, companyId, req, attribution) {
+  try {
+    const { attributionFromRequest, saveMarketingAttribution } = require('../lib/marketingAttribution.cjs');
+    const attr = attributionFromRequest(req, attribution);
+    if (attr) await saveMarketingAttribution(pool, companyId, attr);
+  } catch (error) {
+    console.warn('[LocalAuth] attribution save failed:', error.message);
+  }
+}
+
 function generateId() {
   return 'loc_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
 }
@@ -167,7 +184,7 @@ async function handleSignup(req, res, pool) {
       return;
     }
 
-    const { email, company_name, password, selected_plan, redirect } = await parseBody(req);
+    const { email, company_name, password, selected_plan, redirect, attribution } = await parseBody(req);
 
     if (!email || !company_name || !password) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -229,29 +246,47 @@ async function handleSignup(req, res, pool) {
       const sid = await createSession(pool, userId, emailLower, '', '', existingCompanyId);
       setSessionCookie(res, sid);
       const companyResult = await pool.query(
-        'SELECT subscription_plan, subscription_status FROM companies WHERE id = $1 LIMIT 1',
+        'SELECT subscription_plan, subscription_status, created_by FROM companies WHERE id = $1 LIMIT 1',
         [existingCompanyId]
       );
       const companyPlan = allowedPlans.has(String(companyResult.rows[0]?.subscription_plan || '').toLowerCase())
         ? String(companyResult.rows[0].subscription_plan).toLowerCase()
         : signupPlan;
+      const companyStatus = String(companyResult.rows[0]?.subscription_status || '').toLowerCase();
+      const isOwner = String(companyResult.rows[0]?.created_by || '').toLowerCase() === emailLower;
+      // Invited staff join an existing company and are not a new trial. The
+      // owner finishing wizard signup is: their click ids belong on that company.
+      if (isOwner && (companyStatus === 'pending' || companyStatus === 'trial' || companyStatus === '')) {
+        await persistSignupAttribution(pool, existingCompanyId, req, attribution);
+      }
       // A public onboarding request creates a pending company/profile before
       // password creation. Start its no-card trial only after the owner has a
-      // real authenticated session.
-      if (String(companyResult.rows[0]?.subscription_status || '').toLowerCase() === 'pending') {
-        const appUrl = getAppUrl(req);
-        await fetch(`http://127.0.0.1:${process.env.PORT || 5000}/api/functions/invoke`, {
+      // real authenticated session. If the wizard already claimed the trial,
+      // this call does not count as a second signup.
+      let claimedTrial = false;
+      if (companyStatus === 'pending') {
+        const trialResponse = await fetch(`http://127.0.0.1:${process.env.PORT || 5000}/api/functions/invoke`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'x-internal-signup-token': SESSION_SECRET,
               'x-internal-signup-email': emailLower,
             },
-            body: JSON.stringify({ functionName: 'startCompanyTrial', params: { companyId: existingCompanyId, plan: companyPlan } }),
+            body: JSON.stringify({
+              functionName: 'startCompanyTrial',
+              params: { companyId: existingCompanyId, plan: companyPlan, attribution },
+            }),
           });
+        const trialEnvelope = await trialResponse.json().catch(() => ({}));
+        const trialResult = trialEnvelope?.data || trialEnvelope;
+        claimedTrial = trialResult?.tracking?.is_new_trial === true;
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, redirect: safeRedirect }));
+      res.end(JSON.stringify({
+        success: true,
+        redirect: safeRedirect,
+        tracking: signupTracking(existingCompanyId, claimedTrial),
+      }));
       return;
     }
 
@@ -308,6 +343,7 @@ async function handleSignup(req, res, pool) {
 
     const sid = await createSession(pool, userId, emailLower, '', '', companyId);
     setSessionCookie(res, sid);
+    await persistSignupAttribution(pool, companyId, req, attribution);
 
     // Trigger startCompanyTrial via an awaited internal API call.
     // This flips the company from 'pending' → 'trial', writes trial_ends_at into data JSONB,
@@ -321,7 +357,7 @@ async function handleSignup(req, res, pool) {
           'x-internal-signup-token': SESSION_SECRET,
           'x-internal-signup-email': emailLower,
         },
-        body: JSON.stringify({ functionName: 'startCompanyTrial', params: { companyId, plan: signupPlan } }),
+        body: JSON.stringify({ functionName: 'startCompanyTrial', params: { companyId, plan: signupPlan, attribution } }),
       });
     const trialEnvelope = await trialResponse.json().catch(() => ({}));
     const trialResult = trialEnvelope?.data || trialEnvelope;
@@ -338,7 +374,11 @@ async function handleSignup(req, res, pool) {
     // email/password and Replit OIDC paths, includes plan + trial-end details.
     console.log('[LocalAuth] Signup success for', emailLower, 'company:', companyNameTrimmed, 'trial ends:', trialEndDate.toISOString().slice(0,10));
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true, redirect: safeRedirect === '/' ? `/QuickSetup?plan=${encodeURIComponent(signupPlan)}&new_signup=true` : safeRedirect }));
+    res.end(JSON.stringify({
+      success: true,
+      redirect: safeRedirect === '/' ? `/QuickSetup?plan=${encodeURIComponent(signupPlan)}&new_signup=true` : safeRedirect,
+      tracking: trialResult?.tracking || signupTracking(companyId, trialResult?.signup_event_claimed === true),
+    }));
   } catch (e) {
     console.error('[LocalAuth] Signup error:', e);
     res.writeHead(500, { 'Content-Type': 'application/json' });

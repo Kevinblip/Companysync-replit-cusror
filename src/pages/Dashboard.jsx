@@ -77,6 +77,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from 'sonner';
+import { getSignupAttribution, trackSignUpOnce } from '@/lib/analytics';
 import { DashboardSkeleton } from "@/components/PageSkeleton";
 import useTranslation from "@/hooks/useTranslation";
 import { useImpersonation } from "@/lib/ImpersonationContext";
@@ -380,9 +381,22 @@ export default function Dashboard() {
       };
 
       // Call backend to create company and invite user
-      base44.functions.invoke('autoSignupFromMarketing', { userData, companyData })
-        .then(response => {
+      base44.functions.invoke('autoSignupFromMarketing', {
+        userData,
+        companyData,
+        attribution: getSignupAttribution(),
+      })
+        .then(async response => {
           if (response.data?.success) {
+            const tracking = response.data.tracking;
+            if (tracking?.is_new_trial && tracking.event_id) {
+              await trackSignUpOnce({
+                eventId: tracking.event_id,
+                method: 'marketing',
+                plan: companyData.plan_type,
+                email: userData.email,
+              });
+            }
             toast.success(response.data.message);
             // Clear URL params
             window.history.replaceState({}, document.title, window.location.pathname);

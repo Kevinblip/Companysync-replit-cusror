@@ -3,6 +3,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import VisualEditAgent from '@/lib/VisualEditAgent'
 import NavigationTracker from '@/lib/NavigationTracker'
+import PageViewTracker from '@/lib/PageViewTracker'
 import PresenceTracker from '@/components/PresenceTracker'
 import { pagesConfig } from './pages.lazy.config'
 import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
@@ -233,6 +234,7 @@ function App() {
             <ErrorBoundary>
               <Router>
                 <NavigationTracker />
+                <PageViewTracker />
                 <PresenceTracker />
                 <UpcomingEventAlert />
                 <AppRouter />

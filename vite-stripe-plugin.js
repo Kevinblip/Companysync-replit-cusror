@@ -1224,6 +1224,11 @@ async function handleStripeEvent(event, stripe, pool) {
     }
 
     case 'invoice.payment_succeeded': {
+      try {
+        await require('./lib/firstPaidSubscription.cjs').recordFirstPaidSubscription(pool, event);
+      } catch (paidErr) {
+        console.error('[Stripe] first paid subscription record failed:', paidErr.message);
+      }
       const invoice = event.data.object;
       const amountPaid = ((invoice.amount_paid || 0) / 100).toFixed(2);
       let companyId = invoice.metadata?.company_id;

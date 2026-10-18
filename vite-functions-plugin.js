@@ -5196,8 +5196,16 @@ const functionHandlers = {
       client.release();
     }
 
+    try {
+      const { attributionFromRequest, saveMarketingAttribution } = nodeRequire('./lib/marketingAttribution.cjs');
+      const attr = attributionFromRequest(req, params?.attribution);
+      if (attr) await saveMarketingAttribution(pool, companyId, attr);
+    } catch (attrErr) {
+      console.warn('[publicSignupInvite] attribution save failed:', attrErr.message);
+    }
+
     const trialResult = await functionHandlers.startCompanyTrial(
-      { companyId, plan },
+      { companyId, plan, attribution: params?.attribution },
       apiKey,
       {
         __trustedSignupOrchestrator: true,
@@ -5215,7 +5223,8 @@ const functionHandlers = {
       company_id: companyId,
       plan,
       action: 'complete_signup',
-      redirect: `/signup?onboarding=true&plan=${encodeURIComponent(plan)}`
+      redirect: `/signup?onboarding=true&plan=${encodeURIComponent(plan)}`,
+      tracking: trialResult.tracking || { event_id: `trial_signup_${companyId}`, is_new_trial: false },
     };
   },
 
@@ -5323,8 +5332,16 @@ const functionHandlers = {
     // the public request. The owner profile above is the authorization proof
     // consumed by startCompanyTrial, and no browser supplied company ID is
     // trusted for the transition.
+    try {
+      const { attributionFromRequest, saveMarketingAttribution } = nodeRequire('./lib/marketingAttribution.cjs');
+      const attr = attributionFromRequest(req, params?.attribution);
+      if (attr) await saveMarketingAttribution(pool, companyId, attr);
+    } catch (attrErr) {
+      console.warn('[autoSignupFromMarketing] attribution save failed:', attrErr.message);
+    }
+
     const trialResult = await functionHandlers.startCompanyTrial(
-      { companyId, plan },
+      { companyId, plan, attribution: params?.attribution },
       apiKey,
       {
         __trustedSignupOrchestrator: true,
@@ -5344,7 +5361,8 @@ const functionHandlers = {
       message: 'Account created! Check your email to complete setup.',
       company_id: companyId,
       plan,
-      redirect: `/QuickSetup?plan=${encodeURIComponent(plan)}&new_signup=true`
+      redirect: `/QuickSetup?plan=${encodeURIComponent(plan)}&new_signup=true`,
+      tracking: trialResult.tracking || { event_id: `trial_signup_${companyId}`, is_new_trial: false },
     };
   },
 
@@ -5851,17 +5869,27 @@ ${sourceName ? `SOURCE NAME: ${sourceName}\n` : ''}${sourceText ? `SOURCE (docum
 
     console.log(`[startCompanyTrial] company=${companyId} plan=${planName} ${isFresh ? 'trial started' : 'plan updated (trial kept)'} by ${caller.email}`);
 
+    if (isFresh) {
+      try {
+        const { attributionFromRequest, saveMarketingAttribution } = nodeRequire('./lib/marketingAttribution.cjs');
+        const attr = attributionFromRequest(req, params?.attribution);
+        if (attr) await saveMarketingAttribution(pool, companyId, attr);
+      } catch (attrErr) {
+        console.warn('[startCompanyTrial] attribution save failed:', attrErr.message);
+      }
+    }
+
     // Fire-and-forget Day-0 welcome email + SMS. Never awaited/blocking the
     // response, and only on a genuinely fresh trial start (never on a plan
     // change while already on trial). Marks day0 in the same TrialNurtureLog
     // the processTrialLifecycle cron reads, so the cron never double-sends it.
+    let signupEventClaimed = false;
     if (isFresh && updated) {
       // The event is the durable, per-company claim for platform signup alerts.
       // Two requests can both read a pending company before either updates it, so
       // `isFresh` alone is not sufficient to prevent duplicate notification sends.
       // A deterministic ID plus the generic_entities primary key lets exactly one
       // request win, while preserving the in-app signup history.
-      let signupEventClaimed = false;
       // Permanent in-app record written synchronously so it's always captured
       // even when SMS or email delivery fails. Scoped to the platform admin
       // company so the SaaS Admin Dashboard can list every signup.
@@ -5984,7 +6012,45 @@ ${sourceName ? `SOURCE NAME: ${sourceName}\n` : ''}${sourceText ? `SOURCE (docum
       })();
     }
 
-    return { success: true, company: updated, plan: planName, trial_started: isFresh };
+    const eventId = `trial_signup_${companyId}`;
+    if (signupEventClaimed) {
+      // Same event_id as the browser sign_up hit. Sent only when this request
+      // won the claim, so retries and the second signup step do not double-count.
+      // Never awaited: a tagging outage must not fail the trial.
+      (async () => {
+        try {
+          const { sendServerEvent } = nodeRequire('./lib/serverTracking.cjs');
+          const row = await pool.query(
+            `SELECT COALESCE(NULLIF(email, ''), NULLIF(created_by, '')) AS email,
+                    data->'marketing_attribution' AS a
+             FROM companies WHERE id = $1`,
+            [companyId]
+          );
+          const email = row.rows[0]?.email || caller.email || '';
+          if (String(email).endsWith('@example.com')) return;
+          const attr = row.rows[0]?.a && typeof row.rows[0].a === 'object' ? row.rows[0].a : {};
+          await sendServerEvent({
+            event_name: 'sign_up',
+            event_id: eventId,
+            value: 0,
+            currency: 'USD',
+            user: { email, fbp: attr.fbp, fbc: attr.fbc, ip: attr.ip, ua: attr.ua },
+            extra: { method: 'server', plan: planName, meta_event: 'CompleteRegistration' },
+          });
+        } catch (trackErr) {
+          console.warn('[startCompanyTrial] server tracking failed:', trackErr.message);
+        }
+      })();
+    }
+
+    return {
+      success: true,
+      company: updated,
+      plan: planName,
+      trial_started: isFresh,
+      signup_event_claimed: signupEventClaimed,
+      tracking: { event_id: eventId, is_new_trial: signupEventClaimed },
+    };
   },
 
   // Returns TrialSignupEvent records for the SaaS Admin Dashboard "Signups" tab.

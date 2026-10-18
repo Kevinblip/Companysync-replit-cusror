@@ -4,6 +4,7 @@ import { base44 } from "@/api/base44Client";
 import { useImpersonation } from "@/lib/ImpersonationContext";
 import { isPlatformAdminCheck } from "@/hooks/usePlatformAdmin";
 import { getLastUsedCompanyId, hasCrossTenantCompanyAccess, resolveActiveCompanyId, setLastUsedCompanyId } from "@/lib/activeCompanySelection";
+import { getSignupAttribution, trackSignUpOnce } from "@/lib/analytics";
 
 export default function useCurrentCompany(user) {
   const queryClient = useQueryClient();
@@ -116,12 +117,21 @@ export default function useCurrentCompany(user) {
           body: JSON.stringify({
             email: user.email,
             name: user.name || user.email.split('@')[0],
+            attribution: getSignupAttribution(),
           }),
         });
         if (resp.ok) {
           const result = await resp.json();
           if (result.company?.id) {
             setLastUsedCompanyId(result.company.id, user.email);
+          }
+          if (result.created && result.tracking?.is_new_trial && result.tracking.event_id) {
+            await trackSignUpOnce({
+              eventId: result.tracking.event_id,
+              method: 'google',
+              plan: 'professional',
+              email: user.email,
+            });
           }
           queryClient.invalidateQueries({ queryKey: ['current-company-list'] });
           queryClient.invalidateQueries({ queryKey: ['current-company-staff'] });
