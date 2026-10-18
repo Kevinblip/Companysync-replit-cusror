@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import BackToWebsiteLink from "@/components/BackToWebsiteLink";
 
 // Video is served from public/videos/ (Vite copies public/ → dist/ at build time).
 // Prod server checks dist/videos/ at line 8421 (DIST_DIR + pathname), so this
@@ -105,11 +106,13 @@ export default function MarketingFeatures() {
   const [isMuted, setIsMuted] = useState(false);
 
   const togglePlay = () => {
-    if (!videoRef.current) return;
+    const video = videoRef.current;
+    if (!video) return;
     if (isPlaying) {
-      videoRef.current.pause();
+      video.pause();
     } else {
-      videoRef.current.play();
+      if (!video.getAttribute('src')) video.src = MARKETING_VIDEO_URL;
+      video.play();
     }
     setIsPlaying(!isPlaying);
   };
@@ -157,6 +160,7 @@ export default function MarketingFeatures() {
               </Button>
             </a>
           </div>
+          <BackToWebsiteLink className="inline-block mt-6 text-sm text-slate-400 hover:text-white" />
         </div>
       </div>
 
@@ -170,8 +174,9 @@ export default function MarketingFeatures() {
         <div className="relative rounded-2xl overflow-hidden bg-black border border-slate-800 shadow-2xl shadow-black/60 group">
           <video
             ref={videoRef}
-            src={MARKETING_VIDEO_URL}
-            className="w-full aspect-video object-cover"
+            poster="/icons/icon-512.png"
+            preload="none"
+            className="w-full aspect-video object-cover bg-slate-900"
             onEnded={() => setIsPlaying(false)}
             playsInline
           />
