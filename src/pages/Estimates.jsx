@@ -130,6 +130,8 @@ export default function EstimatesPage() {
   }, []);
   
   const [searchTerm, setSearchTerm] = useState("");
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [bulkDeleteConfirmText, setBulkDeleteConfirmText] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [estimatorFilter, setEstimatorFilter] = useState("all");
   const [itemsPerPage, setItemsPerPage] = useState(25);
@@ -570,29 +572,18 @@ export default function EstimatesPage() {
     },
   });
 
-  const deleteAllEstimatesMutation = useMutation({
-    mutationFn: async () => {
-      if (!myCompany?.id) return 0;
-      const allEstimates = await base44.entities.Estimate.filter({ company_id: myCompany.id }, "-created_date", 10000);
-      if (!allEstimates.length) return 0;
-      const result = await base44.entities.Estimate.bulkDelete(allEstimates.map(estimate => estimate.id));
-      return result.deleted_count;
-    },
-    onSuccess: (count) => {
-      queryClient.invalidateQueries({ queryKey: ['estimates'] });
-      alert(`✅ Successfully deleted ${count} estimates!`);
-    },
-    onError: error => toast.error(error.message),
-  });
-
   const bulkDeleteMutation = useMutation({
     mutationFn: async (estimateIds) => {
-      const result = await base44.entities.Estimate.bulkDelete(estimateIds);
+      const ids = Array.isArray(estimateIds) ? [...new Set(estimateIds.filter(Boolean))] : [];
+      if (ids.length === 0) throw new Error('Select at least one estimate before deleting.');
+      const result = await base44.entities.Estimate.bulkDelete(ids);
       return result.deleted_count;
     },
     onSuccess: (count) => {
       queryClient.invalidateQueries({ queryKey: ['estimates'] });
       setSelectedEstimates([]);
+      setShowBulkDeleteDialog(false);
+      setBulkDeleteConfirmText('');
       toast.success(`✅ Deleted ${count} estimates!`);
     },
     onError: error => toast.error(error.message),
@@ -749,15 +740,6 @@ export default function EstimatesPage() {
       navigate(createPageUrl('EstimateEditor') + '?estimate_id=' + newEstimate.id);
     } catch (err) {
       toast.error(`Failed to create ${asChangeOrder ? 'change order' : 'supplement'}: ` + err.message);
-    }
-  };
-
-  const handleDeleteAll = () => {
-    if (!guardAction("Deleting estimates")) return;
-    if (window.confirm(`⚠️ DELETE ALL ${estimates.length} ESTIMATES?\n\nThis cannot be undone!\n\nAre you absolutely sure?`)) {
-      if (window.confirm(`🚨 FINAL WARNING: This will permanently delete ALL ${estimates.length} estimates!\n\nClick OK to proceed.`)) {
-        deleteAllEstimatesMutation.mutate();
-      }
     }
   };
 
@@ -1373,13 +1355,14 @@ export default function EstimatesPage() {
           {selectedEstimates.length > 0 && (
             <BulkDeleteButton
               onClick={() => {
-                if (confirm(`${t.common.delete} ${selectedEstimates.length} selected estimates?\n\nThis cannot be undone!`)) {
-                  bulkDeleteMutation.mutate(selectedEstimates);
-                }
+                if (!guardAction("Deleting estimates")) return;
+                setBulkDeleteConfirmText('');
+                setShowBulkDeleteDialog(true);
               }}
               disabled={bulkDeleteMutation.isPending}
               variant="destructive"
               className="w-full sm:w-auto"
+              data-testid="button-delete-selected-estimates"
             >
               {bulkDeleteMutation.isPending ? (
                 <>
@@ -1394,6 +1377,42 @@ export default function EstimatesPage() {
               )}
             </BulkDeleteButton>
           )}
+
+          <Dialog open={showBulkDeleteDialog} onOpenChange={(open) => {
+            setShowBulkDeleteDialog(open);
+            if (!open) setBulkDeleteConfirmText('');
+          }}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Delete {selectedEstimates.length} selected estimates</DialogTitle>
+                <DialogDescription>
+                  This deletes only the rows you checked. A search that shows no results cannot delete the rest of the estimates. Type DELETE to confirm.
+                </DialogDescription>
+              </DialogHeader>
+              <Input
+                value={bulkDeleteConfirmText}
+                onChange={(event) => setBulkDeleteConfirmText(event.target.value)}
+                placeholder="Type DELETE"
+                data-testid="input-confirm-delete-estimates"
+                autoComplete="off"
+              />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowBulkDeleteDialog(false)}>Cancel</Button>
+                <Button
+                  variant="destructive"
+                  data-testid="button-confirm-delete-estimates"
+                  disabled={
+                    bulkDeleteConfirmText !== 'DELETE' ||
+                    selectedEstimates.length === 0 ||
+                    bulkDeleteMutation.isPending
+                  }
+                  onClick={() => bulkDeleteMutation.mutate([...selectedEstimates])}
+                >
+                  {bulkDeleteMutation.isPending ? 'Deleting…' : `Delete ${selectedEstimates.length} selected`}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {selectedEstimates.length === 2 && (
             <Button 
@@ -1424,27 +1443,6 @@ export default function EstimatesPage() {
               <Merge className="w-4 h-4 mr-2" />
               Merge 2 {t.estimates.title}
             </Button>
-          )}
-
-          {estimates.length > 0 && (
-            <BulkDeleteButton
-              variant="outline"
-              onClick={handleDeleteAll}
-              disabled={deleteAllEstimatesMutation.isPending}
-              className="text-red-600 hover:text-red-700 hover:bg-red-50 w-full sm:w-auto"
-            >
-              {deleteAllEstimatesMutation.isPending ? (
-                <>
-                  <Trash2 className="w-4 h-4 mr-2 animate-spin" />
-                  {t.common.loading}
-                </>
-              ) : (
-                <>
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  {t.common.delete} {t.common.all} ({estimates.length})
-                </>
-              )}
-            </BulkDeleteButton>
           )}
 
           <Button 

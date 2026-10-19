@@ -65,7 +65,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 3) Build items from estimate
+    // 3) Build items from estimate. The Adjustment field is not a line on the
+    // estimate, so copy it across as one line and include it in the total once.
     const items = Array.isArray(estimate.items) ? estimate.items.map((it) => ({
       description: it.description || it.long_description || it.code || 'Item',
       quantity: it.quantity || 1,
@@ -73,22 +74,57 @@ Deno.serve(async (req) => {
       amount: it.amount || (it.rate && it.quantity ? Number(it.rate) * Number(it.quantity) : 0),
     })) : [];
 
-    const totalAmount = Number(estimate.amount) || items.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    const adjustmentAmount = Number(estimate.adjustment_amount ?? estimate.data?.adjustment_amount) || 0;
+    const adjustmentLabel = String(estimate.adjustment_label || estimate.data?.adjustment_label || '').trim();
+    const alreadyHasAdjustment = items.some((it) => it.code === 'ESTIMATE_ADJUSTMENT' || /^adjustment$/i.test(String(it.description || '')) || /^adjustment\s*:/i.test(String(it.description || '')));
+    if (adjustmentAmount !== 0 && !alreadyHasAdjustment) {
+      items.push({
+        description: adjustmentLabel ? `Adjustment: ${adjustmentLabel}` : 'Adjustment',
+        quantity: 1,
+        rate: adjustmentAmount,
+        amount: adjustmentAmount,
+        code: 'ESTIMATE_ADJUSTMENT',
+      });
+    }
 
-    // 4) Generate invoice_number (INV-YYYYNNNN)
+    const itemsSum = items.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    let totalAmount = Number(estimate.amount) || Number(estimate.total_amount) || itemsSum;
+    const withoutAdjustment = itemsSum - adjustmentAmount;
+    if (adjustmentAmount !== 0 && Math.abs(totalAmount - withoutAdjustment) < 0.02) {
+      totalAmount = itemsSum;
+    }
+
+    // 4) Generate invoice_number (INV-YYYY-####).
+    // Base44 has no per-company advisory lock. The Postgres handlers in
+    // CompanySync allocate atomically; this path only matches that shape
+    // and skips labels already present in the fetched list.
     const year = new Date().getFullYear();
-    let nextSeq = 1;
+    let invoiceNumber = `INV-${year}-0001`;
     try {
       const invoices = await base44.asServiceRole.entities.Invoice.filter({ company_id: companyId }, '-created_date', 5000);
-      const seqs = invoices.map((inv) => {
-        const m = String(inv.invoice_number || '').match(/INV-(\d{4})(\d{4,})/i);
-        return m ? Number(m[2]) : 0;
-      });
-      const maxSeq = seqs.reduce((a, b) => Math.max(a, b), 0);
-      nextSeq = maxSeq + 1;
+      const taken = new Set<string>();
+      let maxSeq = 0;
+      for (const inv of invoices) {
+        const number = String(inv.invoice_number || '').trim();
+        if (!number) continue;
+        taken.add(number.toLowerCase());
+        const withYear = /^INV-(\d{4})-(\d+)$/.exec(number);
+        if (withYear) {
+          if (Number(withYear[1]) === year && withYear[2].length <= 9) {
+            maxSeq = Math.max(maxSeq, Number(withYear[2]));
+          }
+          continue;
+        }
+        const legacy = /^INV-(\d+)$/.exec(number);
+        if (legacy && legacy[1].length <= 9) maxSeq = Math.max(maxSeq, Number(legacy[1]));
+      }
+      let sequence = maxSeq + 1;
+      invoiceNumber = `INV-${year}-${String(sequence).padStart(4, '0')}`;
+      while (taken.has(invoiceNumber.toLowerCase()) && sequence < maxSeq + 10000) {
+        sequence += 1;
+        invoiceNumber = `INV-${year}-${String(sequence).padStart(4, '0')}`;
+      }
     } catch (_e) {}
-    const padded = String(nextSeq).padStart(4, '0');
-    const invoiceNumber = `INV-${year}${padded}`;
 
     const issueDate = toISODate(new Date());
     const dueDate = toISODate(addDays(new Date(), due_days));

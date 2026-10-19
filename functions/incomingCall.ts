@@ -202,9 +202,37 @@ Deno.serve(async (req) => {
             // 5. Route to Gemini Live API for speech-to-speech
             // Route to Replit production server WebSocket for Gemini Live speech-to-speech
             const replitHost = Deno.env.get('REPLIT_WS_URL') || 'wss://getcompanysync.com';
-            const isCompanySyncNumber = normalizePhone(to) === '2167777154';
-            const scenarioParam = isCompanySyncNumber ? '&scenario=saas_demo' : '';
-            const wsUrl = `${replitHost}/ws/twilio?companyId=${encodeURIComponent(settings.company_id)}${scenarioParam}`;
+            const coleDigits = (Deno.env.get('SALES_AGENT_PHONE_NUMBER') || '+18886703112').replace(/\D/g, '').slice(-10);
+            const callerDigits = String(from || '').replace(/\D/g, '').slice(-10);
+            const allowlist = (Deno.env.get('SALES_AGENT_PHONE_ALLOWLIST') || '')
+                .split(',')
+                .map((item) => item.replace(/\D/g, '').slice(-10))
+                .filter(Boolean);
+            if (coleDigits && normalizePhone(to) === coleDigits) {
+                const allowed = allowlist.length === 0 || allowlist.includes(callerDigits);
+                if (!allowed) {
+                    const polite = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="Polly.Matthew">Thanks for calling CompanySync. This test line can only take calls from the numbers we are checking right now. Please try getcompanysync.com.</Say>
+    <Hangup/>
+</Response>`;
+                    return new Response(polite, { headers: { 'Content-Type': 'text/xml' } });
+                }
+                const salesStream = `${replitHost.replace(/\/$/, '')}/ws/sales-phone`;
+                const coleTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="Polly.Matthew">This call is recorded and transcribed so we can follow up accurately.</Say>
+    <Connect>
+        <Stream url="${escapeXml(salesStream)}">
+            <Parameter name="from" value="${escapeXml(from || '')}" />
+            <Parameter name="to" value="${escapeXml(to || '')}" />
+            <Parameter name="callSid" value="${escapeXml(callSid || '')}" />
+        </Stream>
+    </Connect>
+</Response>`;
+                return new Response(coleTwiml, { headers: { 'Content-Type': 'text/xml' } });
+            }
+            const wsUrl = `${replitHost}/ws/twilio?companyId=${encodeURIComponent(settings.company_id)}`;
             console.log('📍 Replit WebSocket URL:', wsUrl);
             
             const twiml = `<?xml version="1.0" encoding="UTF-8"?>

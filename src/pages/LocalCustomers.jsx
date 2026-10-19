@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Search, Mail, Phone, MessageCircle, Eye, Edit, Trash2, Download, RefreshCw, Upload, Filter, MapPin, Building2, ChevronLeft, Users, Loader2, X } from "lucide-react";
+import { Plus, Search, Mail, Phone, MessageCircle, Eye, Edit, Trash2, Download, RefreshCw, Upload, Filter, MapPin, Users, Loader2, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -887,14 +887,14 @@ export default function LocalCustomers() {
   }
 
   return (
-    <div className="flex flex-col h-screen">
-      <div className="p-4 md:p-6 space-y-4 flex-shrink-0">
-        <div>
+    <div className="flex min-w-0 flex-col overflow-x-hidden md:h-screen">
+      <div className="p-3 md:p-6 space-y-3 md:space-y-4 flex-shrink-0">
+        <div className="hidden md:block">
           <h1 className="text-2xl font-bold text-gray-900" data-testid="text-page-title">{t.customers.title}</h1>
           <span className="text-sm text-gray-500">Contacts</span>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="hidden md:grid grid-cols-3 lg:grid-cols-6 gap-3">
           <Card className="bg-white">
             <CardContent className="p-4">
               <div className="text-2xl font-bold text-gray-900" data-testid="text-total-customers">{totalCustomers}</div>
@@ -933,7 +933,7 @@ export default function LocalCustomers() {
           </Card>
         </div>
 
-        <div className={`${isMobile ? 'sticky top-0 z-20 bg-background -mx-4 px-4 pt-3 pb-1 shadow-sm' : ''}`}>
+        <div>
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -944,7 +944,7 @@ export default function LocalCustomers() {
                   setSearchTerm(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="pl-10 h-12 text-base"
+                className="pl-10 h-11 md:h-12 text-sm md:text-base"
                 autoComplete="off"
                 data-testid="input-search"
               />
@@ -1120,15 +1120,8 @@ export default function LocalCustomers() {
       </div>
 
       {isMobile ? (
-        <div className="flex-1 overflow-auto">
-          <div className="px-4 pb-4 space-y-3">
-            {paginatedCustomers.length > 0 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-2 flex items-center gap-2 text-sm text-blue-800">
-                <ChevronLeft className="w-5 h-5" />
-                <span>Swipe left on any card for quick actions</span>
-              </div>
-            )}
-
+        <div className="w-full min-w-0">
+          <div className="px-3 py-3 space-y-0">
             {paginatedCustomers.length === 0 && (
               <div className="text-center py-12 text-gray-500">
                 <Users className="w-16 h-16 mx-auto mb-3 text-gray-300" />
@@ -1144,27 +1137,24 @@ export default function LocalCustomers() {
                 onEmail={customer.email ? () => handleCommunication(customer, 'email') : null}
                 onSMS={customer.phone ? () => handleCommunication(customer, 'sms') : null}
                 onDelete={() => handleDelete(customer.id)}
-                className="p-4 rounded-lg shadow-sm border border-gray-200"
+                  className="p-4 rounded-lg shadow-sm border border-gray-200"
               >
                 <div
                   onClick={() => handleEdit(customer)}
-                  className="space-y-3"
+                    className="space-y-2"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1 pr-6">
-                      <h3 className="font-semibold text-lg text-gray-900">{customer.name}</h3>
+                        <h3 className="font-semibold text-base text-gray-900">{customer.name}</h3>
                       {customer.company_name && (
-                        <div className="flex items-center gap-1 text-sm text-gray-600 mt-1">
-                          <Building2 className="w-4 h-4" />
-                          {customer.company_name}
-                        </div>
+                          <p className="text-sm text-gray-500 mt-0.5 truncate">{customer.company_name}</p>
                       )}
                       {(() => {
                         const assignedUsers = customer.assigned_to_users || (customer.assigned_to ? [customer.assigned_to] : []);
                         const staffAvatars = getStaffAvatars(assignedUsers);
                         if (staffAvatars.length === 0) return null;
                         return (
-                          <div className="flex -space-x-1.5 mt-2">
+                          <div className="hidden md:flex -space-x-1.5 mt-2">
                             {staffAvatars.slice(0, 3).map((staff) => (
                               <div key={staff.email} className="flex-shrink-0" title={staff.full_name}>
                                 {staff.avatar_url ? (
@@ -1197,7 +1187,7 @@ export default function LocalCustomers() {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     {customer.phone && (
                       <div className="flex items-center gap-2 text-sm">
                         <Phone className="w-4 h-4 text-gray-400 flex-shrink-0" />
@@ -1215,23 +1205,19 @@ export default function LocalCustomers() {
                       </div>
                     )}
                     {(customer.street || customer.address) && (
-                      <div className="flex items-start gap-2 text-sm text-gray-600">
-                        <MapPin className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                        <div>
-                          {customer.street && <div>{customer.street}</div>}
-                          {(customer.city || customer.state || customer.zip) && (
-                            <div className="text-gray-500">
-                              {[customer.city, customer.state, customer.zip].filter(Boolean).join(', ')}
-                            </div>
-                          )}
-                          {!customer.street && customer.address && <div>{customer.address}</div>}
-                        </div>
+                      <div className="flex items-center gap-2 text-sm text-gray-600 min-w-0">
+                        <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <span className="truncate">
+                          {customer.street
+                            ? [customer.street, customer.city, customer.state, customer.zip].filter(Boolean).join(', ')
+                            : customer.address || [customer.city, customer.state, customer.zip].filter(Boolean).join(', ')}
+                        </span>
                       </div>
                     )}
                   </div>
 
-                  <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t">
-                    <span className="font-medium">#{customer.customer_number || '-'}</span>
+                  <div className="flex items-center justify-between text-xs text-gray-400 pt-1.5 border-t border-gray-100">
+                    <span>{customer.source || 'No source'}</span>
                     <span>{customer.created_at ? format(new Date(customer.created_at), 'MMM d, yyyy') : '-'}</span>
                   </div>
                 </div>
@@ -1239,7 +1225,7 @@ export default function LocalCustomers() {
             ))}
           </div>
           {paginatedCustomers.length > 0 && pageSize !== 'all' && totalPages > 1 && (
-            <div className="px-4 py-2 border-t flex items-center justify-between bg-white sticky bottom-0 z-10">
+            <div className="px-4 py-2 border-t flex items-center justify-between bg-white">
               <div className="text-xs text-gray-500">
                 Showing {((currentPage - 1) * effectivePageSize) + 1} to {Math.min(currentPage * effectivePageSize, filteredCustomers.length)} of {filteredCustomers.length} customers
               </div>

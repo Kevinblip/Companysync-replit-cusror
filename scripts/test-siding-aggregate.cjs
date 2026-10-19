@@ -63,20 +63,48 @@ console.log('\n── Wall height: calibrated anchor beats formula ──');
      wallHeightFt !== formulaHt, wallHeightFt, `!= ${formulaHt}`);
 }
 
-console.log('\n── Wall height: formula fires only when no calibrated anchors ──');
+console.log('\n── Wall height: one valid eave is used; formula needs no valid eave ──');
 {
   const storyCount = 2;
   const formulaHt  = storyCount * DEFAULT_EAVE_PER_STORY; // 18 ft
 
-  const perPhotoResults = [
+  const measured = deriveWallHeight([
     { view_label: 'Front', eave_height_ft: 21, height_method: 'estimate', height_clamped: false },
+  ], storyCount);
+  ok('a single valid eave is the width-weighted average, not the formula',
+     measured.wallHeightFt === 21, measured.wallHeightFt, 21);
+
+  const perPhotoResults = [
+    { view_label: 'Front', eave_height_ft: 4, height_method: 'estimate', height_clamped: true },
   ];
   const { wallHeightFt, heightSource } = deriveWallHeight(perPhotoResults, storyCount);
 
-  ok('formula fallback fires when only "estimate" method available',
+  ok('formula fallback fires when no eave is inside 7–28 ft',
      wallHeightFt === formulaHt, wallHeightFt, formulaHt);
   ok('heightSource contains "formula_fallback"',
      heightSource.includes('formula_fallback'), heightSource);
+}
+
+console.log('\n── Wall height: wider walls outweigh a narrow corner ──');
+{
+  const { wallHeightFt } = deriveWallHeight([
+    { view_label: 'Front', eave_height_ft: 10, wall_width_ft: 40, height_method: 'estimate', is_corner_shot: false },
+    { view_label: 'Corner', eave_height_ft: 16, wall_width_ft: 10, height_method: 'estimate', is_corner_shot: true },
+  ], 2);
+  ok('width-weighted eave is 11 ft, not the median 13', wallHeightFt === 11, wallHeightFt, 11);
+}
+
+console.log('\n── Wall height: a second cluster of eaves is kept ──');
+{
+  const low = Array.from({ length: 8 }, () => ({
+    eave_height_ft: 9, wall_width_ft: 10, height_method: 'estimate', height_clamped: false,
+  }));
+  const high = Array.from({ length: 4 }, () => ({
+    eave_height_ft: 18, wall_width_ft: 40, height_method: 'estimate', height_clamped: false,
+  }));
+  const { wallHeightFt, heightSource } = deriveWallHeight([...low, ...high], 2);
+  ok('eight short eaves are not rejected before the width-weighted mean',
+     wallHeightFt === 15 && !heightSource.includes('outlier'), wallHeightFt, heightSource);
 }
 
 console.log('\n── Wall height: clamped photos excluded from calibrated average ──');
@@ -414,6 +442,7 @@ console.log('\n── 5688 Gemini Ct: strict siding, roof, and individual-window
     console.log(JSON.stringify({
       siding: {
         net: siding.totals.net_siding_area_sqft,
+        extrusion: siding.totals.extrusion_wall_area_sqft,
         openingDeduction: siding.totals.opening_deduction_sqft,
         roughOpenings: siding.counts.window_rough_openings,
         windowUnits: siding.counts.window_units,
@@ -432,8 +461,12 @@ console.log('\n── 5688 Gemini Ct: strict siding, roof, and individual-window
     { encoding: 'utf8' },
   ).trim());
 
-  ok('siding total is exactly 2,018 ft²',
-     benchmark.siding.net === 2018, benchmark.siding.net, 2018);
+  // Four photographed 25×10 walls are the hero prism (1,000). The 2,130
+  // extrusion stays the cross-check; openings of 112 leave a net of 888.
+  ok('siding total is the photo prism minus openings (888 ft²)',
+     benchmark.siding.net === 888, benchmark.siding.net, 888);
+  ok('extrusion cross-check stays 2,130 ft²',
+     benchmark.siding.extrusion === 2130, benchmark.siding.extrusion, 2130);
   ok('siding opening deduction is exactly 112 ft²',
      benchmark.siding.openingDeduction === 112, benchmark.siding.openingDeduction, 112);
   ok('all 14 individual window rough openings are preserved',

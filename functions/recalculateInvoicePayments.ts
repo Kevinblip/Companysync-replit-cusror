@@ -22,17 +22,23 @@ Deno.serve(async (req) => {
 
         console.log('🔄 Recalculating payments for invoice:', invoice_number || invoice_id);
 
-        // Get invoice — try invoice_number first, then invoice_id as fallback
+        // invoice id decides which row is recalculated. A number is accepted
+        // only when it belongs to exactly one invoice.
         let invoice: any = null;
 
-        if (invoice_number) {
-            const invoices = await base44.asServiceRole.entities.Invoice.filter({ invoice_number });
-            if (invoices.length > 0) invoice = invoices[0];
-        }
-
-        if (!invoice && invoice_id) {
+        if (invoice_id) {
             const invoices = await base44.asServiceRole.entities.Invoice.filter({ id: invoice_id });
             if (invoices.length > 0) invoice = invoices[0];
+        } else if (invoice_number) {
+            const invoices = await base44.asServiceRole.entities.Invoice.filter({ invoice_number });
+            if (invoices.length !== 1) {
+                return Response.json({
+                    error: invoices.length === 0
+                        ? 'Invoice not found'
+                        : `Invoice number ${invoice_number} matches ${invoices.length} invoices. Recalculate by invoice id.`,
+                }, { status: invoices.length === 0 ? 404 : 409 });
+            }
+            invoice = invoices[0];
         }
 
         if (!invoice) {
@@ -41,7 +47,6 @@ Deno.serve(async (req) => {
 
         const resolvedInvoiceNumber = invoice.invoice_number;
 
-        // Collect all RECEIVED payments for this invoice (deduped)
         const allPayments: any[] = [];
         const seenPaymentIds = new Set<string>();
 
@@ -52,16 +57,6 @@ Deno.serve(async (req) => {
             }
         };
 
-        // 1. Find by exact invoice_number
-        if (resolvedInvoiceNumber) {
-            const byNumber = await base44.asServiceRole.entities.Payment.filter({
-                invoice_number: resolvedInvoiceNumber,
-                status: 'received'
-            });
-            byNumber.forEach(addIfSettled);
-        }
-
-        // 2. Find by invoice_id (catches payments linked by ID but with a mismatched invoice_number)
         if (invoice.id) {
             const byId = await base44.asServiceRole.entities.Payment.filter({
                 invoice_id: invoice.id,
@@ -70,16 +65,19 @@ Deno.serve(async (req) => {
             byId.forEach(addIfSettled);
         }
 
-        // 3. Fuzzy match by trimmed invoice_number (handles whitespace/casing drift)
+        // Legacy rows stored only a number. Count them only when this invoice
+        // is the unique holder of that number, and the payment has no id.
         if (resolvedInvoiceNumber) {
-            const cleanInvoiceNum = resolvedInvoiceNumber.trim().toLowerCase();
-            const allReceived = await base44.asServiceRole.entities.Payment.filter({ status: 'received' });
-            allReceived.forEach((p: any) => {
-                if (p.invoice_number &&
-                    p.invoice_number.trim().toLowerCase() === cleanInvoiceNum) {
-                    addIfSettled(p);
-                }
-            });
+            const holders = await base44.asServiceRole.entities.Invoice.filter({ invoice_number: resolvedInvoiceNumber });
+            if (holders.length === 1 && holders[0].id === invoice.id) {
+                const byNumber = await base44.asServiceRole.entities.Payment.filter({
+                    invoice_number: resolvedInvoiceNumber,
+                    status: 'received'
+                });
+                byNumber.forEach((p: any) => {
+                    if (!p.invoice_id) addIfSettled(p);
+                });
+            }
         }
 
         // Sum only settled payments

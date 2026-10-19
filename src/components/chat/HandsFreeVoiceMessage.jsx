@@ -4,9 +4,14 @@
 //   say "send" (or "cancel") → the clip lands in that teammate's direct thread
 //   as a normal playable voice message with the usual email/SMS notice.
 //
+// Lexi herself is a valid recipient. Saying her name (or opening the flow when
+// she is the only contact) records the message, transcribes it in the browser,
+// and posts that text into her direct thread so she can reply. An audio-only
+// post would be ignored.
+//
 // Every failure path (mic denied, no name matched, ambiguous name, cancelled
-// mid-flow, delivery failure) is spoken aloud AND shown — a message is never
-// silently dropped.
+// mid-flow, a Lexi message with no transcript, delivery failure) is spoken
+// aloud AND shown — a message is never silently dropped.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -18,7 +23,7 @@ import {
   describeCandidates,
   classifyConfirmation,
 } from "@/utils/teammateNameMatch";
-import { deliverVoiceMessage } from "@/utils/handsFreeDelivery";
+import { deliverVoiceMessage, isLexiVoiceRecipient, soleVoiceRecipient } from "@/utils/handsFreeDelivery";
 import {
   acquireLexiVoiceOwner,
   releaseLexiVoiceOwner,
@@ -227,6 +232,51 @@ function recordVoiceBody({ onTick, onLevel, register } = {}) {
   });
 }
 
+// Browser speech recognition, running beside the recorder. Lexi's reply path
+// only sees text, so the words have to be captured here. No extra vendor.
+function startBodyTranscript() {
+  const Ctor = speechRecognitionCtor();
+  if (!Ctor) return null;
+  const recognition = new Ctor();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = "en-US";
+  let finalText = "";
+  let interimText = "";
+  let stopped = false;
+  recognition.onresult = (event) => {
+    interimText = "";
+    for (let i = event.resultIndex; i < event.results.length; i += 1) {
+      const result = event.results[i];
+      if (result.isFinal) finalText += `${result[0].transcript} `;
+      else interimText += result[0].transcript;
+    }
+  };
+  try { recognition.start(); } catch { return null; }
+  const textNow = () => (`${finalText} ${interimText}`).replace(/\s+/g, " ").trim();
+  return {
+    abort() {
+      if (stopped) return;
+      stopped = true;
+      try { recognition.onend = null; recognition.onerror = null; recognition.abort(); } catch { /* no-op */ }
+    },
+    stop() {
+      if (stopped) return Promise.resolve(textNow());
+      return new Promise((resolve) => {
+        const finish = () => {
+          if (stopped) return;
+          stopped = true;
+          resolve(textNow());
+        };
+        recognition.onend = finish;
+        recognition.onerror = finish;
+        try { recognition.stop(); } catch { finish(); }
+        setTimeout(finish, 700);
+      });
+    },
+  };
+}
+
 const PHASE_LABEL = {
   starting: "Starting…",
   name: "Who is it for?",
@@ -259,6 +309,7 @@ export default function HandsFreeVoiceMessage({
   const runningRef = useRef(false);
   const stopListenRef = useRef(null);
   const stopRecordRef = useRef(null);
+  const transcriptRef = useRef(null);
   const voiceOwnerRef = useRef(null);
   const rosterRef = useRef(roster);
   rosterRef.current = roster;
@@ -275,6 +326,8 @@ export default function HandsFreeVoiceMessage({
     stopListenRef.current = null;
     try { stopRecordRef.current?.(false); } catch { /* no-op */ }
     stopRecordRef.current = null;
+    try { transcriptRef.current?.abort(); } catch { /* no-op */ }
+    transcriptRef.current = null;
   }, []);
 
   const deliverClip = useCallback((target, clip) => deliverVoiceMessage({
@@ -301,6 +354,9 @@ export default function HandsFreeVoiceMessage({
 
   // ── Steps ──────────────────────────────────────────────────────────────────
   const resolveRecipient = useCallback(async () => {
+    const only = soleVoiceRecipient(rosterRef.current);
+    if (only) return { outcome: "match", target: only };
+
     let prompt = "Who should I send this to?";
     let narrowed = null;
     for (let attempt = 1; attempt <= NAME_ATTEMPTS; attempt += 1) {
@@ -345,7 +401,9 @@ export default function HandsFreeVoiceMessage({
       setPhase("confirming");
       setHeard("");
       const line = attempt === 1
-        ? `That's a ${clip.seconds} second voice message for ${target.name}. Say send to deliver it, or say cancel.`
+        ? (isLexiVoiceRecipient(target)
+          ? "I'll send Lexi what you said. Say send to deliver it, or say cancel."
+          : `That's a ${clip.seconds} second voice message for ${target.name}. Say send to deliver it, or say cancel.`)
         : "I didn't catch that. Say send, or say cancel.";
       await announce(line);
       if (abortRef.current) return "aborted";
@@ -398,10 +456,17 @@ export default function HandsFreeVoiceMessage({
 
       setPhase("recording");
       setRecSecs(0);
-      await announce(`Recording your message for ${target.name}. Go ahead — I'll stop when you finish.`);
+      const forLexi = isLexiVoiceRecipient(target);
+      await announce(
+        forLexi
+          ? `Recording your message for Lexi. Go ahead — I'll stop when you finish, then she'll reply.`
+          : `Recording your message for ${target.name}. Go ahead — I'll stop when you finish.`
+      );
       if (abortRef.current) return;
 
       let clip = null;
+      const transcriber = forLexi ? startBodyTranscript() : null;
+      transcriptRef.current = transcriber;
       try {
         clip = await recordVoiceBody({
           onTick: setRecSecs,
@@ -409,6 +474,8 @@ export default function HandsFreeVoiceMessage({
         });
       } catch (err) {
         stopRecordRef.current = null;
+        try { transcriber?.abort(); } catch { /* no-op */ }
+        transcriptRef.current = null;
         if (abortRef.current) return;
         if (err.message === "mic-denied") { await failLoudly("I couldn't start recording — microphone access is blocked."); return; }
         if (err.message === "cancelled") { await failLoudly(`Recording cancelled. Nothing was sent to ${target.name}.`); return; }
@@ -416,7 +483,14 @@ export default function HandsFreeVoiceMessage({
         return;
       }
       stopRecordRef.current = null;
+      const transcript = transcriber ? await transcriber.stop() : "";
+      transcriptRef.current = null;
       if (abortRef.current) return;
+      if (forLexi && !transcript) {
+        await failLoudly("I couldn't transcribe that for Lexi, so nothing was sent.");
+        return;
+      }
+      if (forLexi) clip = { ...clip, transcript };
       setPendingClip(clip);
 
       const decision = await confirmSend(target, clip);

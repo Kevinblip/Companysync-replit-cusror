@@ -1,0 +1,18 @@
+# Railway/Nixpacks was auto-detecting Python because main.py and pyproject.toml
+# sit at the repo root. That skipped npm ci, so the Node server had no packages.
+# main.py is a Replit stub and the web process never runs Python, so pin Node.
+# Replit does not read this file.
+providers = ["node"]
+
+[variables]
+NIXPACKS_NODE_VERSION = "20"
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+# PORT is injected by Railway. prod-server.cjs reads process.env.PORT.
+[start]
+cmd = "node scripts/ensure-schema.cjs && node prod-server.cjs"

@@ -4,8 +4,9 @@
  * The four 2D elevation views are rendered at GENERATION time by the shared
  * CAD-grade SVG builder (elevationDrawings.js) — the same drawings shown in
  * the in-app siding card — and inlined into the HTML, so the report and the
- * app can never diverge. The isometric roof view and the perimeter layout
- * still use the inline Canvas engine (runs in the browser on page load).
+ * app can never diverge. The perimeter layout still uses the inline canvas.
+ * The main picture is an interactive 3D house computed in the report from the
+ * footprint and predominant pitch. three.js loads only when that page opens.
  */
 
 import {
@@ -29,6 +30,11 @@ import { renderElevationSet } from './elevationDrawings.js';
 import { resolveCanonicalSidingContract } from './sidingReportNormalization.js';
 import { countFootprintCorners } from './footprintCorners.js';
 import { calculateSidingWaste } from './sidingWaste.js';
+import {
+  buildReportHouseModel,
+  ridgeAngleFromSegments,
+  sanitizeReportFacets,
+} from './reportHouseGeometry.js';
 
 function esc(s) {
   if (s == null) return '';
@@ -394,8 +400,15 @@ export function generateSidingReportHTML({
   ].filter(Boolean);
 
   // ── Data to embed in page ─────────────────────────────────────────────────
+  // Numbers only. The 3D house is computed in the report from this payload;
+  // the measurement record itself is not given a mesh or a texture.
+  const segmentStats = sa.raw_solar_data?.solarPotential?.roofSegmentStats || [];
   const drawData = {
     W, D, H, P, isHip, poly,
+    slope: P / 12,
+    pitchStr,
+    ridgeAngleDeg: ridgeAngleFromSegments(segmentStats),
+    facets: sanitizeReportFacets(sd.measurement_graph?.roof_facets || sa.roof_facets),
     ridgeLf, hipLf, valleyLf, rakeLf, eaveLf,
   };
 
@@ -436,201 +449,6 @@ export function generateSidingReportHTML({
 
   // ── Inline drawing engine (runs in the report page) ───────────────────────
   const drawingEngine = `
-const ISO_C = Math.cos(Math.PI/6);
-const ISO_S = Math.sin(Math.PI/6);
-
-function isoPoint(x, y, z, scale, cx, cy) {
-  return [cx + (x-z)*ISO_C*scale, cy + (x+z)*ISO_S*scale - y*scale];
-}
-
-function fmtFt(n) {
-  const t=Math.round(n), f=Math.floor(t), i=Math.round((t-f)*12);
-  return i>0 ? f+"' "+i+'"' : f+"'";
-}
-
-function dPath(ctx, pts, close) {
-  ctx.beginPath();
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
-  if (close!==false) ctx.closePath();
-}
-
-// ─── Isometric house drawing ──────────────────────────────────────────────────
-function renderIso(canvas, data) {
-  const ctx = canvas.getContext('2d');
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width  = canvas.clientWidth  * dpr;
-  canvas.height = canvas.clientHeight * dpr;
-  ctx.scale(dpr, dpr);
-
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-
-  const {W, D, H, P, isHip, ridgeLf, hipLf, valleyLf, rakeLf, eaveLf} = data;
-  const peak = isHip ? (Math.min(W,D)/2)*(P/12) : (D/2)*(P/12);
-  const cw = canvas.clientWidth, ch = canvas.clientHeight;
-
-  const isoW = (W+D)*ISO_C, isoH = (W+D)*ISO_S + H + peak;
-  const scale = Math.min((cw*0.70)/isoW, (ch*0.76)/isoH, 10);
-  const cx = cw*0.51, cy = ch*0.87;
-  const p = (x,y,z) => isoPoint(x,y,z,scale,cx,cy);
-
-  // Key vertices
-  const b00=p(0,0,0), b10=p(W,0,0), b11=p(W,0,D), b01=p(0,0,D);
-  const t00=p(0,H,0), t10=p(W,H,0), t11=p(W,H,D), t01=p(0,H,D);
-
-  let ridgeL=null, ridgeR=null, apex=null;
-  if (isHip) {
-    const hh=Math.min(W,D)/2;
-    if (W>=D) { ridgeL=p(hh,H+peak,D/2); ridgeR=p(W-hh,H+peak,D/2); }
-    else       { ridgeL=p(W/2,H+peak,hh); ridgeR=p(W/2,H+peak,D-hh); }
-    if (Math.abs(W-D)<6) { apex=p(W/2,H+peak,D/2); ridgeL=ridgeR=null; }
-  } else {
-    ridgeL=p(0,H+peak,D/2); ridgeR=p(W,H+peak,D/2);
-  }
-
-  // ── Ground shadow ──────────────────────────────────────────────────────────
-  ctx.fillStyle='rgba(0,0,0,0.07)';
-  dPath(ctx,[b00,b10,b11,b01]);
-  ctx.fill();
-
-  // ── Hidden/back edges ─────────────────────────────────────────────────────
-  ctx.strokeStyle='#aaa'; ctx.lineWidth=0.6; ctx.setLineDash([4,3]);
-  [[b00,b01],[b01,b11],[b01,t01]].forEach(([a,b])=>{
-    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
-  });
-  if (!isHip && ridgeL) {
-    ctx.beginPath(); ctx.moveTo(t01[0],t01[1]); ctx.lineTo(ridgeL[0],ridgeL[1]); ctx.stroke();
-  }
-  ctx.setLineDash([]);
-
-  // ── Left wall face (partial back) ─────────────────────────────────────────
-  ctx.fillStyle='rgba(0,0,0,0.04)'; ctx.strokeStyle='#aaa'; ctx.lineWidth=0.7;
-  dPath(ctx,[b00,b01,t01,t00]); ctx.fill(); ctx.stroke();
-
-  // ── Gable left triangle (back left) ──────────────────────────────────────
-  if (!isHip && ridgeL) {
-    ctx.fillStyle='rgba(0,0,0,0.04)'; ctx.strokeStyle='#999'; ctx.lineWidth=0.7;
-    dPath(ctx,[t00,ridgeL,t01]); ctx.fill(); ctx.stroke();
-  }
-
-  // ── Roof back slopes ──────────────────────────────────────────────────────
-  function roofFace(pts, alpha, lw) {
-    ctx.fillStyle=\`rgba(0,0,0,\${alpha})\`; ctx.strokeStyle='#111'; ctx.lineWidth=lw;
-    dPath(ctx,pts); ctx.fill(); ctx.stroke();
-  }
-
-  if (!isHip && ridgeL && ridgeR) {
-    roofFace([t01,t11,ridgeR,ridgeL], 0.11, 1.0);  // back slope
-    roofFace([t00,t10,ridgeR,ridgeL], 0.04, 1.4);  // front slope (key face)
-  } else if (isHip) {
-    if (apex) {
-      roofFace([t01,t11,apex], 0.12, 1.0);
-      roofFace([t11,t10,apex], 0.07, 1.0);
-      roofFace([t00,t10,apex], 0.03, 1.5);
-      roofFace([t00,t01,apex], 0.07, 0.8);
-    } else if (ridgeL&&ridgeR) {
-      roofFace([t01,t11,ridgeR,ridgeL], 0.12, 1.0);
-      roofFace([t11,t10,ridgeR],        0.07, 1.0);
-      roofFace([t00,t10,ridgeR,ridgeL], 0.03, 1.5);
-      roofFace([t00,t01,ridgeL],        0.07, 0.8);
-    }
-  }
-
-  // ── Gable right triangle ──────────────────────────────────────────────────
-  if (!isHip && ridgeR) {
-    ctx.fillStyle='#fff'; ctx.strokeStyle='#111'; ctx.lineWidth=1.0;
-    dPath(ctx,[t10,ridgeR,t11]); ctx.fill(); ctx.stroke();
-  }
-
-  // ── Front wall ─────────────────────────────────────────────────────────────
-  ctx.fillStyle='#fff'; ctx.strokeStyle='#111'; ctx.lineWidth=1;
-  dPath(ctx,[b00,b10,t10,t00]); ctx.fill(); ctx.stroke();
-
-  // Window-like openings on front wall
-  const fDx=b10[0]-b00[0], fDy=b10[1]-b00[1];
-  const uDx=t00[0]-b00[0], uDy=t00[1]-b00[1];
-  function wPt(fx,fy){return[b00[0]+fx*fDx+fy*uDx, b00[1]+fx*fDy+fy*uDy];}
-  function drawWin(fx,fy,fw,fh){
-    const bl=wPt(fx,fy),br=wPt(fx+fw,fy),tr=wPt(fx+fw,fy+fh),tl=wPt(fx,fy+fh);
-    ctx.fillStyle='rgba(185,215,245,0.30)'; ctx.strokeStyle='#333'; ctx.lineWidth=0.9;
-    dPath(ctx,[bl,br,tr,tl]); ctx.fill(); ctx.stroke();
-    const mc=wPt(fx+fw/2,fy),mt=wPt(fx+fw/2,fy+fh),ml=wPt(fx,fy+fh/2),mr=wPt(fx+fw,fy+fh/2);
-    ctx.strokeStyle='#666'; ctx.lineWidth=0.5;
-    ctx.beginPath();ctx.moveTo(mc[0],mc[1]);ctx.lineTo(mt[0],mt[1]);ctx.stroke();
-    ctx.beginPath();ctx.moveTo(ml[0],ml[1]);ctx.lineTo(mr[0],mr[1]);ctx.stroke();
-  }
-  function drawDoor(fx,fh){
-    const bl=wPt(fx,0),br=wPt(fx+fh*0.43,0),tr=wPt(fx+fh*0.43,fh),tl=wPt(fx,fh);
-    ctx.fillStyle='rgba(120,85,55,0.15)'; ctx.strokeStyle='#333'; ctx.lineWidth=0.9;
-    dPath(ctx,[bl,br,tr,tl]); ctx.fill(); ctx.stroke();
-  }
-  drawDoor(0.16, 0.72); drawWin(0.38,0.22,0.13,0.44); drawWin(0.60,0.22,0.13,0.44);
-
-  // ── Right wall ─────────────────────────────────────────────────────────────
-  ctx.fillStyle='rgba(250,250,250,0.96)'; ctx.strokeStyle='#111'; ctx.lineWidth=1;
-  dPath(ctx,[b10,b11,t11,t10]); ctx.fill(); ctx.stroke();
-
-  // ── Heavy structural lines ─────────────────────────────────────────────────
-  ctx.strokeStyle='#111'; ctx.lineWidth=2.0;
-  [[b00,b10],[b10,b11],[b00,t00],[b10,t10],[b11,t11],[t00,t10],[t10,t11]].forEach(([a,b])=>{
-    ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();
-  });
-  // Eave (bold)
-  ctx.lineWidth=2.5;
-  ctx.beginPath();ctx.moveTo(t00[0],t00[1]);ctx.lineTo(t10[0],t10[1]);ctx.stroke();
-  // Ridge (boldest)
-  if (ridgeL&&ridgeR) {
-    ctx.lineWidth=3.0;
-    ctx.beginPath();ctx.moveTo(ridgeL[0],ridgeL[1]);ctx.lineTo(ridgeR[0],ridgeR[1]);ctx.stroke();
-  }
-  // Rake/hip lines
-  ctx.lineWidth=1.5;
-  if (!isHip&&ridgeL&&ridgeR) {
-    [[t00,ridgeL],[t10,ridgeR],[t11,ridgeR]].forEach(([a,b])=>{
-      ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();
-    });
-  } else if (isHip) {
-    const corners=[t00,t10,t11,t01];
-    const peaks=apex?[apex,apex,apex,apex]:[ridgeL,ridgeR,ridgeR,ridgeL];
-    corners.forEach((c,i)=>{if(peaks[i]){ctx.beginPath();ctx.moveTo(c[0],c[1]);ctx.lineTo(peaks[i][0],peaks[i][1]);ctx.stroke();}});
-  }
-
-  // ── Callout labels ─────────────────────────────────────────────────────────
-  ctx.font='bold 9.5px Arial, sans-serif';
-  function callout(fromPt, label, ox, oy, goLeft) {
-    if (!fromPt) return;
-    const [fx,fy]=fromPt;
-    const tx=fx+ox, ty=fy+oy;
-    ctx.strokeStyle='#333'; ctx.lineWidth=0.8; ctx.setLineDash([]);
-    ctx.beginPath();ctx.moveTo(fx,fy);ctx.lineTo(tx,ty);ctx.stroke();
-    const tickX=goLeft?tx-16:tx+16;
-    ctx.beginPath();ctx.moveTo(tx,ty);ctx.lineTo(tickX,ty);ctx.stroke();
-    ctx.fillStyle='#111'; ctx.textAlign=goLeft?'right':'left';
-    ctx.fillText(label, goLeft?tickX-3:tickX+3, ty+3.5);
-  }
-  if (ridgeLf>0&&ridgeL&&ridgeR){const mx=(ridgeL[0]+ridgeR[0])/2,my=(ridgeL[1]+ridgeR[1])/2;callout([mx,my],\`Ridges: \${fmtFt(ridgeLf)}\`,60,-30,false);}
-  if (eaveLf>0){const ex=(t00[0]+t10[0])/2,ey=(t00[1]+t10[1])/2;callout([ex,ey],\`Eaves: \${fmtFt(eaveLf)}\`,-60,35,true);}
-  if (rakeLf>0&&!isHip&&ridgeR){const rx=(t10[0]+ridgeR[0])/2,ry=(t10[1]+ridgeR[1])/2;callout([rx,ry],\`Rakes: \${fmtFt(rakeLf)}\`,65,-18,false);}
-  if (hipLf>0){const hp=apex||ridgeR;if(hp){const hx=(t10[0]+hp[0])/2,hy=(t10[1]+hp[1])/2;callout([hx,hy],\`Hips: \${fmtFt(hipLf)}\`,65,10,false);}}
-  if (valleyLf>0) callout(t01,\`Valleys: \${fmtFt(valleyLf)}\`,-65,20,true);
-
-  // ── Wall height dimension ──────────────────────────────────────────────────
-  ctx.strokeStyle='#2563eb'; ctx.lineWidth=0.9;
-  const dx=b00[0]-16;
-  ctx.beginPath();ctx.moveTo(b00[0]-2,b00[1]);ctx.lineTo(dx-2,b00[1]);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(t00[0]-2,t00[1]);ctx.lineTo(dx-2,t00[1]);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(dx,b00[1]);ctx.lineTo(dx,t00[1]);ctx.stroke();
-  ctx.fillStyle='#2563eb';
-  [[dx,b00[1],1],[dx,t00[1],-1]].forEach(([x,y,d])=>{
-    ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-3,y+d*7);ctx.lineTo(x+3,y+d*7);ctx.closePath();ctx.fill();
-  });
-  const hmy=(b00[1]+t00[1])/2;
-  ctx.save();ctx.translate(dx-9,hmy);ctx.rotate(-Math.PI/2);
-  ctx.fillStyle='#2563eb';ctx.font='bold 9px Arial';ctx.textAlign='center';
-  ctx.fillText(Math.round(H)+' ft',0,4);ctx.restore();
-}
-
 // ─── Top-down perimeter layout ────────────────────────────────────────────────
 function renderPerimeter(canvas, poly) {
   const ctx = canvas.getContext('2d');
@@ -685,8 +503,8 @@ function renderPerimeter(canvas, poly) {
 
 // ─── Render all ───────────────────────────────────────────────────────────────
 function renderAll() {
-  renderIso(document.getElementById('iso-canvas'), DRAW_DATA);
-  renderPerimeter(document.getElementById('perim-canvas'), DRAW_DATA.poly);
+  const perim = document.getElementById('perim-canvas');
+  if (perim) renderPerimeter(perim, DRAW_DATA.poly);
 }
 window.addEventListener('load', renderAll);
 window.addEventListener('beforeprint', renderAll);
@@ -712,7 +530,13 @@ window.addEventListener('resize', renderAll);
     .bottom-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-top:10px}
     .cvs-box{border:1px solid #d1d5db;border-radius:4px;overflow:hidden;background:#fff}
     canvas{display:block;width:100%;height:100%}
-    #iso-canvas{height:380px}
+    .model-box{position:relative;height:420px;background:#f3f4f6}
+    #house-3d{position:absolute;inset:0 0 28px 0}
+    #house-3d canvas{width:100%;height:100%;display:block;touch-action:none}
+    .model-hud{position:absolute;top:6px;left:8px;right:8px;display:flex;justify-content:space-between;gap:8px;align-items:flex-start;pointer-events:none;font-size:10px;color:#1f2937}
+    .model-hud button{pointer-events:auto;border:1px solid #d1d5db;background:#fff;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;cursor:pointer}
+    .model-legend{position:absolute;left:0;right:0;bottom:0;height:28px;display:flex;gap:12px;align-items:center;padding:0 8px;background:#fff;border-top:1px solid #e5e7eb;font-size:10px;font-weight:700;color:#374151}
+    .model-legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
     #perim-canvas{height:160px}
     .elev-box{height:150px;padding:4px 8px;display:flex;align-items:center;justify-content:center;gap:6px}
     .elev-drawing{width:100%;height:100%;min-width:0;display:flex;align-items:center;justify-content:center}
@@ -759,8 +583,20 @@ window.addEventListener('resize', renderAll);
 
     <div class="main-grid">
       <div>
-        <div class="slabel">Drawings &amp; Key Measurements</div>
-        <div class="cvs-box"><canvas id="iso-canvas"></canvas></div>
+        <div class="slabel">Interactive 3D House</div>
+        <div class="cvs-box model-box">
+          <div id="house-3d" data-testid="house-report-3d"></div>
+          <div class="model-hud">
+            <span id="house3d-status">Loading 3D model…</span>
+            <button id="house3d-reset" type="button">Reset view</button>
+          </div>
+          <div class="model-legend" aria-label="Wall face colors">
+            <span><i style="background:#3b82f6"></i>North</span>
+            <span><i style="background:#f97316"></i>South</span>
+            <span><i style="background:#22c55e"></i>East</span>
+            <span><i style="background:#a855f7"></i>West</span>
+          </div>
+        </div>
         <div class="lbar">${linearBarHtml}</div>
       </div>
       <div class="right-col">
@@ -800,7 +636,145 @@ window.addEventListener('resize', renderAll);
   <script>
     const DRAW_DATA = ${JSON.stringify(drawData)};
     ${drawingEngine}
+    const buildReportHouseModel = ${buildReportHouseModel.toString()};
+    mountReportHouse(DRAW_DATA, buildReportHouseModel);
+    ${REPORT_HOUSE_VIEWER}
   </script>
 </body>
 </html>`;
 }
+
+const REPORT_HOUSE_VIEWER = `
+function mountReportHouse(data, build) {
+  var mount = document.getElementById('house-3d');
+  var status = document.getElementById('house3d-status');
+  var resetBtn = document.getElementById('house3d-reset');
+  if (!mount || !status) return;
+  var model;
+  try { model = build(data); }
+  catch (err) {
+    status.textContent = '3D model could not be built from this measurement. The 2D drawings are unchanged.';
+    return;
+  }
+  mount.dataset.modelSource = model.source || '';
+  var sourceLabel = model.source === 'measured_facets'
+    ? 'Roof planes from the measured facets'
+    : model.source === 'gable_skeleton'
+      ? 'Gable roof from the footprint'
+      : model.source === 'hip_skeleton'
+        ? 'Hip roof from the footprint'
+        : 'Roof from the footprint';
+  var pitch = data && data.pitchStr ? ' · ' + data.pitchStr : '';
+  import('https://cdn.jsdelivr.net/npm/three@0.171.0/build/three.module.js').then(function (THREE) {
+    var scene = new THREE.Scene();
+    scene.background = new THREE.Color('#f3f4f6');
+    var width = mount.clientWidth || 560;
+    var height = mount.clientHeight || 380;
+    var camera = new THREE.PerspectiveCamera(38, width / Math.max(height, 1), 0.1, 2000);
+    var renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(width, height);
+    mount.appendChild(renderer.domElement);
+
+    scene.add(new THREE.HemisphereLight('#ffffff', '#d6d3d1', 0.9));
+    var sun = new THREE.DirectionalLight('#ffffff', 1.25);
+    sun.position.set(40, 70, 28);
+    scene.add(sun);
+    var fill = new THREE.DirectionalLight('#e0e7ff', 0.45);
+    fill.position.set(-28, 24, -36);
+    scene.add(fill);
+
+    function addMesh(positions, color) {
+      if (!positions || positions.length < 9) return;
+      var geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geom.computeVertexNormals();
+      scene.add(new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ color: color, side: THREE.DoubleSide })));
+    }
+    (model.walls || []).forEach(function (group) { addMesh(group.positions, group.color); });
+    (model.gables || []).forEach(function (group) { addMesh(group.positions, group.color); });
+    (model.roof || []).forEach(function (group) { addMesh(group.positions, group.color); });
+    if (model.soffit) addMesh(model.soffit.positions, model.soffit.color);
+    if (model.fascia) addMesh(model.fascia.positions, model.fascia.color);
+
+    var ground = new THREE.Mesh(
+      new THREE.CircleGeometry(Math.max(model.radius || 40, 20) * 1.8, 48),
+      new THREE.MeshLambertMaterial({ color: '#e5e7eb' })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set(model.center[0], -0.05, model.center[2]);
+    scene.add(ground);
+
+    var north = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 0.35, 4),
+      new THREE.MeshLambertMaterial({ color: '#3b82f6' })
+    );
+    north.position.set(model.center[0], 0.2, model.center[2] - (model.radius || 20) * 0.55);
+    scene.add(north);
+
+    var target = new THREE.Vector3(model.center[0], model.center[1], model.center[2]);
+    var home = { radius: Math.max(model.radius || 40, 18), theta: 0.78, phi: 1.05 };
+    var view = { radius: home.radius, theta: home.theta, phi: home.phi };
+    function place() {
+      view.phi = Math.max(0.28, Math.min(1.35, view.phi));
+      view.radius = Math.max(8, Math.min(home.radius * 4, view.radius));
+      camera.position.set(
+        target.x + view.radius * Math.sin(view.phi) * Math.sin(view.theta),
+        target.y + view.radius * Math.cos(view.phi),
+        target.z + view.radius * Math.sin(view.phi) * Math.cos(view.theta)
+      );
+      camera.lookAt(target);
+      renderer.render(scene, camera);
+    }
+    place();
+
+    var el = renderer.domElement;
+    el.style.touchAction = 'none';
+    var dragging = false, lastX = 0, lastY = 0;
+    el.addEventListener('pointerdown', function (event) {
+      dragging = true;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      if (el.setPointerCapture) el.setPointerCapture(event.pointerId);
+    });
+    el.addEventListener('pointermove', function (event) {
+      if (!dragging) return;
+      view.theta -= (event.clientX - lastX) * 0.008;
+      view.phi -= (event.clientY - lastY) * 0.006;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      place();
+    });
+    function stopDrag() { dragging = false; }
+    el.addEventListener('pointerup', stopDrag);
+    el.addEventListener('pointercancel', stopDrag);
+    el.addEventListener('wheel', function (event) {
+      event.preventDefault();
+      view.radius *= event.deltaY > 0 ? 1.08 : 0.92;
+      place();
+    }, { passive: false });
+    if (resetBtn) resetBtn.addEventListener('click', function () {
+      view.radius = home.radius;
+      view.theta = home.theta;
+      view.phi = home.phi;
+      place();
+    });
+    if (window.ResizeObserver) {
+      var ro = new ResizeObserver(function () {
+        var w = mount.clientWidth || width;
+        var h = mount.clientHeight || height;
+        if (w < 2 || h < 2) return;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+        renderer.render(scene, camera);
+      });
+      ro.observe(mount);
+    }
+    window.addEventListener('beforeprint', function () { renderer.render(scene, camera); });
+    status.textContent = 'Drag to rotate · scroll to zoom · ' + sourceLabel + pitch;
+  }).catch(function () {
+    status.textContent = '3D view could not load. The 2D drawings are unchanged.';
+  });
+}
+`;

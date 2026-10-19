@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { createRequire } from 'node:module';
 const { Pool } = pg;
 
 let pool = null;
@@ -20,6 +21,13 @@ export function getPool() {
 
 export async function initDatabase() {
   const p = getPool();
+  const staging = createRequire(import.meta.url)('../lib/stagingSideEffects.cjs');
+  if (staging.sideEffectsDisabled()) {
+    await p.query('SELECT 1 AS staging_db_ok');
+    staging.logDisabled();
+    console.log('[staging] database init skipped; connection verified');
+    return;
+  }
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS companies (
@@ -667,6 +675,10 @@ export async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_estimates_company ON estimates(company_id);
     CREATE INDEX IF NOT EXISTS idx_invoices_company ON invoices(company_id);
     CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(company_id, status);
+    -- Do NOT add uq_invoices_company_invoice_number here. Startup schema init
+    -- would fail while duplicate numbers exist (INV-2026-0385 on two YICN
+    -- customers). The unique index lives in
+    -- db/migrations/20261017_invoice_number_unique.sql and is applied by hand.
     CREATE INDEX IF NOT EXISTS idx_property_measurements_company ON property_measurements(company_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_property_measurements_invoice ON property_measurements(company_id, invoice_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_property_measurements_job ON property_measurements(company_id, job_id, created_at DESC);

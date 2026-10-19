@@ -289,7 +289,8 @@ export default function UpcomingEventAlert() {
 
   const tier = getTier(minsLeft);
   const ts   = TIER[tier];
-  const eventTime = new Date(event.start_time).toLocaleString('en-US', {
+  const _start = new Date(event.start_time);
+  const eventTime = isNaN(_start.getTime()) ? 'No time set' : _start.toLocaleString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit',
   });

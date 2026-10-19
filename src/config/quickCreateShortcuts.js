@@ -178,6 +178,18 @@ export const DEFAULT_SHORTCUT_IDS = [
   "task",
 ];
 
+// The desktop header historically shows the core seven actions by default.
+// Keep this separate from the mobile floating action button's broader defaults.
+export const DEFAULT_HEADER_SHORTCUT_IDS = [
+  "lead",
+  "estimate",
+  "invoice",
+  "customer",
+  "build",
+  "inspection",
+  "task",
+];
+
 export const SHORTCUT_MAP = Object.fromEntries(
   SHORTCUT_CATALOG.map((s) => [s.id, s])
 );

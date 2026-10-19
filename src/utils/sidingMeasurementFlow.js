@@ -1,8 +1,8 @@
 /**
  * Complete a siding measurement step without coupling the transition to React.
  *
- * Measurement entry points store results for review and leave estimate state
- * untouched. Generate Estimate callers opt into building in the same step.
+ * `autoBuild` prices the measurement in the same step. Callers that only
+ * refresh a review panel pass autoBuild false.
  */
 export async function completeSidingMeasurement({
   measurements,
@@ -10,10 +10,15 @@ export async function completeSidingMeasurement({
   autoBuild = false,
   setMeasurements,
   buildEstimate,
+  resolveMaterial,
 }) {
-  setMeasurements(stateMeasurements);
+  const apply = (record) => (typeof resolveMaterial === 'function' ? resolveMaterial(record) : record);
+  const pricedMeasurements = apply(measurements);
+  const stored = stateMeasurements === measurements ? pricedMeasurements : apply(stateMeasurements);
+  setMeasurements(stored);
   if (autoBuild) {
-    await buildEstimate(measurements);
+    const pricing = await buildEstimate(pricedMeasurements);
+    return { measurements: stored, priced: pricing?.priced !== false, block: pricing?.block || null };
   }
-  return stateMeasurements;
+  return { measurements: stored, priced: false, block: null };
 }

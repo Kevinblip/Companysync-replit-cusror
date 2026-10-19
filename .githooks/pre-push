@@ -429,6 +429,21 @@ if changed_match -E '^(lib/staffVoiceAuth\.cjs|scripts/test-staff-voice-auth\.cj
   fi
 fi
 
+# ── 15d. Lexi by phone (private cell line) ────────────────────────────────────
+if changed_match -E '^(lib/lexiPhone\.cjs|lib/lexiFinance\.cjs|lib/lexiLeads\.cjs|lib/lexiCalls\.cjs|lib/lexiEstimates\.cjs|lib/lexiBriefing\.cjs|lib/lexiEmail\.cjs|lib/lexiTranslate\.cjs|lib/lexiTeamChat\.cjs|lib/invoicePaymentRecalculator\.cjs|scripts/test-lexi-phone\.cjs|scripts/test-lexi-finance\.cjs|scripts/test-lexi-leads\.cjs|scripts/test-lexi-calls\.cjs|scripts/test-lexi-estimates\.cjs|scripts/test-lexi-briefing\.cjs|scripts/test-lexi-email\.cjs|scripts/test-lexi-team-chat\.cjs|scripts/test-lexi-translate\.cjs|prod-server\.cjs)$'; then
+  echo ""
+  echo "[pre-push] Lexi phone or Team Chat changed — running allowlist, PIN, confirm, finance, leads, calls, estimates, briefing, email, and no-delete tests…"
+  echo ""
+  if ! node scripts/test-lexi-phone.cjs || ! node scripts/test-lexi-finance.cjs || ! node scripts/test-lexi-leads.cjs || ! node scripts/test-lexi-calls.cjs || ! node scripts/test-lexi-estimates.cjs || ! node scripts/test-lexi-briefing.cjs || ! node scripts/test-lexi-email.cjs || ! node scripts/test-lexi-team-chat.cjs || ! node scripts/test-lexi-translate.cjs; then
+    echo ""
+    echo "[pre-push] BLOCKED: Lexi phone or Team Chat tests failed — fix the private-line policy before pushing."
+    HOOK_FAILED=1
+  else
+    echo ""
+    echo "[pre-push] Lexi phone and Team Chat tests passed. ✓"
+  fi
+fi
+
 # ── 16. Company email sender regression tests ─────────────────────────────────
 if changed_match -E '^(vite-functions-plugin\.js|prod-server\.cjs|scripts/test-company-email-sender\.cjs)$'; then
   echo ""

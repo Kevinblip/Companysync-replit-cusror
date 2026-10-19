@@ -1,0 +1,479 @@
+[
+ {
+  "v": 1,
+  "id": "clip01-dashboard",
+  "title": "Your Dashboard",
+  "tag": "Overview",
+  "desc": "Command center walkthrough \u2014 metrics, pipeline, build schedule, cash position, action items, and how to customize your view.",
+  "url": "https://getcompanysync.com/videos/clip01-dashboard.mp4",
+  "transcript": "transcripts/clip01-dashboard.txt",
+  "key_moments": []
+ },
+ {
+  "v": 2,
+  "id": "clip02-leads",
+  "title": "Lead Manager",
+  "tag": "CRM",
+  "desc": "Adding leads, moving through pipeline stages, automatic follow-ups, lead scoring, assigning reps, and converting to a customer.",
+  "url": "https://getcompanysync.com/videos/clip02-leads.mp4",
+  "transcript": "transcripts/clip02-leads.txt",
+  "key_moments": [
+   {
+    "label": "Instant welcome text + task",
+    "start": 42.5,
+    "end": 68.0
+   },
+   {
+    "label": "Lead scoring 0-100",
+    "start": 20.5,
+    "end": 46.0
+   },
+   {
+    "label": "Convert lead in one click",
+    "start": 117.5,
+    "end": 133.0
+   }
+  ]
+ },
+ {
+  "v": 3,
+  "id": "clip03-estimates",
+  "title": "Estimates & Proposals",
+  "tag": "Sales",
+  "desc": "Building a line-item estimate, insurance mode, financing options, sending for e-signature, revisions, and converting to an invoice.",
+  "url": "https://getcompanysync.com/videos/clip03-estimates.mp4",
+  "transcript": "transcripts/clip03-estimates.txt",
+  "key_moments": []
+ },
+ {
+  "v": 4,
+  "id": "clip04-ai-estimator",
+  "title": "AI Estimator",
+  "tag": "AI",
+  "desc": "Satellite roof measurement, auto-filled line items, photo damage analysis, AI damage reports, and Xactimate export for insurance jobs.",
+  "url": "https://getcompanysync.com/videos/clip04-ai-estimator.mp4",
+  "transcript": "transcripts/clip04-ai-estimator.txt",
+  "key_moments": [
+   {
+    "label": "Satellite measure in ~30s",
+    "start": 4.1,
+    "end": 29.6
+   },
+   {
+    "label": "AI photo damage report",
+    "start": 67.7,
+    "end": 93.2
+   },
+   {
+    "label": "Xactimate export",
+    "start": 89.8,
+    "end": 115.3
+   },
+   {
+    "label": "Measure on the first call",
+    "start": 119.0,
+    "end": 132.4
+   }
+  ]
+ },
+ {
+  "v": 5,
+  "id": "clip05-build-schedule",
+  "title": "Build Schedule",
+  "tag": "Operations",
+  "desc": "Scheduling crews, job stages, automatic homeowner reminders, PhotoSync field updates, Scope of Work checklist, and ABC Supply ordering.",
+  "url": "https://getcompanysync.com/videos/clip05-build-schedule.mp4",
+  "transcript": "transcripts/clip05-build-schedule.txt",
+  "key_moments": [
+   {
+    "label": "Job stages",
+    "start": 42.5,
+    "end": 68.0
+   },
+   {
+    "label": "ABC Supply order",
+    "start": 105.5,
+    "end": 130.0
+   }
+  ]
+ },
+ {
+  "v": 6,
+  "id": "clip06-invoices",
+  "title": "Invoices & Payments",
+  "tag": "Finance",
+  "desc": "Creating invoices, online payment links, payment schedules, aging report, automatic reminders, commission tracking, and QuickBooks export.",
+  "url": "https://getcompanysync.com/videos/clip06-invoices.mp4",
+  "transcript": "transcripts/clip06-invoices.txt",
+  "key_moments": [
+   {
+    "label": "Text-to-pay",
+    "start": 29.4,
+    "end": 54.9
+   },
+   {
+    "label": "Deposit/progress/final",
+    "start": 58.1,
+    "end": 83.6
+   },
+   {
+    "label": "Auto commissions",
+    "start": 101.9,
+    "end": 127.4
+   }
+  ]
+ },
+ {
+  "v": 7,
+  "id": "clip07-customers",
+  "title": "Customer Management",
+  "tag": "CRM",
+  "desc": "Customer profiles, communication history, notes feed, job timeline, document storage, and turning one-time clients into repeat business.",
+  "url": "https://getcompanysync.com/videos/clip07-customers.mp4",
+  "transcript": "transcripts/clip07-customers.txt",
+  "key_moments": []
+ },
+ {
+  "v": 8,
+  "id": "clip08-staff",
+  "title": "Team & Staff",
+  "tag": "Team",
+  "desc": "Adding crew members, setting roles and permissions, assigning jobs, tracking field activity, and managing access for office vs. field staff.",
+  "url": "https://getcompanysync.com/videos/clip08-staff.mp4",
+  "transcript": "transcripts/clip08-staff.txt",
+  "key_moments": []
+ },
+ {
+  "v": 9,
+  "id": "clip09-communications",
+  "title": "Communications Hub",
+  "tag": "Comms",
+  "desc": "Two-way SMS and email from inside the app, bulk messaging, auto-responses, conversation history, and never losing a customer thread.",
+  "url": "https://getcompanysync.com/videos/clip09-communications.mp4",
+  "transcript": "transcripts/clip09-communications.txt",
+  "key_moments": []
+ },
+ {
+  "v": 10,
+  "id": "clip10-automations",
+  "title": "Workflow Automations",
+  "tag": "Automation",
+  "desc": "Setting up event-triggered workflows, automatic follow-up sequences, status change alerts, and hands-free nurture campaigns.",
+  "url": "https://getcompanysync.com/videos/clip10-automations.mp4",
+  "transcript": "transcripts/clip10-automations.txt",
+  "key_moments": [
+   {
+    "label": "Follow-up sequences",
+    "start": 55.6,
+    "end": 81.1
+   },
+   {
+    "label": "Pre-built templates",
+    "start": 99.5,
+    "end": 125.0
+   }
+  ]
+ },
+ {
+  "v": 11,
+  "id": "clip11-storm-tracking",
+  "title": "Storm Tracking",
+  "tag": "Storm",
+  "desc": "Real-time hail and wind alerts, map overlays, canvassing storm-hit neighborhoods, and turning weather events into booked jobs.",
+  "url": "https://getcompanysync.com/videos/clip11-storm-tracking.mp4",
+  "transcript": "transcripts/clip11-storm-tracking.txt",
+  "key_moments": [
+   {
+    "label": "Storm map",
+    "start": 13.0,
+    "end": 38.5
+   }
+  ]
+ },
+ {
+  "v": 12,
+  "id": "clip12-settings",
+  "title": "General Settings",
+  "tag": "Setup",
+  "desc": "Calendar and time zone, quiet hours, notifications, lead sources, payment options, personal preferences, password security, and recent account access.",
+  "url": "https://getcompanysync.com/videos/clip12-settings.mp4",
+  "transcript": "transcripts/clip12-settings.txt",
+  "key_moments": []
+ },
+ {
+  "v": 13,
+  "id": "clip13-reports",
+  "title": "Reports & Analytics",
+  "tag": "Analytics",
+  "desc": "Revenue dashboards, lead source ROI, crew performance, pipeline velocity, and exporting data for your accountant or leadership team.",
+  "url": "https://getcompanysync.com/videos/clip13-reports.mp4",
+  "transcript": "transcripts/clip13-reports.txt",
+  "key_moments": []
+ },
+ {
+  "v": 14,
+  "id": "clip14-financing",
+  "title": "Customer Financing",
+  "tag": "Finance",
+  "desc": "Enabling financing options on estimates, Hearth and GreenSky integration, customer payment plan views, and getting more jobs approved.",
+  "url": "https://getcompanysync.com/videos/clip14-financing.mp4",
+  "transcript": "transcripts/clip14-financing.txt",
+  "key_moments": [
+   {
+    "label": "Financing partners",
+    "start": 13.5,
+    "end": 39.0
+   },
+   {
+    "label": "Paid in full upfront",
+    "start": 67.8,
+    "end": 93.3
+   }
+  ]
+ },
+ {
+  "v": 15,
+  "id": "clip15-mobile",
+  "title": "Mobile Field Use",
+  "tag": "Mobile",
+  "desc": "Running the app from a phone on the job site \u2014 photos, voice notes, PhotoSync updates, quick estimates, and offline capabilities.",
+  "url": "https://getcompanysync.com/videos/clip15-mobile.mp4",
+  "transcript": "transcripts/clip15-mobile.txt",
+  "key_moments": []
+ },
+ {
+  "v": 16,
+  "id": "clip16-reviews",
+  "title": "Reviews & Growth",
+  "tag": "Growth",
+  "desc": "Automated review requests after job completion, Google review links, reputation monitoring, and using reviews to win more bids.",
+  "url": "https://getcompanysync.com/videos/clip16-reviews.mp4",
+  "transcript": "transcripts/clip16-reviews.txt",
+  "key_moments": []
+ },
+ {
+  "v": 17,
+  "id": "clip17-quickbooks",
+  "title": "QuickBooks Sync",
+  "tag": "Accounting",
+  "desc": "Connect QuickBooks Online, confirm whether you are using a test or production company, read sync counts, prevent duplicate payments, import expenses and account categories, and understand what syncs in each direction.",
+  "url": "https://getcompanysync.com/videos/clip17-quickbooks.mp4",
+  "transcript": "transcripts/clip17-quickbooks.txt",
+  "key_moments": [
+   {
+    "label": "Connect QBO",
+    "start": 3.3,
+    "end": 28.8
+   }
+  ]
+ },
+ {
+  "v": 18,
+  "id": "clip18-contracts",
+  "title": "E-Signatures & Contracts",
+  "tag": "Legal",
+  "desc": "Building contract templates, sending for e-signature, tracking signed documents, Direction to Pay clauses, and storing signed PDFs automatically.",
+  "url": "https://getcompanysync.com/videos/clip18-contracts.mp4",
+  "transcript": "transcripts/clip18-contracts.txt",
+  "key_moments": [
+   {
+    "label": "Send contract",
+    "start": 33.0,
+    "end": 58.5
+   },
+   {
+    "label": "Direction to pay / AOB",
+    "start": 81.2,
+    "end": 106.7
+   }
+  ]
+ },
+ {
+  "v": 19,
+  "id": "clip19-pricelist",
+  "title": "Price List & Materials",
+  "tag": "Setup",
+  "desc": "Building your price list, setting markups per category, bulk CSV import, Xactimate line code mapping, and keeping rates current with the market.",
+  "url": "https://getcompanysync.com/videos/clip19-pricelist.mp4",
+  "transcript": "transcripts/clip19-pricelist.txt",
+  "key_moments": []
+ },
+ {
+  "v": 20,
+  "id": "clip20-aivoice",
+  "title": "AI Receptionist (Alex)",
+  "tag": "AI",
+  "desc": "Setting up Alex to answer calls 24/7, training her on your business, booking appointments, call transcripts, and overflow call handling.",
+  "url": "https://getcompanysync.com/videos/clip20-aivoice.mp4",
+  "transcript": "transcripts/clip20-aivoice.txt",
+  "key_moments": [
+   {
+    "label": "After-hours answering",
+    "start": 27.6,
+    "end": 53.1
+   },
+   {
+    "label": "Books inspections",
+    "start": 39.6,
+    "end": 65.1
+   },
+   {
+    "label": "Transcripts on the lead",
+    "start": 52.4,
+    "end": 77.9
+   }
+  ]
+ },
+ {
+  "v": 21,
+  "id": "clip21-portal",
+  "title": "Customer Portal",
+  "tag": "CRM",
+  "desc": "What your homeowner sees \u2014 estimate review, financing options, one-tap approval, online payment, contract access, and live job status.",
+  "url": "https://getcompanysync.com/videos/clip21-portal.mp4",
+  "transcript": "transcripts/clip21-portal.txt",
+  "key_moments": [
+   {
+    "label": "Homeowner portal",
+    "start": 5.7,
+    "end": 31.2
+   },
+   {
+    "label": "One-tap approval",
+    "start": 37.2,
+    "end": 62.7
+   }
+  ]
+ },
+ {
+  "v": 22,
+  "id": "clip22-photos",
+  "title": "Photo & Damage Reports",
+  "tag": "AI",
+  "desc": "PhotoSync photo capture, AI damage analysis, photo annotation, generating branded PDF damage reports, and sharing directly with adjusters.",
+  "url": "https://getcompanysync.com/videos/clip22-photos.mp4",
+  "transcript": "transcripts/clip22-photos.txt",
+  "key_moments": []
+ },
+ {
+  "v": 23,
+  "id": "clip23-calendar",
+  "title": "Google Calendar Sync",
+  "tag": "Comms",
+  "desc": "Connecting your Google Calendar, two-way appointment sync, crew scheduling visibility, preventing double-booking, and multi-crew calendar setup.",
+  "url": "https://getcompanysync.com/videos/clip23-calendar.mp4",
+  "transcript": "transcripts/clip23-calendar.txt",
+  "key_moments": []
+ },
+ {
+  "v": 24,
+  "id": "clip24-gohighlevel",
+  "title": "GoHighLevel Integration",
+  "tag": "Growth",
+  "desc": "Syncing GHL leads into CompanySync, pushing leads back to GHL, status updates flowing both ways, and bulk storm canvassing imports.",
+  "url": "https://getcompanysync.com/videos/clip24-gohighlevel.mp4",
+  "transcript": "transcripts/clip24-gohighlevel.txt",
+  "key_moments": []
+ },
+ {
+  "v": 25,
+  "id": "clip25-tasks",
+  "title": "Action Items & Tasks",
+  "tag": "Automation",
+  "desc": "Auto-created follow-up tasks, manual task assignment, overdue escalation, pre-install checklists, and post-job review and referral sequences.",
+  "url": "https://getcompanysync.com/videos/clip25-tasks.mp4",
+  "transcript": "transcripts/clip25-tasks.txt",
+  "key_moments": []
+ },
+ {
+  "v": 26,
+  "id": "clip26-onboarding",
+  "title": "Getting Started",
+  "tag": "Overview",
+  "desc": "First-week setup: company profile, price list, estimate template, adding your first lead, inviting your team, connecting integrations, and going live.",
+  "url": "https://getcompanysync.com/videos/clip26-onboarding.mp4",
+  "transcript": "transcripts/clip26-onboarding.txt",
+  "key_moments": []
+ },
+ {
+  "v": 27,
+  "id": "clip27-alexsetup",
+  "title": "Alex Setup Guide",
+  "tag": "AI",
+  "desc": "Step-by-step Alex setup: where to start, connecting your phone number, voice and knowledge base, scheduling defaults, testing conversations, and daily monitoring.",
+  "url": "https://getcompanysync.com/videos/clip27-alexsetup.mp4",
+  "transcript": "transcripts/clip27-alexsetup.txt",
+  "key_moments": []
+ },
+ {
+  "v": 28,
+  "id": "clip28-lead-finder-storm",
+  "title": "Lead Finder & Storm Workflow",
+  "tag": "Storm",
+  "desc": "The 4-step storm-to-signed-job workflow: spotting events in Storm Tracking, importing county records, scoring leads by storm proximity in Lead Finder, and connecting BatchLeads or PropStream for live property data.",
+  "url": "https://getcompanysync.com/videos/clip28-lead-finder-storm.mp4",
+  "transcript": "transcripts/clip28-lead-finder-storm.txt",
+  "key_moments": [
+   {
+    "label": "Pull storm-zone addresses",
+    "start": 36.8,
+    "end": 62.3
+   },
+   {
+    "label": "Door-knock list",
+    "start": 49.6,
+    "end": 74.0
+   }
+  ]
+ },
+ {
+  "v": 29,
+  "id": "clip29-accounting",
+  "title": "Accounting & Bookkeeping",
+  "tag": "Accounting",
+  "desc": "Set up your chart of accounts, connect bank accounts, record expenses and bills, reconcile transactions, create journal entries, and review accounting reports.",
+  "url": "https://getcompanysync.com/videos/clip29-accounting.mp4",
+  "transcript": "transcripts/clip29-accounting.txt",
+  "key_moments": []
+ },
+ {
+  "v": 30,
+  "id": "clip30-siding-estimator",
+  "title": "Siding & Exterior Measurements",
+  "tag": "AI",
+  "desc": "Measure siding from guided exterior photos, satellite footprints, or manual dimensions; review wall areas and openings, create the measurement report, and build the siding estimate.",
+  "url": "https://getcompanysync.com/videos/clip30-siding-estimator.mp4",
+  "transcript": "transcripts/clip30-siding-estimator.txt",
+  "key_moments": []
+ },
+ {
+  "v": 31,
+  "id": "clip31-company-setup-part1",
+  "title": "Company Setup \u2014 Part 1",
+  "tag": "Setup",
+  "desc": "Configure company identity, branding, preferred shingle brands, tax defaults, numbering formats, and the public customer booking form.",
+  "url": "https://getcompanysync.com/videos/clip31-company-setup-part1.mp4",
+  "transcript": "transcripts/clip31-company-setup-part1.txt",
+  "key_moments": []
+ },
+ {
+  "v": 32,
+  "id": "clip32-company-setup-part2",
+  "title": "Company Setup \u2014 Part 2",
+  "tag": "Setup",
+  "desc": "Customize PhotoSync assignment emails and texts, resend reminders, customer inspection confirmations, and homeowner photo-upload alerts.",
+  "url": "https://getcompanysync.com/videos/clip32-company-setup-part2.mp4",
+  "transcript": "transcripts/clip32-company-setup-part2.txt",
+  "key_moments": []
+ },
+ {
+  "v": 33,
+  "id": "clip33-company-setup-part3",
+  "title": "Company Setup \u2014 Part 3",
+  "tag": "Setup",
+  "desc": "Configure on-call escalation channels, guided inspection voice commands, document defaults, disclaimers, and Quick Create shortcuts.",
+  "url": "https://getcompanysync.com/videos/clip33-company-setup-part3.mp4",
+  "transcript": "transcripts/clip33-company-setup-part3.txt",
+  "key_moments": []
+ }
+]

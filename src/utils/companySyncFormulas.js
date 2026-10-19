@@ -202,39 +202,94 @@ export function processWindowUnits(openings = []) {
 }
 
 /**
- * Build an openings list from counts + default geometry.
- * Used in fallback paths where only counts (not measured dims) are available.
- *
- * @param {{ windows?: number, entryDoors?: number, garageDoors?: number, singleGarageDoors?: number }} counts
- * @returns {Array<{type: string, width: number, height: number}>}
+ * Installed reveal, butt to butt. Vinyl 4" and 5" are already the reveal.
+ * An 8" cedar board laps about 1", so the reveal is 7".
+ * Fibre-cement is billed at 5", the low end of a 5–6" reveal.
+ * An 8", 8.25", or 10" reading is the board or a double-wide panel, not the reveal.
+ * Counting courses against that board width is what leaves the eave high.
  */
+export const COURSE_REVEAL_IN = {
+  vinyl_4: 4,
+  vinyl_5: 5,
+  cedar_lap: 7,
+  fiber_cement: 5,
+  board_batten: 7,
+  shake: 7,
+};
+
+/** Nominal board and double-panel widths that are not an installed reveal. */
+const BOARD_WIDTHS_IN = [8, 8.25, 9.25, 10];
+
+/**
+ * The reveal to multiply by the course count.
+ * A measured reveal is used only when it is at least 2.5" and no larger than
+ * the profile's installed reveal. Anything above that, and an 8" or 10" echo
+ * of the board or panel, falls back to the profile.
+ */
+export function installedRevealIn(profile, exposureIn) {
+  const fallback = COURSE_REVEAL_IN[profile] ?? COURSE_REVEAL_IN.vinyl_4;
+  const measured = Number(exposureIn);
+  const echoedBoard = BOARD_WIDTHS_IN.some((board) => Math.abs(measured - board) < 0.26);
+  if (!echoedBoard && Number.isFinite(measured) && measured >= 2.5 && measured <= fallback + 0.05) {
+    return measured;
+  }
+  return fallback;
+}
+
 /**
  * Resolve vertical wall height (feet) from a siding profile + course count.
- * Implements the ScaleAnchorResolver spec:
- *   vinyl_4      → courseCount × (4/12) ft   — standard 4" vinyl/aluminium exposure
- *   vinyl_5      → courseCount × (5/12) ft   — 5" vinyl or fibre-cement
- *   cedar_lap    → courseCount × (8/12) ft   — typical 8" cedar lap exposure
- *   board_batten → 80/12 ft when a door is visible (6.67 ft standard door anchor),
- *                  else courseCount × (7/12) ft
- *   shake        → same as board_batten (course height varies widely)
+ * The count stops at the eave. Gable courses are not part of this height.
+ *
+ *   vinyl_4      → courseCount × (4/12) ft
+ *   vinyl_5      → courseCount × (5/12) ft
+ *   cedar_lap    → courseCount × (7/12) ft   — 8" board, 1" lap
+ *   board_batten → 80/12 ft when a door is visible, else courseCount × (7/12)
+ *   shake        → same as board_batten
+ *
+ * A measured reveal replaces the profile default only when it is not larger
+ * than that reveal. An 8" or 10" reading is the board or the panel.
  *
  * @param {'vinyl_4'|'vinyl_5'|'cedar_lap'|'board_batten'|'shake'|string} profile
  * @param {number} courseCount  Number of lap courses from grade to eave
  * @param {boolean} hasDoor     Whether an entry/garage door is visible in the photo
+ * @param {number} [exposureIn] Measured reveal in inches, when the photo has one
  * @returns {number} Eave height in feet
  */
-export function resolveVerticalScale(profile, courseCount, hasDoor = false) {
-  switch (profile) {
-    case 'vinyl_4':    return courseCount * (4 / 12);
-    case 'vinyl_5':    return courseCount * (5 / 12);
-    case 'cedar_lap':  return courseCount * (8 / 12);
-    case 'board_batten':
-    case 'shake':
-      // Anchor to standard 80" door height when one is visible; otherwise estimate
-      // from course count using 7" as the typical board/shake exposure.
-      return hasDoor ? (80 / 12) : courseCount * (7 / 12);
-    default:           return courseCount * (4 / 12); // safe fallback: vinyl_4
+export function resolveVerticalScale(profile, courseCount, hasDoor = false, exposureIn = null) {
+  const courses = Number(courseCount) || 0;
+  if ((profile === 'board_batten' || profile === 'shake') && hasDoor) return 80 / 12;
+  return courses * (installedRevealIn(profile, exposureIn) / 12);
+}
+
+/**
+ * A course count that continues up a gable is taller than the eave by about
+ * the gable rise. Return the eave. Do not scale the height by a fixed factor.
+ */
+export function eaveFromCourseCount({
+  courseFt = 0,
+  namedEaveFt = 0,
+  gableRiseFt = 0,
+  hasGable = false,
+} = {}) {
+  const course = Number(courseFt) || 0;
+  const gable = Math.max(0, Number(gableRiseFt) || 0);
+  const named = Number(namedEaveFt) || 0;
+  if (hasGable && gable >= 1 && course - gable >= 7) {
+    const without = course - gable;
+    const closerWithout = !(named >= 7) || Math.abs(without - named) + 0.01 < Math.abs(course - named);
+    if (closerWithout) return Math.round(without * 10) / 10;
   }
+  return Math.round(course * 10) / 10;
+}
+
+/** Grade-to-eave only. wall_height_ft already includes the gable triangle. */
+export function eaveExcludingGable(photo) {
+  const eave = Number(photo?.eave_height_ft);
+  const gable = Math.max(0, Number(photo?.gable_rise_ft) || 0);
+  if (Number.isFinite(eave) && eave > 0) return eave;
+  const wall = Number(photo?.wall_height_ft);
+  if (Number.isFinite(wall) && wall > 0) return Math.max(0, wall - gable);
+  return 0;
 }
 
 /**
@@ -315,14 +370,21 @@ export function processAwnings(awnings = []) {
 
 export function materialToSidingProfile(material) {
   switch (material) {
-    case 'fiber_cement': return 'vinyl_5';   // Hardie: ~5–6" exposure; vinyl_5 is conservative
-    case 'wood':         return 'cedar_lap'; // Cedar/wood lap: 8" typical
+    case 'fiber_cement': return 'fiber_cement'; // 5" reveal; an 8" board reading is ignored
+    case 'wood':         return 'cedar_lap'; // 8" board, ~1" lap, 7" reveal
     case 'vinyl':
     case 'aluminum':
     default:             return 'vinyl_4';   // Most common residential siding
   }
 }
 
+/**
+ * Build an openings list from counts + default geometry.
+ * Used in fallback paths where only counts (not measured dims) are available.
+ *
+ * @param {{ windows?: number, entryDoors?: number, garageDoors?: number, singleGarageDoors?: number }} counts
+ * @returns {Array<{type: string, width: number, height: number}>}
+ */
 export function openingsFromCounts({ windows = 0, entryDoors = 0, garageDoors = 0, singleGarageDoors = 0 } = {}) {
   const result = [];
   for (let i = 0; i < windows;           i++) result.push({ type: 'window',      width: 3,  height: 4   });

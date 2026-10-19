@@ -12,6 +12,7 @@ async function main() {
   const {
     getEstimateDocumentIdentityMismatch,
     getEstimateDocumentBatchIdentityMismatch,
+    customerAddressFieldsFromDocument,
   } = await import('../src/utils/estimateDocumentIdentity.js');
 
   let passed = 0;
@@ -119,25 +120,83 @@ async function main() {
     })?.propertyMismatch,
     'a longer street name cannot bypass the block by sharing a prefix',
   );
+  const cityOnly = getEstimateDocumentIdentityMismatch({
+    documentCustomer: 'Linda Hall',
+    documentAddress: '100 Main St, Highland Heights, OH',
+    currentCustomer: 'Linda Hall',
+    currentAddress: '100 Main St, Cleveland, OH',
+    hasSelectedContact: true,
+  });
   ok(
-    getEstimateDocumentIdentityMismatch({
-      documentCustomer: 'Linda Hall',
-      documentAddress: '100 Main St, Highland Heights, OH',
-      currentCustomer: 'Linda Hall',
-      currentAddress: '100 Main St, Cleveland, OH',
-      hasSelectedContact: true,
-    })?.propertyMismatch,
-    'a different city with the same street does not silently match',
+    cityOnly?.addressWarning && cityOnly.severity === 'warn' && !cityOnly.propertyMismatch
+      && cityOnly.message.includes('Address warning')
+      && !cityOnly.message.includes('Import blocked')
+      && cityOnly.message.includes('Highland Heights')
+      && cityOnly.message.includes('Cleveland'),
+    'a different city with the same street warns instead of blocking',
+  );
+  const cityPrefix = getEstimateDocumentIdentityMismatch({
+    documentCustomer: 'Linda Hall',
+    documentAddress: '100 Main St, Cleveland',
+    currentCustomer: 'Linda Hall',
+    currentAddress: '100 Main St, Cleveland Heights, OH',
+    hasSelectedContact: true,
+  });
+  ok(
+    cityPrefix?.addressWarning && cityPrefix.severity === 'warn'
+      && !cityPrefix.message.includes('Import blocked'),
+    'a shorter city name warns instead of masquerading as the same property or blocking',
+  );
+  const glendale = getEstimateDocumentIdentityMismatch({
+    documentCustomer: 'Linda Hall',
+    documentAddress: '16413 Glendale Ave Cleveland, OH 44128-1315',
+    currentCustomer: 'Linda Hall',
+    currentAddress: '16413 Glendale Ave, Cleveland Heights, OH, 44118',
+    hasSelectedContact: true,
+  });
+  ok(
+    glendale?.addressWarning && glendale.severity === 'warn' && !glendale.propertyMismatch
+      && glendale.message.includes('16413 Glendale Ave Cleveland, OH 44128-1315')
+      && glendale.message.includes('16413 Glendale Ave, Cleveland Heights, OH, 44118')
+      && glendale.message.includes('Import anyway')
+      && !glendale.message.includes('Import blocked'),
+    'Glendale city and ZIP differences warn and offer import anyway',
   );
   ok(
     getEstimateDocumentIdentityMismatch({
       documentCustomer: 'Linda Hall',
-      documentAddress: '100 Main St, Cleveland',
+      documentAddress: '100 Main St, Cleveland, OH 44118',
       currentCustomer: 'Linda Hall',
-      currentAddress: '100 Main St, Cleveland Heights, OH',
+      currentAddress: '100 Main St, Cleveland, OH 44128',
       hasSelectedContact: true,
-    })?.propertyMismatch,
-    'a shorter city name cannot masquerade as the same property',
+    })?.severity === 'warn',
+    'the same house and street with a different ZIP warns instead of blocking',
+  );
+  ok(
+    getEstimateDocumentIdentityMismatch({
+      documentCustomer: 'Linda Hall',
+      documentAddress: '16413 Glendale Ave, Cleveland, OH 44128-1315',
+      currentCustomer: 'Linda Hall',
+      currentAddress: '16413 Glendale Ave, Cleveland, OH 44128',
+      hasSelectedContact: true,
+    }) === null,
+    'a ZIP+4 suffix does not count as a different ZIP',
+  );
+  const glendaleFields = customerAddressFieldsFromDocument('16413 Glendale Ave Cleveland, OH 44128-1315');
+  ok(
+    glendaleFields.street === '16413 Glendale Ave'
+      && glendaleFields.city === 'Cleveland'
+      && glendaleFields.state === 'OH'
+      && glendaleFields.zip === '44128',
+    'a document address splits into street, city, state, and ZIP for the customer update',
+  );
+  const heightsFields = customerAddressFieldsFromDocument('16413 Glendale Ave, Cleveland Heights, OH, 44118');
+  ok(
+    heightsFields.street === '16413 Glendale Ave'
+      && heightsFields.city === 'Cleveland Heights'
+      && heightsFields.state === 'OH'
+      && heightsFields.zip === '44118',
+    'a comma-separated customer address keeps the full city name',
   );
   ok(
     getEstimateDocumentIdentityMismatch({
@@ -169,15 +228,17 @@ async function main() {
     }) === null,
     'the same property remains importable when street suffixes differ',
   );
+  const postalCity = getEstimateDocumentIdentityMismatch({
+    documentCustomer: 'DUCKWORTH, LETRICE',
+    documentAddress: '13700 MARTIN DR CLEVELAND, OH 44125-5272',
+    currentCustomer: 'LeTrice Duckworth',
+    currentAddress: '13700 Martin Dr, Garfield, OH, 44125',
+    hasSelectedContact: true,
+  });
   ok(
-    getEstimateDocumentIdentityMismatch({
-      documentCustomer: 'DUCKWORTH, LETRICE',
-      documentAddress: '13700 MARTIN DR CLEVELAND, OH 44125-5272',
-      currentCustomer: 'LeTrice Duckworth',
-      currentAddress: '13700 Martin Dr, Garfield, OH, 44125',
-      hasSelectedContact: true,
-    }) === null,
-    'the same customer name in last-first order and the same street/ZIP import despite a city-label difference',
+    postalCity?.addressWarning && postalCity.severity === 'warn' && !postalCity.customerMismatch
+      && !postalCity.message.includes('Import blocked'),
+    'the same customer, house, and ZIP with a different city label warns instead of blocking',
   );
   ok(
     getEstimateDocumentIdentityMismatch({
@@ -196,8 +257,25 @@ async function main() {
       currentCustomer: 'LeTrice Duckworth',
       currentAddress: '13700 Martin Dr, Garfield, OH, 44125',
       hasSelectedContact: true,
-    })?.propertyMismatch,
+    })?.propertyMismatch
+      && getEstimateDocumentIdentityMismatch({
+        documentCustomer: 'DUCKWORTH, LETRICE',
+        documentAddress: '13700 MARTIN DR CLEVELAND, PA 44125-5272',
+        currentCustomer: 'LeTrice Duckworth',
+        currentAddress: '13700 Martin Dr, Garfield, OH, 44125',
+        hasSelectedContact: true,
+      })?.severity === 'block',
     'a matching ZIP does not override a conflicting state',
+  );
+  ok(
+    getEstimateDocumentIdentityMismatch({
+      documentCustomer: 'Linda Hall',
+      documentAddress: '100 Main St, Cleveland Heights, OH',
+      currentCustomer: 'Another Customer',
+      currentAddress: '100 Main St, Cleveland, OH',
+      hasSelectedContact: true,
+    })?.severity === 'block',
+    'a different customer still blocks even when the address differs only by city',
   );
   const customerMismatch = getEstimateDocumentIdentityMismatch({
     documentCustomer: 'Linda Hall',
@@ -252,17 +330,31 @@ async function main() {
     }) === null,
     'two documents for the same property can be combined despite address formatting',
   );
+  const postalCityBatch = getEstimateDocumentBatchIdentityMismatch({
+    documents: [
+      { fileName: 'carrier.pdf', customer_info: { customer_name: 'DUCKWORTH, LETRICE', property_address: '13700 MARTIN DR CLEVELAND, OH 44125-5272' } },
+      { fileName: 'supplement.pdf', customer_info: { customer_name: 'LeTrice Duckworth', property_address: '13700 Martin Dr, Garfield, OH 44125' } },
+    ],
+    currentCustomer: 'LeTrice Duckworth',
+    currentAddress: '13700 Martin Dr, Garfield, OH 44125',
+    hasSelectedContact: true,
+  });
+  ok(
+    postalCityBatch?.addressWarning && postalCityBatch.severity === 'warn'
+      && !postalCityBatch.message.includes('Import blocked'),
+    'multiple estimates that differ only by city label warn instead of blocking',
+  );
   ok(
     getEstimateDocumentBatchIdentityMismatch({
       documents: [
-        { fileName: 'carrier.pdf', customer_info: { customer_name: 'DUCKWORTH, LETRICE', property_address: '13700 MARTIN DR CLEVELAND, OH 44125-5272' } },
-        { fileName: 'supplement.pdf', customer_info: { customer_name: 'LeTrice Duckworth', property_address: '13700 Martin Dr, Garfield, OH 44125' } },
+        { fileName: 'carrier.pdf', customer_info: { customer_name: 'Linda Hall', property_address: '16413 Glendale Ave, Cleveland, OH 44128' } },
+        { fileName: 'other-street.pdf', customer_info: { customer_name: 'Linda Hall', property_address: '101 Glendale Ave, Cleveland Heights, OH 44118' } },
       ],
-      currentCustomer: 'LeTrice Duckworth',
-      currentAddress: '13700 Martin Dr, Garfield, OH 44125',
+      currentCustomer: 'Linda Hall',
+      currentAddress: '16413 Glendale Ave, Cleveland Heights, OH 44118',
       hasSelectedContact: true,
-    }) === null,
-    'multiple estimates for the same customer and property are not blocked by carrier formatting',
+    })?.severity === 'block',
+    'a later document with a different house number still blocks after a city warning',
   );
   const otherPropertyDocument = {
     fileName: 'other-property.pdf',
@@ -318,21 +410,27 @@ async function main() {
     'an imported carrier estimate is checked against the open customer and property',
   );
   const importBody = source.slice(
-    source.indexOf('const _generateAndSetEstimate ='),
-    source.indexOf('const items = extractedData.line_items || [];', source.indexOf('const _generateAndSetEstimate =')),
+    source.indexOf('const rejectOrConfirmDocumentIdentity ='),
+    source.indexOf('const items = sectionMerge ? sectionMerge.lineItems : (extractedData.line_items || []);', source.indexOf('const _generateAndSetEstimate =')),
   );
   ok(
-    importBody.includes('if (identityMismatch) {')
-      && importBody.includes('const error = new Error(identityMismatch.message);')
-      && importBody.includes("error.code = 'ESTIMATE_IDENTITY_MISMATCH';")
+    importBody.includes("error.code = 'ESTIMATE_IDENTITY_MISMATCH';")
+      && importBody.includes('await rejectOrConfirmDocumentIdentity(identityMismatch);')
+      && importBody.includes('confirmAddressLocalityWarning(mismatch)')
+      && importBody.includes("mismatch.severity !== 'warn'")
       && !importBody.includes('window.confirm(')
-      && importBody.indexOf('throw error;') < importBody.indexOf('saveToHistory();'),
-    'both identity conflicts block before the estimate history or line items can change',
+      && importBody.indexOf('throw error;') < importBody.indexOf('saveToHistory();')
+      && importBody.indexOf('await rejectOrConfirmDocumentIdentity(identityMismatch);') < importBody.indexOf('saveToHistory();'),
+    'street conflicts block before history changes, and city or ZIP warnings wait for a choice',
   );
   ok(
-    source.includes("if (fallbackError.code === 'ESTIMATE_IDENTITY_MISMATCH') throw fallbackError;")
-      && source.includes('alert(identityConflict ? error.message'),
-    'the fallback extractor preserves the specific mismatch reason in the visible error',
+    source.includes("if (fallbackError.code === 'ESTIMATE_IDENTITY_MISMATCH' || fallbackError.code === 'ESTIMATE_ADDRESS_WARNING_DECLINED') throw fallbackError;")
+      && source.includes('alert(identityConflict ? error.message')
+      && source.includes('data-testid="button-import-anyway"')
+      && source.includes('data-testid="checkbox-update-customer-address"')
+      && source.includes("Update the customer's address to the document address")
+      && source.includes('await base44.entities.Customer.update(selectedContactId,'),
+    'the warning dialog can import anyway or update the customer address, and a hard block still explains why',
   );
   const multiStart = source.indexOf('if (fileUrls.length > 1) {', source.indexOf('const _processEstimateRequest ='));
   const multiEnd = source.indexOf('// ── ESX / XML AERIAL MEASUREMENT FAST PATH', multiStart);

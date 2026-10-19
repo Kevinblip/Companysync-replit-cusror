@@ -1,9 +1,15 @@
 #env
 .env
 .env.*
+!.env.example
+
+# Extracted Microsoft footprint sub-tiles. The project disk survives a Replit
+# restart; the OS temp dir does not. Do not commit the tiles.
+.cache/
 
 # User-uploaded files — kept on disk / object storage, not in git
 public/uploads/
+data/sales-agent/
 # UUID-named uploads written by the dev server (homeowner photos, etc.)
 public/*.jpg
 public/*.jpeg
@@ -53,3 +59,4 @@ attached_assets/generated_videos/
 attached_assets/demo-video/
 attached_assets/*.zip
 tmp-roof-debug/
+uploads-malec/

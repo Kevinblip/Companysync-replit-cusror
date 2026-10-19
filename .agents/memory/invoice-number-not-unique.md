@@ -7,8 +7,10 @@ description: Why every join, claim, recalculation, or balance adjustment keyed o
 
 Invoice numbers collide across customers in this codebase's production data —
 different customers legitimately hold invoices with the same number, generated
-years apart by different code paths. Nothing enforces uniqueness at the database
-level and nothing ever has.
+years apart by different code paths. Nothing in the database rejects a second
+copy yet. New Postgres writes allocate one number per company under
+`pg_advisory_xact_lock`, but the unique index is a hand-applied migration
+because creating it while duplicates exist aborts schema startup.
 
 **The rule: `invoice_id` is the only safe key.** `invoice_number` is a display
 label. Treat it as a fallback only for legacy rows that have no `invoice_id`, and
@@ -37,8 +39,15 @@ attribution did not.
 - Client-side "next invoice number" generators must compute their high-water mark
   over the **unfiltered** company invoice list. Computing max+1 over a
   permission-filtered list is how a rep who can only see their own customers
-  reissues a number another rep already used. Concurrency between two users
-  remains an accepted residual — there is no server-side atomic allocation.
+  reissues a number another rep already used. The browser value is a preview.
+  Postgres writers allocate through `lib/invoiceNumbers.cjs`
+  (`pg_advisory_xact_lock` per company, held until the insert commits).
+  Payments link by `invoice_id`. A shared number is refused unless the
+  customer identifies exactly one invoice. The unique index is manual:
+  `db/migrations/20261017_invoice_number_unique.sql`. Do not add it to schema
+  startup. It fails while duplicates such as the live YICN `INV-2026-0385`
+  pair still exist. List them with `scripts/check-duplicate-invoice-numbers.cjs`
+  (read-only; it does not connect unless pointed at localhost).
 - When a UI lets the user pick an invoice by number, narrow the candidates by
   customer id then name; if that is not decisive, **refuse** rather than picking
   the first. Guessing is how the money lands on a stranger's invoice.

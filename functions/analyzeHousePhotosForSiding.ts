@@ -1,7 +1,20 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 import { buildSidingMeasurementGraph } from './utils/sidingMeasurementGraph.js';
+import {
+  PRODUCTION_MATERIAL_SAMPLE_COUNT,
+  FACE_MATERIAL_RESPONSE_SCHEMA,
+  faceMaterialSystemPrompt,
+  classifyFaceMaterials,
+} from './utils/faceMaterialClassification.js';
 import { buildMultiViewPhotoEvidence } from './utils/multiViewPhotoEvidence.js';
 import { buildRoofMeasurementGraph, summarizeRoofMeasurement } from './utils/roofMeasurementGraph.js';
+import { measureFromPhotoAnalysis, mergeVisionMaterialSamples, storyCountFromPhotos } from './utils/wallMaterialSections.js';
+import {
+  streetFacingWallAzimuths,
+  alignWallAzimuthsToStreet,
+  headingToWallFace as mapHeadingToWallFace,
+  slotFaces,
+} from './utils/photoSlotOrientation.js';
 
 // Compatibility copy only: live requests are served by vite-functions-plugin.js.
 // Keep its response shape safe for any legacy Base44 deployment that still invokes
@@ -268,7 +281,9 @@ async function callGemini(
   systemInstruction: string,
   prompt: string,
   images: { data: string; mimeType: string }[],
-  jsonMode = true
+  jsonMode = true,
+  temperature = 0.1,
+  responseSchema: any = null,
 ): Promise<any> {
   const parts: any[] = images.map(img => ({ inlineData: { mimeType: img.mimeType, data: img.data } }));
   parts.push({ text: prompt });
@@ -277,8 +292,9 @@ async function callGemini(
     systemInstruction: { parts: [{ text: systemInstruction }] },
     contents: [{ role: 'user', parts }],
     generationConfig: {
-      temperature: 0.1,
-      ...(jsonMode ? { responseMimeType: 'application/json' } : {})
+      temperature,
+      ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
+      ...(responseSchema ? { responseSchema } : {}),
     }
   };
 
@@ -572,13 +588,14 @@ function computeFootprintOrientation(
     }
   }
   const front = longestAz;
+  const street = streetFacingWallAzimuths(front);
   return {
     primaryAzimuth: front,
     wallAzimuths: {
-      front,
-      right: (front + 90) % 360,
-      back: (front + 180) % 360,
-      left: (front + 270) % 360,
+      front: street.front,
+      right: street.right,
+      back: street.back,
+      left: street.left,
     },
   };
 }
@@ -589,24 +606,7 @@ function alignOrientationToStreet(
   orientation: { primaryAzimuth: number; wallAzimuths: WallAzimuths },
   streetFacingAzimuth: number
 ): WallAzimuths {
-  const angDiff = (a: number, b: number) => {
-    const d = Math.abs(((a - b) % 360 + 360) % 360);
-    return d > 180 ? 360 - d : d;
-  };
-  const { front, right, back, left } = orientation.wallAzimuths;
-  const candidates = [
-    { az: front, rot: 0 }, { az: right, rot: 1 },
-    { az: back,  rot: 2 }, { az: left,  rot: 3 },
-  ];
-  candidates.sort((a, b) => angDiff(streetFacingAzimuth, a.az) - angDiff(streetFacingAzimuth, b.az));
-  const rot = candidates[0].rot;
-  const ord = [front, right, back, left];
-  return {
-    front: ord[(0 + rot) % 4],
-    right: ord[(1 + rot) % 4],
-    back:  ord[(2 + rot) % 4],
-    left:  ord[(3 + rot) % 4],
-  };
+  return alignWallAzimuthsToStreet(orientation.wallAzimuths, streetFacingAzimuth) as WallAzimuths;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -631,37 +631,17 @@ function headingToWallFace(
   cameraHeading: number,
   wallAz: WallAzimuths,
 ): FaceMapping {
-  const angDiff = (a: number, b: number) => {
-    const d = Math.abs(((a - b) % 360 + 360) % 360);
-    return d > 180 ? 360 - d : d;
-  };
-  // The wall the camera faces has outward normal ≈ cameraHeading (camera looks at wall)
-  // No +180 needed: if camera heading=0 (facing North), the wall face is the North-facing wall.
-  // Wait — camera heading is the direction the camera POINTS, so the wall it looks AT has
-  // normal facing BACK toward camera = (cameraHeading + 180) % 360.
-  // Example: camera heading=0 (facing North) → camera looks at a SOUTH-facing wall? No.
-  // A camera facing North is looking at a wall whose outward normal faces SOUTH (180°).
-  // So facingNormal = (cameraHeading + 180) % 360. Let me double-check:
-  // North-facing wall: outward normal = 0 (North). Camera south of house, heading=0 (North). 
-  // Camera looks at the NORTH face. Wall outward normal = 0 = cameraHeading. ✓
-  // So: the wall the camera looks at has outward normal = cameraHeading (not +180).
-  // The confusion is: "camera heading" = direction camera faces = direction toward wall.
-  // Wall normal points AWAY from wall toward viewer = SAME direction as camera heading. ✓
-  const facingNormal = cameraHeading % 360;
-  const walls: Array<{ face: FaceName; az: number }> = [
-    { face: 'front',      az: wallAz.front },
-    { face: 'right_side', az: wallAz.right },
-    { face: 'back',       az: wallAz.back  },
-    { face: 'left_side',  az: wallAz.left  },
-  ];
-  walls.sort((a, b) => angDiff(facingNormal, a.az) - angDiff(facingNormal, b.az));
-  const primary = walls[0], secondary = walls[1];
-  const primaryErr = angDiff(facingNormal, primary.az);
+  // Camera heading points at the wall. The wall's outward normal is the
+  // opposite direction. Left and right follow the street-facing convention.
+  const mapped = mapHeadingToWallFace(cameraHeading, wallAz);
+  if (!mapped) {
+    return { face: 'front', isOblique: false, secondaryFace: null, angularError: 180 };
+  }
   return {
-    face: primary.face,
-    isOblique: primaryErr > OBLIQUE_THRESHOLD_DEG,
-    secondaryFace: primaryErr > OBLIQUE_THRESHOLD_DEG ? secondary.face : null,
-    angularError: primaryErr,
+    face: mapped.face as FaceName,
+    isOblique: mapped.isOblique,
+    secondaryFace: mapped.secondaryFace as FaceName | null,
+    angularError: mapped.angularError,
   };
 }
 
@@ -671,7 +651,9 @@ Deno.serve(async (req) => {
     const user = await base44.auth.me();
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { photos, story_count_override, storyHeightFt = 9, latitude, longitude, use_satellite = true, structure_type = 'house', small_openings_in_waste = false, material_only = false, pitch_only = false, known_perimeter_ft = 0 } = await req.json();
+    const { photos, story_count_override, storyHeightFt = 9, latitude, longitude, use_satellite = true, structure_type = 'house', small_openings_in_waste = false, material_only = false, pitch_only = false, known_perimeter_ft = 0, material_samples = null } = await req.json();
+    const materialSampleCount = pitch_only ? 1 : Math.max(1, Math.min(5,
+      Number(material_samples) || Number(Deno.env.get('SIDING_MATERIAL_SAMPLES')) || PRODUCTION_MATERIAL_SAMPLE_COUNT));
     const isGarageMode = structure_type === 'garage';
     const geminiKey = Deno.env.get('GOOGLE_GEMINI_API_KEY');
     const mapsKey = Deno.env.get('GOOGLE_MAPS_API_KEY');
@@ -1053,12 +1035,36 @@ on part of the wall. If this wall has TWO different materials:
    Round to the nearest 5%.
 If the wall is a single uniform material, set has_mixed_materials = false and non_siding_coverage_pct = 0.
 
+WALL SECTION POLYGONS (required — each material is measured from these):
+Trace every distinct material region as a polygon in wall-frame coordinates, not photo-pixel coordinates:
+- x = 0 at the left edge of the wall VISIBLE IN THIS PHOTO, x = 1 at the right edge of what is visible. A close-up, a garage wing, or one slice of a long wall must not be stretched to the full footprint face.
+- y = 0 at the EAVE LINE of the wall in frame, y = 1 at grade. y increases downward.
+- A gable triangle sits ABOVE the eave, so its peak has y < 0. Peak y = -(gable_rise_ft / eave_height_ft). Use the eave of THIS wall, not the taller part of the house.
+- Set visible_width_fraction to the share of the footprint face actually in frame (1 only when both corners of that face are visible). Set visible_x_start to where that span begins (0 at the face's left corner). Set visible_width_ft to the feet actually visible. Do not copy the satellite width anchor into those three fields.
+- On a corner, split the two walls: each section's wall_face is the wall that region belongs to. A corner must not be billed as one full face.
+Tag material with only: "siding", "stone", "stucco", "brick", "trim".
+Vinyl, aluminum, fiber-cement, wood lap, shake, and board-and-batten are "siding".
+Stone veneer, cultured stone, and ledge stone are "stone".
+Do not trace windows or doors as sections. Sections of one wall meet at their edges and their areas must sum to that wall's visible area, not past it.
+Set window_rows to the number of distinct horizontal rows of windows on this wall (1 on a one-story garage wing, 2 when a second story of windows is visible). Do not count garage-door lights as a row.
+A one-story garage wing keeps the eave measured from the garage door (about 8-10 ft). Do not report the two-story house eave for that wing. Set height_method to garage_door_anchor and window_rows to 1.
+Garage doors that open onto a driveway or the street are the FRONT, even when the photo was labeled Right Side or Left Side. Set faces_driveway=true and wall_face=front. The upload label is a hint, not the face.
+On every openings[] entry, set material to the wall material that opening is cut into: "siding", "stone", "stucco", "brick", or "trim". Set pos_x to feet from the left edge of that footprint face.
+
+MATERIAL SHARES (required — this is the quantity; the polygons above are only the overlay):
+Report material_shares as the percent of the VISIBLE wall each material covers. The percents must sum to 100. Use 0 for a material that is not on this wall.
+- siding: horizontal laps with a J-channel at the edges (vinyl, aluminum, fiber-cement, wood lap). Also use siding for board-and-batten.
+- stone: irregular units with visible mortar joints. A painted band is not stone.
+- stucco: smooth or textured cementitious plaster, no laps and no mortar joints between units.
+Do not shrink these percents because the photo is a close-up. visible_width_fraction already says how much of the footprint face is in the frame. The shares describe the wall that is visible.
+
 Return JSON ONLY:
 {
   "view_label": "${photoData.label}",
 ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
   "building_type": "house" | "garage" | "shed" | "commercial",
   "story_count": number (1, 2, or 3 — count ALL above-grade stories; 3-story older houses are common),
+  "window_rows": number (distinct horizontal rows of windows on this wall),
   "siding_course_count": number (count of lap siding courses from grade to eave; 0 if not countable),
   "door_anchor_eave_ft": number (eave height computed from the 80-inch door anchor; 0 if no door visible),
   "height_method": "door_anchor" | "garage_door_anchor" | "course_count" | "door_scale" | "window_scale" | "estimate",
@@ -1069,7 +1075,12 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
    "has_visible_rake": boolean (true only when an actual sloped roof rake edge is visibly measurable in this photo),
   "is_corner_shot": boolean (true if two walls are both visible at an angle),
   "wall_face": "front" | "back" | "left_side" | "right_side" | "unknown",
-  "wall_width_ft": number (estimated TOTAL width of PRIMARY wall face; for corner shots, use the more prominent wall),
+  "secondary_wall_face": "front" | "back" | "left_side" | "right_side" | null,
+  "faces_driveway": boolean (true when garage doors on this wall face a driveway or the street),
+  "visible_width_fraction": number (0-1 share of this footprint face actually in the frame),
+  "visible_x_start": number (0-1, where the visible span starts along the face),
+  "visible_width_ft": number (feet of this face actually visible — not the satellite anchor),
+  "wall_width_ft": number (estimated TOTAL width of PRIMARY wall face; for corner shots, the more prominent wall),
   "reference_anchor": "description of what you used to estimate width and height",
    "windows_count": number (INDIVIDUAL wall windows only — NOT glass panels in garage doors),
   "window_zones": string[] (zone for each window: "far_left"|"center_left"|"center"|"center_right"|"far_right"),
@@ -1080,6 +1091,7 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
   "openings": [{
     "observation_id": "stable physical rough-opening identifier",
     "type": "window"|"entry_door"|"slider_door"|"garage_door"|"vent",
+    "material": "siding"|"stone"|"stucco"|"brick"|"trim",
     "width_ft": number,
     "height_ft": number,
     "zone": "far_left"|"center_left"|"center"|"center_right"|"far_right",
@@ -1095,6 +1107,20 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
   "siding_material": "vinyl" | "aluminum" | "fiber_cement" | "wood" | "brick" | "stucco" | "stone" | "other",
   "non_siding_material": "stone" | "brick" | "stucco" | "wood" | "none" (the accent/base material that is NOT being sided over; "none" if uniform),
   "non_siding_coverage_pct": number (0–100: percent of THIS wall face area that is the non-siding accent material; 0 if uniform),
+  "sections": [{
+    "id": "stable id for this material region",
+    "material": "siding" | "stone" | "stucco" | "brick" | "trim",
+    "wall_face": "front" | "back" | "left_side" | "right_side" | null,
+    "polygon": [[0, 0], [1, 0], [1, 1], [0, 1]],
+    "confidence": number
+  }],
+  "material_shares": {
+    "siding": number,
+    "stone": number,
+    "stucco": number,
+    "brick": number,
+    "trim": number
+  },
   "siding_condition": "excellent" | "good" | "fair" | "poor",
   "complexity": "simple" | "moderate" | "complex",
   "confidence": number (0-100),
@@ -1127,7 +1153,18 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
 }`;
 
       try {
-        const result = await callGemini(geminiKey, sysPrompt, prompt, [photoData.image]);
+        const photoReadCount = 1;
+        const samples: any[] = [];
+        for (let sampleIndex = 0; sampleIndex < photoReadCount; sampleIndex += 1) {
+          try {
+            const sample = await callGemini(geminiKey, sysPrompt, prompt, [photoData.image], true, 0);
+            if (sample && typeof sample === 'object') samples.push(sample);
+          } catch (sampleErr) {
+            console.warn(`${photoData.label}: dimension read ${sampleIndex + 1}/${photoReadCount} failed`, sampleErr);
+          }
+        }
+        if (!samples.length) throw new Error(`${photoData.label}: the dimension read failed`);
+        const result = mergeVisionMaterialSamples(samples) || samples[0];
 
         // Use the user's story_count_override for per-photo bounds when available.
         // Gemini's per-photo story detection frequently returns 1 (it only sees one floor
@@ -1173,6 +1210,12 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
         }
         // Enforce the fixed satellite scale after generation too. The prompt tells
         // Gemini to honor it; this prevents a model response from drifting anyway.
+        const visibleWidthFt = Number(result.visible_width_ft);
+        result.observed_wall_width_ft = Number.isFinite(visibleWidthFt) && visibleWidthFt > 0
+          ? visibleWidthFt
+          : (Number(result.wall_width_ft) || 0);
+        result.eave_before_clamp_ft = Number(result.eave_height_ft) || 0;
+        result.faces_driveway = result.faces_driveway === true;
         if (satelliteWallWidthFt > 0) {
           result.wall_width_ft = satelliteWallWidthFt;
           result.satellite_width_anchor_ft = satelliteWallWidthFt;
@@ -1188,10 +1231,22 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
         const photoExifHeading = (photoData as any).exif_heading;
         if (Number.isFinite(photoExifHeading) && footprintWallAzimuths) {
           const fm = headingToWallFace(photoExifHeading, footprintWallAzimuths);
-          // Rule 2 — Override visual classification with satellite-anchored face
-          result.wall_face = fm.face;
+          const namedSlot = slotFaces(photoData.label);
           result.exif_heading_deg = photoExifHeading;
           result.exif_face_angular_error_deg = Math.round(fm.angularError * 10) / 10;
+          // A named capture slot is the street-facing convention. EXIF may
+          // fill an unlabeled photo, but it must not mirror a slot the user
+          // already chose.
+          if (namedSlot.length > 0 && !namedSlot.includes(fm.face)) {
+            result.wall_face = namedSlot[0];
+            result.exif_slot_conflict = true;
+            if (namedSlot.length > 1) {
+              result.is_corner_shot = true;
+              result.corner_faces = namedSlot;
+            }
+            console.log(`📡 [${photoData.label}] EXIF=${photoExifHeading.toFixed(1)}° suggested ${fm.face}; kept street-facing slot ${namedSlot.join('|')}`);
+          } else {
+          result.wall_face = fm.face;
           if (fm.isOblique) {
             // Rule 3 — Oblique corner: photo spans two intersecting wall facets.
             // Mark as corner shot so area aggregation skips this as a primary face.
@@ -1203,6 +1258,7 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
             // Straight shot — clear any accidental corner flag from label heuristic
             if (!(/corner|angle/.test(labelLc))) result.is_corner_shot = false;
             console.log(`📡 [${photoData.label}] EXIF=${photoExifHeading.toFixed(1)}° → face=${fm.face} err=${fm.angularError.toFixed(1)}° (satellite-anchored, overrides Gemini visual)`);
+          }
           }
         } else {
           // No EXIF heading available — fall back to user label text (existing behaviour)
@@ -1251,6 +1307,7 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
                               Number(o.width_ft) <= 20 && Number(o.height_ft) <= 10)
           .map((o: any) => ({
             type: o.type || 'window',
+            material: o.material || null,
             observation_id: o.observation_id || null,
             width_ft: Math.round(Number(o.width_ft) * 10) / 10,
             height_ft: Math.round(Number(o.height_ft) * 10) / 10,
@@ -1269,6 +1326,9 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
               : Math.round(2 * (Number(o.width_ft) + Number(o.height_ft)) * 10) / 10,
             components: Array.isArray(o.components) ? o.components : [],
           }));
+        const windowRows = Number(result.window_rows);
+        result.window_rows = Number.isFinite(windowRows) && windowRows > 0 ? Math.round(windowRows) : null;
+        result.sections = Array.isArray(result.sections) ? result.sections : [];
 
         // If course count was provided but eave wasn't computed from it, recompute
         if (result.siding_course_count > 0 && result.height_method === 'course_count') {
@@ -1325,6 +1385,7 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
         result.wall_height_ft = result.eave_height_ft + gableRise;
 
         console.log(`  ${photoData.label}: ${result.wall_width_ft}ft wide × ${result.eave_height_ft}ft eave [${result.height_method}, ${result.siding_course_count} courses], ${result.garage_doors_count}gd ${result.doors_count}d ${result.windows_count}w (${result.confidence}% conf${result.height_clamped ? ', CLAMPED' : ''})`);
+        result._classificationImage = photoData.image;
         return result;
       } catch (e) {
         console.warn(`Per-photo analysis failed for ${photoData.label}:`, (e as Error).message);
@@ -1473,6 +1534,31 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
     const preAggregateEvidence = buildMultiViewPhotoEvidence(allPerPhotoResults);
     perPhotoResults = allPerPhotoResults.filter((_, index) =>
       preAggregateEvidence.photos[index]?.status !== 'duplicate');
+
+    let faceMaterialByFace: Record<string, any> = {};
+    if (!pitch_only) {
+      try {
+        faceMaterialByFace = await classifyFaceMaterials({
+          results: perPhotoResults,
+          sampleCount: materialSampleCount,
+          imageForResult: (photo: any) => photo?._classificationImage || null,
+          callModel: ({ images, prompt }: { images: { data: string; mimeType: string }[]; prompt: string }) => callGemini(
+            geminiKey,
+            faceMaterialSystemPrompt(),
+            prompt,
+            images,
+            true,
+            0,
+            FACE_MATERIAL_RESPONSE_SCHEMA,
+          ),
+          log: (line: string) => console.log(line),
+        });
+      } finally {
+        for (const result of allPerPhotoResults) delete result._classificationImage;
+      }
+    } else {
+      for (const result of allPerPhotoResults) delete result._classificationImage;
+    }
 
     // Track photos that didn't make it through (download or analysis failure) so
     // partial reads are visible instead of silently producing an undercounted result
@@ -1686,20 +1772,27 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
     // Story count precedence (highest → lowest authority):
     //   1. story_count_override — sent by the UI only when the user explicitly chose
     //      a value (the Stories dropdown). When null/omitted, the backend decides.
-    //   2. OSM building:levels — authoritative for satellite estimates; resolvedFootprint
-    //      was fetched before photo analysis so it's already available here.
-    //   3. Gemini AI photo detection — per-photo max, used when no external data exists.
-    const aiStoryCount = Math.max(...perPhotoResults.map(r => r.story_count || 1));
+    //   2. Well-supported photo window rows / story count. The highest reading
+    //      that at least two photos (or 1.4 combined confidence) agree on wins,
+    //      so a 1-story garage wing cannot pull a 2-story house down.
+    //   3. OSM building:levels — used only when the photos did not produce a story.
+    const photoStory = storyCountFromPhotos(perPhotoResults.map((r: any) => ({
+      window_rows: r.window_rows,
+      story_count: r.story_count,
+      confidence: Number(r.confidence) > 1 ? Number(r.confidence) / 100 : r.confidence,
+    })));
+    const aiStoryCount = photoStory.story_count || Math.max(...perPhotoResults.map(r => r.story_count || 1));
     const osmLevelsFromFootprint = resolvedFootprint?.source === 'osm'
       ? (resolvedFootprint as any).osm_levels as number | null
       : null;
     const storyCount = (story_count_override && story_count_override >= 1)
       ? story_count_override
-      : (osmLevelsFromFootprint ?? aiStoryCount);
+      : (aiStoryCount || osmLevelsFromFootprint || 1);
     console.log(
       `📐 Story count: ${storyCount}` +
       (story_count_override ? ` (user override=${story_count_override})` :
-        osmLevelsFromFootprint ? ` (OSM building:levels=${osmLevelsFromFootprint})` :
+        photoStory.story_count ? ` (photos well-supported=${photoStory.story_count}, reads=${photoStory.reads.join(',')})` :
+          osmLevelsFromFootprint ? ` (OSM building:levels=${osmLevelsFromFootprint})` :
           ` (AI detected=${aiStoryCount})`)
     );
 
@@ -2351,6 +2444,14 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
 
     console.log(`✅ Result: ${netWallAreaSq} SQ (${netWallAreaSqft} sqft net), ${perimeterFt}LF, ${buildingWidthFt}×${buildingLengthFt}ft, Grade ${grade} ±${tolerance}% | footprint=${footprintSource}${sanityWarning ? ' | SANITY REVIEW' : ''}${accentDeductionSqft > 0 ? ` | accent deduction=${accentDeductionSqft} sqft (${accentMaterialLabel})` : ''}`);
 
+    const wallMaterialSections = measureFromPhotoAnalysis({
+      photos: perPhotoResults.filter((r: any) => r?.is_detail_shot !== true),
+      footprintPolygon: footprintPolygonXY,
+      footprintPerimeterFt: perimeterFt,
+      buildingWidthFt,
+      buildingLengthFt,
+    });
+
     return Response.json({
       success: true,
       wall_area_sq: netWallAreaSq,
@@ -2389,6 +2490,10 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
       building_length_ft: buildingLengthFt,
       building_width_ft: buildingWidthFt,
       story_count: storyCount,
+      story_count_source: (story_count_override && story_count_override >= 1)
+        ? 'user_override'
+        : (photoStory.story_count ? 'photos_well_supported' : (osmLevelsFromFootprint ? 'osm' : 'photos')),
+      wall_material_sections: wallMaterialSections,
       story_height_ft: wallHeightFt,
       windows_count: totalWindows,
       doors_count: totalDoors,
@@ -2447,6 +2552,11 @@ ${FRAME_SUBJECT_SCHEMA_FRAGMENT}
       satellite_warning: satelliteWarning || null,
       sanity_corrected: sanityCorrected,
       sanity_warning: sanityWarning || null,
+      face_material_classification: faceMaterialByFace,
+      material_review_flags: measurementGraph.material_map?.material_review_flags || [],
+      material_rep_review_message: (measurementGraph.material_map?.material_review_flags || []).length
+        ? `Needs rep review. Material fractions are low confidence. ${(measurementGraph.material_map?.material_review_flags || []).map((flag: any) => flag.message).join(' ')}`
+        : null,
       height_clamped: anyHeightClamped,
       height_adjusted: heightSource.includes('raised_to_'),
       height_source: heightSource,

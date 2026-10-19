@@ -43,20 +43,27 @@ Deno.serve(async (req) => {
     for (const invNumber of invoiceNumbers) {
       // 1) Load invoice
       const invList = await base44.asServiceRole.entities.Invoice.filter({ invoice_number: invNumber });
-      const invoice = invList[0];
-      if (!invoice) {
-        results.push({ invoice_number: invNumber, success: false, error: 'Invoice not found' });
+      if (invList.length !== 1) {
+        results.push({
+          invoice_number: invNumber,
+          success: false,
+          error: invList.length === 0
+            ? 'Invoice not found'
+            : `Invoice number ${invNumber} matches ${invList.length} invoices; refusing to link by number`,
+        });
         continue;
       }
+      const invoice = invList[0];
 
-      // 2) Load all payments linked by id or number, and RE-LINK by customer if mismatched
+      // 2) Load payments already on this invoice id. Do not pull a payment
+      // off a different invoice id just because the number matches.
       const byId = await base44.asServiceRole.entities.Payment.filter({ invoice_id: invoice.id });
       const byNum = await base44.asServiceRole.entities.Payment.filter({ invoice_number: invNumber });
       const byCustomer = await base44.asServiceRole.entities.Payment.filter({ customer_name: invoice.customer_name, status: 'received' });
 
-      // Any received payments for this customer that are missing/incorrect invoice linkage → reassign to this invoice
       for (const p of byCustomer) {
-        const needsRelink = !p.invoice_id || p.invoice_id !== invoice.id || !p.invoice_number || p.invoice_number !== invoice.invoice_number;
+        if (p.invoice_id && p.invoice_id !== invoice.id) continue;
+        const needsRelink = !p.invoice_id || p.invoice_number !== invoice.invoice_number;
         if (needsRelink) {
           await base44.asServiceRole.entities.Payment.update(p.id, {
             invoice_id: invoice.id,
@@ -67,7 +74,8 @@ Deno.serve(async (req) => {
 
       const all = [...byId, ...byNum, ...byCustomer].filter(Boolean);
       const unique = all.filter((p, i, self) => i === self.findIndex((t) => t.id === p.id));
-      const received = unique.filter((p) => p.status === 'received');
+      const owned = unique.filter((p) => !p.invoice_id || p.invoice_id === invoice.id);
+      const received = owned.filter((p) => p.status === 'received');
 
       const totalC = cents(invoice.amount || 0);
       const paidC = received.reduce((s, p) => s + cents(p.amount || 0), 0);

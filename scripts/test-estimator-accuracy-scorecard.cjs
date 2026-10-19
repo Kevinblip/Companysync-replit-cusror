@@ -10,9 +10,9 @@
  *
  * Photo path: 5688 and Centuryway have Hover PDFs in the repo and no
  * elevation photos, so those photo-path rows stay unscored. A synthetic
- * four-elevation graph is the photo-path contract: four usable elevations
- * are measured and override the footprint; a missing or poor elevation is
- * estimated and named.
+ * four-elevation graph is the photo-path contract: photo heights sit on
+ * footprint lengths, a photo-width sum more than 15% off the perimeter is
+ * flagged, and a missing or poor elevation is estimated and named.
  */
 'use strict';
 
@@ -215,10 +215,11 @@ function row(name, actual, expected, rule) {
     storyCount: 2, wallHeightFt: HT, grossWallAreaSqft: 160 * HT, perimeterFt: 160,
     buildingWidthFt: 30, buildingLengthFt: 20, footprintSource: 'solar',
   });
-  gate('four elevations measure the wall and override the footprint',
-    four.totals.wall_total_quality === 'measured'
-      && four.totals.gross_wall_area_source === 'photo_wall_planes'
-      && four.totals.photo_overrides_footprint === true);
+  gate('four elevations keep the longer footprint and flag the photo-width gap',
+    four.totals.gross_wall_area_source === 'photo_anchored_footprint'
+      && four.totals.photo_overrides_footprint === false
+      && four.totals.photo_perimeter_flagged === true
+      && four.totals.gross_wall_area_sqft === 160 * HT);
   const missing = buildSidingMeasurementGraph({
     perPhotoResults: [face('front', 30), face('back', 30), face('left_side', 20)],
     storyCount: 2, wallHeightFt: HT, grossWallAreaSqft: 100 * HT, perimeterFt: 100,
@@ -293,10 +294,34 @@ function row(name, actual, expected, rule) {
   gate('siding PDF flags a missing elevation, a poor elevation, and an estimated soffit',
     estimatedHtml.includes('Not photographed') && estimatedHtml.includes('Poor elevation') && estimatedHtml.includes('est.'));
 
+  console.log('\n── Malec per-material sections (5405 Brookside Trl) ──');
+  const { spawnSync } = await import('node:child_process');
+  const malecFixture = spawnSync(process.execPath, [path.join(__dirname, 'test-siding-malec-materials.cjs')], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+  if (malecFixture.stdout) process.stdout.write(malecFixture.stdout);
+  if (malecFixture.stderr) process.stderr.write(malecFixture.stderr);
+  gate('Malec material fixture passes', malecFixture.status === 0, malecFixture.stderr || malecFixture.stdout);
+  const malecLive = spawnSync(process.execPath, [path.join(__dirname, 'run-siding-malec-photos.cjs')], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+  if (malecLive.stdout) process.stdout.write(malecLive.stdout);
+  if (malecLive.stderr) process.stderr.write(malecLive.stderr);
+  gate('Malec live photo script is runnable', malecLive.status === 0, malecLive.stderr || malecLive.stdout);
+  const malecDedupe = spawnSync(process.execPath, [path.join(__dirname, 'test-siding-malec-face-dedupe.cjs')], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+  if (malecDedupe.stdout) process.stdout.write(malecDedupe.stdout);
+  if (malecDedupe.stderr) process.stderr.write(malecDedupe.stderr);
+  gate('Malec face-dedupe regression passes', malecDedupe.status === 0, malecDedupe.stderr || malecDedupe.stdout);
+
   console.log('\n── Photo path vs photo-free ──');
   console.log('  Photo-free 5688 is the Solar replay above. It does not use elevation photos.');
-  console.log(`  Photo path on the same footprint shape: wall ${four.totals.gross_wall_area_sqft} sqft from photos (${four.totals.wall_total_quality}), footprint extrusion ${four.totals.extrusion_wall_area_sqft} sqft overridden.`);
-  console.log('  Centuryway photo path: not scored. The Hover PDF is in the repo; the elevation photos are not.');
+  console.log(`  Photo path on the same footprint shape: wall ${four.totals.gross_wall_area_sqft} sqft (${four.totals.wall_total_quality}), footprint extrusion ${four.totals.extrusion_wall_area_sqft} sqft, photo widths ${four.totals.photo_perimeter_flagged ? 'flagged against the perimeter' : 'within 15% of the perimeter'}.`);
+    console.log('  Centuryway photo path: line items are scored in scripts/test-siding-centuryway-hover.cjs. The elevation photos are not in the repo.');
 
   console.log(`\nScorecard gate: ${gateFailed === 0 ? 'passed' : `${gateFailed} failed`}`);
   if (gateFailed) process.exit(1);

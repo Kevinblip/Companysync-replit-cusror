@@ -141,8 +141,23 @@ check("a reply into another company's thread is refused", async () => {
   assert.ok(!pool.queries.some((q) => q.sql.startsWith('INSERT INTO chat_messages')));
 });
 
-// ── 4. The turn reuses Lexi's own assistant, with the caller's identity ──────
-check('the turn calls the shared Lexi handler with the caller and thread history', async () => {
+const OWNER_CONFIG = {
+  userEmail: 'owner@roofco.com',
+  companyId: COMPANY,
+  userName: 'Kevin',
+  pin: '4242',
+};
+
+function geminiText(text) {
+  return { candidates: [{ content: { parts: [{ text }] } }] };
+}
+
+function geminiCall(name, args) {
+  return { candidates: [{ content: { parts: [{ functionCall: { name, args } }] } }] };
+}
+
+// ── 4. The turn uses the phone brain, with the signed-in caller ─────────────
+check('the turn sends prior thread history to the phone brain once', async () => {
   const history = [
     { sender_email: 'lexi@system', message: 'How can I help?', message_type: 'text' },
     { sender_email: 'owner@roofco.com', message: 'Create a task for the Miller roof', message_type: 'text' },
@@ -159,19 +174,22 @@ check('the turn calls the shared Lexi handler with the caller and thread history
     userEmail: 'owner@roofco.com',
     userName: 'Owner',
     text: 'Create a task for the Miller roof',
-    invokeLexi: async (params) => { seen = params; return { response: 'Done — task created.' }; },
+    conversation: LEXI_CONV,
+    phoneConfig: OWNER_CONFIG,
+    generate: async ({ body }) => { seen = body; return geminiText('Done — task created.'); },
   });
   assert.strictEqual(ok, true);
-  assert.strictEqual(seen.companyId, COMPANY);
-  assert.strictEqual(seen.userEmail, 'owner@roofco.com');
-  assert.strictEqual(seen.message, 'Create a task for the Miller roof');
-  // The message being answered was already stored; it must not be repeated in
-  // the history or Lexi sees it twice.
-  assert.strictEqual(seen.conversationHistory.length, 1);
-  assert.strictEqual(seen.conversationHistory[0].role, 'assistant');
+  assert.ok(seen.systemInstruction.parts[0].text.includes('THIS MESSAGE ARRIVED IN TEAM CHAT'));
+  assert.ok(seen.systemInstruction.parts[0].text.includes('Do not ask for a PIN'));
+  const contents = seen.contents;
+  assert.strictEqual(contents[0].role, 'model');
+  assert.strictEqual(contents[0].parts[0].text, 'How can I help?');
+  assert.strictEqual(contents.length, 2);
+  assert.strictEqual(contents[1].parts[0].text, 'Create a task for the Miller roof');
 
   const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
   assert.strictEqual(insert.params[5], 'Done — task created.');
+  assert.ok(!pool.queries.some((q) => /staff_profiles/i.test(q.sql)));
 });
 
 check('history maps Lexi to assistant and everyone else to user', async () => {
@@ -200,7 +218,9 @@ check('a failing assistant posts a visible failure, never silence', async () => 
     userEmail: 'owner@roofco.com',
     userName: 'Owner',
     text: 'anything',
-    invokeLexi: async () => { throw new Error('gemini exploded'); },
+    conversation: LEXI_CONV,
+    phoneConfig: OWNER_CONFIG,
+    generate: async () => { throw new Error('gemini exploded'); },
   });
   assert.strictEqual(ok, false);
   const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
@@ -216,7 +236,9 @@ check('an empty assistant answer still posts something readable', async () => {
     conversationId: LEXI_CONV.id,
     userEmail: 'owner@roofco.com',
     text: 'hi',
-    invokeLexi: async () => ({ response: '   ' }),
+    conversation: LEXI_CONV,
+    phoneConfig: OWNER_CONFIG,
+    generate: async () => ({ candidates: [{ content: { parts: [{ text: '   ' }] } }] }),
   });
   const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
   assert.strictEqual(insert.params[5], lexiTeamChat.FALLBACK_REPLY);
@@ -226,10 +248,442 @@ check('an empty user message produces no reply at all', async () => {
   const pool = fakePool();
   const ok = await lexiTeamChat.handleLexiTeamChatTurn({
     pool, companyId: COMPANY, conversationId: LEXI_CONV.id, userEmail: 'owner@roofco.com', text: '   ',
-    invokeLexi: async () => { throw new Error('should never be called'); },
+    generate: async () => { throw new Error('should never be called'); },
   });
   assert.strictEqual(ok, false);
   assert.strictEqual(pool.queries.length, 0);
+});
+
+check('the owner can save a note through the phone tools', async () => {
+  const pool = fakePool({ 'FROM chat_conversations WHERE id': () => ({ rows: [LEXI_CONV], rowCount: 1 }) });
+  let calls = 0;
+  const ok = await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: COMPANY,
+    conversationId: LEXI_CONV.id,
+    userEmail: 'owner@roofco.com',
+    text: 'Make a note to check the ridge',
+    conversation: LEXI_CONV,
+    phoneConfig: OWNER_CONFIG,
+    generate: async () => {
+      calls += 1;
+      if (calls === 1) return geminiCall('create_personal_note', { text: 'Check the ridge' });
+      return geminiText('Saved the note.');
+    },
+  });
+  assert.strictEqual(ok, true);
+  const note = pool.queries.find((q) => q.sql.includes("INSERT INTO generic_entities") && q.sql.includes("'Note'"));
+  assert.ok(note, 'the note must be stored');
+  assert.strictEqual(note.params[1], COMPANY);
+  const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
+  assert.strictEqual(insert.params[3], 'lexi@system');
+  assert.strictEqual(insert.params[5], 'Saved the note.');
+});
+
+check('another staff member gets a polite refusal and no tools', async () => {
+  const pool = fakePool({ 'FROM chat_conversations WHERE id': () => ({ rows: [LEXI_CONV], rowCount: 1 }) });
+  let generated = false;
+  const ok = await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: COMPANY,
+    conversationId: LEXI_CONV.id,
+    userEmail: 'vicky@roofco.com',
+    text: 'Save a note',
+    conversation: LEXI_CONV,
+    phoneConfig: OWNER_CONFIG,
+    generate: async () => { generated = true; return geminiText('nope'); },
+  });
+  assert.strictEqual(ok, true);
+  assert.strictEqual(generated, false);
+  const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
+  assert.strictEqual(insert.params[5], lexiTeamChat.OWNER_ONLY);
+  assert.ok(!pool.queries.some((q) => q.sql.includes("'Note'") || q.sql.includes('INSERT INTO tasks')));
+});
+
+check('a job-title admin flag is not enough to use Lexi', async () => {
+  const pool = fakePool({
+    'FROM chat_conversations WHERE id': () => ({ rows: [LEXI_CONV], rowCount: 1 }),
+    'FROM staff_profiles': () => ({ rows: [{ is_administrator: false, is_super_admin: false }], rowCount: 1 }),
+  });
+  let generated = false;
+  await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: COMPANY,
+    conversationId: LEXI_CONV.id,
+    userEmail: 'mike@roofco.com',
+    text: 'List my tasks',
+    conversation: LEXI_CONV,
+    phoneConfig: OWNER_CONFIG,
+    generate: async () => { generated = true; return geminiText('nope'); },
+  });
+  assert.strictEqual(generated, false);
+  const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
+  assert.strictEqual(insert.params[5], 'I only work for Kevin.');
+});
+
+check('a company administrator can use Lexi in the pinned company', async () => {
+  const pool = fakePool({
+    'FROM chat_conversations WHERE id': () => ({ rows: [LEXI_CONV], rowCount: 1 }),
+    'FROM staff_profiles': () => ({ rows: [{ is_administrator: true, is_super_admin: false }], rowCount: 1 }),
+  });
+  let generated = false;
+  await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: COMPANY,
+    conversationId: LEXI_CONV.id,
+    userEmail: 'vicky@roofco.com',
+    text: 'Hi Lexi',
+    conversation: LEXI_CONV,
+    phoneConfig: OWNER_CONFIG,
+    generate: async () => { generated = true; return geminiText('Hello.'); },
+  });
+  assert.strictEqual(generated, true);
+  const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
+  assert.strictEqual(insert.params[5], 'Hello.');
+});
+
+check('the configured owner email gets assistant mode even when Team Chat is a different company', async () => {
+  const pool = fakePool({ 'FROM chat_conversations WHERE id': () => ({ rows: [LEXI_CONV], rowCount: 1 }) });
+  let generated = false;
+  await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: 'companysync_master_001',
+    conversationId: LEXI_CONV.id,
+    userEmail: '  YicnTeam@Gmail.com ',
+    text: 'Hey Lexi',
+    conversation: LEXI_CONV,
+    phoneConfig: { ...OWNER_CONFIG, userEmail: 'yicnteam@gmail.com', companyId: 'yicn_roofing_001' },
+    generate: async () => { generated = true; return geminiText('Hi Kevin.'); },
+  });
+  assert.strictEqual(generated, true);
+  const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
+  assert.strictEqual(insert.params[5], 'Hi Kevin.');
+  assert.ok(!pool.queries.some((q) => /staff_profiles/i.test(q.sql)), 'the owner email match does not depend on the staff row');
+});
+
+check('an administrator of a different company is still refused', async () => {
+  const pool = fakePool({
+    'FROM chat_conversations WHERE id': () => ({ rows: [LEXI_CONV], rowCount: 1 }),
+    'FROM staff_profiles': () => ({ rows: [{ is_administrator: true, is_super_admin: false }], rowCount: 1 }),
+  });
+  let generated = false;
+  await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: COMPANY,
+    conversationId: LEXI_CONV.id,
+    userEmail: 'vicky@roofco.com',
+    text: 'Hi Lexi',
+    conversation: LEXI_CONV,
+    phoneConfig: { ...OWNER_CONFIG, companyId: 'yicn_roofing_001' },
+    generate: async () => { generated = true; return geminiText('nope'); },
+  });
+  assert.strictEqual(generated, false);
+  const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
+  assert.strictEqual(insert.params[5], lexiTeamChat.OWNER_ONLY);
+});
+
+check('a string or JSON administrator flag counts in the pinned company', async () => {
+  const pool = fakePool({
+    'FROM chat_conversations WHERE id': () => ({ rows: [LEXI_CONV], rowCount: 1 }),
+    'FROM staff_profiles': () => ({
+      rows: [{ is_administrator: false, is_super_admin: false, data: { is_administrator: 'true', role: 'admin' } }],
+      rowCount: 1,
+    }),
+  });
+  let generated = false;
+  await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: COMPANY,
+    conversationId: LEXI_CONV.id,
+    userEmail: 'vicky@roofco.com',
+    text: 'Hi Lexi',
+    conversation: LEXI_CONV,
+    phoneConfig: OWNER_CONFIG,
+    generate: async () => { generated = true; return geminiText('Hello.'); },
+  });
+  assert.strictEqual(generated, true);
+  const staffSql = pool.queries.find((q) => /FROM staff_profiles/i.test(q.sql));
+  assert.ok(staffSql, 'the staff lookup ran');
+  assert.ok(staffSql.sql.includes("data->>'user_email'"), 'a bootstrap row stored only in data JSON still matches');
+  assert.ok(staffSql.sql.includes("data->>'email'"));
+  assert.ok(/ORDER BY/i.test(staffSql.sql), 'an administrator row is preferred over a duplicate non-admin row');
+  const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
+  assert.strictEqual(insert.params[5], 'Hello.');
+});
+
+check('the company owner on the companies row or the Company entity can use Lexi', async () => {
+  const pool = fakePool({
+    'FROM chat_conversations WHERE id': () => ({ rows: [LEXI_CONV], rowCount: 1 }),
+    'FROM staff_profiles': () => ({ rows: [], rowCount: 0 }),
+    'FROM companies': () => ({ rows: [], rowCount: 0 }),
+    "entity_type = 'Company'": () => ({ rows: [{ id: COMPANY }], rowCount: 1 }),
+  });
+  let generated = false;
+  await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: COMPANY,
+    conversationId: LEXI_CONV.id,
+    userEmail: 'pat@roofco.com',
+    text: 'Hi Lexi',
+    conversation: LEXI_CONV,
+    phoneConfig: OWNER_CONFIG,
+    generate: async () => { generated = true; return geminiText('Hello owner.'); },
+  });
+  assert.strictEqual(generated, true);
+  const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
+  assert.strictEqual(insert.params[5], 'Hello owner.');
+});
+
+check('an administrator is recognized when chat uses the pinned company base44 id', async () => {
+  const pool = fakePool({
+    'FROM chat_conversations WHERE id': () => ({ rows: [LEXI_CONV], rowCount: 1 }),
+    'SELECT id, base44_id FROM companies': (params) => (
+      params[0] === 'base44_yicn' && params[1] === 'yicn_roofing_001'
+        ? { rows: [{ id: 'yicn_roofing_001', base44_id: 'base44_yicn' }], rowCount: 1 }
+        : { rows: [], rowCount: 0 }
+    ),
+    'FROM staff_profiles': () => ({ rows: [{ is_administrator: 't', is_super_admin: false }], rowCount: 1 }),
+  });
+  let generated = false;
+  await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: 'base44_yicn',
+    conversationId: LEXI_CONV.id,
+    userEmail: 'vicky@roofco.com',
+    text: 'Hi Lexi',
+    conversation: LEXI_CONV,
+    phoneConfig: { ...OWNER_CONFIG, companyId: 'yicn_roofing_001' },
+    generate: async () => { generated = true; return geminiText('Hello.'); },
+  });
+  assert.strictEqual(generated, true);
+  const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
+  assert.strictEqual(insert.params[5], 'Hello.');
+});
+
+check('@Lexi in a Space is answered for the owner without a fan-out lookup', async () => {
+  const pool = fakePool({ 'FROM chat_conversations WHERE id': () => ({ rows: [TEAM_SPACE], rowCount: 1 }) });
+  let userText = '';
+  const ok = await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: COMPANY,
+    conversationId: TEAM_SPACE.id,
+    userEmail: 'owner@roofco.com',
+    text: '@Lexi what is on my schedule',
+    conversation: TEAM_SPACE,
+    phoneConfig: OWNER_CONFIG,
+    generate: async ({ body }) => {
+      userText = body.contents[body.contents.length - 1].parts[0].text;
+      return geminiText('Nothing booked.');
+    },
+  });
+  assert.strictEqual(ok, true);
+  assert.strictEqual(userText, 'what is on my schedule');
+  const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
+  assert.strictEqual(insert.params[2], TEAM_SPACE.id);
+  assert.strictEqual(insert.params[3], 'lexi@system');
+  assert.ok(!pool.queries.some((q) => /staff_profiles/i.test(q.sql)));
+});
+
+check('@Lexi in a Space from other staff is the polite reply', async () => {
+  const pool = fakePool({ 'FROM chat_conversations WHERE id': () => ({ rows: [TEAM_SPACE], rowCount: 1 }) });
+  let generated = false;
+  await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: COMPANY,
+    conversationId: TEAM_SPACE.id,
+    userEmail: 'vicky@roofco.com',
+    text: 'hey @Lexi delete the Miller job',
+    conversation: TEAM_SPACE,
+    phoneConfig: OWNER_CONFIG,
+    generate: async () => { generated = true; return geminiText('nope'); },
+  });
+  assert.strictEqual(generated, false);
+  const insert = pool.queries.find((q) => q.sql.startsWith('INSERT INTO chat_messages'));
+  assert.strictEqual(insert.params[5], 'I only work for Kevin.');
+});
+
+check('a Space message that does not mention Lexi gets no reply', async () => {
+  const pool = fakePool();
+  let generated = false;
+  const ok = await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: COMPANY,
+    conversationId: TEAM_SPACE.id,
+    userEmail: 'owner@roofco.com',
+    text: 'The crew is on the way',
+    conversation: TEAM_SPACE,
+    phoneConfig: OWNER_CONFIG,
+    generate: async () => { generated = true; return geminiText('nope'); },
+  });
+  assert.strictEqual(ok, false);
+  assert.strictEqual(generated, false);
+  assert.strictEqual(pool.queries.length, 0);
+});
+
+check('a broadcast mention does not answer', async () => {
+  const broadcast = { id: 'conv_all', chat_type: 'broadcast', participants: [] };
+  const pool = fakePool();
+  const ok = await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: COMPANY,
+    conversationId: broadcast.id,
+    userEmail: 'owner@roofco.com',
+    text: '@Lexi hello',
+    conversation: broadcast,
+    phoneConfig: OWNER_CONFIG,
+    generate: async () => { throw new Error('should not run'); },
+  });
+  assert.strictEqual(ok, false);
+  assert.strictEqual(pool.queries.length, 0);
+});
+
+check('a later message in the same thread still sees the earlier turn', async () => {
+  const history = [
+    { sender_email: 'owner@roofco.com', message: 'The Miller ridge is leaking', message_type: 'text' },
+    { sender_email: 'lexi@system', message: 'Noted.', message_type: 'text' },
+    { sender_email: 'owner@roofco.com', message: 'What did I just tell you?', message_type: 'text' },
+  ];
+  const pool = fakePool({
+    'FROM chat_messages': () => ({ rows: [...history].reverse(), rowCount: history.length }),
+    'FROM chat_conversations WHERE id': () => ({ rows: [LEXI_CONV], rowCount: 1 }),
+  });
+  let contents = [];
+  await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: COMPANY,
+    conversationId: LEXI_CONV.id,
+    userEmail: 'owner@roofco.com',
+    text: 'What did I just tell you?',
+    conversation: LEXI_CONV,
+    phoneConfig: OWNER_CONFIG,
+    generate: async ({ body }) => { contents = body.contents; return geminiText('The Miller ridge is leaking.'); },
+  });
+  assert.strictEqual(contents[0].parts[0].text, 'The Miller ridge is leaking');
+  assert.strictEqual(contents[1].parts[0].text, 'Noted.');
+  assert.strictEqual(contents[contents.length - 1].parts[0].text, 'What did I just tell you?');
+  assert.strictEqual(contents.filter((item) => item.parts[0].text === 'What did I just tell you?').length, 1);
+});
+
+check('a customer draft is kept until yes, send it, and staging does not deliver it', async () => {
+  const sessions = new Map();
+  const pool = fakePool({
+    'FROM chat_conversations WHERE id': () => ({ rows: [LEXI_CONV], rowCount: 1 }),
+    'SELECT data FROM generic_entities': (params) => {
+      const data = sessions.get(params[1]);
+      return { rows: data ? [{ data }] : [], rowCount: data ? 1 : 0 };
+    },
+    'INSERT INTO generic_entities': (params) => {
+      if (params[1] === 'LexiPhoneThread') sessions.set(params[0], JSON.parse(params[3]));
+      return { rows: [], rowCount: 1 };
+    },
+  });
+  const prev = process.env.STAGING_READ_ONLY_SIDE_EFFECTS;
+  process.env.STAGING_READ_ONLY_SIDE_EFFECTS = '1';
+  const originalFetch = global.fetch;
+  let fetched = false;
+  global.fetch = async () => { fetched = true; return { ok: true, json: async () => ({}) }; };
+  try {
+    let step = 0;
+    await lexiTeamChat.handleLexiTeamChatTurn({
+      pool,
+      companyId: COMPANY,
+      conversationId: LEXI_CONV.id,
+      userEmail: 'owner@roofco.com',
+      text: 'Text Miller that the crew is on the way',
+      conversation: LEXI_CONV,
+      phoneConfig: OWNER_CONFIG,
+      sendCustomerMessage: lexiTeamChat.defaultSendCustomerMessage,
+      generate: async () => {
+        step += 1;
+        if (step === 1) {
+          return geminiCall('draft_customer_message', {
+            channel: 'sms', to: '+15551212', message: 'The crew is on the way', contact_name: 'Miller',
+          });
+        }
+        return geminiText('Draft ready.');
+      },
+    });
+    const drafted = [...sessions.values()][0];
+    assert.ok(drafted?.pending_draft, 'the draft is stored on the conversation');
+    assert.strictEqual(drafted.pending_draft.message, 'The crew is on the way');
+    assert.strictEqual(fetched, false);
+
+    step = 0;
+    await lexiTeamChat.handleLexiTeamChatTurn({
+      pool,
+      companyId: COMPANY,
+      conversationId: LEXI_CONV.id,
+      userEmail: 'owner@roofco.com',
+      text: 'please send that',
+      conversation: LEXI_CONV,
+      phoneConfig: OWNER_CONFIG,
+      sendCustomerMessage: lexiTeamChat.defaultSendCustomerMessage,
+      generate: async () => {
+        step += 1;
+        if (step === 1) return geminiCall('confirm_send', {});
+        return geminiText('Still waiting.');
+      },
+    });
+    assert.ok([...sessions.values()][0].pending_draft, 'a vague send request keeps the draft');
+    assert.strictEqual(fetched, false);
+
+    step = 0;
+    await lexiTeamChat.handleLexiTeamChatTurn({
+      pool,
+      companyId: COMPANY,
+      conversationId: LEXI_CONV.id,
+      userEmail: 'owner@roofco.com',
+      text: 'yes, send it',
+      conversation: LEXI_CONV,
+      phoneConfig: OWNER_CONFIG,
+      sendCustomerMessage: lexiTeamChat.defaultSendCustomerMessage,
+      generate: async () => {
+        step += 1;
+        if (step === 1) return geminiCall('confirm_send', {});
+        return geminiText('Staging blocked the send.');
+      },
+    });
+    assert.ok([...sessions.values()][0].pending_draft, 'staging keeps the draft');
+    assert.strictEqual(fetched, false);
+  } finally {
+    if (prev === undefined) delete process.env.STAGING_READ_ONLY_SIDE_EFFECTS;
+    else process.env.STAGING_READ_ONLY_SIDE_EFFECTS = prev;
+    global.fetch = originalFetch;
+  }
+});
+
+check('a lookup in Team Chat does not ask for a PIN', async () => {
+  const pool = fakePool({
+    'FROM chat_conversations WHERE id': () => ({ rows: [LEXI_CONV], rowCount: 1 }),
+    'FROM customers': () => ({
+      rows: [{ id: 'c1', name: 'Miller', phone: '5551231234', email: 'm@x.com', status: 'active', address: '1 Main', city: 'Cleveland', state: 'OH', zip: '44101' }],
+      rowCount: 1,
+    }),
+  });
+  let toolResult = null;
+  await lexiTeamChat.handleLexiTeamChatTurn({
+    pool,
+    companyId: COMPANY,
+    conversationId: LEXI_CONV.id,
+    userEmail: 'owner@roofco.com',
+    text: 'Look up Miller',
+    conversation: LEXI_CONV,
+    phoneConfig: OWNER_CONFIG,
+    generate: async ({ body }) => {
+      const last = body.contents[body.contents.length - 1];
+      const response = last.parts.find((part) => part.functionResponse);
+      if (response) {
+        toolResult = response.functionResponse.response;
+        return geminiText(toolResult.read_back || 'Found Miller.');
+      }
+      return geminiCall('lookup_contact', { name: 'Miller' });
+    },
+  });
+  assert.ok(toolResult, 'lookup ran');
+  assert.notStrictEqual(toolResult.code, 'PIN_REQUIRED');
+  assert.strictEqual(toolResult.success, true);
+  assert.ok(String(toolResult.read_back || '').includes('Miller'));
+  assert.ok(!JSON.stringify(toolResult).includes('portal_token'));
 });
 
 // ── 5. The alert bot is untouched ────────────────────────────────────────────
@@ -302,6 +756,70 @@ check('a thread that cannot be opened fails loudly instead of dropping the clip'
   assert.strictEqual(uploaded, false);
 });
 
+check('Lexi is always a hands-free recipient, including when nobody else is on the team', async () => {
+  const mod = await import(pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'handsFreeDelivery.js')).href);
+  const onlyLexi = mod.voiceRecipients([]);
+  assert.deepStrictEqual(onlyLexi.map((c) => c.email), ['lexi@system']);
+  assert.strictEqual(mod.soleVoiceRecipient(onlyLexi).name, 'Lexi');
+  const withPeople = mod.voiceRecipients([
+    { email: 'lexi@system', name: 'Lexi' },
+    { email: 'vicky@roofco.com', name: 'Vicky Alvarez' },
+  ]);
+  assert.deepStrictEqual(withPeople.map((c) => c.email), ['lexi@system', 'vicky@roofco.com']);
+  assert.strictEqual(mod.soleVoiceRecipient(withPeople), null);
+
+  const names = await import(pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'teammateNameMatch.js')).href);
+  const heard = names.resolveTeammateName('Lexi', onlyLexi);
+  assert.strictEqual(heard.status, 'match');
+  assert.strictEqual(heard.match.email, 'lexi@system');
+  const wrapped = names.resolveTeammateName('send this to Lexi', withPeople);
+  assert.strictEqual(wrapped.status, 'match');
+  assert.strictEqual(wrapped.match.email, 'lexi@system');
+});
+
+check('a hands-free message to Lexi posts the transcript as text and does not upload audio', async () => {
+  const mod = await import(pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'handsFreeDelivery.js')).href);
+  const calls = [];
+  let uploaded = false;
+  const result = await mod.deliverVoiceMessage({
+    companyId: COMPANY,
+    sender: { email: 'yicnteam@gmail.com', name: 'Kevin' },
+    recipient: { email: 'Lexi@system', name: 'Lexi' },
+    clip: { file: { name: 'voice.webm' }, seconds: 4, transcript: '  Remind me to call Miller  ' },
+    uploadFile: async () => { uploaded = true; return { file_url: 'https://cdn/voice.webm' }; },
+    request: async (url, body) => {
+      calls.push({ url, body });
+      if (url === '/api/chat/conversations') return { conversation: { id: 'conv_lexi' } };
+      return { ok: true };
+    },
+  });
+  assert.strictEqual(uploaded, false, 'Lexi replies from the transcript, not from an audio attachment');
+  assert.strictEqual(result.conversationId, 'conv_lexi');
+  assert.strictEqual(result.transcript, 'Remind me to call Miller');
+  const [openThread, sendMessage] = calls;
+  assert.deepStrictEqual(
+    openThread.body.participants.map((p) => p.email).sort(),
+    ['Lexi@system', 'yicnteam@gmail.com']
+  );
+  assert.strictEqual(sendMessage.body.message_type, 'text');
+  assert.strictEqual(sendMessage.body.message, 'Remind me to call Miller');
+  assert.ok(!sendMessage.body.attachment_name);
+});
+
+check('a hands-free message to Lexi with no transcript is refused before any request', async () => {
+  const mod = await import(pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'handsFreeDelivery.js')).href);
+  let requested = false;
+  await assert.rejects(() => mod.deliverVoiceMessage({
+    companyId: COMPANY,
+    sender: { email: 'yicnteam@gmail.com', name: 'Kevin' },
+    recipient: { email: 'lexi@system', name: 'Lexi' },
+    clip: { file: { name: 'voice.webm' }, seconds: 4, transcript: '   ' },
+    uploadFile: async () => ({ file_url: 'x' }),
+    request: async () => { requested = true; return { conversation: { id: 'conv_lexi' } }; },
+  }), /transcribe/);
+  assert.strictEqual(requested, false);
+});
+
 check('missing recipient or recording is refused before any request', async () => {
   const mod = await import(pathToFileURL(path.join(__dirname, '..', 'src', 'utils', 'handsFreeDelivery.js')).href);
   const base = {
@@ -325,9 +843,19 @@ check('the Lexi chat wiring exists in BOTH the dev plugin and the prod server', 
   for (const [label, src] of [['dev', dev], ['prod', prod]]) {
     assert.ok(src.includes("lib/lexiTeamChat.cjs"), `${label} must load the shared Lexi Team Chat module`);
     assert.ok(src.includes('handleLexiTeamChatTurn'), `${label} must trigger a Lexi reply`);
+    assert.ok(src.includes('shouldLexiAnswer'), `${label} must answer DMs and @Lexi mentions`);
     assert.ok(src.includes('isAllowedLexiConversationRequest'), `${label} must guard Lexi conversation creation`);
     assert.ok(src.includes('isSystemChatAddress'), `${label} must skip system addresses in the fan-out`);
+    assert.ok(src.includes('sendCustomerMessage'), `${label} must pass the guarded customer send`);
   }
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'src', 'pages', 'TeamChat.jsx'), 'utf8');
+  assert.ok(ui.includes('Message Lexi…'), 'the Lexi thread tells Kevin who he is writing to');
+  assert.ok(ui.includes('Type @Lexi to ask her'), 'a Space composer tells Kevin how to mention Lexi');
+  assert.ok(ui.includes('voiceRecipients('), 'hands-free voice messages can be addressed to Lexi');
+  assert.ok(!ui.includes('never Lexi'), 'the voice roster must not drop Lexi');
+  const handsFree = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'chat', 'HandsFreeVoiceMessage.jsx'), 'utf8');
+  assert.ok(handsFree.includes('startBodyTranscript'), 'a message for Lexi is transcribed in the browser');
+  assert.ok(handsFree.includes('isLexiVoiceRecipient'), 'the recorder knows when the recipient is Lexi');
 });
 
 (async () => {

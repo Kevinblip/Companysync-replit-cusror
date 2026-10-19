@@ -22,7 +22,7 @@ import { PLATFORM_COMPANY_ID } from "@/lib/constants";
 import { isPlatformAdminCheck } from "@/hooks/usePlatformAdmin";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { DEFAULT_SHORTCUT_IDS, SHORTCUT_MAP } from "@/config/quickCreateShortcuts";
+import { DEFAULT_HEADER_SHORTCUT_IDS, SHORTCUT_CATALOG, SHORTCUT_MAP } from "@/config/quickCreateShortcuts";
 import useHiddenFeatures from "@/hooks/useHiddenFeatures";
 import {
   LayoutDashboard,
@@ -694,6 +694,74 @@ export default function Layout({ children, currentPageName }) {
 
   const rolePermissions = userRole[0]?.permissions || {};
 
+  const canEditQuickCreateShortcuts =
+    myCompany?.created_by === user?.email ||
+    myStaffProfile?.is_administrator === true ||
+    myStaffProfile?.is_super_admin === true ||
+    myStaffProfile?.role === "owner" ||
+    user?.is_super_admin === true;
+
+  const addQuickCreateShortcutMutation = useMutation({
+    mutationFn: async (shortcutId) => {
+      if (!canEditQuickCreateShortcuts) {
+        throw new Error("Only company administrators can change Quick Create favorites.");
+      }
+      if (!myCompany?.id) throw new Error("No active company is available.");
+
+      const current = myCompany.settings?.quick_create_shortcuts;
+      const active = Array.isArray(current) && current.length > 0
+        ? current.map((item) => typeof item === "string" ? { id: item, color: null } : { id: item.id, color: item.color || null })
+        : DEFAULT_HEADER_SHORTCUT_IDS.map((id) => ({ id, color: null }));
+
+      if (active.some((item) => item.id === shortcutId)) return active;
+      if (active.length >= 10) throw new Error("Quick Create supports up to 10 favorites.");
+
+      const next = [...active, { id: shortcutId, color: null }];
+      await base44.entities.Company.update(myCompany.id, {
+        settings: { ...(myCompany.settings || {}), quick_create_shortcuts: next },
+      });
+      return next;
+    },
+    onSuccess: (shortcuts) => {
+      queryClient.setQueryData(["layout-companies-list", user?.email], (current) =>
+        Array.isArray(current)
+          ? current.map((company) =>
+              company.id === myCompany?.id
+                ? { ...company, settings: { ...(company.settings || {}), quick_create_shortcuts: shortcuts } }
+                : company
+            )
+          : current
+      );
+      queryClient.setQueryData(["companies"], (current) =>
+        Array.isArray(current)
+          ? current.map((company) =>
+              company.id === myCompany?.id
+                ? { ...company, settings: { ...(company.settings || {}), quick_create_shortcuts: shortcuts } }
+                : company
+            )
+          : current
+      );
+      queryClient.invalidateQueries({ queryKey: ["layout-companies-list"] });
+      queryClient.invalidateQueries({ queryKey: ["companies"] });
+      toast.success("Added to Quick Create favorites");
+    },
+    onError: (error) => toast.error(error.message || "Could not add this favorite."),
+  });
+
+  const savedQuickCreateShortcuts = myCompany?.settings?.quick_create_shortcuts;
+  const configuredQuickCreateSlots = Array.isArray(savedQuickCreateShortcuts) && savedQuickCreateShortcuts.length > 0
+    ? savedQuickCreateShortcuts.map((item) =>
+        typeof item === "string" ? { id: item, color: null } : { id: item?.id, color: item?.color || null }
+      )
+    : DEFAULT_HEADER_SHORTCUT_IDS.map((id) => ({ id, color: null }));
+  const activeQuickCreateSlots = configuredQuickCreateSlots.filter((slot, index, slots) =>
+    SHORTCUT_MAP[slot.id] && slots.findIndex((candidate) => candidate.id === slot.id) === index
+  );
+  const availableQuickCreateItems = SHORTCUT_CATALOG.filter(
+    (item) => !activeQuickCreateSlots.some((slot) => slot.id === item.id)
+  );
+  const quickCreateColorOverrides = myCompany?.settings?.shortcut_color_overrides || {};
+
   const hasPermission = (feature, capability = 'view') => {
     if (user?.platform_role === 'super_admin') return true;
     if (myStaffProfile?.is_super_admin) return true;
@@ -767,27 +835,44 @@ export default function Layout({ children, currentPageName }) {
 
 
 
-  const { data: allCompanyNotifications = [] } = useQuery({
-    queryKey: ['notifications', myCompany?.id],
-    queryFn: () => (user && myCompany?.id) ? base44.entities.Notification.filter({ 
-      company_id: myCompany.id 
-    }, "-created_date", 100) : [],
-    enabled: !!user && !!myCompany?.id && isPageVisible,
+  const refreshNotificationCount = useCallback(() => queryClient.invalidateQueries({
+    queryKey: ['notifications', 'unread-count', myCompany?.id],
+  }), [queryClient, myCompany?.id]);
+
+  // Rows for this user, or company-wide rows, are selected on the server so
+  // other staff notifications cannot fill the newest-100 window.
+  const { data: notifications = [] } = useQuery({
+    queryKey: ['notifications', myCompany?.id, user?.email],
+    queryFn: async () => {
+      if (!user?.email || !myCompany?.id) return [];
+      const params = new URLSearchParams({ company_id: myCompany.id, limit: '100' });
+      const response = await fetch(`/api/local/notifications?${params}`, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`Notification list failed (${response.status})`);
+      const rows = await response.json();
+      return Array.isArray(rows) ? rows : [];
+    },
+    enabled: !!user?.email && !!myCompany?.id && isPageVisible,
     staleTime: 60_000,
     refetchInterval: 90_000,
     refetchIntervalInBackground: false,
   });
 
-  // Show notifications for this user specifically OR company-wide (no user_email = meant for everyone)
-  const notifications = React.useMemo(() => {
-    if (!user?.email) return [];
-    return allCompanyNotifications.filter(n => 
-      (!n.deferred_until || new Date(n.deferred_until).getTime() <= Date.now())
-        && (!n.user_email || n.user_email === user.email)
-    );
-  }, [allCompanyNotifications, user?.email]);
-
-  const unreadCount = notifications.filter(n => !n.is_read).length;
+  const { data: unreadCount = 0 } = useQuery({
+    queryKey: ['notifications', 'unread-count', myCompany?.id, user?.email],
+    queryFn: async () => {
+      if (!user?.email || !myCompany?.id) return 0;
+      const params = new URLSearchParams({ company_id: myCompany.id });
+      const response = await fetch(`/api/local/notifications/unread-count?${params}`, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`Notification count failed (${response.status})`);
+      const payload = await response.json();
+      const count = Number(payload.count);
+      return Number.isFinite(count) ? count : 0;
+    },
+    enabled: !!user?.email && !!myCompany?.id && isPageVisible,
+    staleTime: 60_000,
+    refetchInterval: 90_000,
+    refetchIntervalInBackground: false,
+  });
 
   const { data: pendingActionItems = [] } = useQuery({
     queryKey: ['action-items-sidebar', myCompany?.id],
@@ -849,6 +934,7 @@ export default function Layout({ children, currentPageName }) {
         read_at: new Date().toISOString()
       });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      await refreshNotificationCount();
     }
 
     if (notification.link_url) {
@@ -866,6 +952,7 @@ export default function Layout({ children, currentPageName }) {
         queryClient.invalidateQueries({ queryKey: ['action-items'] });
         queryClient.invalidateQueries({ queryKey: ['action-items-sidebar'] });
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
+        await refreshNotificationCount();
         toast.success('Action item completed');
       } catch (err) {
         toast.error('Failed to complete action item');
@@ -895,6 +982,7 @@ export default function Layout({ children, currentPageName }) {
       if (unreadNotifications.length === 0) {
         setNotificationsOpen(false);
         queryClient.invalidateQueries({ queryKey: ['notifications', myCompany.id] });
+        await refreshNotificationCount();
         return;
       }
 
@@ -921,7 +1009,7 @@ export default function Layout({ children, currentPageName }) {
         });
       }
 
-      queryClient.setQueryData(['notifications', myCompany.id], cachedNotifications => (
+      queryClient.setQueryData(['notifications', myCompany.id, user.email], cachedNotifications => (
         Array.isArray(cachedNotifications)
           ? cachedNotifications.map(notification => successfullyReadIds.has(notification.id)
             ? { ...notification, is_read: true, read_at: readAt }
@@ -929,6 +1017,7 @@ export default function Layout({ children, currentPageName }) {
           : cachedNotifications
       ));
       await queryClient.invalidateQueries({ queryKey: ['notifications', myCompany.id] });
+      await refreshNotificationCount();
 
       if (failedCount > 0) {
         toast.error(`${failedCount} notification${failedCount === 1 ? '' : 's'} could not be marked as read. Please try again.`);
@@ -2175,102 +2264,92 @@ export default function Layout({ children, currentPageName }) {
 
               <StatusPanelRoot open={statusPopoverOpen} onOpenChange={handleOpenStatusPopover}>
               <div className={`min-w-0 flex-1 flex items-center justify-end gap-1 md:gap-2 ${isCompactHeader ? 'flex-nowrap' : 'flex-wrap'}`}>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={`text-white hover:bg-white/10 min-h-[44px] gap-1.5 px-2 md:px-3 ${isCompactHeader ? 'hidden' : ''}`}
-                      title="Quick Create"
-                      data-testid="button-quick-create"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span className="hidden md:inline text-sm">Quick Create</span>
-                      <ChevronDown className="w-3 h-3 ml-1 hidden md:block opacity-70" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56 bg-white border border-gray-200 shadow-xl rounded-lg p-1">
-                    {(() => {
-                      const savedShortcuts = myCompany?.settings?.quick_create_shortcuts;
-                      const isCustom = Array.isArray(savedShortcuts) && savedShortcuts.length > 0;
-                      // Normalize: handle both legacy string[] and new {id,color}[] formats
-                      const activeSlots = isCustom
-                        ? savedShortcuts.map((item) => typeof item === 'string' ? { id: item, color: null } : { id: item.id, color: item.color || null })
-                        : DEFAULT_SHORTCUT_IDS.map((id) => ({ id, color: null }));
-                      // Backward-compat fallback for any data saved with separate shortcut_color_overrides
-                      const colorOverrides = myCompany?.settings?.shortcut_color_overrides || {};
-
-                      if (!isCustom) {
-                        const createNewIds = ['lead', 'estimate', 'invoice', 'customer'];
-                        const operationsIds = ['build', 'inspection', 'task'];
+                <div className={`flex items-center ${isCompactHeader ? 'hidden' : ''}`} data-testid="quick-create-split-menu">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-white hover:bg-white/10 min-h-[44px] min-w-[40px] px-2 rounded-r-none"
+                        title="Add a Quick Create favorite"
+                        aria-label="Show available Quick Create items"
+                        data-testid="button-quick-create-add"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-64 max-h-[75dvh] overflow-y-auto bg-white border border-gray-200 shadow-xl rounded-lg p-1">
+                      <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Available to add</div>
+                      {availableQuickCreateItems.map((item) => {
+                        const Icon = item.icon;
+                        const atLimit = activeQuickCreateSlots.length >= 10;
                         return (
-                          <>
-                            <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Create New</div>
-                            {createNewIds.map((id) => {
-                              const item = SHORTCUT_MAP[id];
-                              if (!item) return null;
-                              const Icon = item.icon;
-                              const iconColor = colorOverrides[id] || item.color;
-                              return (
-                                <DropdownMenuItem
-                                  key={id}
-                                  onClick={() => navigate(createPageUrl(item.page) + (item.params || ''))}
-                                  className="cursor-pointer rounded-md flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 focus:bg-blue-50 focus:text-blue-700"
-                                  data-testid={`quick-create-${id}`}
-                                >
-                                  <Icon className={`w-4 h-4 ${iconColor}`} />
-                                  {item.label}
-                                </DropdownMenuItem>
-                              );
-                            })}
-                            <DropdownMenuSeparator className="my-1 bg-gray-100" />
-                            <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Operations</div>
-                            {operationsIds.map((id) => {
-                              const item = SHORTCUT_MAP[id];
-                              if (!item) return null;
-                              const Icon = item.icon;
-                              const iconColor = colorOverrides[id] || item.color;
-                              return (
-                                <DropdownMenuItem
-                                  key={id}
-                                  onClick={() => navigate(createPageUrl(item.page) + (item.params || ''))}
-                                  className="cursor-pointer rounded-md flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 focus:bg-blue-50 focus:text-blue-700"
-                                  data-testid={`quick-create-${id}`}
-                                >
-                                  <Icon className={`w-4 h-4 ${iconColor}`} />
-                                  {item.label}
-                                </DropdownMenuItem>
-                              );
-                            })}
-                          </>
+                          <DropdownMenuItem
+                            key={item.id}
+                            disabled={!canEditQuickCreateShortcuts || atLimit || addQuickCreateShortcutMutation.isPending}
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              addQuickCreateShortcutMutation.mutate(item.id);
+                            }}
+                            className="cursor-pointer rounded-md flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 focus:bg-blue-50 focus:text-blue-700"
+                            data-testid={`quick-create-add-${item.id}`}
+                            title={!canEditQuickCreateShortcuts ? "Only company administrators can add favorites" : atLimit ? "Maximum 10 favorites" : `Add ${item.label} to favorites`}
+                          >
+                            <Icon className={`w-4 h-4 ${item.color}`} />
+                            <span>{item.label}</span>
+                            <Plus className="w-3.5 h-3.5 ml-auto text-gray-400" />
+                          </DropdownMenuItem>
                         );
-                      }
+                      })}
+                      {availableQuickCreateItems.length === 0 && (
+                        <div className="px-3 py-2 text-sm text-gray-500">Every available item is already a favorite.</div>
+                      )}
+                      {!canEditQuickCreateShortcuts && availableQuickCreateItems.length > 0 && (
+                        <div className="px-3 py-2 text-xs text-gray-500">Only company administrators can add favorites.</div>
+                      )}
+                      {activeQuickCreateSlots.length >= 10 && availableQuickCreateItems.length > 0 && (
+                        <div className="px-3 py-2 text-xs text-gray-500">Maximum of 10 favorites reached.</div>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
 
-                      return (
-                        <>
-                          <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Quick Create</div>
-                          {activeSlots.map((slot) => {
-                            const item = SHORTCUT_MAP[slot.id];
-                            if (!item) return null;
-                            const Icon = item.icon;
-                            const iconColor = slot.color || colorOverrides[slot.id] || item.color;
-                            return (
-                              <DropdownMenuItem
-                                key={slot.id}
-                                onClick={() => navigate(createPageUrl(item.page) + (item.params || ''))}
-                                className="cursor-pointer rounded-md flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 focus:bg-blue-50 focus:text-blue-700"
-                                data-testid={`quick-create-${slot.id}`}
-                              >
-                                <Icon className={`w-4 h-4 ${iconColor}`} />
-                                {item.label}
-                              </DropdownMenuItem>
-                            );
-                          })}
-                        </>
-                      );
-                    })()}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-white hover:bg-white/10 min-h-[44px] gap-1.5 px-2 md:px-3 rounded-l-none"
+                        title="Quick Create"
+                        data-testid="button-quick-create"
+                      >
+                        <span className="hidden md:inline text-sm">Quick Create</span>
+                        <ChevronDown className="w-3 h-3 ml-1 hidden md:block opacity-70" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56 max-h-[75dvh] overflow-y-auto bg-white border border-gray-200 shadow-xl rounded-lg p-1">
+                      <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Your favorites</div>
+                      {activeQuickCreateSlots.map((slot) => {
+                        const item = SHORTCUT_MAP[slot.id];
+                        const Icon = item.icon;
+                        const iconColor = slot.color || quickCreateColorOverrides[slot.id] || item.color;
+                        return (
+                          <DropdownMenuItem
+                            key={slot.id}
+                            onClick={() => navigate(createPageUrl(item.page) + (item.params || ""))}
+                            className="cursor-pointer rounded-md flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 focus:bg-blue-50 focus:text-blue-700"
+                            data-testid={`quick-create-${slot.id}`}
+                          >
+                            <Icon className={`w-4 h-4 ${iconColor}`} />
+                            {item.label}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                      {activeQuickCreateSlots.length === 0 && (
+                        <div className="px-3 py-2 text-sm text-gray-500">No favorites yet. Use + to add items.</div>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
                 <GoogleMeetButton companyId={myCompany?.id} />
 
                 <Button 

@@ -2,10 +2,13 @@ const { Pool } = require('pg');
 const crypto = require('crypto');
 const { fetchWithRetry } = require('../lib/fetchWithRetry.cjs');
 const tenantGuard = require('../lib/tenantGuard.cjs');
+const notificationBell = require('../lib/notificationBell.cjs');
 const invoiceCustomerLink = require('../lib/invoiceCustomerLink.cjs');
+const invoiceNumbers = require('../lib/invoiceNumbers.cjs');
 const rateLimit = require('../lib/rateLimit.cjs');
 const chatBot = require('../lib/chatBot.cjs');
 const { isRedundantPlatformEstimateWorkflow } = require('../lib/workflowNotificationSafety.cjs');
+const { mirroredIdEquality } = require('../lib/paymentListFilter.cjs');
 
 let pool = null;
 
@@ -26,6 +29,11 @@ function getPool() {
 
 async function initDatabase() {
   const p = getPool();
+  if (require('../lib/stagingSideEffects.cjs').sideEffectsDisabled()) {
+    await p.query('SELECT 1 AS staging_db_ok');
+    console.log('[staging] database init skipped; connection verified');
+    return;
+  }
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS companies (
@@ -623,6 +631,10 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_estimates_company ON estimates(company_id);
     CREATE INDEX IF NOT EXISTS idx_invoices_company ON invoices(company_id);
     CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(company_id, status);
+    -- Do NOT add uq_invoices_company_invoice_number here. Startup schema init
+    -- would fail while duplicate numbers exist (INV-2026-0385 on two YICN
+    -- customers). The unique index lives in
+    -- db/migrations/20261017_invoice_number_unique.sql and is applied by hand.
     CREATE INDEX IF NOT EXISTS idx_property_measurements_company ON property_measurements(company_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_property_measurements_invoice ON property_measurements(company_id, invoice_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_property_measurements_job ON property_measurements(company_id, job_id, created_at DESC);
@@ -1075,7 +1087,14 @@ function buildDedicatedFilterWhere(filters, startIdx = 1, tableColumns = null) {
       if (val.$lte !== undefined) { if (isDirectCol) { clauses.push(`"${normalizedKey}" <= $${idx}`); values.push(val.$lte); } else { clauses.push(`(data->>'${key}')::numeric <= $${idx}`); values.push(Number(val.$lte)); } idx++; }
     } else {
       if (val === null) { clauses.push(`(${colRef} IS NULL OR ${colRef} = '')`); }
-      else { clauses.push(`${colRef} = $${idx}`); values.push(isDirectCol ? val : String(val)); idx++; }
+      else if (isDirectCol) {
+        const equality = mirroredIdEquality(normalizedKey, `$${idx}`, {
+          hasDataColumn: Boolean(tableColumns && tableColumns.has('data')),
+        });
+        clauses.push(equality.sql);
+        values.push(equality.asText ? String(val) : val);
+        idx++;
+      } else { clauses.push(`${colRef} = $${idx}`); values.push(String(val)); idx++; }
     }
   }
   return { clauses, values, nextIdx: idx };
@@ -1354,6 +1373,17 @@ async function checkEntityCreationLimit(pool, entityType, companyId, isSuperAdmi
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function universalCreate(p, entityType, data) {
+  const guarded = (entityType === 'invoices' || entityType === 'payments')
+    && data?.company_id
+    && typeof p.connect === 'function';
+  if (!guarded) return universalCreateUnlocked(p, entityType, data);
+  return invoiceNumbers.withInvoiceWriteTransaction(p, async (client) => {
+    await invoiceNumbers.prepareEntityWrite(client, entityType, data);
+    return universalCreateUnlocked(client, entityType, data);
+  });
+}
+
+async function universalCreateUnlocked(p, entityType, data) {
   const id = data.id || 'local_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   const companyId = data.company_id || null;
   if (isDedicatedTable(entityType)) {
@@ -2059,6 +2089,21 @@ async function handleLocalDbRoute(req, res, pathname, url) {
       });
       return sendJson(result, result.status);
     }
+
+    // Exact unread badge count, plus the rows the dropdown is allowed to show.
+    // Mirrors vite-db-plugin.js. Audience is the session user (or a company-wide
+    // row), scoped with the same tenant rules as entity reads.
+    if ((pathname === '/api/local/notifications/unread-count' || pathname === '/api/local/notifications') && req.method === 'GET') {
+      const p = getPool();
+      const ctx = await tenantGuard.resolveRequestContext(req, p);
+      const result = await notificationBell.handleBellRequest(p, ctx, {
+        path: pathname,
+        companyId: url.searchParams.get('company_id'),
+        limit: url.searchParams.get('limit'),
+      });
+      return sendJson(result.body, result.status);
+    }
+
     const entityCollectionMatch = pathname.match(/^\/api\/local\/entity\/([^/]+)$/);
     const entitySingleMatch = pathname.match(/^\/api\/local\/entity\/([^/]+)\/(.+)$/);
 

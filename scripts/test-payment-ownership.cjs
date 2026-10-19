@@ -28,7 +28,8 @@ new Function(
    exports.selectPaymentsToRelink = selectPaymentsToRelink;
    exports.pickInvoiceForPayment = pickInvoiceForPayment;
    exports.getPaymentPayerDetails = getPaymentPayerDetails;
-   exports.paymentPayerDiffersFromCustomer = paymentPayerDiffersFromCustomer;`
+   exports.paymentPayerDiffersFromCustomer = paymentPayerDiffersFromCustomer;
+   exports.paymentListedOnInvoice = paymentListedOnInvoice;`
 )(moduleFns);
 
 const {
@@ -40,6 +41,7 @@ const {
   pickInvoiceForPayment,
   getPaymentPayerDetails,
   paymentPayerDiffersFromCustomer,
+  paymentListedOnInvoice,
 } = moduleFns;
 
 let passed = 0;
@@ -122,6 +124,14 @@ check(
   [...findForeignInvoiceIds(
     [{ id: 'inv_x', customer_id: CHAD.id, customer_name: 'Chad Sohl (typo)' }],
     { customerId: CHAD.id, customerName: CHAD.name }
+  )],
+  []
+);
+check(
+  'a base44 id alias is the same customer',
+  [...findForeignInvoiceIds(
+    [{ id: 'inv_alias', customer_id: 'base44-chad', customer_name: 'Chad Sohl' }],
+    { customerId: CHAD.id, customerName: CHAD.name, customerIds: [CHAD.id, 'base44-chad'] }
   )],
   []
 );
@@ -368,6 +378,79 @@ check(
 );
 check('no candidates is not ambiguous', pickInvoiceForPayment([], { customerName: CHAD.name }).ambiguous, false);
 check('null candidates is safe', pickInvoiceForPayment(null, {}).invoice, null);
+
+section('invoice Payments History');
+const WANDA_INVOICE = {
+  id: 'local_1791343462428_05hsvlmvs',
+  base44_id: '39932ccc-b3a5-4dbe-b6b7-bbadf49ae131',
+  invoice_number: 'INV-WANDA',
+  customer_id: 'stale-customer-id',
+  customer_name: 'Wanda Simpson',
+};
+check(
+  'a local_ invoice id is listed even when the payment has no customer id',
+  paymentListedOnInvoice({
+    id: 'pay_wanda',
+    invoice_id: WANDA_INVOICE.id,
+    invoice_number: WANDA_INVOICE.invoice_number,
+    customer_name: 'Wanda Simpson',
+    amount: 9662.85,
+  }, WANDA_INVOICE),
+  true
+);
+check(
+  'an invoice id stored only in data is listed',
+  paymentListedOnInvoice({
+    id: 'pay_data',
+    invoice_id: '',
+    customer_id: '',
+    data: { invoice_id: WANDA_INVOICE.id },
+  }, WANDA_INVOICE),
+  true
+);
+check(
+  'a payment linked by the invoice base44 id is listed',
+  paymentListedOnInvoice({
+    id: 'pay_alias',
+    invoice_id: WANDA_INVOICE.base44_id,
+    customer_id: null,
+  }, WANDA_INVOICE),
+  true
+);
+check(
+  'a blank customer id still lists a same-name payment that has no invoice id',
+  paymentListedOnInvoice({
+    id: 'pay_name',
+    invoice_number: 'INV-WANDA',
+    customer_name: 'Wanda Simpson',
+  }, WANDA_INVOICE),
+  true
+);
+check(
+  'a shared invoice number for a different customer stays off this invoice',
+  paymentListedOnInvoice({
+    id: 'pay_other',
+    invoice_number: 'INV-WANDA',
+    customer_id: 'someone-else',
+    customer_name: 'Wanda Simpson',
+  }, WANDA_INVOICE),
+  false
+);
+check(
+  'an explicit invoice id for someone else is not listed',
+  paymentListedOnInvoice({
+    id: 'pay_other_invoice',
+    invoice_id: 'local_other_invoice',
+    invoice_number: 'INV-WANDA',
+    customer_name: 'Wanda Simpson',
+  }, WANDA_INVOICE),
+  false
+);
+
+const { mirroredIdEquality } = require('../lib/paymentListFilter.cjs');
+const mirrored = mirroredIdEquality('invoice_id', '$1', { hasDataColumn: true });
+check('invoice id filter also reads data when the column is blank', mirrored.sql.includes("data->>'invoice_id'"), true);
+check('other columns stay exact column matches', mirroredIdEquality('amount', '$2', { hasDataColumn: true }).sql, '"amount" = $2');
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

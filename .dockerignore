@@ -1,0 +1,41 @@
+# Build-context exclusions for Railway (Railpack/Nixpacks/Docker).
+# Replit does not use this file. scripts/start-production.sh is unchanged.
+# No global *.png / *.jpg rule: public/icons/*.png are app (PWA) icons.
+# scripts/ stays: npm install runs scripts/setup-dev.sh.
+
+# Version control and CI metadata
+.git
+.github
+.githooks
+
+# Replit-only config and agent workspaces (Railway does not read these)
+.replit
+replit.nix
+.replit_integration_files
+.agents
+.canvas
+.config
+.upm
+.pythonlibs
+.local
+.cache
+
+# Reference material and scratch output: not read by the app at build or run time
+attached_assets
+previews
+screenshots
+exports
+audit
+scripts/video
+scripts/mv-shots
+
+# Dependencies and build output (rebuilt by the builder)
+**/node_modules
+dist
+
+# Local environment and editor files
+.env
+.env.*
+.vscode
+.idea
+*.log

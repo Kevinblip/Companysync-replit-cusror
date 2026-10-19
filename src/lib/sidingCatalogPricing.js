@@ -18,7 +18,7 @@ export function sidingMaterial(value) {
 
 function roleForLine(item) {
   const desc = scopeDescription(item.description).toLowerCase();
-  if (/\b(remove|removal|tear.?off|detach|r&r|disposal|haul)\b/.test(desc)) return null;
+  if (/\b(remove|removal|tear[\s-]?off|tear[\s-]?out|detach|r&r|disposal|haul)\b/.test(desc)) return null;
   if (jChannel.test(desc)) return 'j-channel';
   if (/\binside corner\b/.test(desc)) return 'inside corner';
   if (/\boutside corner\b/.test(desc)) return 'outside corner';
@@ -37,9 +37,21 @@ export function compatibleQuantity(quantity, oldUnit, newUnit) {
   return null; // Never silently treat LF as EA (or SQ as EA).
 }
 
+function priceSourceOf(item) {
+  if (item?.is_favorite) return 'favourite';
+  if (item?.source === 'Custom' || item?.is_custom) return 'custom';
+  return 'catalog';
+}
+
+function sourceRank(item) {
+  if (item?.is_favorite) return 0;
+  if (item?.source === 'Custom' || item?.is_custom) return 1;
+  return 2;
+}
+
 function matchesRole(description, role) {
   const d = scopeDescription(description).toLowerCase();
-  if (/\b(remove|removal|tear.?off|detach|r&r|disposal|haul)\b/.test(d)) return false;
+  if (/\b(remove|removal|tear[\s-]?off|tear[\s-]?out|detach|r&r|disposal|haul)\b/.test(d)) return false;
   if (role === 'siding') return /\bsiding\b/.test(d) && !/\bnail|wrap|paint|caulk|labor|trim|corner|soffit|fascia|starter|channel\b/.test(d);
   if (role === 'j-channel') return jChannel.test(d);
   if (role === 'inside corner') return /\binside corner\b/.test(d);
@@ -70,9 +82,11 @@ export function findSidingCatalogItem(priceList, role, material, existingUnit, o
   });
   // Honor the existing product/grade when valid. Otherwise prefer a separate
   // install scope, then the base product rather than a premium/special variant.
-  return candidates.sort((a, b) => {
+  const chosen = candidates.sort((a, b) => {
     const exact = Number(b.code === options.preferredCode) - Number(a.code === options.preferredCode);
     if (exact) return exact;
+    const source = sourceRank(a) - sourceRank(b);
+    if (source) return source;
     const activity = Number(combinedActivity(a)) - Number(combinedActivity(b));
     if (activity) return activity;
     const variantScore = Number(variant.test(a.description || '')) - Number(variant.test(b.description || ''));
@@ -80,17 +94,31 @@ export function findSidingCatalogItem(priceList, role, material, existingUnit, o
     const pattern = material === 'aluminum' ? aluminum : vinyl;
     return Number(pattern.test(b.description || '')) - Number(pattern.test(a.description || ''));
   })[0] || null;
+  if (!chosen) return null;
+  return { ...chosen, price_source: priceSourceOf(chosen) };
 }
 
 // Match the trade AND scope even when a code happens to match. Generic "nail"
 // searches must never select hip/ridge fasteners or other roofing products.
 const roofingProduct = /\broof(?:ing)?|shingle|hip|ridge|rake|eave|underlayment\b/i;
-const removalActivity = /\bremove|removal|tear.?off|detach|disposal|haul\b/i;
+const removalActivity = /\bremove|removal|tear[\s-]?off|tear[\s-]?out|detach|disposal|haul\b/i;
+const foreignCladding = /\basbestos|fiber[\s-]*cement|hardie|\bwood\b|\bcedar\b|\bstucco\b|\bbrick\b|\bstone\b|\bmasonry\b/i;
+
+function conflictsWithRequestedCladding(description, material) {
+  const text = String(description || '');
+  if (foreignCladding.test(text)) return true;
+  if (material === 'vinyl' && aluminum.test(text) && !vinyl.test(text)) return true;
+  if (material === 'aluminum' && vinyl.test(text) && !aluminum.test(text)) return true;
+  return false;
+}
 const normalizedCode = value => String(value || '').toUpperCase().replace(/[\s_-]+/g, '');
 
 function matchesSidingScope(description, requested) {
   const d = scopeDescription(description).toLowerCase();
   const r = String(requested || '').toLowerCase();
+  if (/\bsoffit\b/.test(r)) return /\bsoffit\b/.test(d) && !removalActivity.test(d);
+  if (/\bfascia\b/.test(r)) return /\bfascia\b/.test(d) && !/\bsoffit\b/.test(d) && !removalActivity.test(d);
+  if (/\bgutter\b/.test(r)) return /\bgutter\b/.test(d) && !removalActivity.test(d);
   if (roofingProduct.test(d)) return false;
   if (/\bsiding\b/.test(r) && removalActivity.test(r)) return /\bsiding\b/.test(d) && removalActivity.test(d);
   if (/debris|haul/.test(r)) return /debris|haul|dumpster/.test(d);
@@ -111,26 +139,47 @@ export function findSidingScopeCatalogItem(priceList, searchTerms, requested, ma
   let match;
   if (materialLine) {
     match = findSidingCatalogItem(priceList, role, material, requested.unit, {
-      allowCombined: true, requireCombined: combinedActivity(requested), preferredCode: requested.code, requestedDescription: requested.description,
+      allowCombined: true, requireCombined: combinedActivity(requested), preferredCode: requested.preferred_code, requestedDescription: requested.description,
     });
   } else {
+    const removalRequest = /\bsiding\b/i.test(requested.description || '') && removalActivity.test(requested.description || '');
     const candidates = (priceList || []).filter(item =>
       String(item.code || '').trim() && item.is_active !== false &&
       (!combinedActivity(item) || !removalActivity.test(requested.description || '')) &&
-      (!removalOnly(item) || /remove.*siding/i.test(requested.description)) &&
+      (!removalOnly(item) || /remove.*siding|tear/i.test(requested.description)) &&
       Number.isFinite(Number(item.price)) && Number(item.price) > 0 &&
       compatibleQuantity(1, requested.unit, item.unit) != null &&
       matchesSidingScope(item.description, requested.description) &&
+      !(removalRequest && conflictsWithRequestedCladding(item.description, material)) &&
       !(searchTerms.exclude || []).some(word => String(item.description || '').toLowerCase().includes(word.toLowerCase()))
     );
     const separate = candidates.filter(item => !combinedActivity(item));
-    const eligible = separate.length ? separate : candidates;
-    match = eligible.find(item => (searchTerms.codes || []).some(code => normalizedCode(code) === normalizedCode(item.code))) || eligible[0];
+    const eligible = (separate.length ? separate : candidates).slice().sort((a, b) => {
+      const source = sourceRank(a) - sourceRank(b);
+      if (source) return source;
+      const score = (item) => {
+        const text = String(item.description || '');
+        if (material === 'vinyl') return vinyl.test(text) ? 2 : 0;
+        if (material === 'aluminum') return aluminum.test(text) ? 2 : 0;
+        return 0;
+      };
+      return score(b) - score(a);
+    });
+    const preferredCode = requested?.preferred_code;
+    const preferred = preferredCode
+      ? eligible.find(item => normalizedCode(item.code) === normalizedCode(preferredCode))
+      : null;
+    const coded = eligible.find(item => (searchTerms.codes || []).some(code => normalizedCode(code) === normalizedCode(item.code)));
+    match = preferred || eligible.find(item => item.is_favorite) || coded || eligible[0];
   }
-  if (!match) return { ...requested, code: '', price: 0 };
+  if (!match) return { ...requested, code: '', price: 0, price_source: 'default' };
   // Generation initially uses canonical takeoff units. Convert the rate here;
   // finalization below switches the displayed quantity/unit to the catalog's.
-  return { ...match, price: Number(match.price) * compatibleQuantity(1, requested.unit, match.unit) };
+  return {
+    ...match,
+    price: Number(match.price) * compatibleQuantity(1, requested.unit, match.unit),
+    price_source: priceSourceOf(match),
+  };
 }
 
 export function finalizeSidingCatalogLines(lines, material, priceList) {
@@ -159,6 +208,7 @@ export function finalizeSidingCatalogLines(lines, material, priceList) {
   });
   const missing = [...repriced.missing];
   const items = pricedLines.map(item => {
+    if (item.catalog_exempt) return item;
     const catalog = (priceList || []).find(p =>
       item.code && p.code === item.code && p.is_active !== false &&
       Number(p.price) > 0 && compatibleQuantity(1, item.unit, p.unit) != null &&
@@ -251,6 +301,7 @@ export function repriceSidingMaterialLines(lines, requestedMaterial, priceList) 
       ...item, code: found.code || '', description: `${found.description}${suffix}`,
       quantity, unit, rate, rcv, amount: rcv,
       activity: found.activity || (combinedActivity(found) ? '&' : item.activity),
+      price_source: found.price_source,
       acv: Math.round(rcv * (1 - dep / 100) * 100) / 100,
     };
   });

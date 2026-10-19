@@ -5,7 +5,6 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Undo, Trash2, Save, ArrowLeft, Pencil, Ruler, Plus, X,
   CheckCircle2, Sparkles, Camera, Loader2, ChevronDown, ChevronUp,
@@ -22,6 +21,15 @@ import {
   getImageryBaseType,
 } from "@/lib/mapImagery";
 import { buildTracedRoofGraph } from "../../../functions/utils/roofTracedFacetGraph.js";
+import {
+  SNAP_MAX_FEET,
+  SNAP_PIXELS,
+  findSnapTarget,
+  planNextFacet,
+  resolveEdgeTotals,
+  sumFacetEdgeLengths,
+  MANUAL_LINE_TYPES,
+} from "@/utils/roofTraceSession";
 
 const SECTION_COLORS = [
   { fill: '#3b82f6', stroke: '#1d4ed8', label: 'blue' },
@@ -38,7 +46,18 @@ const LINE_COLORS = {
   rake: '#f97316',
   eave: '#ef4444',
   hip: '#3b82f6',
-  step_flashing: '#ec4899'
+  step_flashing: '#ec4899',
+  drip_edge: '#0891b2',
+};
+
+const LINE_LABELS = {
+  ridge: 'Ridge',
+  hip: 'Hip',
+  valley: 'Valley',
+  rake: 'Rake',
+  eave: 'Eave',
+  step_flashing: 'Step flashing',
+  drip_edge: 'Drip edge',
 };
 
 const LINE_STROKE_WEIGHT = 9;
@@ -53,6 +72,61 @@ const DIRECTION_OPTIONS = [
   { value: 270, label: 'West' },
   { value: 315, label: 'Northwest' },
 ];
+
+function collectSnapGeometry(polygons, excludePolygon = null) {
+  const vertices = [];
+  const segments = [];
+  Object.values(polygons || {}).forEach((poly) => {
+    if (!poly?.getPath || poly === excludePolygon) return;
+    const path = poly.getPath();
+    const n = path.getLength?.() || 0;
+    const pts = [];
+    for (let i = 0; i < n; i++) pts.push(path.getAt(i));
+    if (pts.length === 0) return;
+    vertices.push(...pts);
+    for (let i = 0; i < pts.length; i++) {
+      segments.push({ a: pts[i], b: pts[(i + 1) % pts.length] });
+    }
+  });
+  return { vertices, segments };
+}
+
+/** Snap a map click to another facet's corner, or onto its edge. */
+function snapMapLatLng(map, latLng, targets) {
+  const proj = map?.getProjection?.();
+  if (!proj || !latLng) return { latLng, snapped: false };
+  const zoom = map.getZoom?.() ?? 19;
+  const scale = 2 ** zoom;
+  const toPx = (ll) => {
+    if (!ll || typeof ll.lat !== 'function') return null;
+    const world = proj.fromLatLngToPoint(ll);
+    if (!world) return null;
+    return { x: world.x * scale, y: world.y * scale, latLng: ll };
+  };
+  const cursor = toPx(latLng);
+  if (!cursor) return { latLng, snapped: false };
+  const vertices = (targets?.vertices || []).map(toPx).filter(Boolean);
+  const segments = (targets?.segments || []).map((s) => {
+    const a = toPx(s.a);
+    const b = toPx(s.b);
+    if (!a || !b) return null;
+    return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+  }).filter(Boolean);
+  const hit = findSnapTarget(cursor, vertices, segments, SNAP_PIXELS);
+  if (!hit) return { latLng, snapped: false };
+  let snappedLL = hit.latLng || null;
+  if (!snappedLL && proj.fromPointToLatLng) {
+    const G = window.google.maps;
+    snappedLL = proj.fromPointToLatLng(new G.Point(hit.x / scale, hit.y / scale));
+  }
+  if (!snappedLL) return { latLng, snapped: false };
+  const spherical = window.google?.maps?.geometry?.spherical;
+  if (spherical?.computeDistanceBetween) {
+    const feet = spherical.computeDistanceBetween(latLng, snappedLL) * 3.28084;
+    if (Number.isFinite(feet) && feet > SNAP_MAX_FEET) return { latLng, snapped: false };
+  }
+  return { latLng: snappedLL, snapped: true, kind: hit.kind };
+}
 
 // ─── ClickDrawingManager ──────────────────────────────────────────────────────
 // Drop-in replacement for google.maps.drawing.DrawingManager (removed in v3.65).
@@ -69,8 +143,20 @@ class ClickDrawingManager {
     this._clickL   = null;
     this._dblL     = null;
     this._handlers = {};
+    this._snapProvider = null;
+    this._onSnap = null;
+    this._onVertices = null;
+    this._snapMarker = null;
+    this._snapKind = null;
+    this._lastClickMs = 0;
+    this._lastClickPos = null;
+    this._vertexTimes = [];
+    this._zoomLocked = false;
   }
   setMap(map)  { this._map = map; if (map && this._mode) this._bind(); }
+  setSnapProvider(fn) { this._snapProvider = fn; }
+  setOnSnap(fn) { this._onSnap = fn; }
+  setOnVertices(fn) { this._onVertices = fn; }
   setDrawingMode(mode) { this._reset(); this._mode = mode; if (mode && this._map) this._bind(); }
   setOptions(opts) {
     Object.assign(this._opts, opts);
@@ -86,17 +172,23 @@ class ClickDrawingManager {
   _emit(ev, ...a) { (this._handlers[ev] || []).forEach(fn => fn(...a)); }
   _bind() {
     const G = window.google.maps;
+    // A double-click both finishes the shape and, by default, zooms the map.
+    // Turn the zoom off for the whole drawing session.
+    if (this._map?.setOptions && !this._zoomLocked) {
+      this._prevDisableDblZoom = this._map.get?.('disableDoubleClickZoom');
+      this._map.setOptions({ disableDoubleClickZoom: true });
+      this._zoomLocked = true;
+    }
     // dblclick fires on desktop; on mobile double-tap zooms instead so we
     // also detect it in the click handler below.
     this._dblL = G.event.addListener(this._map, 'dblclick', (e) => {
-      e.stop();
-      if (this._vertices.length > (this._mode === 'polygon' ? 2 : 1)) {
-        this._vertices.pop(); const d = this._dots.pop(); if (d) d.setMap(null);
-      }
+      e.stop?.();
+      if (!this._mode) return;
+      // The click(s) that formed this double-click already dropped a point.
+      // Take those back so the finish gesture is not an extra corner.
+      this._dropGestureVertices(e.latLng);
       this._complete();
     });
-    let _lastClickMs = 0;
-    let _lastClickPos = null;
     this._clickL = G.event.addListener(this._map, 'click', (e) => {
       e.stop();
       const now = Date.now();
@@ -105,11 +197,11 @@ class ClickDrawingManager {
       // the same point stops fast corner-placing from being misread as "finish"
       // and dropping a real corner.
       const spherical = G.geometry && G.geometry.spherical;
-      const nearLast = _lastClickPos && spherical
-        ? spherical.computeDistanceBetween(_lastClickPos, e.latLng) < 1.5
+      const nearLast = this._lastClickPos && spherical
+        ? spherical.computeDistanceBetween(this._lastClickPos, e.latLng) < 1.5
         : false;
-      if (_lastClickMs > 0 && now - _lastClickMs < 350 && nearLast) {
-        _lastClickMs = 0; _lastClickPos = null;
+      if (this._lastClickMs > 0 && now - this._lastClickMs < 350 && nearLast) {
+        this._lastClickMs = 0; this._lastClickPos = null;
         // Remove the near-duplicate vertex the first tap of the pair added
         if (this._vertices.length > (this._mode === 'polygon' ? 2 : 1)) {
           const d = this._dots.pop(); if (d) d.setMap(null);
@@ -118,26 +210,117 @@ class ClickDrawingManager {
         this._complete();
         return;
       }
-      _lastClickMs = now;
-      _lastClickPos = e.latLng;
+      this._lastClickMs = now;
+      this._lastClickPos = e.latLng;
       this._addVertex(e.latLng);
     });
     this._moveL = G.event.addListener(this._map, 'mousemove', (e) => {
+      const snapped = this._snap(e.latLng);
+      this._showSnap(snapped);
       if (!this._vertices.length) return;
-      const pts = [...this._vertices, e.latLng];
+      const pts = [...this._vertices, snapped.latLng];
       if (!this._rubber) {
         this._rubber = new G.Polyline({ path: pts, strokeColor: this._color(), strokeWeight: 2, strokeOpacity: 0.6, strokeDashArray: '6 4', clickable: false, zIndex: 15, map: this._map });
       } else { this._rubber.setPath(pts); }
     });
   }
+  _snap(latLng) {
+    if (!this._snapProvider || !this._map || !latLng) return { latLng, snapped: false };
+    try {
+      return snapMapLatLng(this._map, latLng, this._snapProvider() || {});
+    } catch {
+      return { latLng, snapped: false };
+    }
+  }
+  _showSnap(snapped) {
+    const G = window.google?.maps;
+    if (!snapped?.snapped || !G || !this._map) {
+      if (this._snapMarker) this._snapMarker.setMap(null);
+      if (this._snapKind) { this._snapKind = null; this._onSnap?.(null); }
+      return;
+    }
+    if (!this._snapMarker) {
+      this._snapMarker = new G.Marker({
+        map: this._map,
+        clickable: false,
+        zIndex: 80,
+        icon: {
+          path: G.SymbolPath.CIRCLE,
+          scale: 12,
+          fillColor: '#facc15',
+          fillOpacity: 0.35,
+          strokeColor: '#ca8a04',
+          strokeWeight: 3,
+        },
+      });
+    }
+    this._snapMarker.setPosition(snapped.latLng);
+    this._snapMarker.setMap(this._map);
+    if (this._snapKind !== snapped.kind) {
+      this._snapKind = snapped.kind;
+      this._onSnap?.(snapped.kind);
+    }
+  }
+  _emitVertices() {
+    let lengthFt = 0;
+    const spherical = window.google?.maps?.geometry?.spherical;
+    if (this._vertices.length >= 2 && spherical?.computeLength) {
+      const path = { getLength: () => this._vertices.length, getAt: (i) => this._vertices[i] };
+      lengthFt = spherical.computeLength(path) * 3.28084;
+    }
+    this._onVertices?.(this._vertices.length, lengthFt);
+  }
+  _dropGestureVertices(latLng) {
+    const cutoff = Date.now() - 500;
+    const spherical = window.google?.maps?.geometry?.spherical;
+    let removed = 0;
+    while (this._vertices.length && removed < 2) {
+      const last = this._vertices[this._vertices.length - 1];
+      const addedAt = this._vertexTimes[this._vertexTimes.length - 1] || 0;
+      if (addedAt < cutoff) break;
+      if (latLng && spherical?.computeDistanceBetween && spherical.computeDistanceBetween(last, latLng) > 3) break;
+      this._vertices.pop();
+      this._vertexTimes.pop();
+      const dot = this._dots.pop();
+      if (dot) dot.setMap(null);
+      removed += 1;
+    }
+    if (this._vertices.length >= 2) this._updatePreview();
+    else if (this._preview) { this._preview.setMap(null); this._preview = null; }
+    this._emitVertices();
+  }
+  undoVertex() {
+    if (!this._mode || this._vertices.length === 0) return false;
+    // The undone tap is no longer a corner, so the next click there must
+    // place the point again instead of finishing the facet.
+    this._lastClickMs = 0;
+    this._lastClickPos = null;
+    this._vertices.pop();
+    this._vertexTimes.pop();
+    const dot = this._dots.pop();
+    if (dot) dot.setMap(null);
+    if (this._vertices.length < 2) {
+      if (this._preview) { this._preview.setMap(null); this._preview = null; }
+      if (this._rubber) { this._rubber.setMap(null); this._rubber = null; }
+    } else {
+      this._updatePreview();
+    }
+    this._emitVertices();
+    return true;
+  }
   _addVertex(latLng) {
-    this._vertices.push(latLng);
+    const snapped = this._snap(latLng);
+    const point = snapped.latLng || latLng;
+    this._showSnap(snapped);
+    this._vertices.push(point);
+    this._vertexTimes.push(Date.now());
     const G = window.google.maps; const col = this._color();
     this._dots.push(new G.Marker({
-      position: latLng, map: this._map, clickable: false, zIndex: 20,
-      icon: { path: G.SymbolPath.CIRCLE, scale: 5, fillColor: col, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
+      position: point, map: this._map, clickable: false, zIndex: 20,
+      icon: { path: G.SymbolPath.CIRCLE, scale: 7, fillColor: col, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
     }));
     this._updatePreview();
+    this._emitVertices();
   }
   _color() {
     const o = this._mode === 'polygon' ? this._opts.polygonOptions : this._opts.polylineOptions;
@@ -159,7 +342,7 @@ class ClickDrawingManager {
   _complete() {
     if (this._completing) return;
     const min = this._mode === 'polygon' ? 3 : 2;
-    if (this._vertices.length < min) { this._reset(); return; }
+    if (this._vertices.length < min) return;
     this._completing = true;
     const G = window.google.maps; const verts = [...this._vertices]; const mode = this._mode; const map = this._map;
     const opts = mode === 'polygon'
@@ -174,7 +357,16 @@ class ClickDrawingManager {
   _reset() {
     if (this._preview) { this._preview.setMap(null); this._preview = null; }
     if (this._rubber)  { this._rubber.setMap(null);  this._rubber  = null; }
-    this._dots.forEach(d => d.setMap(null)); this._dots = []; this._vertices = [];
+    if (this._snapMarker) { this._snapMarker.setMap(null); }
+    if (this._snapKind) { this._snapKind = null; this._onSnap?.(null); }
+    this._dots.forEach(d => d.setMap(null)); this._dots = []; this._vertices = []; this._vertexTimes = [];
+    this._lastClickMs = 0;
+    this._lastClickPos = null;
+    if (this._zoomLocked && this._map?.setOptions) {
+      this._map.setOptions({ disableDoubleClickZoom: !!this._prevDisableDblZoom });
+      this._zoomLocked = false;
+    }
+    this._emitVertices();
     if (this._clickL && window.google) { window.google.maps.event.removeListener(this._clickL); this._clickL = null; }
     if (this._dblL   && window.google) { window.google.maps.event.removeListener(this._dblL);   this._dblL   = null; }
     if (this._moveL  && window.google) { window.google.maps.event.removeListener(this._moveL);  this._moveL  = null; }
@@ -186,7 +378,7 @@ class ClickDrawingManager {
 // • Solid white circles at each vertex  → drag to move that corner
 // • Smaller colored circles at midpoints → drag to insert a new corner
 // ─────────────────────────────────────────────────────────────────────────────
-function makePolygonEditable(polygon, strokeColor, onGeometryChange = null) {
+function makePolygonEditable(polygon, strokeColor, onGeometryChange = null, snapLatLng = null) {
   const G = window.google.maps;
   const handles = [];
 
@@ -210,9 +402,14 @@ function makePolygonEditable(polygon, strokeColor, onGeometryChange = null) {
         cursor: 'move',
         zIndex: 60,
         title: 'Drag to move this corner',
-        icon: { path: G.SymbolPath.CIRCLE, scale: 5, fillColor: '#ffffff', fillOpacity: 1, strokeColor: strokeColor, strokeWeight: 2 },
+        icon: { path: G.SymbolPath.CIRCLE, scale: 8, fillColor: '#ffffff', fillOpacity: 1, strokeColor: strokeColor, strokeWeight: 3 },
       });
-      G.event.addListener(vMarker, 'drag', (e) => { path.setAt(vi, e.latLng); });
+      G.event.addListener(vMarker, 'drag', (e) => {
+        const snapped = snapLatLng ? snapLatLng(e.latLng) : null;
+        const next = snapped?.latLng || e.latLng;
+        path.setAt(vi, next);
+        vMarker.setPosition(next);
+      });
       G.event.addListener(vMarker, 'dragend', () => { buildHandles(); onGeometryChange?.(); });
       handles.push(vMarker);
 
@@ -228,7 +425,7 @@ function makePolygonEditable(polygon, strokeColor, onGeometryChange = null) {
         cursor: 'crosshair',
         zIndex: 50,
         title: 'Drag to add a new corner here',
-        icon: { path: G.SymbolPath.CIRCLE, scale: 3, fillColor: strokeColor, fillOpacity: 0.75, strokeColor: '#ffffff', strokeWeight: 1 },
+        icon: { path: G.SymbolPath.CIRCLE, scale: 6, fillColor: strokeColor, fillOpacity: 0.85, strokeColor: '#ffffff', strokeWeight: 2 },
       });
       let inserted = false;
       G.event.addListener(mMarker, 'drag', (e) => {
@@ -315,6 +512,7 @@ export default function InteractiveRoofMap({
   crewCamPhotoCount = 0,
   mapId = null,  // when provided, enables vector renderer → continuous tilt 0°–67°
   initialMeasurements = null,
+  purpose = 'primary', // 'primary' replaces/creates the main roof; 'addon' measures an extra structure
 }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -352,6 +550,17 @@ export default function InteractiveRoofMap({
   }]);
   const [activeSectionId, setActiveSectionId] = useState(1);
   const activeSectionIdRef = useRef(1);
+  const sectionsRef = useRef(sections);
+  const pitchRef = useRef(initialMeasurements?.pitch || "7/12");
+  const pendingAutoFacetIdRef = useRef(null);
+  const queueNextFacetRef = useRef(null);
+  const startDrawingRef = useRef(null);
+  const [drawingVertexCount, setDrawingVertexCount] = useState(0);
+  const [drawingLengthFt, setDrawingLengthFt] = useState(0);
+  const [snapHint, setSnapHint] = useState(null);
+  const setSnapHintRef = useRef(null);
+  const setVertexCountRef = useRef(null);
+  const setDrawingLengthRef = useRef(null);
   const [includeGutters, setIncludeGutters] = useState(false);
   const [gutterLF, setGutterLF] = useState(0);
   const [downspoutCount, setDownspoutCount] = useState(0);
@@ -386,6 +595,12 @@ export default function InteractiveRoofMap({
   const setCompassPanoDirRef = useRef(null);
 
   const [compassPanoDir, setCompassPanoDir] = useState(null);
+
+  sectionsRef.current = sections;
+  pitchRef.current = pitch;
+  setSnapHintRef.current = setSnapHint;
+  setVertexCountRef.current = setDrawingVertexCount;
+  setDrawingLengthRef.current = setDrawingLengthFt;
 
   useEffect(() => { currentToolRef.current = currentTool; }, [currentTool]);
   useEffect(() => { featuresRef.current = features; }, [features]);
@@ -489,6 +704,12 @@ export default function InteractiveRoofMap({
     });
 
     manager.setMap(mapInstance);
+    manager.setSnapProvider(() => collectSnapGeometry(sectionPolygonsRef.current));
+    manager.setOnSnap((kind) => setSnapHintRef.current?.(kind));
+    manager.setOnVertices((count, lengthFt) => {
+      setVertexCountRef.current?.(count);
+      setDrawingLengthRef.current?.(Number(lengthFt) || 0);
+    });
     mapInstanceRef.current = mapInstance;
     drawingManagerRef.current = manager;
     setDrawingManager(manager);
@@ -524,7 +745,7 @@ export default function InteractiveRoofMap({
       setCurrentTool(null);
       currentToolRef.current = null;
       const sId = activeSectionIdRef.current;
-      const sIdx = sections.findIndex(s => s.id === sId);
+      const sIdx = sectionsRef.current.findIndex(s => s.id === sId);
       const color = SECTION_COLORS[(sIdx >= 0 ? sIdx : 0) % SECTION_COLORS.length];
       const existing = sectionPolygonsRef.current[sId];
       if (existing) existing.setMap(null);
@@ -537,8 +758,16 @@ export default function InteractiveRoofMap({
         polygon,
         color.stroke,
         () => setGeometryRevision(v => v + 1),
+        (latLng) => snapMapLatLng(
+          mapInstanceRef.current,
+          latLng,
+          collectSnapGeometry(sectionPolygonsRef.current, polygon),
+        ),
       );
       setGeometryRevision(v => v + 1);
+      // Finishing a facet (Done or double-click / double-tap) starts the next one.
+      pendingAutoFacetIdRef.current = null;
+      queueNextFacetRef.current?.(sId);
     });
 
     manager.addListener('polylinecomplete', (polyline) => {
@@ -836,9 +1065,6 @@ export default function InteractiveRoofMap({
   };
 
   const sectionMeasurements = getMeasurementsBySection();
-  const currentSectionMeasures = sectionMeasurements[activeSectionId] || {
-    ridge_lf: 0, valley_lf: 0, rake_lf: 0, eave_lf: 0, hip_lf: 0, step_flashing_lf: 0
-  };
 
   // ──────────────────────────────────────────
   //  AI LINE DETECTION → Draw on Google Maps
@@ -1014,7 +1240,9 @@ export default function InteractiveRoofMap({
     const mgr = drawingManagerRef.current;
     setAllShapesClickable(false); // stop existing shapes from eating clicks
     if (type === 'roof_outline') {
-      const color = getSectionColor(activeSectionId);
+      const sId = activeSectionIdRef.current;
+      const sIdx = Math.max(0, sectionsRef.current.findIndex(s => s.id === sId));
+      const color = SECTION_COLORS[sIdx % SECTION_COLORS.length];
       mgr.setOptions({ polygonOptions: { fillColor: color.fill, strokeColor: color.stroke, fillOpacity: 0.2, strokeWeight: POLYGON_STROKE_WEIGHT, editable: true, draggable: false } });
       mgr.setDrawingMode('polygon');
     } else {
@@ -1023,6 +1251,25 @@ export default function InteractiveRoofMap({
     }
     setCurrentTool(type);
     currentToolRef.current = type;
+    setDrawingVertexCount(0);
+    setDrawingLengthFt(0);
+    setSnapHint(null);
+  };
+  startDrawingRef.current = handleStartDrawing;
+
+  const discardPendingAutoFacet = () => {
+    const pending = pendingAutoFacetIdRef.current;
+    pendingAutoFacetIdRef.current = null;
+    if (pending == null || sectionPolygonsRef.current[pending]) return;
+    const remaining = sectionsRef.current.filter(s => s.id !== pending);
+    if (remaining.length === 0 || remaining.length === sectionsRef.current.length) return;
+    sectionsRef.current = remaining;
+    setSections(remaining);
+    if (activeSectionIdRef.current === pending) {
+      const nextActive = remaining[remaining.length - 1].id;
+      activeSectionIdRef.current = nextActive;
+      setActiveSectionId(nextActive);
+    }
   };
 
   const handleCancelDrawing = () => {
@@ -1031,16 +1278,113 @@ export default function InteractiveRoofMap({
     setAllShapesClickable(true); // restore interaction on existing shapes
     setCurrentTool(null);
     currentToolRef.current = null;
+    setDrawingVertexCount(0);
+    setDrawingLengthFt(0);
+    setSnapHint(null);
+    discardPendingAutoFacet();
   };
 
   const handleFinishDrawing = () => {
+    const polygonsBefore = Object.keys(sectionPolygonsRef.current).length;
     drawingManagerRef.current?.complete();
-    // A valid shape restores clickability inside the complete listeners. If the
-    // shape had too few points to complete, restore here so existing shapes
-    // don't get stuck unclickable.
+    // A valid shape restores clickability inside the complete listeners and
+    // starts the next facet. If the shape had too few points to complete,
+    // restore here so existing shapes don't get stuck unclickable.
     setAllShapesClickable(true);
     setCurrentTool(null);
     currentToolRef.current = null;
+    setDrawingVertexCount(0);
+    setDrawingLengthFt(0);
+    if (Object.keys(sectionPolygonsRef.current).length === polygonsBefore) {
+      discardPendingAutoFacet();
+    }
+  };
+
+  const handleUndoPoint = () => {
+    drawingManagerRef.current?.undoVertex();
+  };
+
+  const updateSection = (sId, patch) => {
+    setSections(prev => prev.map(s => s.id === sId ? { ...s, ...patch } : s));
+    if (patch.pitch != null) { setPitchConfirmed(true); setPitchAISuggested(false); }
+  };
+
+  const selectFacet = (sId) => {
+    if (sId === activeSectionIdRef.current) return;
+    if (currentToolRef.current) handleCancelDrawing();
+    if (!sectionsRef.current.some((s) => s.id === sId)) return;
+    activeSectionIdRef.current = sId;
+    setActiveSectionId(sId);
+  };
+
+  const handleAddFacet = () => {
+    if (currentToolRef.current) handleCancelDrawing();
+    const plan = planNextFacet(
+      sectionsRef.current.map(s => ({ id: s.id, hasPolygon: true })),
+      null,
+    );
+    const section = {
+      id: plan.id,
+      name: plan.name,
+      pitch: pitchRef.current || '7/12',
+      azimuth_degrees: plan.azimuth_degrees,
+    };
+    const next = [...sectionsRef.current, section];
+    sectionsRef.current = next;
+    setSections(next);
+    activeSectionIdRef.current = section.id;
+    setActiveSectionId(section.id);
+    pendingAutoFacetIdRef.current = null;
+    setTimeout(() => startDrawingRef.current?.('roof_outline'), 0);
+  };
+
+  queueNextFacetRef.current = (completedId) => {
+    const plan = planNextFacet(
+      sectionsRef.current.map(s => ({
+        id: s.id,
+        hasPolygon: Boolean(sectionPolygonsRef.current[s.id]),
+      })),
+      completedId,
+    );
+    if (plan.action === 'select') {
+      pendingAutoFacetIdRef.current = null;
+      activeSectionIdRef.current = plan.id;
+      setActiveSectionId(plan.id);
+    } else {
+      const section = {
+        id: plan.id,
+        name: plan.name,
+        pitch: pitchRef.current || '7/12',
+        azimuth_degrees: plan.azimuth_degrees,
+      };
+      const next = [...sectionsRef.current, section];
+      sectionsRef.current = next;
+      setSections(next);
+      activeSectionIdRef.current = section.id;
+      setActiveSectionId(section.id);
+      pendingAutoFacetIdRef.current = section.id;
+    }
+    setTimeout(() => startDrawingRef.current?.('roof_outline'), 0);
+  };
+
+  const handleDeleteFacet = (sId) => {
+    if (currentToolRef.current) {
+      pendingAutoFacetIdRef.current = null;
+      handleCancelDrawing();
+    }
+    handleClearSection(sId);
+    if (sectionsRef.current.length <= 1) {
+      updateSection(sId, { name: 'Facet 1' });
+      return;
+    }
+    const remaining = sectionsRef.current.filter(s => s.id !== sId);
+    sectionsRef.current = remaining;
+    setSections(remaining);
+    if (activeSectionIdRef.current === sId) {
+      const nextActive = remaining[Math.max(0, remaining.length - 1)].id;
+      activeSectionIdRef.current = nextActive;
+      setActiveSectionId(nextActive);
+    }
   };
 
   const clearDamagePins = () => {
@@ -1097,6 +1441,7 @@ export default function InteractiveRoofMap({
   };
 
   const handleUndo = () => {
+    if (currentToolRef.current && drawingManagerRef.current?.undoVertex()) return;
     // Undo the single most-recently drawn item — polygon OR line — by comparing
     // creation timestamps (feature ids and polygon._drawnAt are both Date.now()).
     const lastFeature = features[features.length - 1];
@@ -1134,25 +1479,54 @@ export default function InteractiveRoofMap({
   };
 
   useEffect(() => {
+    if (!currentTool) return undefined;
+    const onKey = (e) => {
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
+      const undoKey = e.key === 'Backspace' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z');
+      if (!undoKey) return;
+      e.preventDefault();
+      drawingManagerRef.current?.undoVertex();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [currentTool]);
+
+  const graphEdgeTotals = traceGraph.edge_totals || { ridge: 0, hip: 0, valley: 0, rake: 0, eave: 0 };
+  const manualLineTotal = (type) => features
+    .filter(f => f.type === type)
+    .reduce((sum, f) => sum + calculateLineLength(f.polyline), 0);
+  const manualTotals = MANUAL_LINE_TYPES.reduce((acc, type) => {
+    acc[type] = manualLineTotal(type);
+    return acc;
+  }, {});
+  const usedEdges = resolveEdgeTotals(graphEdgeTotals, manualTotals);
+  const resolvedEdge = (type) => Number(usedEdges[type] || 0);
+  const tracedFacetCount = Object.values(sectionPolygons).filter((poly) => (poly?.getPath?.()?.getLength?.() || 0) >= 3).length;
+  // An open high edge used to disable Save. Facets live in sectionPolygons;
+  // the button stayed off because a real trace rarely welds every ridge.
+  const canSave = tracedFacetCount > 0;
+
+  useEffect(() => {
     // Auto-fill gutter length from eaves, but never clobber a number the user typed.
     if (includeGutters && !gutterEditedRef.current) {
-      const totalEaves = Object.values(sectionMeasurements).reduce((s, m) => s + m.eave_lf, 0);
-      setGutterLF(totalEaves);
-      setDownspoutCount(Math.ceil(totalEaves / 35));
+      const eaves = resolvedEdge('eave');
+      setGutterLF(eaves);
+      setDownspoutCount(Math.ceil(eaves / 35));
     }
-  }, [includeGutters, features]);
+  }, [includeGutters, features, traceGraph]);
+
+  const handleDeleteFeature = (fid) => {
+    const feature = featuresRef.current.find((item) => item.id === fid);
+    if (!feature) return;
+    feature.polyline?.setMap(null);
+    destroyFeatureHandle(fid);
+    setFeatures((prev) => prev.filter((item) => item.id !== fid));
+  };
 
   const handleSaveMeasurements = () => {
-    if (Object.keys(sectionPolygons).length === 0) {
-      alert("Please draw at least one roof section outline first");
-      return;
-    }
-    if (!traceReady) {
-      alert(
-        traceGraph.totals.open_boundary_count > 0
-          ? `The traced roof has ${traceGraph.totals.open_boundary_count} open high edge${traceGraph.totals.open_boundary_count === 1 ? '' : 's'}. Draw the neighboring facet so every ridge closes before using this measurement.`
-          : 'The traced facets are disconnected. Make neighboring facet corners meet before using this measurement.'
-      );
+    if (tracedFacetCount === 0) {
+      alert("Please draw at least one roof facet first");
       return;
     }
     // Soft gate: pitch sets the whole roof area, so warn before shipping a default guess.
@@ -1164,11 +1538,12 @@ export default function InteractiveRoofMap({
       );
       if (!proceed) return;
     }
-    const allMeasures = Object.values(sectionMeasurements);
-    const graphEdges = traceGraph.edge_totals;
-    const manualOverride = (type) => allMeasures.reduce((s, m) => s + Number(m[`${type}_lf`] || 0), 0);
-    const edgeValue = (type) => manualOverride(type) > 0 ? manualOverride(type) : Number(graphEdges[type] || 0);
-    const manualStepFlashing = manualOverride('step_flashing');
+    const manualLines = featuresRef.current.map((feature) => ({
+      id: feature.id,
+      type: feature.type,
+      section_id: feature.sectionId,
+      length_ft: Math.round(calculateLineLength(feature.polyline) * 100) / 100,
+    }));
     onMeasurementsComplete({
       // roof_area_* stay FLAT footprint (matches the satellite convention);
       // corrected_area_* apply pitch plus standard overhang and are what
@@ -1180,12 +1555,15 @@ export default function InteractiveRoofMap({
       pitch_multiplier: traceGraph.totals.plan_area_sqft > 0
         ? traceGraph.totals.roof_area_sqft / traceGraph.totals.plan_area_sqft
         : 1,
-      ridge_lf: edgeValue('ridge'),
-      valley_lf: edgeValue('valley'),
-      rake_lf: edgeValue('rake'),
-      eave_lf: edgeValue('eave'),
-      hip_lf: edgeValue('hip'),
-      step_flashing_lf: manualStepFlashing,
+      ridge_lf: usedEdges.ridge,
+      valley_lf: usedEdges.valley,
+      rake_lf: usedEdges.rake,
+      eave_lf: usedEdges.eave,
+      hip_lf: usedEdges.hip,
+      step_flashing_lf: usedEdges.step_flashing,
+      drip_edge_lf: usedEdges.drip_edge,
+      drip_edge_source: usedEdges.drip_edge_source,
+      manual_lines: manualLines,
       pitch: sections.length === 1 ? (sections[0].pitch || pitch) : 'Mixed',
       predominant_pitch: sections[0]?.pitch || pitch,
       measurement_source: 'manual_roof_trace',
@@ -1210,14 +1588,16 @@ export default function InteractiveRoofMap({
   };
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
-          <Pencil className="w-5 h-5 text-blue-600" />
-          Manual Roof Trace
-        </h3>
-        <Button variant="outline" size="sm" onClick={onBack}>
+    <div className="space-y-4" data-testid="manual-trace-root">
+      {/* Header. Add-on mode already has a title on the parent card. */}
+      <div className="flex items-center justify-between gap-2">
+        {purpose !== 'addon' ? (
+          <h3 className="text-lg font-semibold flex items-center gap-2">
+            <Pencil className="w-5 h-5 text-blue-600" />
+            Manual Roof Trace
+          </h3>
+        ) : <span className="text-sm font-medium text-gray-700">Trace each plane of this extra structure</span>}
+        <Button variant="outline" size="sm" onClick={onBack} className="min-h-11 touch-manipulation">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back
         </Button>
@@ -1226,7 +1606,9 @@ export default function InteractiveRoofMap({
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
         <p className="text-sm text-blue-800 font-medium">📍 {address}</p>
         <p className="text-xs text-blue-600 mt-1">
-          Trace every roof plane as its own facet. Shared corners snap together and the app calculates area, ridge, hip, valley, rake, and eave lengths.
+          {purpose === 'addon'
+            ? 'Outline every plane, then use the measurements. They are added to the automatic total.'
+            : 'Trace every roof plane as its own facet. Shared corners snap together and the app calculates area, ridge, hip, valley, rake, and eave lengths.'}
         </p>
       </div>
 
@@ -1303,7 +1685,16 @@ export default function InteractiveRoofMap({
             </div>
           </div>
         )}
-        <div ref={mapRef} className={`w-full h-[600px] rounded-lg border-2 border-gray-300 shadow-lg ${geocodingState !== 'done' ? 'hidden' : ''}`} style={{ zIndex: 1 }} />
+        <div ref={mapRef} className={`w-full h-[52vh] min-h-[280px] md:h-[600px] rounded-lg border-2 border-gray-300 shadow-lg ${geocodingState !== 'done' ? 'hidden' : ''}`} style={{ zIndex: 1, touchAction: currentTool ? 'none' : 'manipulation' }} />
+
+        {snapHint && geocodingState === 'done' && (
+          <div
+            data-testid="snap-indicator"
+            className="pointer-events-none absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-full border border-yellow-500 bg-yellow-300 px-3 py-1.5 text-xs font-semibold text-yellow-950 shadow-md"
+          >
+            Snapped to {snapHint === 'vertex' ? 'shared corner' : 'shared edge'}
+          </div>
+        )}
 
         {perspectiveView && geocodingState === 'done' && (
           <div
@@ -1320,28 +1711,126 @@ export default function InteractiveRoofMap({
       {/* ─── STEP 1: Facets ─── */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">STEP 1: Trace Every Roof Facet</CardTitle>
-          <p className="text-sm text-gray-600">Select a facet above, then place points around that roof plane. Neighboring facets must share the same ridge, hip, or valley corners. Press <strong>Done ✓</strong> or double-click.</p>
+          <CardTitle className="text-base">STEP 1: Trace Facets</CardTitle>
+          <p className="text-sm text-gray-600">Choose a facet, then tap the map to place corners. <strong>Done</strong>, or a double-click / double-tap, finishes that facet and starts the next one. Corners snap to existing facet points.</p>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1" role="tablist" data-testid="facet-list">
+              {sections.map((section, idx) => {
+                const color = SECTION_COLORS[idx % SECTION_COLORS.length];
+                const selected = section.id === activeSectionId;
+                const drawn = Boolean(sectionPolygons[section.id]);
+                return (
+                  <button
+                    key={section.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    data-testid={`facet-tab-${section.id}`}
+                    onClick={() => selectFacet(section.id)}
+                    className={`flex min-h-11 shrink-0 touch-manipulation items-center gap-2 rounded-full border px-3 text-sm font-medium ${selected ? 'ring-2 ring-offset-1' : ''}`}
+                    style={{ borderColor: color.stroke, color: color.stroke, backgroundColor: selected ? color.fill + '22' : 'white', ringColor: color.stroke }}
+                  >
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color.fill }} />
+                    {section.name}
+                    {drawn ? ' ✓' : ''}
+                  </button>
+                );
+              })}
+            </div>
+            <Button type="button" size="sm" onClick={handleAddFacet} data-testid="button-add-facet" className="min-h-11 shrink-0 touch-manipulation">
+              <Plus className="w-4 h-4 mr-1" />
+              Add Facet
+            </Button>
+          </div>
+
+          {getActiveSection() && (
+            <div className="grid grid-cols-1 gap-3 rounded-lg border bg-gray-50 p-3 sm:grid-cols-2" data-testid="active-facet-editor">
+              <div>
+                <Label htmlFor="active-facet-name">Name</Label>
+                <Input
+                  id="active-facet-name"
+                  data-testid="input-active-facet-name"
+                  value={getActiveSection().name}
+                  onChange={(e) => updateSection(activeSectionId, { name: e.target.value })}
+                  className="mt-1 h-11"
+                />
+              </div>
+              <div>
+                <Label htmlFor="active-facet-pitch">Pitch</Label>
+                <Input
+                  id="active-facet-pitch"
+                  data-testid="input-active-facet-pitch"
+                  value={getActiveSection().pitch || ''}
+                  onChange={(e) => updateSection(activeSectionId, { pitch: e.target.value })}
+                  placeholder="7/12"
+                  className="mt-1 h-11"
+                />
+              </div>
+              <div>
+                <Label htmlFor="active-facet-direction">Downslope</Label>
+                <select
+                  id="active-facet-direction"
+                  data-testid="select-active-facet-direction"
+                  value={String(getActiveSection().azimuth_degrees ?? 180)}
+                  onChange={(e) => updateSection(activeSectionId, { azimuth_degrees: Number(e.target.value) })}
+                  className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {DIRECTION_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-gray-500">Direction water runs off this plane. It decides ridge, hip, valley, and eave.</p>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleDeleteFacet(activeSectionId)}
+                  data-testid="button-delete-active-facet"
+                  className="min-h-11 w-full touch-manipulation text-red-600 hover:text-red-700"
+                >
+                  <Trash2 className="w-4 h-4 mr-1.5" />
+                  {sections.length > 1 ? 'Delete facet' : 'Clear facet'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Button
               onClick={() => currentTool === 'roof_outline' ? handleCancelDrawing() : handleStartDrawing('roof_outline')}
               variant={currentTool === 'roof_outline' ? 'default' : 'outline'}
-              className="flex-1"
+              className="min-h-11 flex-1 touch-manipulation"
               style={currentTool !== 'roof_outline' ? { borderColor: getSectionColor(activeSectionId).stroke, color: getSectionColor(activeSectionId).stroke } : {}}
               data-testid="draw-roof-outline"
             >
               <Ruler className="w-4 h-4 mr-2" />
-              {currentTool === 'roof_outline' ? '✏️ Drawing… (click map to place points)' : sectionPolygons[activeSectionId] ? `Redraw ${getActiveSection()?.name}` : `Draw ${getActiveSection()?.name} Outline`}
+              {currentTool === 'roof_outline'
+                ? `Drawing ${getActiveSection()?.name}… tap the map`
+                : sectionPolygons[activeSectionId]
+                  ? `Redraw ${getActiveSection()?.name}`
+                  : `Draw ${getActiveSection()?.name}`}
             </Button>
             {currentTool === 'roof_outline' && (
               <>
-                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={handleFinishDrawing} data-testid="btn-finish-drawing">Done ✓</Button>
-                <Button variant="outline" size="sm" onClick={handleCancelDrawing} data-testid="btn-cancel-drawing">Cancel</Button>
+                <Button size="sm" className="min-h-11 touch-manipulation bg-green-600 text-white hover:bg-green-700" onClick={handleFinishDrawing} data-testid="btn-finish-drawing">Done ✓</Button>
+                <Button variant="outline" size="sm" className="min-h-11 touch-manipulation" onClick={handleUndoPoint} disabled={drawingVertexCount === 0} data-testid="button-undo-point">
+                  <Undo className="w-4 h-4 mr-1" />Undo Point
+                </Button>
+                <Button variant="outline" size="sm" className="min-h-11 touch-manipulation" onClick={handleCancelDrawing} data-testid="btn-cancel-drawing">Cancel</Button>
               </>
             )}
           </div>
+          {currentTool === 'roof_outline' && (
+            <p className="text-xs text-gray-600" data-testid="drawing-point-count">
+              {drawingVertexCount} point{drawingVertexCount === 1 ? '' : 's'}
+              {drawingLengthFt > 0 ? ` · ${drawingLengthFt.toFixed(1)} ft` : ''}
+              {drawingVertexCount >= 3 ? ' — Done or double-click closes this facet' : ' — place at least 3 corners'}
+              {Object.keys(sectionPolygons).length > 0 ? '. Hold near an existing corner to snap.' : ''}
+            </p>
+          )}
 
           {/* Section area chips */}
           <div className="flex flex-wrap gap-2">
@@ -1387,10 +1876,10 @@ export default function InteractiveRoofMap({
                   </p>
                   <p className={`text-xs mt-0.5 ${traceReady ? 'text-green-700' : 'text-amber-800'}`}>
                     {traceReady
-                      ? `${traceGraph.totals.facet_count} facet${traceGraph.totals.facet_count === 1 ? '' : 's'} connected with no open high edges. This trace can replace the automatic measurement.`
+                      ? `${traceGraph.totals.facet_count} facet${traceGraph.totals.facet_count === 1 ? '' : 's'} connected with no open high edges. ${purpose === 'addon' ? 'This structure will be added to the automatic measurement.' : 'This trace can replace the automatic measurement.'}`
                       : traceGraph.totals.open_boundary_count > 0
-                        ? `${traceGraph.totals.open_boundary_count} high edge${traceGraph.totals.open_boundary_count === 1 ? '' : 's'} still need a neighboring facet. Drag matching corners onto the same ridge, hip, or valley points.`
-                        : 'Some facets are disconnected. Drag neighboring corners together so the roof forms one measured graph.'}
+                        ? `${traceGraph.totals.open_boundary_count} high edge${traceGraph.totals.open_boundary_count === 1 ? '' : 's'} still need a neighboring facet. Keep drawing — the next facet starts automatically — and snap its corners onto the highlighted edge.`
+                        : 'Some facets are disconnected. Snap neighboring corners together so the roof forms one measured graph.'}
                   </p>
                 </div>
               </div>
@@ -1400,20 +1889,112 @@ export default function InteractiveRoofMap({
       </Card>
 
       {/* ─── STEP 2: Classified edges + optional overrides ─── */}
-      <Card>
+      <Card data-testid="step-review-edges">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-base">STEP 2: Review Classified Edges</CardTitle>
-              <p className="text-sm text-gray-600 mt-0.5">Colored lines are calculated from the facet topology. Draw a line below only to override a classification or add step flashing.</p>
+              <CardTitle className="text-base">STEP 2: Review Edges</CardTitle>
+              <p className="text-sm text-gray-600 mt-0.5">Colored lines come from the facet topology across every plane. Shared ridge, hip, and valley lengths are counted once.</p>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" data-testid="trace-edge-totals">
+            {MANUAL_LINE_TYPES.map((type) => {
+              const manual = manualTotals[type] || 0;
+              const auto = type === 'drip_edge'
+                ? (resolvedEdge('eave') + resolvedEdge('rake'))
+                : Number(graphEdgeTotals[type] || 0);
+              const used = resolvedEdge(type);
+              return (
+                <div key={type} className="rounded-md border px-2 py-2 text-sm" data-testid={`edge-total-${type}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-gray-600">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: LINE_COLORS[type] }} />
+                      {LINE_LABELS[type]}
+                    </span>
+                    <span className="font-semibold">{used.toFixed(1)} LF</span>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-gray-500">
+                    {manual > 0 ? `Drawn ${manual.toFixed(1)} ft replaces ${auto.toFixed(1)}` : `From trace ${auto.toFixed(1)} ft`}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
 
-          {/* Legacy AI line helper remains available as a rough editable overlay,
-              but it never contributes unless the estimator explicitly keeps an
-              override line below. */}
+          <div>
+            <p className="mb-2 text-sm font-medium text-gray-800">Draw a line</p>
+            <p className="mb-2 text-xs text-gray-500">Pick a type, click the map, then Done or double-click. The length is in feet. A drawn line replaces the traced total for that type.</p>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+              {MANUAL_LINE_TYPES.map(type => (
+                <Button
+                  key={type}
+                  onClick={() => currentTool === type ? handleCancelDrawing() : handleStartDrawing(type)}
+                  variant={currentTool === type ? 'default' : 'outline'}
+                  size="sm"
+                  className="min-h-11 touch-manipulation capitalize"
+                  style={currentTool === type ? { backgroundColor: LINE_COLORS[type], borderColor: LINE_COLORS[type] } : { borderColor: LINE_COLORS[type], color: LINE_COLORS[type] }}
+                  data-testid={`draw-${type}`}
+                >
+                  <div className="w-3 h-3 rounded-full mr-1.5 flex-shrink-0" style={{ backgroundColor: LINE_COLORS[type] }} />
+                  {LINE_LABELS[type]}
+                </Button>
+              ))}
+            </div>
+            {currentTool && currentTool !== 'roof_outline' && (
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <span className="flex-1 text-xs text-gray-600" data-testid="drawing-line-status">
+                  Drawing <strong>{LINE_LABELS[currentTool] || currentTool}</strong>
+                  {drawingVertexCount > 0 ? ` · ${drawingVertexCount} point${drawingVertexCount === 1 ? '' : 's'}` : ''}
+                  {drawingLengthFt > 0 ? ` · ${drawingLengthFt.toFixed(1)} ft` : ''}
+                  {' '}— Done or double-click finishes the line
+                </span>
+                <Button size="sm" className="min-h-11 bg-green-600 text-white hover:bg-green-700 touch-manipulation" onClick={handleFinishDrawing} data-testid="btn-finish-line-drawing">Done ✓</Button>
+                <Button size="sm" variant="outline" className="min-h-11 touch-manipulation" onClick={handleUndoPoint} disabled={drawingVertexCount === 0} data-testid="button-undo-line-point">Undo Point</Button>
+                <Button size="sm" variant="outline" className="min-h-11 touch-manipulation" onClick={handleCancelDrawing} data-testid="btn-cancel-line-drawing">Cancel</Button>
+              </div>
+            )}
+          </div>
+
+          {features.length > 0 && (
+            <div className="space-y-1.5" data-testid="manual-line-list">
+              {features.map((feature) => {
+                const lengthFt = calculateLineLength(feature.polyline);
+                return (
+                  <div key={feature.id} className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm" data-testid="manual-line-row">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: feature.color || LINE_COLORS[feature.type] }} />
+                    <span className="font-medium">{LINE_LABELS[feature.type] || feature.type}</span>
+                    <span className="text-gray-700" data-testid="manual-line-length">{lengthFt.toFixed(1)} ft</span>
+                    <button
+                      type="button"
+                      className="ml-auto min-h-11 px-2 text-xs font-medium text-red-600 touch-manipulation"
+                      onClick={() => handleDeleteFeature(feature.id)}
+                      data-testid="button-delete-line"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+            {Object.entries(LINE_COLORS).map(([type, color]) => (
+              <div key={type} className="flex items-center gap-1">
+                <div className="h-1.5 w-5 rounded" style={{ backgroundColor: color }} />
+                <span className="capitalize">{type.replace('_', ' ')}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Optional overrides and the rough AI helper stay out of the main path. */}
+          <details data-testid="manual-trace-advanced" className="rounded-lg border border-gray-200 bg-gray-50">
+            <summary className="min-h-11 cursor-pointer list-none px-3 py-3 text-sm font-semibold text-gray-800 touch-manipulation">
+              Advanced — optional overrides and AI helper
+            </summary>
+            <div className="space-y-3 px-3 pb-3">
           <details className="p-3 bg-gradient-to-r from-violet-50 to-purple-50 border border-violet-200 rounded-lg">
             <summary className="cursor-pointer text-sm font-semibold text-violet-900">
               Optional: rough AI line helper
@@ -1478,43 +2059,11 @@ export default function InteractiveRoofMap({
             </div>
           </details>
 
-          {/* Manual line tools */}
-          <div>
-            <p className="text-xs text-gray-500 mb-2 font-medium">Optional manual overrides:</p>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-              {['ridge', 'valley', 'rake', 'eave', 'hip', 'step_flashing'].map(type => (
-                <Button
-                  key={type}
-                  onClick={() => currentTool === type ? handleCancelDrawing() : handleStartDrawing(type)}
-                  variant={currentTool === type ? 'default' : 'outline'}
-                  size="sm"
-                  className="capitalize"
-                  style={currentTool === type ? { backgroundColor: LINE_COLORS[type], borderColor: LINE_COLORS[type] } : { borderColor: LINE_COLORS[type], color: LINE_COLORS[type] }}
-                  data-testid={`draw-${type}`}
-                >
-                  <div className="w-3 h-3 rounded-full mr-1.5 flex-shrink-0" style={{ backgroundColor: LINE_COLORS[type] }} />
-                  {type.replace('_', ' ')}
-                </Button>
-              ))}
+          {features.some(f => f.aiGenerated) && (
+            <p className="text-xs text-violet-700">{features.filter(f => f.aiGenerated).length} AI line{features.filter(f => f.aiGenerated).length === 1 ? '' : 's'} are listed with the drawn lines above.</p>
+          )}
             </div>
-            {currentTool && currentTool !== 'roof_outline' && (
-              <div className="flex gap-2 items-center pt-1">
-                <span className="text-xs text-gray-500 flex-1">Drawing <strong className="capitalize">{currentTool.replace('_', ' ')}</strong> — click map to place points</span>
-                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={handleFinishDrawing} data-testid="btn-finish-line-drawing">Done ✓</Button>
-                <Button size="sm" variant="outline" onClick={handleCancelDrawing} data-testid="btn-cancel-line-drawing">Cancel</Button>
-              </div>
-            )}
-          </div>
-
-          {/* Line legend */}
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 border-t pt-2">
-            {Object.entries(LINE_COLORS).map(([type, color]) => (
-              <div key={type} className="flex items-center gap-1">
-                <div className="w-5 h-1.5 rounded" style={{ backgroundColor: color }} />
-                <span className="capitalize">{type.replace('_', ' ')}</span>
-              </div>
-            ))}
-          </div>
+          </details>
 
           <div className="flex gap-2 flex-wrap">
             <Button onClick={handleUndo} variant="outline" size="sm" disabled={features.length === 0 && Object.keys(sectionPolygons).length === 0}>
@@ -1530,22 +2079,6 @@ export default function InteractiveRoofMap({
               Clear All
             </Button>
           </div>
-
-          {features.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {sections.map((section, idx) => {
-                const count = features.filter(f => f.sectionId === section.id).length;
-                const aiCount = features.filter(f => f.sectionId === section.id && f.aiGenerated).length;
-                if (count === 0) return null;
-                const color = SECTION_COLORS[idx % SECTION_COLORS.length];
-                return (
-                  <span key={section.id} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: color.fill, color: color.stroke, backgroundColor: color.fill + '18' }}>
-                    {section.name}: {count} line{count !== 1 ? 's' : ''}{aiCount > 0 ? ` (${aiCount} AI)` : ''}
-                  </span>
-                );
-              })}
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -1576,88 +2109,62 @@ export default function InteractiveRoofMap({
         )}
       </Card>
 
-      {/* ─── MEASUREMENTS SUMMARY ─── */}
+      {/* ─── STEP 3: Use measurements ─── */}
       <Card ref={measurementsRef}>
-        <CardHeader className="pb-2"><CardTitle className="text-base">Measurements Summary</CardTitle></CardHeader>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">STEP 3: Use Measurements</CardTitle>
+          <p className="text-sm text-gray-600">Totals cover every traced facet. A shared edge is counted once.</p>
+        </CardHeader>
         <CardContent>
-          <Tabs defaultValue="current">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="current">Active Section</TabsTrigger>
-              <TabsTrigger value="all">All Sections</TabsTrigger>
-            </TabsList>
+          <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200" data-testid="trace-summary-totals">
+            <p className="text-sm font-semibold text-gray-900 mb-1">All facets</p>
+            <p className="text-3xl font-bold text-blue-700">{totalSQPitched.toFixed(2)} SQ</p>
+            <p className="text-xs text-gray-600">({totalSqftPitched.toFixed(0)} ft²) · Footprint {totalSQ.toFixed(2)} SQ</p>
+            <div className="mt-2 grid grid-cols-2 gap-1 text-sm text-gray-700 sm:grid-cols-3">
+              <div>Ridge {resolvedEdge('ridge').toFixed(1)} LF</div>
+              <div>Hip {resolvedEdge('hip').toFixed(1)} LF</div>
+              <div>Valley {resolvedEdge('valley').toFixed(1)} LF</div>
+              <div>Rake {resolvedEdge('rake').toFixed(1)} LF</div>
+              <div>Eave {resolvedEdge('eave').toFixed(1)} LF</div>
+              <div>Drip edge {resolvedEdge('drip_edge').toFixed(1)} LF</div>
+            </div>
+          </div>
 
-            <TabsContent value="current" className="space-y-2 pt-3">
-              <p className="text-sm font-semibold text-gray-700">{getActiveSection()?.name}</p>
-              {sectionPolygons[activeSectionId] && (
-                <div className="text-sm font-medium text-blue-700 mb-2">
-                  Roof Area: {((traceGraph.facets.find(f => f.id === `manual_facet_${activeSectionId}`)?.area_sqft || 0) / 100).toFixed(2)} SQ
-                  &nbsp;<span className="text-xs text-blue-400">(footprint {(calculatePolygonArea(sectionPolygons[activeSectionId]) / 100).toFixed(2)} SQ)</span>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                {[
-                  { color: 'bg-purple-500', label: 'Ridge', val: currentSectionMeasures.ridge_lf },
-                  { color: 'bg-green-500', label: 'Valley', val: currentSectionMeasures.valley_lf },
-                  { color: 'bg-orange-500', label: 'Rake', val: currentSectionMeasures.rake_lf },
-                  { color: 'bg-red-500', label: 'Eave', val: currentSectionMeasures.eave_lf },
-                  { color: 'bg-blue-500', label: 'Hip', val: currentSectionMeasures.hip_lf },
-                  { color: 'bg-pink-500', label: 'Step Flash', val: currentSectionMeasures.step_flashing_lf },
-                ].map(({ color, label, val }) => (
-                  <div key={label} className="flex items-center gap-2">
-                    <div className={`w-2.5 h-2.5 rounded-full ${color}`} />
-                    <span className="text-gray-600">{label}:</span>
-                    <span className="font-semibold">{val.toFixed(1)} LF</span>
+          <div className="mt-3 space-y-2">
+            {sections.map((section, idx) => {
+              const poly = sectionPolygons[section.id];
+              if (!poly) return null;
+              const facet = traceGraph.facets.find(f => f.id === `manual_facet_${section.id}`);
+              const edges = sumFacetEdgeLengths(facet?.edges);
+              const color = SECTION_COLORS[idx % SECTION_COLORS.length];
+              return (
+                <div key={section.id} className="rounded-lg border p-3" style={{ borderColor: color.fill }} data-testid={`facet-summary-${section.id}`}>
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full" style={{ backgroundColor: color.fill }} />
+                    <p className="text-sm font-semibold">{section.name}</p>
+                    <span className="ml-auto text-xs text-gray-600">{((facet?.area_sqft || 0) / 100).toFixed(2)} SQ · {section.pitch || pitch}</span>
                   </div>
-                ))}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="all" className="space-y-3 pt-3">
-              <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
-                <p className="text-sm font-semibold text-gray-900 mb-1">Combined Traced Roof Area</p>
-                <p className="text-3xl font-bold text-blue-700">{totalSQPitched.toFixed(2)} SQ</p>
-                <p className="text-xs text-gray-600">({totalSqftPitched.toFixed(0)} ft²) · Footprint {totalSQ.toFixed(2)} SQ</p>
-              </div>
-
-              {sections.map((section, idx) => {
-                const measures = sectionMeasurements[section.id] || {};
-                const poly = sectionPolygons[section.id];
-                const sectionSqft = calculatePolygonArea(poly);
-                const color = SECTION_COLORS[idx % SECTION_COLORS.length];
-                const lineCount = features.filter(f => f.sectionId === section.id).length;
-                if (!poly && lineCount === 0) return null;
-                return (
-                  <div key={section.id} className="border rounded-lg p-3" style={{ borderColor: color.fill }}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="w-3 h-3 rounded-full" style={{ backgroundColor: color.fill }} />
-                      <p className="font-semibold text-sm">{section.name}</p>
-                      {poly && <span className="text-xs text-gray-600 ml-auto">{((traceGraph.facets.find(f => f.id === `manual_facet_${section.id}`)?.area_sqft || 0) / 100).toFixed(2)} SQ</span>}
-                    </div>
-                    {lineCount > 0 ? (
-                      <div className="grid grid-cols-2 gap-1 text-xs text-gray-600">
-                        {measures.ridge_lf > 0 && <div>Ridge: {measures.ridge_lf.toFixed(1)} LF</div>}
-                        {measures.valley_lf > 0 && <div>Valley: {measures.valley_lf.toFixed(1)} LF</div>}
-                        {measures.rake_lf > 0 && <div>Rake: {measures.rake_lf.toFixed(1)} LF</div>}
-                        {measures.eave_lf > 0 && <div>Eave: {measures.eave_lf.toFixed(1)} LF</div>}
-                        {measures.hip_lf > 0 && <div>Hip: {measures.hip_lf.toFixed(1)} LF</div>}
-                        {measures.step_flashing_lf > 0 && <div>Step Flash: {measures.step_flashing_lf.toFixed(1)} LF</div>}
-                      </div>
-                    ) : <p className="text-xs text-gray-400">No linear measurements yet</p>}
-                  </div>
-                );
-              })}
-
-              {includeGutters && (
-                <div className="border rounded-lg p-3 bg-green-50 border-green-200">
-                  <p className="font-semibold text-sm mb-1 text-green-900">Gutters & Downspouts</p>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-green-800">
-                    <div>Gutters: {gutterLF.toFixed(1)} LF</div>
-                    <div>Downspouts: {downspoutCount} EA</div>
+                  <div className="grid grid-cols-2 gap-1 text-xs text-gray-600 sm:grid-cols-3">
+                    <div>Ridge {edges.ridge.toFixed(1)}</div>
+                    <div>Hip {edges.hip.toFixed(1)}</div>
+                    <div>Valley {edges.valley.toFixed(1)}</div>
+                    <div>Rake {edges.rake.toFixed(1)}</div>
+                    <div>Eave {edges.eave.toFixed(1)}</div>
                   </div>
                 </div>
-              )}
-            </TabsContent>
-          </Tabs>
+              );
+            })}
+          </div>
+
+          {includeGutters && (
+            <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3">
+              <p className="mb-1 text-sm font-semibold text-green-900">Gutters & Downspouts</p>
+              <div className="grid grid-cols-2 gap-2 text-xs text-green-800">
+                <div>Gutters: {gutterLF.toFixed(1)} LF</div>
+                <div>Downspouts: {downspoutCount} EA</div>
+              </div>
+            </div>
+          )}
 
           <div className="mt-4">
             <Label>Default Pitch for New Facets</Label>
@@ -1684,19 +2191,24 @@ export default function InteractiveRoofMap({
           <Button
             onClick={handleSaveMeasurements}
             className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white mt-4"
-            disabled={!traceReady}
+            disabled={!canSave}
             data-testid="save-measurements"
           >
             <Save className="w-4 h-4 mr-2" />
-            Use These Measurements for Estimate
-            {Object.keys(sectionPolygons).length > 0 && <Badge className="ml-2 bg-white/20">{totalSQPitched.toFixed(1)} SQ</Badge>}
+            Save Measurements
+            {canSave && <Badge className="ml-2 bg-white/20">{totalSQPitched.toFixed(1)} SQ</Badge>}
           </Button>
-          {!traceReady && (
+          {!canSave && (
             <div className="flex items-start gap-2 mt-2 p-2 rounded-md bg-blue-50 border border-blue-200">
               <AlertTriangle className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
               <p className="text-xs text-blue-800">
-                <strong>One more step:</strong> Trace every roof facet and connect their shared corners. The button unlocks only when the topology has no open high edges or disconnected facets.
+                <strong>Draw a facet to save.</strong> Trace at least one roof plane. Open edges can stay open — drawn lines fill in any length the trace did not close.
               </p>
+            </div>
+          )}
+          {canSave && !traceReady && (
+            <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800" data-testid="save-open-edge-note">
+              {traceGraph.totals.open_boundary_count} high edge{traceGraph.totals.open_boundary_count === 1 ? '' : 's'} still open. You can save now. Draw the neighboring facet, or draw the ridge, hip, rake, or eave yourself.
             </div>
           )}
         </CardContent>

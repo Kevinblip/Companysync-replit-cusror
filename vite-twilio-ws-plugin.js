@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 import { notifyAdmins, notifyAdminsWithSms } from './vite-notification-helper.js';
 
 const __require = createRequire(import.meta.url);
+const stagingSideEffects = __require('./lib/stagingSideEffects.cjs');
 const { invalidateCallerCache: _invalidateCallerCache } = __require('./lib/lookupCallerByCrmPhone.cjs');
 const { fetchWithRetry } = __require('./lib/fetchWithRetry.cjs');
 const { getVerifiedLexiChannels, canonicalPhone } = __require('./lib/insuranceClaimWelcome.cjs');
@@ -4221,6 +4222,13 @@ Keep responses brief, conversational, and in the caller's language.`;
         setCorsHeaders(res);
         if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return; }
         if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
+        if (stagingSideEffects.sideEffectsDisabled()) {
+          stagingSideEffects.logSuppressed('call', { action: 'webrtc-token' });
+          res.statusCode = 403;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'staging side effects disabled', suppressed: true }));
+          return;
+        }
         (async () => {
           try {
             const url = new URL(req.url || '', `http://${req.headers.host}`);

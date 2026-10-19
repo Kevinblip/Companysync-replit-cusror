@@ -12,12 +12,24 @@ Deno.serve(async (req) => {
     }
 
     const invList = await base44.asServiceRole.entities.Invoice.filter({ invoice_number });
-    const invoice = invList[0];
-    if (!invoice) return Response.json({ error: 'Invoice not found' }, { status: 404 });
+    let candidates = invList;
+    if (candidates.length !== 1 && customer_name) {
+      const named = candidates.filter((inv) => String(inv.customer_name || '').trim().toLowerCase() === String(customer_name).trim().toLowerCase());
+      if (named.length === 1) candidates = named;
+    }
+    if (candidates.length !== 1) {
+      return Response.json({
+        error: invList.length === 0
+          ? 'Invoice not found'
+          : `Invoice number ${invoice_number} matches ${invList.length} invoices; refusing to link by number.`,
+      }, { status: invList.length === 0 ? 404 : 409 });
+    }
+    const invoice = candidates[0];
 
     const payments = await base44.asServiceRole.entities.Payment.filter({ customer_name, status: 'received' });
     let relinked = 0;
     for (const p of payments) {
+      if (p.invoice_id && p.invoice_id !== invoice.id) continue;
       if (p.invoice_id !== invoice.id || p.invoice_number !== invoice.invoice_number) {
         await base44.asServiceRole.entities.Payment.update(p.id, {
           invoice_id: invoice.id,

@@ -18,6 +18,7 @@ const PUBLIC_ONLY_PAGES = new Set([
   'PaymentSuccess',
   'PrivacyPolicy',
   'PublicColorViz',
+  'SalesDemo',
   'ResetPasswordPage',
   'SharePortal',
   'SignupPage',

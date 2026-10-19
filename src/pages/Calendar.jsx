@@ -34,7 +34,8 @@ import {
   Settings,
 } from "lucide-react";
 import ReminderSettingsPanel from "@/components/ReminderSettingsPanel";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, startOfWeek, endOfWeek } from "date-fns";
+import { toSafeDate, safeFormat } from "@/lib/safeDate";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, startOfWeek, endOfWeek } from "date-fns";
 import {
   Dialog,
   DialogContent,
@@ -59,6 +60,16 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useRoleBasedData } from "@/components/hooks/useRoleBasedData";
 import useTranslation from "@/hooks/useTranslation";
 import GoogleCalendarReconnectBanner from "@/components/calendar/GoogleCalendarReconnectBanner";
+import {
+  calendarDateFromKey,
+  dateKeyInTimeZone,
+  dateTimeLocalInTimeZoneToUtc,
+  formatInTimeZone,
+  parseCalendarInstant,
+  timeZoneName,
+  toDateTimeLocalInTimeZone,
+  DEFAULT_COMPANY_TIME_ZONE,
+} from "@/utils/companyTimeZone";
 
 // 🎨 Event type color mapping
 const EVENT_TYPE_COLORS = {
@@ -83,7 +94,7 @@ const getColorForEventType = (eventType) => {
 };
 
 // 🛠️ Helper to check for valid dates
-const isValidDate = (d) => d instanceof Date && !isNaN(d);
+const isValidDate = (d) => d instanceof Date && !isNaN(d.getTime());
 
 // 🔔 Notification sound function
 const playNotificationSound = () => {
@@ -344,6 +355,23 @@ export default function Calendar() {
   }, [googleCalendarConnected, queryClient]);
 
   const { filterCalendarEvents, filterCustomers, filterLeads, myCompany, isAdmin, effectiveUserEmail, hasPermission } = useRoleBasedData();
+  const companyTimeZone = myCompany?.timezone
+    || myCompany?.settings?.time_zone
+    || myCompany?.settings?.timezone
+    || myCompany?.data?.timezone
+    || DEFAULT_COMPANY_TIME_ZONE;
+  const calendarMonthScopeRef = useRef('');
+  useEffect(() => {
+    if (!myCompany?.id) return;
+    const scope = `${myCompany.id}:${companyTimeZone}`;
+    if (calendarMonthScopeRef.current === scope) return;
+    calendarMonthScopeRef.current = scope;
+    const today = calendarDateFromKey(dateKeyInTimeZone(new Date(), companyTimeZone));
+    if (today) setCurrentMonth(today);
+  }, [myCompany?.id, companyTimeZone]);
+  const companyTimeZoneLabel = timeZoneName(companyTimeZone);
+  const formatCompanyEventTime = (value, options) =>
+    formatInTimeZone(value, options, companyTimeZone);
   const isCalendarSecondaryDataReady = usePostPaintGate(!!myCompany?.id, 'calendar');
 
   const { data: staffProfiles = [] } = useQuery({
@@ -374,7 +402,9 @@ export default function Calendar() {
       // We will fetch ALL company events to allow filtering by "Assigned To" in the UI, 
       // but strictly limited to THIS company_id.
       
-      return await base44.entities.CalendarEvent.filter(query, "-start_time", 1000);
+      // 1000 newest-by-start rows were all far-future Google recurring
+      // instances once ~2000 events synced, hiding this month entirely.
+      return await base44.entities.CalendarEvent.filter(query, "-start_time", 5000);
     },
     enabled: !!user && !!myCompany?.id,
   });
@@ -400,8 +430,11 @@ export default function Calendar() {
     if (!showEventDialog || !formData.start_time || !formData.end_time) return null;
     const effectiveAssignee = formData.assigned_to || user?.email;
     if (!effectiveAssignee) return null;
-    const newStart = new Date(formData.start_time).getTime();
-    const newEnd = new Date(formData.end_time).getTime();
+    const newStartUtc = dateTimeLocalInTimeZoneToUtc(formData.start_time, companyTimeZone);
+    const newEndUtc = dateTimeLocalInTimeZoneToUtc(formData.end_time, companyTimeZone);
+    if (!newStartUtc || !newEndUtc) return null;
+    const newStart = Date.parse(newStartUtc);
+    const newEnd = Date.parse(newEndUtc);
     if (isNaN(newStart) || isNaN(newEnd) || newEnd <= newStart) return null;
 
     return (calendarEvents || []).find(ev => {
@@ -412,14 +445,16 @@ export default function Calendar() {
       const eventAssignee = ev.assigned_to === null ? ev.created_by : ev.assigned_to;
       if (eventAssignee !== effectiveAssignee) return false;
       if (ev._isActionItem || ev.is_saas_event) return false;
-      const evStart = new Date(ev.start_time).getTime();
+      const evStart = parseCalendarInstant(ev.start_time)?.getTime();
+      if (!Number.isFinite(evStart)) return false;
       const evEnd = ev.end_time
-        ? new Date(ev.end_time).getTime()
+        ? parseCalendarInstant(ev.end_time)?.getTime()
         : evStart + 60 * 60 * 1000;
+      if (!Number.isFinite(evEnd)) return false;
       // True time overlap: new slot starts before existing ends AND ends after existing starts
       return newStart < evEnd && newEnd > evStart;
     }) || null;
-  }, [calendarEvents, formData.assigned_to, formData.start_time, formData.end_time, editingEvent?.id, showEventDialog, user?.email]);
+  }, [calendarEvents, companyTimeZone, formData.assigned_to, formData.start_time, formData.end_time, editingEvent?.id, showEventDialog, user?.email]);
 
   const { data: rawLeads = [] } = useQuery({
     queryKey: ['leads-for-calendar', myCompany?.id],
@@ -581,7 +616,9 @@ export default function Calendar() {
       if (b.calendar_event_id) return;
       const dateStr = b.build_date;
       if (!dateStr) return;
-      const date = new Date(dateStr + 'T08:00:00');
+      const date = dateStr.length === 10
+        ? parseCalendarInstant(dateTimeLocalInTimeZoneToUtc(`${dateStr}T08:00`, companyTimeZone))
+        : parseCalendarInstant(dateStr);
       if (!isValidDate(date)) return;
       const jobLabel = Array.isArray(b.job_type) && b.job_type.length > 0 ? b.job_type.join(' & ') : 'Build';
       events.push({
@@ -605,7 +642,9 @@ export default function Calendar() {
     calendarInspectionJobs.forEach(j => {
       const dateStr = j.inspection_date || j.scheduled_date;
       if (!dateStr) return;
-      const date = new Date(dateStr.length === 10 ? dateStr + 'T09:00:00' : dateStr);
+      const date = dateStr.length === 10
+        ? parseCalendarInstant(dateTimeLocalInTimeZoneToUtc(`${dateStr}T09:00`, companyTimeZone))
+        : parseCalendarInstant(dateStr);
       if (!isValidDate(date)) return;
       const clientName = j.client_name || j.customer_name || j.property_address || 'Inspection';
       events.push({
@@ -631,7 +670,9 @@ export default function Calendar() {
         .filter(t => t.due_date && !t.is_archived && t.status !== 'job_completed')
         .forEach(t => {
           const dateStr = t.due_date;
-          const date = new Date(dateStr.length === 10 ? dateStr + 'T08:00:00' : dateStr);
+          const date = dateStr.length === 10
+            ? parseCalendarInstant(dateTimeLocalInTimeZoneToUtc(`${dateStr}T08:00`, companyTimeZone))
+            : parseCalendarInstant(dateStr);
           if (!isValidDate(date)) return;
           const priorityColor = { high: '#ef4444', medium: '#f97316', low: '#0ea5e9' };
           events.push({
@@ -653,7 +694,7 @@ export default function Calendar() {
     }
 
     return events;
-  }, [calendarEvents, filterCalendarEvents, isPlatformOwner, companies, adminAllInvoices, rawActionItems, showActionItems, calendarBuildSchedule, calendarInspectionJobs, calendarTasks, showTasks]);
+  }, [calendarEvents, filterCalendarEvents, isPlatformOwner, companies, adminAllInvoices, rawActionItems, showActionItems, calendarBuildSchedule, calendarInspectionJobs, calendarTasks, showTasks, companyTimeZone]);
 
   useEffect(() => {
     if (selectedEvent) {
@@ -749,7 +790,7 @@ export default function Calendar() {
           user_email: user.email,
           type: 'event_created',
           title: `📅 ${t.calendar.addEvent}`,
-          message: `"${event.title}" ${t.calendar.appointment} ${format(new Date(event.start_time), 'MMM d, h:mm a')}`,
+          message: `"${event.title}" ${t.calendar.appointment} ${formatCompanyEventTime(event.start_time, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`,
           link_url: createPageUrl('Calendar'),
           is_read: false
         });
@@ -763,7 +804,7 @@ export default function Calendar() {
         await base44.functions.invoke('sendEventChangeNotification', {
           eventId: event.id,
           changeType: 'created',
-          newTime: format(new Date(event.start_time), 'MMM d, h:mm a')
+          newTime: formatCompanyEventTime(event.start_time, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
         });
       } catch (notifError) {
         console.log('Failed to send change notification (non-critical):', notifError.message);
@@ -869,8 +910,9 @@ export default function Calendar() {
       // 🔔 Create bell notification if time changed
       if (originalEvent && data.start_time && originalEvent.start_time !== data.start_time) {
         try {
-          const oldTime = format(new Date(originalEvent.start_time), 'MMM d, h:mm a');
-          const newTime = format(new Date(data.start_time), 'MMM d, h:mm a');
+          const eventTimeFormat = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+          const oldTime = formatCompanyEventTime(originalEvent.start_time, eventTimeFormat);
+          const newTime = formatCompanyEventTime(data.start_time, eventTimeFormat);
           
           await base44.entities.Notification.create({
             user_email: user.email,
@@ -928,8 +970,9 @@ export default function Calendar() {
       // 🔔 Create notification if time changed
       if (data.start_time && originalStartTime && data.start_time !== originalStartTime) {
         try {
-          const oldTime = format(new Date(originalStartTime), 'MMM d, h:mm a');
-          const newTime = format(new Date(data.start_time), 'MMM d, h:mm a');
+          const eventTimeFormat = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+          const oldTime = formatCompanyEventTime(originalStartTime, eventTimeFormat);
+          const newTime = formatCompanyEventTime(data.start_time, eventTimeFormat);
           
           await base44.entities.Notification.create({
             user_email: user.email,
@@ -995,7 +1038,7 @@ export default function Calendar() {
             user_email: user.email,
             type: 'event_deleted',
             title: '🗑️ Event Deleted',
-            message: `"${event.title}" scheduled for ${format(new Date(event.start_time), 'MMM d, h:mm a')} was deleted`,
+            message: `"${event.title}" scheduled for ${formatCompanyEventTime(event.start_time, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} was deleted`,
             link_url: createPageUrl('Calendar'),
             is_read: false
           });
@@ -1005,7 +1048,7 @@ export default function Calendar() {
           await base44.functions.invoke('sendEventChangeNotification', {
             eventId: event.id,
             changeType: 'deleted',
-            oldTime: format(new Date(event.start_time), 'MMM d, h:mm a')
+            oldTime: formatCompanyEventTime(event.start_time, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
           });
         } catch (notifError) {
           console.error('Failed to send notifications (non-critical):', notifError);
@@ -1190,13 +1233,21 @@ export default function Calendar() {
   // 🎯 Shared move helper — used by both mouse drag/drop and touch drag
   const moveEventToDate = (event, targetDate) => {
     if (!event || !targetDate) return;
-    const oldStart = new Date(event.start_time);
-    const newStart = new Date(targetDate);
-    newStart.setHours(oldStart.getHours());
-    newStart.setMinutes(oldStart.getMinutes());
-    const newEnd = event.end_time
-      ? new Date(newStart.getTime() + (new Date(event.end_time) - oldStart))
-      : new Date(newStart.getTime() + 60 * 60 * 1000);
+    const oldStart = parseCalendarInstant(event.start_time);
+    const oldEnd = parseCalendarInstant(event.end_time);
+    const targetDateKey = format(targetDate, 'yyyy-MM-dd');
+    const oldLocalInput = toDateTimeLocalInTimeZone(oldStart, companyTimeZone);
+    const localStart = dateTimeLocalInTimeZoneToUtc(
+      `${targetDateKey}T${oldLocalInput ? oldLocalInput.slice(11, 16) : '09:00'}`,
+      companyTimeZone,
+    );
+    if (!localStart) {
+      toast({ title: 'Invalid local time', description: 'This time falls in a daylight-saving gap. Choose another time.', variant: 'destructive' });
+      return;
+    }
+    const durationMs = oldStart && oldEnd && oldEnd > oldStart ? oldEnd - oldStart : 60 * 60 * 1000;
+    const newStart = new Date(localStart);
+    const newEnd = new Date(newStart.getTime() + durationMs);
     updateEventMutation.mutate({
       id: event.id,
       originalEvent: event,
@@ -1301,17 +1352,9 @@ export default function Calendar() {
     }
 
     setEditingEvent(event);
-    // Convert stored UTC time to local time for the datetime-local input
-    const toLocalInput = (isoStr) => {
-      const d = new Date(isoStr);
-      return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    };
-    const safeStart = event.start_time && isValidDate(new Date(event.start_time)) 
-      ? toLocalInput(event.start_time)
-      : "";
-    const safeEnd = event.end_time && isValidDate(new Date(event.end_time))
-      ? toLocalInput(event.end_time)
-      : "";
+    // datetime-local fields show the shared company time, not this device's zone.
+    const safeStart = toDateTimeLocalInTimeZone(event.start_time, companyTimeZone);
+    const safeEnd = toDateTimeLocalInTimeZone(event.end_time, companyTimeZone);
 
     setFormData({
       title: event.title,
@@ -1356,14 +1399,19 @@ export default function Calendar() {
       color: getColorForEventType(formData.event_type)
     };
 
-    // Convert datetime-local strings (browser local time) to proper UTC ISO strings
-    // so the server stores the correct absolute time regardless of its own timezone
-    if (finalFormData.start_time && !finalFormData.start_time.endsWith('Z')) {
-      finalFormData.start_time = new Date(finalFormData.start_time).toISOString();
+    // Convert company-local wall times into UTC instants for persistence.
+    const startUtc = dateTimeLocalInTimeZoneToUtc(finalFormData.start_time, companyTimeZone);
+    const endUtc = dateTimeLocalInTimeZoneToUtc(finalFormData.end_time, companyTimeZone);
+    if (!startUtc || !endUtc) {
+      alert(`Choose valid start and end times in ${companyTimeZone}. Times skipped by daylight-saving changes cannot be scheduled.`);
+      return;
     }
-    if (finalFormData.end_time && !finalFormData.end_time.endsWith('Z')) {
-      finalFormData.end_time = new Date(finalFormData.end_time).toISOString();
+    if (Date.parse(endUtc) <= Date.parse(startUtc)) {
+      alert('End time must be after start time.');
+      return;
     }
+    finalFormData.start_time = startUtc;
+    finalFormData.end_time = endUtc;
 
     if (formData.add_google_meet) {
       const meetUrl = 'https://meet.google.com/new';
@@ -1435,26 +1483,30 @@ export default function Calendar() {
       return;
     }
     setEventToMove(event);
-    setMoveToDate(new Date(event.start_time));
+    setMoveToDate(
+      calendarDateFromKey(dateKeyInTimeZone(event.start_time, companyTimeZone)) || new Date(),
+    );
     setShowMoveEventDialog(true);
   };
 
   const handleConfirmMove = () => {
     if (!eventToMove || !moveToDate) return;
 
-    const oldStartTime = new Date(eventToMove.start_time);
-    const newStartTime = new Date(moveToDate);
-    newStartTime.setHours(oldStartTime.getHours());
-    newStartTime.setMinutes(oldStartTime.getMinutes());
-    
-    let newEndTime;
-    if (eventToMove.end_time) {
-      const oldEndTime = new Date(eventToMove.end_time);
-      const duration = oldEndTime.getTime() - oldStartTime.getTime();
-      newEndTime = new Date(newStartTime.getTime() + duration);
-    } else {
-      newEndTime = new Date(newStartTime.getTime() + (60 * 60 * 1000));
+    const oldStartTime = parseCalendarInstant(eventToMove.start_time);
+    const oldEndTime = parseCalendarInstant(eventToMove.end_time);
+    const newStartUtc = dateTimeLocalInTimeZoneToUtc(
+      `${format(moveToDate, 'yyyy-MM-dd')}T${toDateTimeLocalInTimeZone(oldStartTime, companyTimeZone).slice(11, 16) || '09:00'}`,
+      companyTimeZone,
+    );
+    if (!newStartUtc) {
+      toast({ title: 'Invalid local time', description: 'This time falls in a daylight-saving gap. Choose another time.', variant: 'destructive' });
+      return;
     }
+    const duration = oldStartTime && oldEndTime && oldEndTime > oldStartTime
+      ? oldEndTime.getTime() - oldStartTime.getTime()
+      : 60 * 60 * 1000;
+    const newStartTime = new Date(newStartUtc);
+    const newEndTime = new Date(newStartTime.getTime() + duration);
 
     updateEventMutation.mutate({
       id: eventToMove.id,
@@ -1471,22 +1523,12 @@ export default function Calendar() {
   };
 
   const handleDayClick = (day) => {
-    // Set start time to selected day at 9 AM local time
-    const startTime = new Date(day);
-    startTime.setHours(9, 0, 0, 0);
-    
-    // Set end time to 1 hour later
-    const endTime = new Date(startTime);
-    endTime.setHours(10, 0, 0, 0);
-
-    // Convert to local-time strings for datetime-local inputs
-    // (subtract timezone offset so the input shows the correct local hour, not UTC)
-    const toLocalInput = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const dateKey = format(day, 'yyyy-MM-dd');
     
     setFormData({
       ...formData,
-      start_time: toLocalInput(startTime),
-      end_time: toLocalInput(endTime),
+      start_time: `${dateKey}T09:00`,
+      end_time: `${dateKey}T10:00`,
     });
     
     setEditingEvent(null);
@@ -1532,14 +1574,18 @@ export default function Calendar() {
 
     // Group by date
     filteredEvents.forEach(event => {
-      if (!event.start_time) return;
-      const dateKey = format(new Date(event.start_time), 'yyyy-MM-dd');
+      const start = parseCalendarInstant(event.start_time);
+      if (!start) {
+        console.warn('[Calendar] skipping event with invalid start_time', event.id, event.start_time);
+        return;
+      }
+      const dateKey = dateKeyInTimeZone(start, companyTimeZone);
       if (!map[dateKey]) map[dateKey] = [];
       map[dateKey].push(event);
     });
 
     return map;
-  }, [mergedCalendarEvents, selectedFilters, calendarViewMode, selectedPeople, user?.email]);
+  }, [mergedCalendarEvents, selectedFilters, calendarViewMode, selectedPeople, user?.email, companyTimeZone]);
 
   const getEventsForDay = React.useCallback((date) => {
     const dateKey = format(date, 'yyyy-MM-dd');
@@ -1704,11 +1750,14 @@ export default function Calendar() {
               >
                 <ChevronLeft className="w-5 h-5" />
               </Button>
-              <h1 className="text-3xl font-bold">{format(currentMonth, 'MMMM yyyy')}</h1>
+              <div>
+                <h1 className="text-3xl font-bold">{format(currentMonth, 'MMMM yyyy')}</h1>
+                <span className="text-xs text-blue-100">All times: {companyTimeZoneLabel}</span>
+              </div>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCurrentMonth(new Date())}
+                onClick={() => setCurrentMonth(calendarDateFromKey(dateKeyInTimeZone(new Date(), companyTimeZone)) || new Date())}
                 className="bg-white/20 border-white/30 text-white hover:bg-white/30"
               >
                 {t.calendar.today}
@@ -1798,14 +1847,13 @@ export default function Calendar() {
                 onClick={() => {
                   setShowEventDialog(true);
                   setEditingEvent(null);
-                  const now = new Date();
-                  const defaultStart = new Date(now.getTime() + 5 * 60 * 1000);
+                  const defaultStart = new Date(Date.now() + 5 * 60 * 1000);
                   const defaultEnd = new Date(defaultStart.getTime() + 60 * 60 * 1000);
                   setFormData({
                     title: "",
                     description: "",
-                    start_time: defaultStart.toISOString().slice(0, 16),
-                    end_time: defaultEnd.toISOString().slice(0, 16),
+                    start_time: toDateTimeLocalInTimeZone(defaultStart, companyTimeZone),
+                    end_time: toDateTimeLocalInTimeZone(defaultEnd, companyTimeZone),
                     event_type: "meeting",
                     color: getColorForEventType("meeting"),
                     location: "",
@@ -1959,7 +2007,7 @@ export default function Calendar() {
                 <strong>✅ {t.calendar.meeting} {t.common.status}</strong>
                 <p className="text-sm mt-1">
                   {t.calendar.calendar} {t.common.status}
-                  {lastSync && ` ${t.common.status}: ${format(new Date(lastSync), 'MMM d, h:mm a')}`}
+                  {lastSync && ` ${t.common.status}: ${safeFormat(lastSync, 'MMM d, h:mm a')}`}
                   {autoSyncing && <span className="text-blue-600"> ({t.common.loading}...)</span>}
                 </p>
               </div>
@@ -2101,7 +2149,7 @@ export default function Calendar() {
               <div className="grid grid-cols-7">
                 {daysInView.map((day, i) => {
                   const dayEvents = getEventsForDay(day);
-                  const isToday = isSameDay(day, new Date());
+                  const isToday = format(day, 'yyyy-MM-dd') === dateKeyInTimeZone(new Date(), companyTimeZone);
                   const isCurrentMonth = day.getMonth() === currentMonth.getMonth();
 
                   return (
@@ -2148,7 +2196,7 @@ export default function Calendar() {
                           >
                             <div className="font-medium truncate">{event.title}</div>
                             <div className="text-[10px] opacity-90">
-                              {isValidDate(new Date(event.start_time)) ? format(new Date(event.start_time), 'h:mm a') : t.common.invalid}
+                              {formatCompanyEventTime(event.start_time, { hour: 'numeric', minute: '2-digit' }) || t.common.invalid}
                             </div>
                             {event.assigned_to && (
                               <div className="text-[10px] opacity-75 truncate">
@@ -2208,8 +2256,8 @@ export default function Calendar() {
                   <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
                     <CalendarIcon className="w-4 h-4" />
                     <span>
-                      {isValidDate(new Date(event.start_time)) ? format(new Date(event.start_time), 'h:mm a') : t.common.invalid}
-                      {event.end_time && isValidDate(new Date(event.end_time)) && ` - ${format(new Date(event.end_time), 'h:mm a')}`}
+                      {formatCompanyEventTime(event.start_time, { hour: 'numeric', minute: '2-digit' }) || t.common.invalid}
+                      {event.end_time && formatCompanyEventTime(event.end_time, { hour: 'numeric', minute: '2-digit' }) && ` - ${formatCompanyEventTime(event.end_time, { hour: 'numeric', minute: '2-digit' })}`}
                     </span>
                   </div>
                   {event.location && (
@@ -2252,14 +2300,12 @@ export default function Calendar() {
               <div className="flex items-center gap-2 text-gray-600">
                 <CalendarIcon className="w-5 h-5" />
                 <div>
-                  {selectedDayEvents.date && (
-                    <div className="font-medium">
-                      {isValidDate(new Date(selectedDayEvents.date)) ? format(new Date(selectedDayEvents.date), 'EEEE, MMMM d, yyyy') : t.common.date}
-                    </div>
-                  )}
+                  <div className="font-medium">
+                    {formatCompanyEventTime(selectedEvent.start_time, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) || t.common.date}
+                  </div>
                   <div className="text-sm">
-                    {isValidDate(new Date(selectedEvent.start_time)) ? format(new Date(selectedEvent.start_time), 'h:mm a') : ''} - 
-                    {selectedEvent.end_time && isValidDate(new Date(selectedEvent.end_time)) && ` ${format(new Date(selectedEvent.end_time), 'h:mm a')}`}
+                    {formatCompanyEventTime(selectedEvent.start_time, { hour: 'numeric', minute: '2-digit' })} - 
+                    {selectedEvent.end_time && ` ${formatCompanyEventTime(selectedEvent.end_time, { hour: 'numeric', minute: '2-digit' })}`}
                   </div>
                 </div>
               </div>
@@ -2710,7 +2756,7 @@ export default function Calendar() {
               <div className="bg-blue-50 p-4 rounded-lg">
                 <p className="font-semibold text-blue-900">{eventToMove.title}</p>
                 <p className="text-sm text-blue-700 mt-1">
-                  {t.common.status}: {format(new Date(eventToMove.start_time), 'EEEE, MMM d, yyyy \'at\' h:mm a')}
+                  {t.common.status}: {formatCompanyEventTime(eventToMove.start_time, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
                 </p>
               </div>
 
@@ -2723,7 +2769,7 @@ export default function Calendar() {
                   className="rounded-md border mx-auto"
                 />
                 <p className="text-sm text-gray-600 mt-3">
-                  {t.calendar.startTime}: {isValidDate(new Date(eventToMove.start_time)) ? format(new Date(eventToMove.start_time), 'h:mm a') : t.common.invalid}
+                  {t.calendar.startTime}: {formatCompanyEventTime(eventToMove.start_time, { hour: 'numeric', minute: '2-digit' }) || t.common.invalid}
                 </p>
               </div>
 
@@ -2831,7 +2877,7 @@ export default function Calendar() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>{t.calendar.startTime} *</Label>
+                <Label>{t.calendar.startTime} ({companyTimeZone}) *</Label>
                 <Input
                   data-testid="input-event-start-time"
                   type="datetime-local"
@@ -2839,23 +2885,32 @@ export default function Calendar() {
                   onChange={(e) => {
                     const newStart = e.target.value;
                     if (!newStart) { setFormData({...formData, start_time: newStart}); return; }
-                    const newStartMs = new Date(newStart).getTime();
-                    const curStartMs = formData.start_time ? new Date(formData.start_time).getTime() : null;
-                    const curEndMs = formData.end_time ? new Date(formData.end_time).getTime() : null;
+                    const newStartUtc = dateTimeLocalInTimeZoneToUtc(newStart, companyTimeZone);
+                    const curStartUtc = formData.start_time
+                      ? dateTimeLocalInTimeZoneToUtc(formData.start_time, companyTimeZone)
+                      : null;
+                    const curEndUtc = formData.end_time
+                      ? dateTimeLocalInTimeZoneToUtc(formData.end_time, companyTimeZone)
+                      : null;
+                    if (!newStartUtc) {
+                      setFormData({ ...formData, start_time: newStart, end_time: '' });
+                      return;
+                    }
+                    const newStartMs = Date.parse(newStartUtc);
+                    const curStartMs = curStartUtc ? Date.parse(curStartUtc) : null;
+                    const curEndMs = curEndUtc ? Date.parse(curEndUtc) : null;
                     const durationMs = (curStartMs && curEndMs && curEndMs > curStartMs)
                       ? curEndMs - curStartMs
                       : 60 * 60 * 1000;
-                    // Use same local-input conversion as the rest of this form:
-                    // subtract timezone offset before toISOString() so the slice gives local time.
                     const newEndDate = new Date(newStartMs + durationMs);
-                    const newEnd = new Date(newEndDate.getTime() - newEndDate.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                    const newEnd = toDateTimeLocalInTimeZone(newEndDate, companyTimeZone);
                     setFormData({...formData, start_time: newStart, end_time: newEnd});
                   }}
                   required
                 />
               </div>
               <div>
-                <Label>{t.calendar.endTime} *</Label>
+                <Label>{t.calendar.endTime} ({companyTimeZone}) *</Label>
                 <Input
                   data-testid="input-event-end-time"
                   type="datetime-local"
@@ -2906,8 +2961,8 @@ export default function Calendar() {
                         || formData.assigned_to || user?.email}
                     </strong>
                     {' '}already has <strong>"{conflictingEvent.title}"</strong> at{' '}
-                    {isValidDate(new Date(conflictingEvent.start_time))
-                      ? format(new Date(conflictingEvent.start_time), 'MMM d, h:mm a')
+                    {parseCalendarInstant(conflictingEvent.start_time)
+                      ? formatCompanyEventTime(conflictingEvent.start_time, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
                       : 'this time'}.
                     {' '}You can still save — the server will validate the conflict.
                   </p>
