@@ -103,32 +103,89 @@ function sameWords(left, right) {
   return left.length === right.length && left.every((word, index) => word === right[index]);
 }
 
-function localityAgrees(left, right) {
-  // A street-only address is less complete, not a different property.
-  if (!left.length || !right.length) return true;
-  const leftZip = left.find((word) => /^\d{5}$/.test(word));
-  const rightZip = right.find((word) => /^\d{5}$/.test(word));
-  if (leftZip && rightZip && leftZip === rightZip) {
-    const leftState = left.find((word) => STATE_CODES.has(word));
-    const rightState = right.find((word) => STATE_CODES.has(word));
-    // A ZIP+4 is often printed with a postal city that differs from the CRM's
-    // municipality label. Same street + house number + ZIP is a strong match.
-    return !leftState || !rightState || leftState === rightState;
+function streetIdentity(street) {
+  const words = [...street];
+  const unitAt = words.lastIndexOf('unit');
+  let unit = '';
+  if (unitAt !== -1) {
+    unit = words.slice(unitAt + 1).join(' ');
+    words.splice(unitAt);
   }
-  const shorter = left.length <= right.length ? left : right;
-  const longer = left.length <= right.length ? right : left;
-  if (!shorter.every((word, index) => word === longer[index])) return false;
-  // Missing state/ZIP is ordinary incomplete data. A longer city name is not:
-  // "Cleveland" and "Cleveland Heights" can be different municipalities.
-  return longer.slice(shorter.length).every((word) =>
-    STATE_CODES.has(word) || /^\d{4,5}$/.test(word));
+  const number = /^\d+[a-z]?$/.test(words[0] || '') ? words[0] : '';
+  return { number, name: number ? words.slice(1) : words, unit };
 }
 
-function differentAddress(left, right) {
+function localityFields(locality) {
+  const state = locality.find((word) => STATE_CODES.has(word)) || '';
+  const zip = locality.find((word) => /^\d{5}$/.test(word)) || '';
+  const city = locality.filter((word) => word !== state && !/^\d+$/.test(word));
+  return { state, city, zip };
+}
+
+// House number, street name, unit, and state identify the property. City and
+// ZIP are labels that carriers and municipalities print differently for the
+// same house (Cleveland vs Cleveland Heights, 44128 vs 44118).
+function classifyAddressConflict(left, right) {
   const a = addressParts(left);
   const b = addressParts(right);
-  if (!a.street.length || !b.street.length) return false;
-  return !sameWords(a.street, b.street) || !localityAgrees(a.locality, b.locality);
+  if (!a.street.length || !b.street.length) return null;
+
+  const leftStreet = streetIdentity(a.street);
+  const rightStreet = streetIdentity(b.street);
+  if (
+    leftStreet.number !== rightStreet.number
+    || !sameWords(leftStreet.name, rightStreet.name)
+    || leftStreet.unit !== rightStreet.unit
+  ) {
+    return 'block';
+  }
+
+  if (!a.locality.length || !b.locality.length) return null;
+  const leftPlace = localityFields(a.locality);
+  const rightPlace = localityFields(b.locality);
+  if (leftPlace.state && rightPlace.state && leftPlace.state !== rightPlace.state) return 'block';
+
+  const cityDiffers = leftPlace.city.length > 0
+    && rightPlace.city.length > 0
+    && !sameWords(leftPlace.city, rightPlace.city);
+  const zipDiffers = Boolean(leftPlace.zip && rightPlace.zip && leftPlace.zip !== rightPlace.zip);
+  if (cityDiffers || zipDiffers) return 'warn';
+  return null;
+}
+
+export function customerAddressFieldsFromDocument(value) {
+  const propertyAddress = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!propertyAddress) {
+    return { property_address: '', street: '', city: '', state: '', zip: '' };
+  }
+
+  const zipMatches = [...propertyAddress.matchAll(/\b(\d{5})(?:-(\d{4}))?\b/g)]
+    .filter((match) => match.index > 0);
+  const zipMatch = zipMatches.length ? zipMatches[zipMatches.length - 1] : null;
+  const zip = zipMatch ? zipMatch[1] : '';
+  let rest = zipMatch
+    ? `${propertyAddress.slice(0, zipMatch.index)} ${propertyAddress.slice(zipMatch.index + zipMatch[0].length)}`
+    : propertyAddress;
+  rest = rest.replace(/[,\s]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  let state = '';
+  const stateMatch = rest.match(/(?:^|\s)([A-Za-z]{2})$/);
+  if (stateMatch && STATE_CODES.has(stateMatch[1].toLowerCase())) {
+    state = stateMatch[1].toUpperCase();
+    rest = rest.slice(0, stateMatch.index).trim();
+  }
+
+  const parsed = addressParts(propertyAddress);
+  const streetWordCount = parsed.street.length;
+  const words = rest.split(/\s+/).filter(Boolean);
+  const street = streetWordCount > 0 && streetWordCount < words.length
+    ? words.slice(0, streetWordCount).join(' ')
+    : words.join(' ');
+  const city = streetWordCount > 0 && streetWordCount < words.length
+    ? words.slice(streetWordCount).join(' ')
+    : '';
+
+  return { property_address: propertyAddress, street, city, state, zip };
 }
 
 function displayValue(value) {
@@ -150,9 +207,11 @@ export function getEstimateDocumentIdentityMismatch({
   const documentName = normalizeName(documentCustomer);
   const selectedName = normalizeName(currentCustomer);
   const customerMismatch = Boolean(hasSelectedContact && documentName && selectedName && documentName !== selectedName);
-  const propertyMismatch = differentAddress(documentAddress, currentAddress);
+  const addressSeverity = classifyAddressConflict(documentAddress, currentAddress);
+  const propertyMismatch = addressSeverity === 'block';
+  const addressWarning = addressSeverity === 'warn' && !customerMismatch;
 
-  if (!customerMismatch && !propertyMismatch) return null;
+  if (!customerMismatch && !addressSeverity) return null;
 
   const details = [];
   if (customerMismatch) {
@@ -160,15 +219,31 @@ export function getEstimateDocumentIdentityMismatch({
       `customer name (${documentLabel}: "${displayValue(documentCustomer)}"; ${currentLabel}: "${displayValue(currentCustomer)}")`,
     );
   }
-  if (propertyMismatch) {
+  if (addressSeverity) {
     details.push(
       `property address (${documentLabel}: "${displayValue(documentAddress)}"; ${currentLabel}: "${displayValue(currentAddress)}")`,
     );
   }
 
+  if (addressWarning) {
+    return {
+      customerMismatch: false,
+      propertyMismatch: false,
+      addressWarning: true,
+      severity: 'warn',
+      documentAddress: String(documentAddress ?? ''),
+      currentAddress: String(currentAddress ?? ''),
+      message: `Address warning: ${contextLabel} match on house number and street but differ in city or ZIP (${details.join(' and ')}). Import anyway, or update the customer's address to the document address. No line items were imported.`,
+    };
+  }
+
   return {
     customerMismatch,
-    propertyMismatch,
+    propertyMismatch: Boolean(addressSeverity),
+    addressWarning: false,
+    severity: 'block',
+    documentAddress: String(documentAddress ?? ''),
+    currentAddress: String(currentAddress ?? ''),
     message: `Import blocked: ${contextLabel} disagree on ${details.join(' and ')}. Select the matching customer and property or correct the estimate details, then try again. No line items were imported.`,
   };
 }
@@ -180,6 +255,7 @@ export function getEstimateDocumentBatchIdentityMismatch({
   hasSelectedContact,
 } = {}) {
   const checked = [];
+  let warning = null;
   for (const document of documents) {
     const info = document?.customer_info || {};
     const label = `document "${displayValue(document?.fileName)}"`;
@@ -191,7 +267,8 @@ export function getEstimateDocumentBatchIdentityMismatch({
       hasSelectedContact,
       documentLabel: label,
     });
-    if (currentMismatch) return currentMismatch;
+    if (currentMismatch?.severity === 'block') return currentMismatch;
+    if (currentMismatch && !warning) warning = currentMismatch;
 
     for (const earlier of checked) {
       const documentMismatch = getEstimateDocumentIdentityMismatch({
@@ -204,9 +281,10 @@ export function getEstimateDocumentBatchIdentityMismatch({
         currentLabel: `document "${displayValue(earlier.fileName)}"`,
         contextLabel: 'the uploaded documents',
       });
-      if (documentMismatch) return documentMismatch;
+      if (documentMismatch?.severity === 'block') return documentMismatch;
+      if (documentMismatch && !warning) warning = documentMismatch;
     }
     checked.push({ fileName: document?.fileName, customer_info: info });
   }
-  return null;
+  return warning;
 }

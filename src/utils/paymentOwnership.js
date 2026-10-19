@@ -58,7 +58,12 @@ export function findUnknownInvoiceIds(payments, myInvoiceIds) {
  * Given invoices we looked up, which ids demonstrably belong to a different
  * customer. Invoices we couldn't resolve are deliberately NOT included.
  */
-export function findForeignInvoiceIds(lookedUpInvoices, { customerId, customerName }) {
+export function findForeignInvoiceIds(lookedUpInvoices, { customerId, customerName, customerIds } = {}) {
+  const accepted = new Set(
+    [customerId, ...(customerIds || [])]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  );
   const foreign = new Set();
   for (const inv of lookedUpInvoices || []) {
     if (!inv || !inv.id) continue;
@@ -75,8 +80,9 @@ export function findForeignInvoiceIds(lookedUpInvoices, { customerId, customerNa
     // An explicit customer_id is the invoice's own answer about who owns it, and
     // a name match must not override it (duplicate customer names are real in
     // this data — several people share a name across two customer records).
-    if (invCustomerId && customerId) {
-      if (invCustomerId !== customerId) foreign.add(inv.id);
+    // customerIds includes aliases such as base44_id for the same record.
+    if (invCustomerId && accepted.size > 0) {
+      if (!accepted.has(String(invCustomerId))) foreign.add(inv.id);
       continue;
     }
 
@@ -105,9 +111,74 @@ export function rejectForeignPayments(payments, foreignInvoiceIds) {
  * override an id that says otherwise; that is how one rep's payment starts
  * paying another rep's commission.
  */
+function rowData(row) {
+  const raw = row?.data;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (_error) {
+      return {};
+    }
+  }
+  return {};
+}
+
+function trimmedIds(...values) {
+  return values.map((value) => String(value || '').trim()).filter(Boolean);
+}
+
+export function paymentInvoiceIds(payment) {
+  const data = rowData(payment);
+  return trimmedIds(payment?.invoice_id, data.invoice_id);
+}
+
+export function invoiceIdentityIds(invoice) {
+  const data = rowData(invoice);
+  return trimmedIds(invoice?.id, invoice?.base44_id, data.id, data.base44_id);
+}
+
+/**
+ * Payments History on an invoice.
+ *
+ * An invoice id match wins, including the invoice's base44 id and an id that
+ * lives only in payments.data. A blank customer_id does not hide that payment.
+ * With no invoice id at all, the invoice number counts only when the customer
+ * id matches or, if the payment has no customer id, the customer name matches.
+ * A number shared with a different customer stays off this invoice.
+ */
+export function paymentListedOnInvoice(payment, invoice, customer = null) {
+  if (!payment || !invoice?.id) return false;
+  const invoiceIds = new Set(invoiceIdentityIds(invoice));
+  const linkedIds = paymentInvoiceIds(payment);
+  if (linkedIds.length > 0) return linkedIds.some((id) => invoiceIds.has(id));
+
+  const data = rowData(payment);
+  const paymentNumber = String(payment.invoice_number || data.invoice_number || '').trim();
+  const invoiceNumber = String(invoice.invoice_number || '').trim();
+  if (!paymentNumber || !invoiceNumber || paymentNumber.toLowerCase() !== invoiceNumber.toLowerCase()) {
+    return false;
+  }
+
+  const paymentCustomerId = String(payment.customer_id || data.customer_id || '').trim();
+  const acceptedCustomerIds = new Set(trimmedIds(
+    invoice.customer_id,
+    rowData(invoice).customer_id,
+    customer?.id,
+    customer?.base44_id,
+  ));
+  if (paymentCustomerId) return acceptedCustomerIds.has(paymentCustomerId);
+
+  return sameName(
+    payment.customer_name || data.customer_name,
+    invoice.customer_name || customer?.name,
+  );
+}
+
 export function matchesInvoice(payment, invoice) {
   if (!payment || !invoice) return false;
-  if (payment.invoice_id) return payment.invoice_id === invoice.id;
+  if (paymentInvoiceIds(payment).length > 0) return paymentListedOnInvoice(payment, invoice);
   return !!payment.invoice_number && payment.invoice_number === invoice.invoice_number;
 }
 

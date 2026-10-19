@@ -16,6 +16,7 @@ const { buildScheduleConfirmationGuard, isBuildSchedulingMutation } = nodeRequir
 const { groundingRulesBlock: lexiGroundingRules, annotateToolResult: groundToolResult } = nodeRequire('./lib/lexiGrounding.cjs');
 const { deriveSpokenBrandName, applySpokenCompanyName } = nodeRequire('./lib/spokenBrandName.cjs');
 const { isVoiceGroundingSensitive, auditVoiceTurn } = nodeRequire('./lib/lexiVoiceGrounding.cjs');
+const { resolveInvoiceCustomerForCreate } = nodeRequire('./lib/invoiceCustomerLink.cjs');
 
 function generateLexiId(prefix = 'lexi') {
   return `${prefix}_${Date.now().toString(36)}_${crypto.randomBytes(5).toString('hex')}`;
@@ -586,6 +587,7 @@ TOOL RULES — CRITICAL:
 - Subcontractor questions ("what subs are in Ohio", "who covers Cleveland", "any crews near [area]", "list subcontractors"): ALWAYS call find_subcontractors immediately. Subcontractors are EXTERNAL VENDORS, not staff.
 - Staff/team questions: use get_crm_data with data_type='staff' or add_staff_member
 - Notes ("add a note", "make a note", "note that...", "put a note on...", "log a note"): ALWAYS use the add_note tool — never manage_entity. If the user did not specify which customer or lead the note is for, ASK them first ("Which customer or lead should I add that note to?"), then call add_note with their answer in customer_name or lead_name. Pass the spoken note text exactly as note_text.
+- Invoices: never create an invoice without a customer. Pass customer_id, or an exact customer_name that matches one customer. If you don't have one, ask which customer and do not call manage_entity yet.
 - Do NOT say "I cannot access" or "I don't have the ability" — you have full tool access. Use the tools.
 
 RESTRICTIONS:
@@ -1307,6 +1309,15 @@ async function handleLocalToolCall(name, args, companyId, userEmail, companyTime
             else if (table === 'calendar_events') insertData.status = 'scheduled';
           }
           if (table === 'leads' && !insertData.lead_source) insertData.lead_source = 'Lexi AI';
+          if (table === 'invoices') {
+            const resolvedCustomer = await resolveInvoiceCustomerForCreate(db, companyId, insertData);
+            if (!resolvedCustomer.ok) {
+              return { error: resolvedCustomer.error, success: false, needs_customer: true };
+            }
+            insertData.customer_id = resolvedCustomer.customer.id;
+            insertData.customer_name = resolvedCustomer.customer.name || insertData.customer_name || '';
+            insertData.customer_email = resolvedCustomer.customer.email || '';
+          }
 
           const filteredData = {};
           for (const [k, v] of Object.entries(insertData)) {

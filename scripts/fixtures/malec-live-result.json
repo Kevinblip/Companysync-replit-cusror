@@ -1,0 +1,1555 @@
+{
+  "address": "5405 Brookside Trail, Solon, OH",
+  "story_count": 2,
+  "story_count_source": "photos_well_supported",
+  "perimeter_ft": 278,
+  "roof_area_sqft": 4254,
+  "wall_material_sections": {
+    "version": "1.2.0",
+    "story": {
+      "story_count": 2,
+      "source": "photos",
+      "reads": [
+        2,
+        2,
+        2,
+        2,
+        1
+      ]
+    },
+    "perimeter_ft": 278,
+    "perimeter_source": "footprint",
+    "faces": {
+      "front": {
+        "length_ft": 62.3,
+        "eave_height_ft": 17,
+        "photo_reads": 1,
+        "photos_seen": 3,
+        "gross_sqft_by_material": {
+          "siding": 992.9,
+          "stone": 175.2,
+          "stucco": 75
+        },
+        "net_sqft_by_material": {
+          "siding": 674.4,
+          "stone": 51.4,
+          "stucco": 0
+        },
+        "openings_by_material": {
+          "siding": {
+            "count": 7,
+            "sqft": 318.5
+          },
+          "stone": {
+            "count": 3,
+            "sqft": 123.8
+          },
+          "stucco": {
+            "count": 2,
+            "sqft": 75
+          }
+        },
+        "area_source": "material_shares",
+        "confidence": "low",
+        "confidence_reasons": [
+          "openings use a material that had no wall area",
+          "a partial photo was applied to the full face"
+        ],
+        "sanity_ok": true,
+        "area_ratio": 0.96,
+        "reference_sqft": 1292.7
+      },
+      "right": {
+        "length_ft": 77.9,
+        "eave_height_ft": 20,
+        "photo_reads": 1,
+        "photos_seen": 4,
+        "gross_sqft_by_material": {
+          "stone": 45,
+          "stucco": 45
+        },
+        "net_sqft_by_material": {
+          "stone": 0,
+          "stucco": 0
+        },
+        "openings_by_material": {
+          "stone": {
+            "count": 1,
+            "sqft": 45
+          },
+          "stucco": {
+            "count": 1,
+            "sqft": 45
+          },
+          "siding": {
+            "count": 3,
+            "sqft": 36
+          }
+        },
+        "area_source": "polygons",
+        "confidence": "low",
+        "confidence_reasons": [
+          "openings use a material that had no wall area",
+          "wall area is 0.05× a 2-story wall at 9.5 ft",
+          "only a corner photo"
+        ],
+        "sanity_ok": false,
+        "area_ratio": 0.05,
+        "reference_sqft": 1694.3
+      },
+      "back": {
+        "length_ft": 59.7,
+        "eave_height_ft": 20,
+        "photo_reads": 1,
+        "photos_seen": 2,
+        "gross_sqft_by_material": {
+          "siding": 618.3
+        },
+        "net_sqft_by_material": {
+          "siding": 432.9
+        },
+        "openings_by_material": {
+          "siding": {
+            "count": 9,
+            "sqft": 185.4
+          }
+        },
+        "area_source": "polygons",
+        "confidence": "low",
+        "confidence_reasons": [
+          "wall area is 0.52× a 2-story wall at 9.5 ft",
+          "only a corner photo"
+        ],
+        "sanity_ok": false,
+        "area_ratio": 0.52,
+        "reference_sqft": 1194
+      },
+      "left": {
+        "length_ft": 78.4,
+        "eave_height_ft": 20,
+        "photo_reads": 0,
+        "photos_seen": 0,
+        "gross_sqft_by_material": {
+          "siding": 1568
+        },
+        "net_sqft_by_material": {
+          "siding": 1568
+        },
+        "openings_by_material": {},
+        "area_source": "fallback",
+        "confidence": "low",
+        "confidence_reasons": [
+          "no photo of left; assumed siding"
+        ],
+        "sanity_ok": true,
+        "area_ratio": 1.05,
+        "reference_sqft": 1489.6
+      }
+    },
+    "totals_gross_sqft": {
+      "siding": 3179.2,
+      "stone": 220.2,
+      "stucco": 120,
+      "brick": 0,
+      "trim": 0
+    },
+    "totals_net_sqft": {
+      "siding": 2639.3,
+      "stone": 51.4,
+      "stucco": 0,
+      "brick": 0,
+      "trim": 0
+    },
+    "openings": {
+      "count": 26,
+      "windows": 22,
+      "doors": 4,
+      "window_sqft": 535.5,
+      "door_sqft": 293.2,
+      "by_material": {
+        "siding": {
+          "count": 19,
+          "sqft": 539.9
+        },
+        "stone": {
+          "count": 4,
+          "sqft": 168.8
+        },
+        "stucco": {
+          "count": 3,
+          "sqft": 120
+        }
+      }
+    },
+    "materials_present": [
+      "siding",
+      "stone",
+      "stucco"
+    ],
+    "overlay": [
+      {
+        "id": "section_stone_1",
+        "photo_index": 0,
+        "view_label": "Elevation 1",
+        "wall_face": "front",
+        "material": "stone",
+        "ai_material": "stone",
+        "polygon": [
+          [
+            0,
+            0.8163
+          ],
+          [
+            1,
+            0.8163
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "area_sqft": 134.3,
+        "confidence": 0.95,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      },
+      {
+        "id": "section_siding_main",
+        "photo_index": 0,
+        "view_label": "Elevation 1",
+        "wall_face": "front",
+        "material": "siding",
+        "ai_material": "siding",
+        "polygon": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            0.8163
+          ],
+          [
+            0,
+            0.8163
+          ]
+        ],
+        "area_sqft": 596.7,
+        "confidence": 0.95,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      },
+      {
+        "id": "section_siding_gable",
+        "photo_index": 0,
+        "view_label": "Elevation 1",
+        "wall_face": "front",
+        "material": "siding",
+        "ai_material": "siding",
+        "polygon": [
+          [
+            0,
+            0
+          ],
+          [
+            0.5,
+            -0.2143
+          ],
+          [
+            1,
+            0
+          ]
+        ],
+        "area_sqft": 78.3,
+        "confidence": 0.9,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      },
+      {
+        "id": "stone_lower",
+        "photo_index": 1,
+        "view_label": "Elevation 2",
+        "wall_face": "front",
+        "material": "stone",
+        "ai_material": "stone",
+        "polygon": [
+          [
+            0,
+            0.5
+          ],
+          [
+            1,
+            0.5
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "area_sqft": 311.5,
+        "confidence": 0.9,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      },
+      {
+        "id": "stucco_upper",
+        "photo_index": 1,
+        "view_label": "Elevation 2",
+        "wall_face": "front",
+        "material": "stucco",
+        "ai_material": "stucco",
+        "polygon": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            0.5
+          ],
+          [
+            0,
+            0.5
+          ]
+        ],
+        "area_sqft": 311.5,
+        "confidence": 0.9,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      },
+      {
+        "id": "stucco_gable",
+        "photo_index": 1,
+        "view_label": "Elevation 2",
+        "wall_face": "front",
+        "material": "stucco",
+        "ai_material": "stucco",
+        "polygon": [
+          [
+            0.316,
+            -0.55
+          ],
+          [
+            0.683,
+            -0.55
+          ],
+          [
+            0.683,
+            0
+          ],
+          [
+            0.316,
+            0
+          ]
+        ],
+        "area_sqft": 125.8,
+        "confidence": 0.9,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      },
+      {
+        "id": "back_siding_section_1",
+        "photo_index": 2,
+        "view_label": "Elevation 3",
+        "wall_face": "back",
+        "material": "siding",
+        "ai_material": "siding",
+        "polygon": [
+          [
+            0,
+            0
+          ],
+          [
+            0.178,
+            -0.2
+          ],
+          [
+            0.357,
+            0
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "area_sqft": 618.3,
+        "confidence": 1,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      },
+      {
+        "id": "back_stone_wainscot",
+        "photo_index": 3,
+        "view_label": "Elevation 5",
+        "wall_face": "back",
+        "material": "stone",
+        "ai_material": "stone",
+        "polygon": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            0.1538
+          ],
+          [
+            0,
+            0.1538
+          ]
+        ],
+        "area_sqft": 492.6,
+        "confidence": 0.95,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      },
+      {
+        "id": "back_siding_main",
+        "photo_index": 3,
+        "view_label": "Elevation 5",
+        "wall_face": "back",
+        "material": "siding",
+        "ai_material": "siding",
+        "polygon": [
+          [
+            0,
+            0.1538
+          ],
+          [
+            1,
+            0.1538
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            0
+          ]
+        ],
+        "area_sqft": 89.5,
+        "confidence": 0.95,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      },
+      {
+        "id": "back_siding_gable",
+        "photo_index": 3,
+        "view_label": "Elevation 5",
+        "wall_face": "back",
+        "material": "siding",
+        "ai_material": "siding",
+        "polygon": [
+          [
+            0,
+            0
+          ],
+          [
+            0.3488,
+            0
+          ],
+          [
+            0.1744,
+            -0.2051
+          ]
+        ],
+        "area_sqft": 20.8,
+        "confidence": 0.9,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      },
+      {
+        "id": "right_siding",
+        "photo_index": 4,
+        "view_label": "Elevation 6",
+        "wall_face": "right",
+        "material": "siding",
+        "ai_material": "siding",
+        "polygon": [
+          [
+            0.3,
+            0
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            0.815
+          ],
+          [
+            0.3,
+            0.815
+          ]
+        ],
+        "area_sqft": 400,
+        "confidence": 0.9,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      },
+      {
+        "id": "right_stone",
+        "photo_index": 4,
+        "view_label": "Elevation 6",
+        "wall_face": "right",
+        "material": "stone",
+        "ai_material": "stone",
+        "polygon": [
+          [
+            0.3,
+            0.815
+          ],
+          [
+            1,
+            0.815
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            0.3,
+            1
+          ]
+        ],
+        "area_sqft": 90.8,
+        "confidence": 0.9,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      },
+      {
+        "id": "bay_stucco",
+        "photo_index": 4,
+        "view_label": "Elevation 6",
+        "wall_face": "front",
+        "material": "stucco",
+        "ai_material": "stucco",
+        "polygon": [
+          [
+            0,
+            0
+          ],
+          [
+            0.3,
+            0
+          ],
+          [
+            0.3,
+            0.815
+          ],
+          [
+            0,
+            0.815
+          ]
+        ],
+        "area_sqft": 137.1,
+        "confidence": 0.9,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      },
+      {
+        "id": "bay_stone",
+        "photo_index": 4,
+        "view_label": "Elevation 6",
+        "wall_face": "front",
+        "material": "stone",
+        "ai_material": "stone",
+        "polygon": [
+          [
+            0,
+            0.815
+          ],
+          [
+            0.3,
+            0.815
+          ],
+          [
+            0.3,
+            1
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "area_sqft": 31.1,
+        "confidence": 0.9,
+        "rep_corrected": false,
+        "needs_review": false,
+        "editable": true
+      }
+    ],
+    "missing_faces": [],
+    "unclassified_photos": [],
+    "complete": true,
+    "warnings": [
+      "front: openings use a material that had no wall area; a partial photo was applied to the full face",
+      "right: openings use a material that had no wall area; wall area is 0.05× a 2-story wall at 9.5 ft; only a corner photo",
+      "back: wall area is 0.52× a 2-story wall at 9.5 ft; only a corner photo",
+      "left: no photo of left; assumed siding"
+    ],
+    "confidence": "low",
+    "face_lengths_ft": {
+      "front": 62.3,
+      "right": 77.9,
+      "back": 59.7,
+      "left": 78.4
+    },
+    "face_length_source": "footprint_azimuth",
+    "roof_area_sqft": 4254,
+    "roof_area_source": "solar",
+    "inputs": {
+      "photos": [
+        {
+          "view_label": "Elevation 1",
+          "wall_face": "front",
+          "secondary_wall_face": null,
+          "faces_driveway": true,
+          "driveway_visible": false,
+          "scene": null,
+          "notes": null,
+          "confidence_reason": "Garage door anchor and siding course count used for height, garage doors for width.",
+          "eave_height_ft": 17,
+          "eave_before_clamp_ft": 16.33,
+          "gable_rise_ft": 3.5,
+          "height_method": "course_count",
+          "height_clamped": true,
+          "is_one_story_wing": false,
+          "wall_width_ft": 43,
+          "observed_wall_width_ft": 43,
+          "visible_width_ft": 43,
+          "visible_width_fraction": 1,
+          "visible_x_start": 0,
+          "face_spans": null,
+          "window_rows": 2,
+          "story_count": 2,
+          "garage_doors_count": 2,
+          "confidence": 0.9,
+          "is_corner_shot": false,
+          "material_shares": {
+            "siding": 85,
+            "stone": 15
+          },
+          "material_regions": [
+            {
+              "material": "lap_siding",
+              "percent": 85,
+              "confidence": 95
+            },
+            {
+              "material": "stone",
+              "percent": 15,
+              "confidence": 95
+            }
+          ],
+          "material_share_spread": {
+            "siding": 0,
+            "stone": 0,
+            "stucco": 0,
+            "brick": 0,
+            "trim": 0
+          },
+          "material_share_spread_max": 0,
+          "material_sample_count": 3,
+          "sections": [
+            {
+              "id": "section_stone_1",
+              "material": "stone",
+              "wall_face": "front",
+              "polygon": [
+                [
+                  0,
+                  0.8163
+                ],
+                [
+                  1,
+                  0.8163
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  0,
+                  1
+                ]
+              ],
+              "confidence": 0.95
+            },
+            {
+              "id": "section_siding_main",
+              "material": "siding",
+              "wall_face": "front",
+              "polygon": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  0.8163
+                ],
+                [
+                  0,
+                  0.8163
+                ]
+              ],
+              "confidence": 0.95
+            },
+            {
+              "id": "section_siding_gable",
+              "material": "siding",
+              "wall_face": "front",
+              "polygon": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.5,
+                  -0.2143
+                ],
+                [
+                  1,
+                  0
+                ]
+              ],
+              "confidence": 0.9
+            }
+          ],
+          "openings": [
+            {
+              "type": "garage_door",
+              "width_ft": 16,
+              "height_ft": 7,
+              "material": "siding",
+              "pos_x": 12.5,
+              "confidence": 95
+            },
+            {
+              "type": "garage_door",
+              "width_ft": 16,
+              "height_ft": 7,
+              "material": "siding",
+              "pos_x": 31,
+              "confidence": 95
+            },
+            {
+              "type": "window",
+              "width_ft": 7.5,
+              "height_ft": 4.5,
+              "material": "siding",
+              "pos_x": 12.5,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 3,
+              "material": "siding",
+              "pos_x": 21.5,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 7.5,
+              "height_ft": 4.5,
+              "material": "siding",
+              "pos_x": 31,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 3,
+              "material": "siding",
+              "pos_x": 12.5,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 3,
+              "material": "siding",
+              "pos_x": 31,
+              "confidence": 90
+            }
+          ]
+        },
+        {
+          "view_label": "Elevation 2",
+          "wall_face": "front",
+          "secondary_wall_face": "right_side",
+          "faces_driveway": true,
+          "driveway_visible": false,
+          "scene": null,
+          "notes": null,
+          "confidence_reason": "Siding course count used for eave height, windows for width. Complex facade with multiple materials and bay windows.",
+          "eave_height_ft": 20,
+          "eave_before_clamp_ft": 20,
+          "gable_rise_ft": 11,
+          "height_method": "course_count",
+          "height_clamped": false,
+          "is_one_story_wing": false,
+          "wall_width_ft": 60,
+          "observed_wall_width_ft": 60,
+          "visible_width_ft": 60,
+          "visible_width_fraction": 1,
+          "visible_x_start": 0,
+          "face_spans": null,
+          "window_rows": 2,
+          "story_count": 2,
+          "garage_doors_count": 0,
+          "confidence": 0.95,
+          "is_corner_shot": true,
+          "material_shares": {
+            "stone": 45,
+            "stucco": 55
+          },
+          "material_regions": [
+            {
+              "material": "stone",
+              "percent": 45,
+              "confidence": 90
+            },
+            {
+              "material": "stucco",
+              "percent": 55,
+              "confidence": 90
+            }
+          ],
+          "material_share_spread": {
+            "siding": 0,
+            "stone": 2,
+            "stucco": 2,
+            "brick": 0,
+            "trim": 0
+          },
+          "material_share_spread_max": 2,
+          "material_sample_count": 3,
+          "sections": [
+            {
+              "id": "stone_lower",
+              "material": "stone",
+              "wall_face": "front",
+              "polygon": [
+                [
+                  0,
+                  0.5
+                ],
+                [
+                  1,
+                  0.5
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  0,
+                  1
+                ]
+              ],
+              "confidence": 0.9
+            },
+            {
+              "id": "stucco_upper",
+              "material": "stucco",
+              "wall_face": "front",
+              "polygon": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  0.5
+                ],
+                [
+                  0,
+                  0.5
+                ]
+              ],
+              "confidence": 0.9
+            },
+            {
+              "id": "stucco_gable",
+              "material": "stucco",
+              "wall_face": "front",
+              "polygon": [
+                [
+                  0.316,
+                  -0.55
+                ],
+                [
+                  0.683,
+                  -0.55
+                ],
+                [
+                  0.683,
+                  0
+                ],
+                [
+                  0.316,
+                  0
+                ]
+              ],
+              "confidence": 0.9
+            }
+          ],
+          "openings": [
+            {
+              "type": "window",
+              "width_ft": 6,
+              "height_ft": 5,
+              "material": "stone",
+              "pos_x": 3,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 6,
+              "height_ft": 5,
+              "material": "stucco",
+              "pos_x": 3,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 9,
+              "height_ft": 5,
+              "material": "stone",
+              "pos_x": 18,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 9,
+              "height_ft": 5,
+              "material": "stucco",
+              "pos_x": 18,
+              "confidence": 90
+            },
+            {
+              "type": "entry_door",
+              "width_ft": 6.5,
+              "height_ft": 7.5,
+              "material": "stone",
+              "pos_x": 30,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 9,
+              "height_ft": 5,
+              "material": "stone",
+              "pos_x": 48,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 9,
+              "height_ft": 5,
+              "material": "stucco",
+              "pos_x": 48,
+              "confidence": 90
+            }
+          ]
+        },
+        {
+          "view_label": "Elevation 3",
+          "wall_face": "back",
+          "secondary_wall_face": "right_side",
+          "faces_driveway": false,
+          "driveway_visible": false,
+          "scene": null,
+          "notes": null,
+          "confidence_reason": "Siding course count used for eave height. Wall width estimated using window and door anchors. Corner shot with clear visibility of the primary wall.",
+          "eave_height_ft": 20,
+          "eave_before_clamp_ft": 20,
+          "gable_rise_ft": 4,
+          "height_method": "course_count",
+          "height_clamped": false,
+          "is_one_story_wing": false,
+          "wall_width_ft": 42,
+          "observed_wall_width_ft": 42,
+          "visible_width_ft": 42,
+          "visible_width_fraction": 1,
+          "visible_x_start": 0,
+          "face_spans": null,
+          "window_rows": 2,
+          "story_count": 2,
+          "garage_doors_count": 0,
+          "confidence": 0.9,
+          "is_corner_shot": true,
+          "material_shares": {
+            "siding": 100
+          },
+          "material_regions": [
+            {
+              "material": "lap_siding",
+              "percent": 100,
+              "confidence": 95
+            }
+          ],
+          "material_share_spread": {
+            "siding": 0,
+            "stone": 0,
+            "stucco": 0,
+            "brick": 0,
+            "trim": 0
+          },
+          "material_share_spread_max": 0,
+          "material_sample_count": 3,
+          "sections": [
+            {
+              "id": "back_siding_section_1",
+              "material": "siding",
+              "wall_face": "back",
+              "polygon": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.178,
+                  -0.2
+                ],
+                [
+                  0.357,
+                  0
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  0,
+                  1
+                ]
+              ],
+              "confidence": 1
+            }
+          ],
+          "openings": [
+            {
+              "type": "window",
+              "width_ft": 9,
+              "height_ft": 5,
+              "material": "siding",
+              "pos_x": 18.5,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 5,
+              "material": "siding",
+              "pos_x": 26.5,
+              "confidence": 90
+            },
+            {
+              "type": "entry_door",
+              "width_ft": 3,
+              "height_ft": 6.8,
+              "material": "siding",
+              "pos_x": 30.5,
+              "confidence": 95
+            },
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 5,
+              "material": "siding",
+              "pos_x": 35.5,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 1.5,
+              "material": "siding",
+              "pos_x": 13.5,
+              "confidence": 85
+            },
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 1.5,
+              "material": "siding",
+              "pos_x": 28.5,
+              "confidence": 85
+            }
+          ]
+        },
+        {
+          "view_label": "Elevation 5",
+          "wall_face": "back",
+          "secondary_wall_face": "right_side",
+          "faces_driveway": false,
+          "driveway_visible": false,
+          "scene": null,
+          "notes": null,
+          "confidence_reason": "Siding course count used for height, window/door widths for overall wall width. Mixed materials and corner shot add complexity. Roof pitch estimated from visible gable rake.",
+          "eave_height_ft": 19.5,
+          "eave_before_clamp_ft": 19.5,
+          "gable_rise_ft": 4,
+          "height_method": "course_count",
+          "height_clamped": false,
+          "is_one_story_wing": false,
+          "wall_width_ft": 43,
+          "observed_wall_width_ft": 43,
+          "visible_width_ft": 43,
+          "visible_width_fraction": 1,
+          "visible_x_start": 0,
+          "face_spans": null,
+          "window_rows": 2,
+          "story_count": 2,
+          "garage_doors_count": 0,
+          "confidence": 0.9,
+          "is_corner_shot": true,
+          "material_shares": {
+            "siding": 85,
+            "stone": 15
+          },
+          "material_regions": [
+            {
+              "material": "lap_siding",
+              "percent": 85,
+              "confidence": 95
+            },
+            {
+              "material": "stone",
+              "percent": 15,
+              "confidence": 95
+            }
+          ],
+          "material_share_spread": {
+            "siding": 0,
+            "stone": 0,
+            "stucco": 0,
+            "brick": 0,
+            "trim": 0
+          },
+          "material_share_spread_max": 0,
+          "material_sample_count": 3,
+          "sections": [
+            {
+              "id": "back_stone_wainscot",
+              "material": "stone",
+              "wall_face": "back",
+              "polygon": [
+                [
+                  0,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  1,
+                  0.1538
+                ],
+                [
+                  0,
+                  0.1538
+                ]
+              ],
+              "confidence": 0.95
+            },
+            {
+              "id": "back_siding_main",
+              "material": "siding",
+              "wall_face": "back",
+              "polygon": [
+                [
+                  0,
+                  0.1538
+                ],
+                [
+                  1,
+                  0.1538
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  0,
+                  0
+                ]
+              ],
+              "confidence": 0.95
+            },
+            {
+              "id": "back_siding_gable",
+              "material": "siding",
+              "wall_face": "back",
+              "polygon": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.3488,
+                  0
+                ],
+                [
+                  0.1744,
+                  -0.2051
+                ]
+              ],
+              "confidence": 0.9
+            }
+          ],
+          "openings": [
+            {
+              "type": "window",
+              "width_ft": 6,
+              "height_ft": 6,
+              "material": "siding",
+              "pos_x": 9,
+              "confidence": 95
+            },
+            {
+              "type": "entry_door",
+              "width_ft": 3,
+              "height_ft": 6.8,
+              "material": "siding",
+              "pos_x": 16.5,
+              "confidence": 95
+            },
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 4,
+              "material": "siding",
+              "pos_x": 21.5,
+              "confidence": 95
+            },
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 4,
+              "material": "siding",
+              "pos_x": 26,
+              "confidence": 95
+            },
+            {
+              "type": "window",
+              "width_ft": 10,
+              "height_ft": 4,
+              "material": "siding",
+              "pos_x": 35,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 6,
+              "height_ft": 6,
+              "material": "siding",
+              "pos_x": 16.5,
+              "confidence": 95
+            },
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 4,
+              "material": "siding",
+              "pos_x": 21.5,
+              "confidence": 95
+            },
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 4,
+              "material": "siding",
+              "pos_x": 26,
+              "confidence": 95
+            },
+            {
+              "type": "window",
+              "width_ft": 10,
+              "height_ft": 4,
+              "material": "siding",
+              "pos_x": 35,
+              "confidence": 90
+            }
+          ]
+        },
+        {
+          "view_label": "Elevation 6",
+          "wall_face": "right",
+          "secondary_wall_face": "front",
+          "faces_driveway": false,
+          "driveway_visible": false,
+          "scene": null,
+          "notes": null,
+          "confidence_reason": "Height estimated by siding course count (vinyl_4), width by window scale. Corner shot with mixed materials.",
+          "eave_height_ft": 18,
+          "eave_before_clamp_ft": 18,
+          "gable_rise_ft": 0,
+          "height_method": "course_count",
+          "height_clamped": false,
+          "is_one_story_wing": false,
+          "wall_width_ft": 28,
+          "observed_wall_width_ft": 22,
+          "visible_width_ft": 22,
+          "visible_width_fraction": 0.78,
+          "visible_x_start": 0,
+          "face_spans": null,
+          "window_rows": 1,
+          "story_count": 2,
+          "garage_doors_count": 0,
+          "confidence": 0.9,
+          "is_corner_shot": true,
+          "material_shares": {
+            "siding": 81,
+            "stone": 19
+          },
+          "material_regions": [
+            {
+              "material": "lap_siding",
+              "percent": 81,
+              "confidence": 95
+            },
+            {
+              "material": "stone",
+              "percent": 19,
+              "confidence": 95
+            }
+          ],
+          "material_share_spread": {
+            "siding": 5,
+            "stone": 5,
+            "stucco": 0,
+            "brick": 0,
+            "trim": 0
+          },
+          "material_share_spread_max": 5,
+          "material_sample_count": 3,
+          "sections": [
+            {
+              "id": "bay_stucco",
+              "material": "stucco",
+              "wall_face": "front",
+              "polygon": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.3,
+                  0
+                ],
+                [
+                  0.3,
+                  0.815
+                ],
+                [
+                  0,
+                  0.815
+                ]
+              ],
+              "confidence": 0.9
+            },
+            {
+              "id": "bay_stone",
+              "material": "stone",
+              "wall_face": "front",
+              "polygon": [
+                [
+                  0,
+                  0.815
+                ],
+                [
+                  0.3,
+                  0.815
+                ],
+                [
+                  0.3,
+                  1
+                ],
+                [
+                  0,
+                  1
+                ]
+              ],
+              "confidence": 0.9
+            },
+            {
+              "id": "right_siding",
+              "material": "siding",
+              "wall_face": "right_side",
+              "polygon": [
+                [
+                  0.3,
+                  0
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  0.815
+                ],
+                [
+                  0.3,
+                  0.815
+                ]
+              ],
+              "confidence": 0.9
+            },
+            {
+              "id": "right_stone",
+              "material": "stone",
+              "wall_face": "right_side",
+              "polygon": [
+                [
+                  0.3,
+                  0.815
+                ],
+                [
+                  1,
+                  0.815
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  0.3,
+                  1
+                ]
+              ],
+              "confidence": 0.9
+            }
+          ],
+          "openings": [
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 4,
+              "material": "siding",
+              "pos_x": 3.5,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 4,
+              "material": "siding",
+              "pos_x": 10.5,
+              "confidence": 90
+            },
+            {
+              "type": "window",
+              "width_ft": 3,
+              "height_ft": 4,
+              "material": "siding",
+              "pos_x": 17.5,
+              "confidence": 90
+            }
+          ]
+        }
+      ],
+      "faceLengthsFt": {
+        "front": 62.3,
+        "right": 77.9,
+        "back": 59.7,
+        "left": 78.4
+      },
+      "footprintPerimeterFt": 278,
+      "fillUncoveredFaces": true
+    }
+  },
+  "debug_tail": [
+    "Analyzing Elevation 4...",
+    "Elevation 4: material sample 1/3 failed (Failed to parse Gemini JSON response)",
+    "Elevation 4: material sample 2/3 failed (Failed to parse Gemini JSON response)",
+    "Elevation 4: material sample 3/3 failed (Failed to parse Gemini JSON response)",
+    "Elevation 4: all 3 material samples failed",
+    "Analyzing Elevation 5...",
+    "Elevation 5: merged 3 material reads (max share spread 0)",
+    "  Elevation 5: 43ft wide × 19.5ft eave [course_count, 59 courses] | gd=0 d=1 w=9 | vinyl | 90%",
+    "Analyzing Elevation 6...",
+    "Elevation 6: merged 3 material reads (max share spread 5)",
+    "  Elevation 6: 28ft wide × 18ft eave [course_count, 54 courses] | gd=0 d=0 w=3 | vinyl | 90%",
+    "Story count 2 from photos (photos, reads 2,2,2,2,1)",
+    "⚠️ Pitch discrepancy: Solar normal-vector=8/12 vs photo gable-rake=11/12 (>2 rise units — using Solar as authoritative)",
+    "Wall height: 18ft (formula_fallback (no anchors found, 2 × 9ft))",
+    "OSM HTTP 406 — falling back to Solar API",
+    "Roof facets built from Solar segments: 21",
+    "✅ Solar footprint (traced outline, 27 vertices): 85ft × 56ft, perimeter=278ft (complex/multi-wing building — photos underestimated perimeter)",
+    "Footprint: traced_polygon, 27 corners, plan area 3242 sqft (bbox 4760 sqft), perimeter 278 LF",
+    "Masonry per face (area-weighted → 3%): front=15%, back=0%(not observed), left_side=0%(not observed), right_side=0%(not observed)",
+    "Material map review required: 3/4 faces classified; 0 sqft unknown/other",
+    "Masonry/non-siding map: stone = −355 sqft",
+    "Sanity check: siding=1409.53 sqft, footprint=3242 sqft, ratio=0.43",
+    "⚠️ Sanity warning: ratio=0.43 < 1 — canonical area retained; manual review required",
+    "Fascia (roof edges): eave=342.6ft + pitch-corrected rake=233.4ft → 576ft (facet measured)",
+    "Soffit: level=531 sqft (342.6ft × 1.55ft) + sloped=245 sqft (233.4ft × 1.05ft)",
+    "Accessories: 0 shutter pairs (0 sqft) | 0 awnings (0 sqft)",
+    "Net wall: 1410 sqft (14.10 SQ) | Gable: 196 sqft | Openings deducted: 470 sqft",
+    "Material sections (footprint_azimuth, perimeter 278 LF footprint, confidence low): siding 3179.2 / stone 220.2 / stucco 120 / brick 0 sqft",
+    "Openings: 17 windows + 0 shutters + 2 entry doors + 2 garage doors",
+    "Fascia: 576ft | Soffit: 776 sqft | Trim: 53 sqft"
+  ]
+}

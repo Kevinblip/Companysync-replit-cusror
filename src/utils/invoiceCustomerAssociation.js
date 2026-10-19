@@ -38,3 +38,14 @@ export function getInvoicesForCustomerId(invoices, customerId) {
 export function isInvoiceUnlinked(invoice) {
   return !String(invoice?.customer_id || '').trim();
 }
+
+export {
+  classifyInvoiceCustomerLink,
+  customerIdentityIds,
+  getInvoicesForCustomerProfile,
+  invoiceLinkProblem,
+  invoiceMatchesCustomer,
+  invoiceNeedsCustomerLink,
+  normalizePersonName,
+  resolveUniqueCustomer,
+} from '../../lib/invoiceCustomerMatch.cjs';

@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Calendar, CheckCircle2, RefreshCw, LinkIcon, XCircle, Clock, Edit, Save, X, Globe, User, Plus, Trash2, GripVertical, AlertTriangle, Bell, Lock, Eye, EyeOff, Smartphone, Shield, DollarSign, Banknote, ExternalLink, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 import { validateE164Phone, formatToE164, looksLikeFormattableUSPhone } from "@/utils";
-import { format } from "date-fns";
+import { safeFormat, toSafeDate } from "@/lib/safeDate";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -837,10 +837,10 @@ export default function GeneralSettings() {
                   <>
                     <p className="font-semibold text-green-700">{t.common.connected || "Connected"}</p>
                     <p className="text-sm text-gray-500">{t.settings.googleCalendarActive || "Google Calendar sync is active"}</p>
-                    {lastSync && (
+                    {toSafeDate(lastSync) && (
                       <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {t.common.lastSynced || "Last synced"}: {format(new Date(lastSync), 'MMM d, h:mm a')}
+                        {t.common.lastSynced || "Last synced"}: {safeFormat(lastSync, 'MMM d, h:mm a')}
                       </p>
                     )}
                   </>
@@ -944,11 +944,11 @@ export default function GeneralSettings() {
               <CheckCircle2 className="w-4 h-4 text-green-600" />
               <AlertDescription className="text-green-900">
                 <div className="font-semibold mb-2">✅ Sync Status: Healthy</div>
-                {diagnosis.last_sync && (
-                  <p className="text-sm">Last synced: {new Date(diagnosis.last_sync).toLocaleString()}</p>
+                {toSafeDate(diagnosis.last_sync) && (
+                  <p className="text-sm">Last synced: {safeFormat(diagnosis.last_sync, 'MMM d, yyyy, h:mm a')}</p>
                 )}
-                {diagnosis.webhook_expiration && !diagnosis.webhook_expired && (
-                  <p className="text-sm">Instant sync expires: {new Date(diagnosis.webhook_expiration).toLocaleString()}</p>
+                {toSafeDate(diagnosis.webhook_expiration) && !diagnosis.webhook_expired && (
+                  <p className="text-sm">Instant sync expires: {safeFormat(diagnosis.webhook_expiration, 'MMM d, yyyy, h:mm a')}</p>
                 )}
               </AlertDescription>
             </Alert>
@@ -1949,7 +1949,7 @@ function AccountAccessLog() {
               <div key={log.id} className="flex items-start justify-between text-sm border rounded-lg px-3 py-2">
                 <div>
                   <p className="text-gray-700 font-medium">{log.reason}</p>
-                  <p className="text-gray-400 text-xs">{log.admin_email} · {log.started_at ? new Date(log.started_at).toLocaleString() : '—'}</p>
+                  <p className="text-gray-400 text-xs">{log.admin_email} · {safeFormat(log.started_at, 'MMM d, yyyy, h:mm a', '—')}</p>
                 </div>
                 <span className={`ml-3 shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${log.is_active ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
                   {log.is_active ? 'Active' : 'Ended'}

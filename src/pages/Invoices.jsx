@@ -25,7 +25,7 @@ import { requireMessageSubmission } from "@/utils/paymentRequestDelivery";
 import {
   changeInvoiceCustomerName,
   getCompanyCustomerById,
-  isInvoiceUnlinked,
+  invoiceNeedsCustomerLink,
   selectInvoiceCustomer,
 } from "@/utils/invoiceCustomerAssociation";
 import CustomerIdentityPickerDialog from "@/components/invoices/CustomerIdentityPickerDialog";
@@ -255,6 +255,7 @@ export default function InvoicesPage() {
     return filterInvoices(allInvoices, filteredCustomers) || [];
   }, [allInvoices, filteredCustomers, filterInvoices]);
 
+  // Preview only. The server allocates the stored number per company.
   const generateNextInvoiceNumber = () => nextInvoiceNumberFrom(allInvoices);
 
   useEffect(() => {
@@ -521,7 +522,7 @@ export default function InvoicesPage() {
   });
 
   const openLinkCustomerPicker = (invoice) => {
-    if (!isAdmin || !isInvoiceUnlinked(invoice)) return;
+    if (!isAdmin || !invoiceNeedsCustomerLink(invoice, filteredCustomers)) return;
     setLinkInvoiceTarget(invoice);
     setLinkCustomerCandidate(null);
     setShowLinkCustomerPicker(true);
@@ -1990,7 +1991,7 @@ export default function InvoicesPage() {
                           <ChevronRight className="w-4 h-4 text-gray-400" />
                         </div>
                       </button>
-                      {isAdmin && isInvoiceUnlinked(invoice) && (
+                      {isAdmin && invoiceNeedsCustomerLink(invoice, filteredCustomers) && (
                         <div className="px-4 pb-3">
                           <Button
                             size="sm"
@@ -2001,6 +2002,9 @@ export default function InvoicesPage() {
                             <LinkIcon className="mr-1.5 h-4 w-4" />
                             Link to customer
                           </Button>
+                          <p className="mt-1 text-xs text-amber-700">
+                            {invoice.customer_id ? 'Customer id does not match a customer record.' : 'No customer linked.'}
+                          </p>
                         </div>
                       )}
                       </React.Fragment>
@@ -2281,7 +2285,7 @@ export default function InvoicesPage() {
                     )}
                      <td className="px-4 py-3 text-right align-top">
                        <div className="flex items-start justify-end gap-2">
-                        {isAdmin && isInvoiceUnlinked(invoice) && (
+                        {isAdmin && invoiceNeedsCustomerLink(invoice, filteredCustomers) && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -2733,7 +2737,7 @@ export default function InvoicesPage() {
         customers={filteredCustomers}
         onSelect={handleLinkCustomerSelection}
         title="Choose who this invoice belongs to"
-        description="This invoice has no customer link. Select the correct customer using their contact details; the invoice will not be changed until you confirm."
+        description="Search by name, email, phone, or address. The invoice is not changed until you confirm. Confirming sets the customer id and copies the customer's name and email."
       />
 
       <AlertDialog
@@ -2744,7 +2748,7 @@ export default function InvoicesPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm invoice customer</AlertDialogTitle>
             <AlertDialogDescription>
-              This will link the existing invoice to the selected customer record. It will not change the invoice amount, status, or customer-name text.
+              This sets the invoice customer id to the selected record and copies that customer's name and email. Amount and status stay the same.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {linkInvoiceTarget && linkCustomerCandidate && (

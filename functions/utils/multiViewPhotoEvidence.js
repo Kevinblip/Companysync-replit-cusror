@@ -10,6 +10,8 @@
  * @module functions/utils/multiViewPhotoEvidence
  */
 
+import { slotFaces } from './photoSlotOrientation.js';
+
 export const MULTI_VIEW_EVIDENCE_VERSION = '1.0.0';
 export const MULTI_VIEW_FACES = ['front', 'back', 'left_side', 'right_side'];
 
@@ -70,6 +72,8 @@ export function normalizeFace(value) {
 }
 
 function labelFaces(label) {
+  const fromSlot = slotFaces(label);
+  if (fromSlot.length > 0) return fromSlot;
   const text = String(label || '').toLowerCase().trim();
   const corner = /corner|angle/.test(text)
     || /\b[fb][lr]\b/.test(text)
@@ -199,6 +203,16 @@ function assignmentFor(result, label, faces, labelFaceSet, detail) {
     && Number.isFinite(Number(result?.exif_face_angular_error_deg));
   const exifTrusted = hasExif && Number(result.exif_face_angular_error_deg) <= 40;
   if (exifTrusted && rawFace) {
+    if (labelFaceSet.length > 0 && !labelFaceSet.includes(rawFace)) {
+      return {
+        faces: labelFaceSet,
+        primaryFace: labelFaceSet[0],
+        source: 'slot_label',
+        conflict: false,
+        visual_face_disagreed: true,
+        conflict_faces: [rawFace, ...labelFaceSet],
+      };
+    }
     const exifFaces = isCornerResult(result, label, [], faces) && faces.length > 1
       ? faces
       : [rawFace];
@@ -210,15 +224,17 @@ function assignmentFor(result, label, faces, labelFaceSet, detail) {
     };
   }
 
-  // A named uploader slot is stronger than an unproven visual wall_face.
-  // If those disagree, leave the result unresolved instead of silently
-  // attaching a measurement to the wrong elevation.
+  // A named uploader slot is the street-facing convention and is stronger
+  // than a visual wall_face. A model that names the opposite side (left and
+  // right swapped, or front called back) must not move the measurement.
+  // The disagreement stays on the record; the slot still covers its wall.
   if (labelFaceSet.length > 0 && rawFace && !labelFaceSet.includes(rawFace)) {
     return {
-      faces: [],
-      primaryFace: null,
-      source: 'conflict',
-      conflict: true,
+      faces: labelFaceSet,
+      primaryFace: labelFaceSet[0],
+      source: 'slot_label',
+      conflict: false,
+      visual_face_disagreed: true,
       conflict_faces: [rawFace, ...labelFaceSet],
     };
   }
@@ -261,6 +277,7 @@ function normalizeObservation(result, index) {
     primary_face: assignment.primaryFace,
     assignment_source: assignment.source,
     assignment_conflict: assignment.conflict,
+    visual_face_disagreed: assignment.visual_face_disagreed === true,
     conflict_faces: assignment.conflict_faces || [],
     is_corner: corner,
     is_detail: detail,
@@ -275,13 +292,22 @@ function normalizeObservation(result, index) {
     status: detail ? 'supporting_detail' : assignment.conflict ? 'unresolved' : 'accepted',
     wall_width_ft: num(result?.wall_width_ft, 0) || null,
     wall_height_ft: num(result?.wall_height_ft ?? result?.eave_height_ft, 0) || null,
+    heading_deg: Number.isFinite(Number(result?.heading_deg)) ? Number(result.heading_deg) : null,
   };
 }
 
 function identityToken(record) {
-  if (record.source_key.startsWith('index:')) return null;
-  if (record.panorama_id != null) return `pano:${record.panorama_id}`;
-  return record.source_key;
+  // An identical file under two labels is one photo, whatever the panorama
+  // id says. A Street View panorama is one 360 capture: different headings
+  // and different walls are different elevations and must not collapse.
+  if (!record.source_key.startsWith('index:')) return record.source_key;
+  if (record.panorama_id != null) {
+    const face = record.primary_face || 'unknown';
+    const heading = Number(record.heading_deg);
+    const bucket = Number.isFinite(heading) ? Math.round(heading / 20) : 'na';
+    return `pano:${record.panorama_id}|${face}|${bucket}`;
+  }
+  return null;
 }
 
 function unionFind(size) {
@@ -476,6 +502,16 @@ export function buildMultiViewPhotoEvidence(perPhotoResults = []) {
       label: record.label,
       message: `${record.label} has conflicting or insufficient face evidence and was not used as a wall anchor.`,
     });
+  }
+  for (const record of records) {
+    if (record.visual_face_disagreed) {
+      warnings.push({
+        code: 'slot_overrides_visual_face',
+        photo_index: record.photo_index,
+        label: record.label,
+        message: `${record.label} keeps the street-facing slot (${record.faces.join(', ')}). The visual face ${record.conflict_faces[0] || 'reading'} disagreed and was not used.`,
+      });
+    }
   }
   for (const record of duplicateRecords) {
     warnings.push({

@@ -16,6 +16,7 @@ const { assertBuildDate, buildDayRange } = require('../lib/buildScheduleTime.cjs
 const { calendarBuildRouteGuard, manageEntityBuildRouteGuard } = require('../lib/lexiBuildIntent.cjs');
 const { buildScheduleConfirmationGuard, isBuildSchedulingMutation } = require('../lib/lexiBuildConfirmation.cjs');
 const { annotateToolResult: groundToolResult, createGroundingLedger, auditLexiResponse, buildWriteVerificationResult } = require('../lib/lexiGrounding.cjs');
+const { allocateInvoiceNumber, resolvePaymentInvoiceLink, prepareEntityWrite } = require('../lib/invoiceNumbers.cjs');
 
 let _stripeClientForInvoiceEmail = null;
 async function _getStripeClientForInvoiceEmail() {
@@ -1395,6 +1396,11 @@ async function handleFunctionInvoke(req, res) {
     const functionName = body?.functionName;
     let params = body?.params;
     if (!functionName) { sendJson(res, { error: 'functionName is required' }, 400); return; }
+    const stagingBlock = require('../lib/stagingSideEffects.cjs').blockedFunction(functionName);
+    if (stagingBlock) {
+      sendJson(res, { data: stagingBlock });
+      return;
+    }
     // Internal `_xxxImpl` helpers are implementation details of a public handler
     // (which does the auth/checkAIUsage gating) — never reachable directly by name,
     // or the gate is trivially bypassed via this unauthenticated RPC endpoint.
@@ -1546,14 +1552,21 @@ async function handleFunctionInvoke(req, res) {
 
     if (functionName === 'syncEstimateAdjustmentToInvoice') {
       try {
-        const { estimate_id, new_total, adjustment_amount } = params || {};
+        const { estimate_id } = params || {};
         if (!estimate_id) { sendJson(res, { data: { success: false, error: 'estimate_id required' } }); return; }
         const prodDb = require('./prod-db.cjs');
         const pool = prodDb.getPool();
         const companyId = params.company_id || params.companyId;
         if (!companyId) { sendJson(res, { data: { success: false, error: 'company_id is required' } }); return; }
+        const { buildLinkedInvoiceUpdate } = require('../lib/estimateInvoiceSync.cjs');
+        const estRes = await pool.query(
+          `SELECT * FROM estimates WHERE id = $1 AND company_id = $2 LIMIT 1`,
+          [estimate_id, companyId]
+        );
+        const estimate = estRes.rows[0];
+        if (!estimate) { sendJson(res, { data: { success: false, error: 'Estimate not found' } }); return; }
         const invRes = await pool.query(
-          `SELECT id, total_amount, amount_paid, items, data FROM invoices WHERE data->>'estimate_id' = $1 AND company_id = $2 ORDER BY created_at DESC LIMIT 1`,
+          `SELECT * FROM invoices WHERE data->>'estimate_id' = $1 AND company_id = $2 ORDER BY created_at DESC LIMIT 1`,
           [estimate_id, companyId]
         );
         if (invRes.rows.length === 0) {
@@ -1561,21 +1574,19 @@ async function handleFunctionInvoke(req, res) {
           return;
         }
         const inv = invRes.rows[0];
-        const existingItems = Array.isArray(inv.items) ? inv.items : (typeof inv.items === 'string' ? JSON.parse(inv.items) : []);
-        const existingData = typeof inv.data === 'string' ? JSON.parse(inv.data) : (inv.data || {});
-        const adj = Number(adjustment_amount) || 0;
-        let updatedItems = existingItems.filter(i => i.description !== 'Adjustment');
-        if (adj !== 0) {
-          updatedItems.push({ description: 'Adjustment', quantity: 1, rate: adj, amount: adj, unit: '', code: '' });
-        }
-        const newTotal = Number(new_total) || 0;
-        const updatedData = { ...existingData, amount: newTotal, adjustment_amount: adj };
+        const { payload, preview } = buildLinkedInvoiceUpdate(inv, estimate);
         await pool.query(
-          `UPDATE invoices SET total_amount = $1, items = $2, data = $3, updated_at = NOW() WHERE id = $4`,
-          [newTotal, JSON.stringify(updatedItems), JSON.stringify(updatedData), inv.id]
+          `UPDATE invoices
+              SET total_amount = $1,
+                  items = $2::jsonb,
+                  data = $3::jsonb,
+                  status = COALESCE($4, status),
+                  updated_at = NOW()
+            WHERE id = $5 AND company_id = $6`,
+          [payload.total_amount, JSON.stringify(payload.items), JSON.stringify(payload.data), payload.status || null, inv.id, companyId]
         );
-        console.log(`[syncEstimateAdjustmentToInvoice] Invoice ${inv.id}: total ${inv.total_amount} → ${newTotal}, adj=${adj}`);
-        sendJson(res, { data: { success: true, invoice_id: inv.id, old_total: inv.total_amount, new_total: newTotal } });
+        console.log(`[syncEstimateAdjustmentToInvoice] Invoice ${inv.id}: total ${preview.previousTotal} → ${preview.nextTotal}; amount paid left at ${preview.amountPaid}`);
+        sendJson(res, { data: { success: true, invoice_id: inv.id, old_total: preview.previousTotal, new_total: preview.nextTotal, amount_paid: preview.amountPaid, notified: false } });
       } catch (err) {
         console.error('[syncEstimateAdjustmentToInvoice] Error:', err.message);
         sendJson(res, { data: { success: false, error: err.message } });
@@ -1939,7 +1950,15 @@ async function handleFunctionInvoke(req, res) {
     // override removal in ONE place instead of two drifting copies.
 
     if (functionName === 'analyzeSidingMeasurement') {
-      const result = await handleAnalyzeSidingMeasurement(params || {});
+      // One satellite wall implementation. The plugin handler owns height,
+      // footprint, openings, and corners. This intercept used to keep a
+      // second, older copy that ignored rep-confirmed heights.
+      const handlers = await getFunctionHandlers();
+      if (typeof handlers.analyzeSidingMeasurement !== 'function') {
+        sendJson(res, { data: { success: false, error: 'Siding measurement handler unavailable' } });
+        return;
+      }
+      const result = await handlers.analyzeSidingMeasurement(params || {});
       sendJson(res, { data: result });
       return;
     }
@@ -2175,29 +2194,8 @@ async function handleFunctionInvoke(req, res) {
           [company_id, customer.id, customer.name]
         );
         if (existingInvoice.rowCount) throw new Error('This customer already has an invoice. Link the payment to the existing invoice instead');
-        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`invoice-number:${company_id}`]);
-        const invoiceYear = new Date().getFullYear();
-        const invoicePrefix = `INV-${invoiceYear}-`;
-        const nextRes = await client.query(
-          `SELECT COALESCE(MAX(
-                    CASE
-                      WHEN substring(invoice_number FROM '^INV-[0-9]{4}-([0-9]+)$') ~ '^[0-9]{1,9}$'
-                      THEN CAST(substring(invoice_number FROM '^INV-[0-9]{4}-([0-9]+)$') AS INTEGER)
-                      ELSE 0
-                    END
-                  ), 0) + 1 AS next_number
-           FROM invoices WHERE company_id = $1 AND invoice_number LIKE $2`,
-          [company_id, `${invoicePrefix}%`]
-        );
-        let invoiceSequence = Number(nextRes.rows[0].next_number);
-        let invoiceNumber = `${invoicePrefix}${String(invoiceSequence).padStart(4, '0')}`;
-        while ((await client.query(
-          `SELECT 1 FROM invoices WHERE company_id = $1 AND invoice_number = $2 LIMIT 1`,
-          [company_id, invoiceNumber]
-        )).rowCount) {
-          invoiceSequence += 1;
-          invoiceNumber = `${invoicePrefix}${String(invoiceSequence).padStart(4, '0')}`;
-        }
+        const assignedInvoiceNumber = await allocateInvoiceNumber(client, company_id);
+        const invoiceNumber = assignedInvoiceNumber.invoiceNumber;
         const invoiceId = randomUUID();
         const issueDate = payment.payment_date ? new Date(payment.payment_date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
         const items = [{ description: 'Payment received', quantity: 1, rate: amount, amount }];
@@ -2623,7 +2621,20 @@ async function handleFunctionInvoke(req, res) {
       }
       // See the matching comment in vite-functions-plugin.js: external calls are
       // marked so email handlers can fail closed when a request never reaches them.
-      const result = await handlers[functionName]({ ...(params || {}), __externalCall: true }, process.env.GOOGLE_GEMINI_API_KEY, req);
+      let result;
+      try {
+        result = await handlers[functionName]({ ...(params || {}), __externalCall: true }, process.env.GOOGLE_GEMINI_API_KEY, req);
+      } catch (handlerErr) {
+        // Handlers throw these on purpose (for example bulkImportPriceList).
+        // They are safe to show. Every other failure stays masked below.
+        const message = String(handlerErr?.message || '');
+        if (/^(Access denied|Authentication required)\b/i.test(message)) {
+          console.error('[Functions] Error:', message);
+          sendJson(res, { error: message }, 500);
+          return;
+        }
+        throw handlerErr;
+      }
       const { redactUserSecrets } = require('../lib/stripUserSecrets.cjs');
       sendJson(res, { data: redactUserSecrets(result) });
       return;
@@ -2706,186 +2717,10 @@ OUTPUT FORMAT — return ONLY valid JSON with a single key "narrations" containi
   }
 }
 
-async function handleAnalyzeSidingMeasurement(params) {
-  const { latitude, longitude, address = '', storyCount = 1, storyHeightFt = 9, openingDeductionPct = 15 } = params;
-  const debugLogs = ['[Prod] analyzeSidingMeasurement started'];
-  const googleApiKey = process.env.GOOGLE_MAPS_API_KEY;
-  if (!latitude || !longitude) return { success: false, error: 'Latitude and longitude are required', debug_logs: debugLogs };
-  if (!googleApiKey) return { success: false, error: 'GOOGLE_MAPS_API_KEY not configured on this server.', debug_logs: debugLogs };
-
-  let solarData = null;
-  for (const quality of ['HIGH', 'MEDIUM', '']) {
-    const qp = quality ? `&requiredQuality=${quality}` : '';
-    const url = `https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${latitude}&location.longitude=${longitude}${qp}&key=${googleApiKey}`;
-    const resp = await fetch(url);
-    if (resp.ok) { solarData = await resp.json(); debugLogs.push(`Solar API OK (${quality || 'any'})`); break; }
-    else { debugLogs.push(`Solar API ${quality || 'any'}: ${resp.status}`); }
-  }
-  if (!solarData) return { success: false, error: 'Google Solar API unavailable for this address.', debug_logs: debugLogs };
-
-  const roofSegments = solarData.solarPotential?.roofSegmentStats || [];
-  const wholeAreaM2 = solarData.solarPotential?.wholeRoofStats?.areaMeters2 || 0;
-  let segSumM2 = 0;
-  roofSegments.forEach(s => { segSumM2 += s.stats?.areaMeters2 || 0; });
-  const slopeAreaM2 = segSumM2 > 0 ? segSumM2 : wholeAreaM2;
-
-  let pitchDeg = 25, maxSegArea = 0;
-  for (const seg of roofSegments) {
-    const deg = seg.pitchDegrees ?? seg.tiltDegrees ?? null;
-    const area = seg.stats?.areaMeters2 || 0;
-    if (deg > 0 && area > maxSegArea) { maxSegArea = area; pitchDeg = deg; }
-  }
-  const pitchRad = pitchDeg * Math.PI / 180;
-  const pitchMultiplier = 1 / Math.cos(pitchRad);
-  const pitchVal = Math.round(Math.tan(pitchRad) * 12);
-  const pitchStr = `${Math.min(20, Math.max(1, pitchVal))}/12`;
-
-  const flatFootprintM2 = slopeAreaM2 / pitchMultiplier;
-  const flatFootprintSqFt = flatFootprintM2 * 10.764;
-
-  let nsSumM2 = 0, ewSumM2 = 0;
-  roofSegments.forEach(s => {
-    const az = ((s.azimuthDegrees ?? 0) % 360 + 360) % 360;
-    const area = s.stats?.areaMeters2 || 0;
-    if (az <= 45 || az > 315 || (az > 135 && az <= 225)) nsSumM2 += area;
-    else ewSumM2 += area;
-  });
-
-  let buildingLengthM, buildingWidthM, dimensionCapped = false;
-  if (nsSumM2 > 0 && ewSumM2 > 0) {
-    const nsRatio = nsSumM2 / (nsSumM2 + ewSumM2);
-    const rawAspect = nsRatio / (1 - nsRatio + 0.001);
-    const aspectRatio = Math.max(1.0, Math.min(4.0, rawAspect));
-    dimensionCapped = rawAspect > 3.8;
-    buildingLengthM = Math.sqrt(flatFootprintM2 * aspectRatio);
-    buildingWidthM = flatFootprintM2 / buildingLengthM;
-  } else {
-    buildingWidthM = Math.sqrt(flatFootprintM2 / 1.5);
-    buildingLengthM = buildingWidthM * 1.5;
-  }
-
-  const buildingLengthFt = buildingLengthM * 3.2808;
-  const buildingWidthFt = buildingWidthM * 3.2808;
-  const solarPerimeterFt = 2 * (buildingLengthFt + buildingWidthFt);
-
-  // Try OpenStreetMap for accurate building footprint perimeter
-  let osmPerimeterFt = null;
-  let osmUsed = false;
-  try {
-    const osmUrl = `https://overpass-api.de/api/interpreter?data=[out:json];way["building"](around:30,${latitude},${longitude});out geom;`;
-    const osmResp = await fetch(osmUrl, { signal: AbortSignal.timeout(6000) });
-    if (osmResp.ok) {
-      const osmData = await osmResp.json();
-      if (osmData.elements && osmData.elements.length > 0) {
-        const el = osmData.elements[0];
-        if (el.geometry && el.geometry.length >= 3) {
-          let perimM = 0;
-          for (let i = 0; i < el.geometry.length; i++) {
-            const a = el.geometry[i];
-            const b = el.geometry[(i + 1) % el.geometry.length];
-            const dlat = (b.lat - a.lat) * 111320;
-            const dlon = (b.lon - a.lon) * 111320 * Math.cos(a.lat * Math.PI / 180);
-            perimM += Math.sqrt(dlat * dlat + dlon * dlon);
-          }
-          osmPerimeterFt = perimM * 3.2808;
-          osmUsed = true;
-          debugLogs.push(`OSM footprint: ${osmPerimeterFt.toFixed(1)}ft (Solar: ${solarPerimeterFt.toFixed(1)}ft)`);
-        }
-      } else {
-        debugLogs.push('OSM: no building within 30m — using Solar perimeter');
-      }
-    }
-  } catch (osmErr) {
-    debugLogs.push(`OSM skipped: ${osmErr.message}`);
-  }
-  const perimeterFt = osmUsed ? osmPerimeterFt : solarPerimeterFt;
-
-  const numSegs = roofSegments.length;
-  const nsEwImbalance = Math.abs(nsSumM2 - ewSumM2) / (Math.max(nsSumM2, ewSumM2) + 0.001);
-  const isGable = numSegs <= 4 && nsEwImbalance > 0.25;
-  const roofType = isGable ? 'gable' : (numSegs <= 6 ? 'hip' : 'complex');
-
-  let gableAreaSqFt = 0;
-  if (isGable) {
-    const riseM = (buildingWidthM / 2) * Math.tan(pitchRad);
-    gableAreaSqFt = (0.5 * buildingWidthM * riseM) * 10.764 * 2;
-  }
-
-  const stories = Number(storyCount) || 1;
-  const storyHt = Number(storyHeightFt) || 9;
-  const openDeduct = Number(openingDeductionPct) || 15;
-  const totalWallHeightFt = stories * storyHt;
-  const grossWallAreaSqFt = perimeterFt * totalWallHeightFt + gableAreaSqFt;
-  const netWallAreaSqFt = grossWallAreaSqFt * (1 - openDeduct / 100);
-  const netWallAreaSQ = netWallAreaSqFt / 100;
-
-  const wallTopLf = Math.round(perimeterFt);
-  const wallBottomLf = Math.round(perimeterFt);
-  const outsideCornersCount = isGable ? 4 : 8;
-  const outsideCornersLf = outsideCornersCount * totalWallHeightFt;
-
-  let confidence = 68;
-  if (roofSegments.length >= 2) confidence += 4;
-  if (roofSegments.length >= 4) confidence += 4;
-  if (nsSumM2 > 0 && ewSumM2 > 0) confidence += 5;
-  if (flatFootprintSqFt > 300 && flatFootprintSqFt < 6000) confidence += 5;
-  if (slopeAreaM2 > 0) confidence += 4;
-  if (osmUsed) confidence += 8;
-  confidence = Math.min(92, confidence);
-
-  const grade = confidence >= 82 ? 'B' : confidence >= 70 ? 'C' : confidence >= 55 ? 'D' : 'F';
-  const tolerancePct = confidence >= 82 ? 10 : confidence >= 70 ? 15 : confidence >= 55 ? 20 : 25;
-
-  let recommendedWastePct = 10;
-  let wasteReason = '';
-  if (isGable && numSegs <= 4 && outsideCornersCount <= 4) { recommendedWastePct = 8; wasteReason = `Simple gable — straightforward cuts`; }
-  else if (!isGable && numSegs <= 6) { recommendedWastePct = 10; wasteReason = `Hip roof — moderate complexity`; }
-  else if (numSegs > 6) { recommendedWastePct = 12; wasteReason = `Complex roofline — more cuts`; }
-  if (dimensionCapped) wasteReason += ' (building shape uncertain from satellite)';
-
-  const faceArea = (lenFt) => Math.round(lenFt * totalWallHeightFt * (1 - openDeduct / 100));
-  const faces = {
-    north: { length_ft: Math.round(buildingLengthFt), area_sqft: faceArea(buildingLengthFt) },
-    south: { length_ft: Math.round(buildingLengthFt), area_sqft: faceArea(buildingLengthFt) },
-    east:  { length_ft: Math.round(buildingWidthFt),  area_sqft: faceArea(buildingWidthFt) },
-    west:  { length_ft: Math.round(buildingWidthFt),  area_sqft: faceArea(buildingWidthFt) },
-  };
-
-  return {
-    success: true,
-    wall_area_sqft: Math.round(netWallAreaSqFt),
-    wall_area_sq: Math.round(netWallAreaSQ * 100) / 100,
-    wall_top_lf: wallTopLf,
-    wall_bottom_lf: wallBottomLf,
-    outside_corners_count: outsideCornersCount,
-    outside_corners_lf: Math.round(outsideCornersLf),
-    inside_corners_count: 0,
-    inside_corners_lf: 0,
-    building_length_ft: Math.round(buildingLengthFt),
-    building_width_ft: Math.round(buildingWidthFt),
-    perimeter_ft: Math.round(perimeterFt),
-    footprint_sqft: Math.round(flatFootprintSqFt),
-    story_count: stories,
-    story_height_ft: storyHt,
-    opening_deduction_pct: openDeduct,
-    faces,
-    gable_area_sqft: Math.round(gableAreaSqFt),
-    gross_wall_area_sqft: Math.round(grossWallAreaSqFt),
-    roof_type: roofType,
-    pitch: pitchStr,
-    overall_confidence: confidence,
-    confidence_grade: grade,
-    tolerance_pct: tolerancePct,
-    dimension_capped: dimensionCapped,
-    recommended_waste_pct: recommendedWastePct,
-    waste_reason: wasteReason,
-    osm_perimeter_used: osmUsed,
-    osm_perimeter_ft: osmUsed ? Math.round(osmPerimeterFt) : null,
-    solar_perimeter_ft: Math.round(solarPerimeterFt),
-    analysis_notes: `${osmUsed ? '📍 OSM footprint' : '📡 Solar-derived'} perimeter: ${Math.round(perimeterFt)}ft. ${roofSegments.length} roof segments. ~${Math.round(buildingLengthFt)}ft × ${Math.round(buildingWidthFt)}ft ${roofType} building. ${stories} stor${stories === 1 ? 'y' : 'ies'} × ${storyHt}ft. ${openDeduct}% opening deduction.`,
-    debug_logs: debugLogs
-  };
-}
+// analyzeSidingMeasurement is served by vite-functions-plugin.js via
+// getFunctionHandlers() in the invoke intercept above. The older local
+// copy of this handler was removed so satellite wall height, footprint,
+// openings, and masonry stay on that one path.
 
 async function handleSarahBridgeAPI(params, req) {
   const { action, companyId, data } = params;
@@ -3738,14 +3573,33 @@ async function handleLexiChat(params, req) {
             } else if (entity_action === 'create') {
               if (directTable) {
                 const fields = { ...entity_data, company_id: actualCompanyId, created_at: new Date().toISOString() };
-                const keys = Object.keys(fields);
-                const vals = Object.values(fields);
-                const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-                const createRes = await pool.query(`INSERT INTO ${directTable} (${keys.join(', ')}) VALUES (${placeholders}) RETURNING id`, vals);
-                if ((directTable === 'leads' || directTable === 'customers') && entity_data?.phone) {
-                  invalidateCallerCache(actualCompanyId, entity_data.phone);
+                const insertDirect = async (queryable) => {
+                  const keys = Object.keys(fields);
+                  const vals = Object.values(fields);
+                  const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+                  return queryable.query(`INSERT INTO ${directTable} (${keys.join(', ')}) VALUES (${placeholders}) RETURNING id`, vals);
+                };
+                if (directTable === 'invoices') {
+                  const invoiceClient = await pool.connect();
+                  try {
+                    await invoiceClient.query('BEGIN');
+                    await prepareEntityWrite(invoiceClient, 'invoices', fields);
+                    const createRes = await insertDirect(invoiceClient);
+                    await invoiceClient.query('COMMIT');
+                    toolResult = { success: true, id: createRes.rows[0].id, invoice_number: fields.invoice_number, message: `${entity_name} created` };
+                  } catch (invoiceCreateErr) {
+                    try { await invoiceClient.query('ROLLBACK'); } catch (_) {}
+                    toolResult = { success: false, error: invoiceCreateErr.message };
+                  } finally {
+                    invoiceClient.release();
+                  }
+                } else {
+                  const createRes = await insertDirect(pool);
+                  if ((directTable === 'leads' || directTable === 'customers') && entity_data?.phone) {
+                    invalidateCallerCache(actualCompanyId, entity_data.phone);
+                  }
+                  toolResult = { success: true, id: createRes.rows[0].id, message: `${entity_name} created` };
                 }
-                toolResult = { success: true, id: createRes.rows[0].id, message: `${entity_name} created` };
               } else {
                 // generic_entities: must set top-level company_id column (frontend filters
                 // by it) AND mirror it in data; use created_date/updated_date (actual
@@ -3760,7 +3614,9 @@ async function handleLexiChat(params, req) {
                 );
                 toolResult = { success: true, id: createRes.rows[0].id, message: `${entity_name} created` };
               }
-              actionsExecuted.push({ tool_name: 'create_entity', result: `Created ${entity_name}` });
+              if (toolResult && toolResult.success !== false) {
+                actionsExecuted.push({ tool_name: 'create_entity', result: `Created ${entity_name}` });
+              }
             } else if (entity_action === 'update' && entity_id) {
               if (directTable) {
                 const keys = Object.keys(entity_data || {});
@@ -4399,7 +4255,7 @@ async function handleLexiChat(params, req) {
             }
           } else if (fname === 'record_payment') {
             const { amount: rpAmt, payment_method: rpMethod, customer_name: rpCustName, customer_id: rpCustId,
-                    invoice_number: rpInvNum, payment_date: rpDateRaw, reference_number: rpRef, notes: rpNotes } = args;
+                    invoice_number: rpInvNum, invoice_id: rpInvId, payment_date: rpDateRaw, reference_number: rpRef, notes: rpNotes } = args;
             if (!rpAmt || isNaN(Number(rpAmt)) || Number(rpAmt) <= 0) {
               toolResult = { error: 'A valid payment amount greater than zero is required.' };
             } else {
@@ -4408,39 +4264,48 @@ async function handleLexiChat(params, req) {
               let rpCustomerId = rpCustId || null;
               let rpCustomerName = '';
               let rpInvoiceId = null;
-              let rpInvoiceNumber = rpInvNum || null;
-              if (rpInvNum) {
-                const rpIR = await pool.query(
-                  `SELECT id, invoice_number, customer_id, customer_name FROM invoices WHERE company_id = $1 AND LOWER(invoice_number) = LOWER($2) LIMIT 1`,
-                  [actualCompanyId, rpInvNum.trim()]
+              let rpInvoiceNumber = null;
+              let rpReference = rpRef || null;
+              if (rpCustomerId && !rpCustomerName) {
+                const rpCR = await pool.query(`SELECT id, name FROM customers WHERE id::text = $1 AND company_id = $2 LIMIT 1`, [String(rpCustomerId), actualCompanyId]);
+                if (rpCR.rows.length > 0) rpCustomerName = rpCR.rows[0].name;
+              } else if (!rpCustomerId && rpCustName) {
+                const rpCn = rpCustName.trim().toLowerCase();
+                const rpCR = await pool.query(
+                  `SELECT id, name FROM customers WHERE company_id = $1 AND LOWER(name) LIKE $2 ORDER BY (LOWER(name) = $3) DESC, created_at DESC LIMIT 5`,
+                  [actualCompanyId, `%${rpCn}%`, rpCn]
                 );
-                if (rpIR.rows.length > 0) {
-                  rpInvoiceId = rpIR.rows[0].id;
-                  rpInvoiceNumber = rpIR.rows[0].invoice_number;
-                  if (!rpCustomerId) rpCustomerId = rpIR.rows[0].customer_id;
-                  if (!rpCustomerName) rpCustomerName = rpIR.rows[0].customer_name || '';
+                if (rpCR.rows.length === 0) {
+                  toolResult = { error: `No customer found matching "${rpCustName}". Please check the name.` };
                 } else {
-                  rpInvoiceNumber = rpInvNum.trim();
+                  rpCustomerId = rpCR.rows[0].id;
+                  rpCustomerName = rpCR.rows[0].name;
                 }
+              } else if (!rpCustomerId && !rpCustName && !rpInvNum && !rpInvId) {
+                toolResult = { error: 'Who is this payment from? Please provide a customer name or invoice number.' };
               }
-              if (!toolResult.error) {
-                if (rpCustomerId && !rpCustomerName) {
-                  const rpCR = await pool.query(`SELECT id, name FROM customers WHERE id::text = $1 AND company_id = $2 LIMIT 1`, [String(rpCustomerId), actualCompanyId]);
-                  if (rpCR.rows.length > 0) rpCustomerName = rpCR.rows[0].name;
-                } else if (!rpCustomerId && rpCustName) {
-                  const rpCn = rpCustName.trim().toLowerCase();
-                  const rpCR = await pool.query(
-                    `SELECT id, name FROM customers WHERE company_id = $1 AND LOWER(name) LIKE $2 ORDER BY (LOWER(name) = $3) DESC, created_at DESC LIMIT 5`,
-                    [actualCompanyId, `%${rpCn}%`, rpCn]
-                  );
-                  if (rpCR.rows.length === 0) {
-                    toolResult = { error: `No customer found matching "${rpCustName}". Please check the name.` };
-                  } else {
-                    rpCustomerId = rpCR.rows[0].id;
-                    rpCustomerName = rpCR.rows[0].name;
+              if (!toolResult.error && (rpInvId || rpInvNum)) {
+                try {
+                  const link = await resolvePaymentInvoiceLink(pool, {
+                    companyId: actualCompanyId,
+                    invoiceId: rpInvId,
+                    invoiceNumber: rpInvNum,
+                    customerId: rpCustomerId,
+                    customerName: rpCustomerName || null,
+                  });
+                  rpInvoiceId = link.invoice_id;
+                  rpInvoiceNumber = link.invoice_number;
+                  if (!link.linked && link.unmatched_number && !rpReference) rpReference = link.unmatched_number;
+                  if (link.linked) {
+                    if (!rpCustomerId && link.customer_id) rpCustomerId = link.customer_id;
+                    if (!rpCustomerName && link.customer_name) rpCustomerName = link.customer_name;
                   }
-                } else if (!rpCustomerId && !rpCustName && !rpInvNum) {
-                  toolResult = { error: 'Who is this payment from? Please provide a customer name or invoice number.' };
+                } catch (linkErr) {
+                  if (linkErr.code === 'AMBIGUOUS_INVOICE_NUMBER' || linkErr.code === 'INVOICE_NOT_FOUND') {
+                    toolResult = { error: linkErr.message, success: false };
+                  } else {
+                    throw linkErr;
+                  }
                 }
               }
               if (!toolResult.error) {
@@ -4459,7 +4324,7 @@ async function handleLexiChat(params, req) {
                   [rpPmtId, actualCompanyId, rpCustomerId || null, rpCustomerName || null,
                    rpInvoiceId || null, rpInvoiceNumber || null, rpPmtNum,
                    Number(rpAmt), rpMethod || 'other', rpDate,
-                   rpRef || null, rpNotes || null]
+                   rpReference || null, rpNotes || null]
                 );
                 const methodLabel = { cash: 'Cash', check: 'Check', credit_card: 'Credit Card', bank_transfer: 'Bank Transfer', paypal: 'PayPal', stripe: 'Stripe', other: 'Other' }[rpMethod] || rpMethod;
                 try {
@@ -4471,7 +4336,7 @@ async function handleLexiChat(params, req) {
                   const rpNMsg = `${rpPmtNum}: $${Number(rpAmt).toFixed(2)} by ${methodLabel}` +
                     (rpCustomerName ? ` from ${rpCustomerName}` : '') +
                     (rpInvoiceNumber ? `, Invoice ${rpInvoiceNumber}` : '') +
-                    (rpRef ? `, Ref: ${rpRef}` : '') + ' (logged by Lexi)';
+                    (rpReference ? `, Ref: ${rpReference}` : '') + ' (logged by Lexi)';
                   for (const adm of rpAdminQ.rows) {
                     await pool.query(
                       `INSERT INTO generic_entities (entity_type, company_id, data, created_date, updated_date) VALUES ($1, $2, $3, NOW(), NOW())`,
@@ -4483,7 +4348,7 @@ async function handleLexiChat(params, req) {
                 const msg = `✅ Payment recorded — ${rpPmtNum}: $${Number(rpAmt).toFixed(2)} by ${methodLabel}` +
                   (rpCustomerName ? ` from ${rpCustomerName}` : '') +
                   (rpInvoiceNumber ? `, applied to ${rpInvoiceNumber}` : '') +
-                  (rpRef ? `, Ref: ${rpRef}` : '');
+                  (rpReference ? `, Ref: ${rpReference}` : '');
                 toolResult = { success: true, payment_number: rpPmtNum, customer: rpCustomerName, invoice: rpInvoiceNumber, amount: Number(rpAmt), method: methodLabel, date: rpDate, message: msg };
                 actionsExecuted.push({ tool_name: 'record_payment', result: `Payment $${Number(rpAmt).toFixed(2)} recorded for ${rpCustomerName || 'customer'}` });
               }

@@ -187,6 +187,8 @@ import SMSTemplates from './pages/SMSTemplates';
 import Settings from './pages/Settings';
 import SaaSAdminDashboard from './pages/SaaSAdminDashboard';
 import SalesDashboard from './pages/SalesDashboard';
+import SalesDemo from './pages/SalesDemo';
+import SalesAgentAdmin from './pages/SalesAgentAdmin';
 import SalesTracking from './pages/SalesTracking';
 import SarahSettings from './pages/SarahSettings';
 import SarahWorkspace from './pages/SarahWorkspace';
@@ -384,6 +386,8 @@ export const PAGES = {
     "Settings": Settings,
     "SaaSAdminDashboard": SaaSAdminDashboard,
     "SalesDashboard": SalesDashboard,
+    "SalesDemo": SalesDemo,
+    "SalesAgentAdmin": SalesAgentAdmin,
     "SalesTracking": SalesTracking,
     "SarahSettings": SarahSettings,
     "SarahWorkspace": SarahWorkspace,

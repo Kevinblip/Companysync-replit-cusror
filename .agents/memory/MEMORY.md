@@ -15,7 +15,7 @@
 - [Z Fold mobile breakpoint](z-fold-breakpoint.md) — old 600px guidance was superseded; verify the current 1024px layout rule before changing responsive behavior
 - [Mobile settings panels](mobile-settings-panels.md) — menu-opened settings need reliable modal handoffs; a dialog that fits can still clip intrinsic-width form rows.
 - [Crew photo archive downloads](crew-photo-archive-download.md) — include all gallery photos, fail on missing originals, and use byte arrays with JSZip
-- [Lexi calendar tz storage](lexi-calendar-tz-storage.md) — calendar uses new Date(); store UTC Z (noon ET = T16:00:00Z)
+- [Lexi calendar tz storage](lexi-calendar-tz-storage.md) — model Z values may be mislabeled local; offered-slot confirmations must echo company wall time.
 - [Gemini image MIME from bytes](gemini-image-mime.md) — Gemini rejects application/octet-stream (→HTTP400→500); photo analyzers must sniff magic bytes, never trust served Content-Type
 - [CORS helper call-site drift](cors-helper-call-site-drift.md) — narrowing a shared CORS helper's wildcard fallback silently breaks call sites that don't pass req/origin
 - [Workflow action success masking](workflow-action-success-masking.md) — executeWorkflowAction must return {success:false,reason} on skip/catch, not swallow silently, or cron/test-run
@@ -152,5 +152,7 @@
 - [Financial forecast evidence](financial-forecast-evidence.md) — use auditable cash baselines; due balances and AI narratives are not guaranteed revenue or measured confidence.
 - [Bulk deletion access](bulk-deletion-access.md) — mass deletion is reserved for platform Super Admins and company owners, never ordinary admins or staff.
 - [Customer inspection status](customer-inspection-status.md) — manual inspected marks are bookkeeping, not fabricated reports or scheduled-job completion.
+- [Mobile customer browsing](customer-mobile-list.md) — on phones, Customers should scroll and use readable cards like Leads, with key contact and inspection details visible.
 - [Siding catalog pricing boundaries](siding-catalog-pricing-boundaries.md) — catalog-only prices; validate trade/activity/units even on exact code matches; never auto-reprice saved estimates.
 - [Estimate chat edit boundary](estimate-chat-edit-boundary.md) — failed edits must not regenerate estimates; compound replacements apply together and preserve untouched financial values.
+- [Shared calendar timezone](shared-calendar-company-timezone.md) — appointments use company time for every staff member; never guess-shift historical bookings.

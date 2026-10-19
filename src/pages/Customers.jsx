@@ -1295,7 +1295,7 @@ export default function Customers() {
   }
 
   return (
-    <div className="flex min-w-0 w-full flex-col h-screen overflow-x-hidden">
+    <div className="flex min-w-0 w-full flex-col overflow-x-hidden md:h-screen">
         <div className="p-1.5 md:p-6 space-y-1 md:space-y-4 flex-shrink-0">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.customers.title}</h1>
@@ -1308,14 +1308,12 @@ export default function Customers() {
         </div>
 
         <div className="w-full overflow-hidden">
-          {isMobile ? (
-            <div className="flex items-center gap-1.5 overflow-x-auto py-0 text-[11px] whitespace-nowrap" aria-label="Customer totals">
-              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-700"><strong className="text-gray-900">{totalCustomers}</strong> total</span>
-              <span className="rounded-full bg-green-50 px-2 py-0.5 text-green-700"><strong>{activeCustomers}</strong> active</span>
-              <span className="rounded-full bg-red-50 px-2 py-0.5 text-red-700"><strong>{inactiveCustomers}</strong> inactive</span>
-            </div>
-          ) : (
-          <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1.5 md:gap-3 pb-0.5 md:pb-2">
+          <div className="flex md:hidden items-center gap-1.5 overflow-x-auto py-0 text-[11px] whitespace-nowrap" aria-label="Customer totals">
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-700"><strong className="text-gray-900">{totalCustomers}</strong> total</span>
+            <span className="rounded-full bg-green-50 px-2 py-0.5 text-green-700"><strong>{activeCustomers}</strong> active</span>
+            <span className="rounded-full bg-red-50 px-2 py-0.5 text-red-700"><strong>{inactiveCustomers}</strong> inactive</span>
+          </div>
+          <div className="hidden md:grid grid-cols-4 lg:grid-cols-6 gap-1.5 md:gap-3 pb-0.5 md:pb-2">
             <Card className="bg-white min-w-0">
               <CardContent className="p-2 md:p-4">
                 <div className="text-lg md:text-2xl font-bold text-gray-900">{totalCustomers}</div>
@@ -1353,10 +1351,9 @@ export default function Customers() {
               </CardContent>
             </Card>
           </div>
-          )}
         </div>
 
-        <div className={`${isMobile ? 'sticky top-0 z-20 bg-background -mx-1.5 px-1.5 pt-0 pb-0 shadow-sm' : ''}`}>
+        <div>
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 md:left-3 md:w-5 md:h-5" />
@@ -1494,7 +1491,7 @@ export default function Customers() {
             {isMobile ? (
               <Sheet open={showForm} onOpenChange={setShowForm}>
                 <SheetTrigger asChild>
-                  <Button className="flex-1 bg-blue-600 hover:bg-blue-700 h-9 px-3 text-xs">
+                  <Button className="flex-1 bg-blue-600 hover:bg-blue-700 h-12 md:h-9 px-3 text-sm md:text-xs">
                     <Plus className="w-4 h-4 mr-1.5" />
                     {t.customers.addCustomer}
                   </Button>
@@ -2220,7 +2217,7 @@ export default function Customers() {
             <Button
               variant="outline"
               onClick={() => setShowFilters(!showFilters)}
-              className={`text-sm h-9 ${showFilters ? 'bg-blue-50 border-blue-300' : ''}`}
+              className={`text-sm h-12 md:h-9 ${showFilters ? 'bg-blue-50 border-blue-300' : ''}`}
             >
               <Filter className="w-4 h-4 mr-2" />
               {t.customers.filters}
@@ -2303,8 +2300,8 @@ export default function Customers() {
       </div>
 
       {isMobile ? (
-        <div className="flex-1 min-w-0 w-full overflow-auto">
-            <div className="min-w-0 w-full px-1.5 pb-2 space-y-0">
+        <div className="min-w-0 w-full">
+            <div className="min-w-0 w-full px-3 py-3 space-y-3">
 
               {paginatedCustomers.length === 0 && (
                 <div className="text-center py-12 text-gray-500">
@@ -2321,21 +2318,18 @@ export default function Customers() {
                   onEmail={customer.email ? () => handleCommunication(customer, 'email') : null}
                   onSMS={customer.phone ? () => handleCommunication(customer, 'sms') : null}
                   onDelete={() => handleDelete(customer.id)}
-                  compact
-                  className="w-full min-w-0 p-1.5 rounded-lg shadow-sm border border-gray-200"
+                  className="w-full min-w-0 p-4 rounded-lg shadow-sm border border-gray-200"
                 >
                   <div
                     onClick={() => navigate(createPageUrl('CustomerProfile') + `?id=${customer.id}`)}
-                    className="min-w-0 space-y-0.5"
+                    className="min-w-0 space-y-2"
+                    data-testid={`customer-card-${customer.id}`}
                   >
-                    <div className="flex min-w-0 items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-start justify-between gap-2">
                       <div className="min-w-0 flex-1 pr-1">
-                        <h3 className="truncate font-semibold text-sm text-gray-900">{customer.name}</h3>
+                        <h3 className="truncate font-semibold text-base text-gray-900">{customer.name}</h3>
                         {customer.company && (
-                          <div className="hidden md:flex items-center gap-1 text-sm text-gray-600 mt-1">
-                            <Building2 className="w-4 h-4" />
-                            {customer.company}
-                          </div>
+                          <p className="mt-0.5 truncate text-sm text-gray-500">{customer.company}</p>
                         )}
                         {(() => {
                           const assignedUsers = customer.assigned_to_users || (customer.assigned_to ? [customer.assigned_to] : []);
@@ -2369,38 +2363,38 @@ export default function Customers() {
                           );
                         })()}
                       </div>
-                      <div className="flex shrink-0 flex-col items-end gap-0.5">
-                        <Badge variant="outline" className={`px-1.5 py-0 text-[9px] leading-4 ${customer.is_active ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-50 text-gray-700"}`}>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <Badge variant="outline" className={`${customer.is_active ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-50 text-gray-700"}`}>
                           {customer.is_active ? t.customers.active : t.customers.inactive}
                         </Badge>
                         {customer.customer_type && (
-                          <Badge variant="outline" className="px-1.5 py-0 text-[9px] leading-4 bg-purple-50 text-purple-700 border-purple-200">
+                          <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
                             {customer.customer_type}
                           </Badge>
                         )}
                       </div>
                     </div>
 
-                    <div className="min-w-0 space-y-0.5">
+                    <div className="min-w-0 space-y-1.5">
                       {customer.phone && (
-                        <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
-                          <Phone className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                        <div className="flex min-w-0 items-center gap-2 text-sm">
+                          <Phone className="w-4 h-4 text-gray-400 flex-shrink-0" />
                           <a href={`tel:${customer.phone}`} className="truncate text-blue-600 font-medium" onClick={(e) => e.stopPropagation()}>
                             {customer.phone}
                           </a>
                         </div>
                       )}
                       {customer.email && (
-                        <div className="hidden md:flex items-center gap-2 text-sm">
+                        <div className="flex min-w-0 items-center gap-2 text-sm">
                           <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                          <a href={`mailto:${customer.email}`} className="text-blue-600 truncate" onClick={(e) => e.stopPropagation()}>
+                          <a href={`mailto:${customer.email}`} className="text-blue-600 truncate min-w-0" onClick={(e) => e.stopPropagation()}>
                             {customer.email}
                           </a>
                         </div>
                       )}
                       {(customer.street || customer.address) && (
-                        <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-gray-600">
-                          <MapPin className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                        <div className="flex min-w-0 items-center gap-2 text-sm text-gray-600">
+                          <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0" />
                           <div className="min-w-0 truncate">
                             {customer.address || [customer.street, customer.city, customer.state, customer.zip].filter(Boolean).join(', ')}
                           </div>
@@ -2408,7 +2402,7 @@ export default function Customers() {
                       )}
                     </div>
 
-                    <div className="hidden md:flex items-center" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
                       {(() => {
                         const job = getInspectionForCustomer(customer);
                         return (
@@ -2424,16 +2418,16 @@ export default function Customers() {
                       })()}
                     </div>
 
-                    <div className="flex items-center justify-between text-[9px] text-gray-500 pt-0.5 border-t">
+                    <div className="flex items-center justify-between text-xs text-gray-500 pt-1.5 border-t border-gray-100">
                       <span className="font-medium">#{customer.customer_number || '-'}</span>
-                      <span className="hidden md:inline">{format(new Date(customer.created_date), 'MMM d, yyyy')}</span>
+                      <span>{customer.source || 'Customer'}</span>
                     </div>
                   </div>
                 </SwipeableCard>
               ))}
             </div>
           {paginatedCustomers.length > 0 && pageSize !== 'all' && totalPages > 1 && (
-            <div className="flex min-w-0 w-full items-center gap-2 border-t bg-white px-3 py-2 sticky bottom-0 z-10">
+            <div className="flex min-w-0 w-full items-center gap-2 border-t bg-white px-3 py-2">
               <div className="min-w-0 flex-1 truncate whitespace-nowrap text-[11px] text-gray-500">
                 Showing {((currentPage - 1) * effectivePageSize) + 1} to {Math.min(currentPage * effectivePageSize, filteredCustomers.length)} of {filteredCustomers.length} customers
               </div>

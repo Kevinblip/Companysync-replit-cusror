@@ -162,9 +162,10 @@ function check(label, cond, detail) {
     const fs = require('fs');
     const src = fs.readFileSync(require('path').join(__dirname, '..', 'vite-functions-plugin.js'), 'utf8');
     const start = src.indexOf('async analyzeSidingMeasurement(');
+    const photoStartEarly = src.indexOf('async analyzeHousePhotosForSiding(');
     check('analyzeSidingMeasurement handler found', start > 0);
     // Bound the slice to this handler so we do not read the photo handler.
-    const body = src.slice(start, start + 20000);
+    const body = src.slice(start, photoStartEarly);
     // Strip comments first — the fix itself documents the old broken behaviour
     // by quoting it, and that prose must not count as an emission.
     const code = body.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
@@ -176,8 +177,8 @@ function check(label, cond, detail) {
       /footprint_geometry:\s*footprintGeometry/.test(body));
     // The money invariant: perimeterFt is a const computed before the trace and
     // must never be reassigned from footprint geometry.
-    check('perimeterFt stays a const (cannot be moved by the trace)',
-      /const perimeterFt = osmUsed \? osmPerimeterFt : solarPerimeterFt;/.test(body));
+    check('perimeterFt stays a const computed before the trace',
+      /const perimeterFt = osmUsed \? osmPerimeterFt : \(msRingXY \? polygonPerimeterFt\(msRingXY\) : solarPerimeterFt\);/.test(body));
     const traceBlock = body.slice(body.indexOf('True footprint outline'), body.indexOf('Detect roof type'));
     check('trace block never assigns perimeterFt',
       traceBlock.length > 0 && !/(^|[^.\w])perimeterFt\s*=[^=]/.test(traceBlock));
@@ -185,7 +186,8 @@ function check(label, cond, detail) {
       !/building(Length|Width)Ft\s*=[^=]/.test(traceBlock));
 
     const photoStart = src.indexOf('async analyzeHousePhotosForSiding(');
-    const photoBody = src.slice(photoStart, photoStart + 150000);
+    const photoEnd = src.indexOf('\n  async ', photoStart + 10);
+    const photoBody = src.slice(photoStart, photoEnd > photoStart ? photoEnd : src.length);
     check('live photo handler found', photoStart > 0);
     check('live photo handler falls back to a rectangle instead of null',
       /if \(!Array\.isArray\(footprintPolygonXY\)[\s\S]*?footprintPolygonXY = rectanglePolygon\(buildingLengthFt, buildingWidthFt\)/.test(photoBody));

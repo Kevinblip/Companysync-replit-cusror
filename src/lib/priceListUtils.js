@@ -80,6 +80,25 @@ export function getActivePriceList(source, priceLists) {
 }
 
 /**
+ * True when `text` contains an exclusion term.
+ * "w/out felt", "without felt", and "w/o felt" do not count as felt.
+ * "incl. felt" still does.
+ */
+export function textIncludesExclusion(text, term) {
+  const desc = String(text || '').toLowerCase();
+  const needle = String(term || '').toLowerCase().trim();
+  if (!needle) return false;
+  if (needle === 'felt') {
+    const withoutNegatedFelt = desc
+      .replace(/\bw\/out\s+felt\b/g, ' ')
+      .replace(/\bwithout\s+felt\b/g, ' ')
+      .replace(/\bw\/o\s+felt\b/g, ' ');
+    return withoutNegatedFelt.includes('felt');
+  }
+  return desc.includes(needle);
+}
+
+/**
  * Fuzzy/smart description matching against a price list.
  * Tries, in order: special tear-off rule → decking rule → exact →
  * code → multi-word → single-word → roofing-category terms.
@@ -209,7 +228,7 @@ export function smartDescriptionMatch(description, priceList) {
       const categoryMatch = priceList.find(item => {
         if (!item.description?.trim()) return false;  // skip blank items
         const itemDesc = item.description.toLowerCase();
-        if (exclusions.some(ex => itemDesc.includes(ex))) return false;
+        if (exclusions.some(ex => textIncludesExclusion(itemDesc, ex))) return false;
         return terms.some(term => itemDesc.includes(term));
       });
       if (categoryMatch) return categoryMatch;

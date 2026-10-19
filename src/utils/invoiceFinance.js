@@ -34,13 +34,77 @@ function toCents(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+// The invoice detail screen's total, including a discount that was applied
+// only in the view. Amount Due and the Request Payment box both start here.
+// The deductible is not part of this number.
+export function detailInvoiceTotal(inv) {
+  if (!inv) return 0;
+  const items = inv.items || inv.line_items || [];
+  const subtotal = items.reduce((sum, item) => sum + Number(item.rcv || item.amount || 0), 0) || 0;
+  const discountAmount = inv.discount_type === 'percentage'
+    ? subtotal * (Number(inv.discount_value || 0) / 100)
+    : inv.discount_type === 'fixed'
+      ? Number(inv.discount_value || 0)
+      : 0;
+  const computedTotal = subtotal - discountAmount + Number(inv.adjustment_amount || 0);
+  if (inv.discount_type && inv.discount_type !== 'none' && Number(inv.discount_value) > 0) {
+    return computedTotal;
+  }
+  return Number(inv.total_amount || inv.amount || 0);
+}
+
+// Invoice total − payments. The deductible is display-only and is not subtracted.
+// Negative means a credit. Pass the detail-screen total so the request box
+// matches Amount Due.
+export function invoiceCollectibleBalance(inv, totalOverride) {
+  const total = totalOverride == null ? getInvoiceTrueTotal(inv) : Number(totalOverride) || 0;
+  const paid = Number(inv?.amount_paid) || 0;
+  const raw = toCents(total - paid);
+  return {
+    rcv: total,
+    paid,
+    raw,
+    due: raw > 0 ? raw : 0,
+    overpaid: raw < 0 ? Math.abs(raw) : 0,
+  };
+}
+
+// Carrier figure on the insurance breakdown.
+// `total` is the invoice total, which already includes any adjustment or discount.
+// Subtract the deductible only when neither of those is present. A waived
+// deductible is recorded as an adjustment or a discount, and subtracting it
+// again is the Wanda case: RCV $28,972.67, adjustment -$1,976, deductible
+// $1,976 was showing Insurance Pays $25,020.67 instead of $26,996.67.
+export function insurancePaysAmount({
+  total = 0,
+  depreciation = 0,
+  deductible = 0,
+  adjustment = 0,
+  discount = 0,
+} = {}) {
+  const acv = toCents((Number(total) || 0) - (Number(depreciation) || 0));
+  const deductibleShown = Math.max(0, Number(deductible) || 0);
+  const alreadyReduced = Math.abs(Number(adjustment) || 0) > 0.004 || Math.abs(Number(discount) || 0) > 0.004;
+  const deductibleApplied = alreadyReduced ? 0 : deductibleShown;
+  return {
+    acv,
+    deductibleShown,
+    deductibleApplied,
+    alreadyReduced,
+    pays: toCents(acv - deductibleApplied),
+  };
+}
+
+function signedBalance(inv) {
+  return invoiceCollectibleBalance(inv).raw;
+}
+
 // Remaining balance owed on an invoice (never negative).
 // Imported legacy invoices have total_amount = 0, so their balance is 0
 // even if a partial payment was recorded — i.e. they are already settled.
+// A deductible does not change this balance.
 export function getInvoiceBalance(inv) {
-  const total = getInvoiceTrueTotal(inv);
-  const paid = Number(inv?.amount_paid) || 0;
-  return Math.max(0, toCents(total - paid));
+  return Math.max(0, signedBalance(inv));
 }
 
 // True when nothing is owed. Balance is the source of truth — a stored
@@ -52,7 +116,7 @@ export function isInvoiceSettled(inv) {
   if (inv.status === 'cancelled') return true;
   const total = getInvoiceTrueTotal(inv);
   const paid = Number(inv.amount_paid) || 0;
-  return toCents(total - paid) <= 0 && (total > 0 || paid > 0);
+  return signedBalance(inv) <= 0 && (total > 0 || paid > 0);
 }
 
 // The status to SHOW the user, corrected for the real balance:
@@ -62,9 +126,8 @@ export function isInvoiceSettled(inv) {
 export function getInvoiceDisplayStatus(inv) {
   if (!inv) return 'draft';
   if (inv.status === 'cancelled') return 'cancelled';
-  const total = getInvoiceTrueTotal(inv);
   const paid = Number(inv.amount_paid) || 0;
-  const balance = toCents(total - paid);
+  const balance = signedBalance(inv);
   if (balance <= 0 && paid > 0) return 'paid';
   if (inv.status === 'paid' && balance > 0) return 'partially_paid';
   return inv.status || 'draft';

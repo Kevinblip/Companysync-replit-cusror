@@ -45,6 +45,7 @@ import {
 import { format, isToday, isTomorrow, addDays } from "date-fns";
 import { fetchAssignmentRecords, dateUrgency, actionableTask, assignmentMatches, hasNoAssignment } from "@/utils/assignmentView";
 import { parseDateOnly, localToday } from "@/utils/localDate";
+import { toSafeDate, safeFormat } from "@/lib/safeDate";
 
 const EVENT_TYPES = [
   { value: "meeting",     label: "Meeting" },
@@ -162,6 +163,7 @@ export default function Reminders() {
   const createEventMutation = useMutation({
     mutationFn: async (form) => {
       const startDt = new Date(`${form.date}T${form.time}`);
+      if (isNaN(startDt.getTime())) throw new Error("Please choose a valid date and time.");
       const endDt   = new Date(startDt.getTime() + 60 * 60 * 1000); // +1 hour
       const linkedTask = form.task_id ? tasks.find(task => String(task.id) === String(form.task_id)) : null;
       const taskReminderId = linkedTask ? crypto.randomUUID() : undefined;
@@ -222,7 +224,9 @@ export default function Reminders() {
       const recipientProfile = activeProfiles.find(profile => profile.user_email === recipientEmail);
       const recipient = { email: recipientEmail, name: recipientProfile?.full_name || myStaffProfile?.full_name || recipientEmail };
       const reminderId = crypto.randomUUID();
-      const reminderDate = new Date(`${form.due_date}T09:00:00`).toISOString();
+      const reminderDateObj = new Date(`${form.due_date}T09:00:00`);
+      if (isNaN(reminderDateObj.getTime())) throw new Error("Please choose a valid due date.");
+      const reminderDate = reminderDateObj.toISOString();
       const reminder = {
         id: reminderId,
         reminder_date: reminderDate,
@@ -357,8 +361,8 @@ export default function Reminders() {
   };
 
   const groupedEvents = React.useMemo(() => {
-    const today    = calendarEvents.filter((e) => isToday(new Date(e.start_time)));
-    const tomorrow = calendarEvents.filter((e) => isTomorrow(new Date(e.start_time)));
+    const today    = calendarEvents.filter((e) => (toSafeDate(e.start_time) ? isToday(toSafeDate(e.start_time)) : false));
+    const tomorrow = calendarEvents.filter((e) => (toSafeDate(e.start_time) ? isTomorrow(toSafeDate(e.start_time)) : false));
     const upcoming = calendarEvents.filter((e) => {
       const date = new Date(e.start_time);
       return !isToday(date) && !isTomorrow(date);
@@ -390,7 +394,7 @@ export default function Reminders() {
           <div className="flex flex-wrap gap-2 mt-2">
             <Badge variant="outline">
               <Clock className="w-3 h-3 mr-1" />
-              {task.due_date ? format(parseDateOnly(task.due_date), "MMM d, yyyy") : "No date"}
+              {safeFormat(task.due_date, "MMM d, yyyy", "No date")}
             </Badge>
             {task.priority && <Badge className={getTaskPriorityColor(task.priority)}>{task.priority}</Badge>}
             {canManageTeam && <Badge variant="outline" className="max-w-48 truncate">{task.assigned_to_name || task.assigned_to_email || task.assigned_to || "Unassigned"}</Badge>}
@@ -431,7 +435,7 @@ export default function Reminders() {
           <div className="flex flex-wrap gap-2 mt-2">
             <Badge variant="outline">
               <Clock className="w-3 h-3 mr-1" />
-              {format(new Date(event.start_time), "MMM d, h:mm a")}
+              {safeFormat(event.start_time, event.all_day ? "MMM d" : "MMM d, h:mm a", "No time set")}
             </Badge>
             <Badge className={getEventTypeColor(event.event_type)}>
               {event.event_type?.replace("_", " ")}

@@ -3,6 +3,7 @@ import { getPool } from './schema.js';
 
 const nodeRequire = createRequire(import.meta.url);
 const tenantGuard = nodeRequire('../lib/tenantGuard.cjs');
+const { allocateInvoiceNumber } = nodeRequire('../lib/invoiceNumbers.cjs');
 
 const ENTITY_MAP = {
   leads: { fields: ['name', 'email', 'phone', 'address', 'status', 'source', 'assigned_to', 'service_needed', 'lead_score', 'notes'] },
@@ -96,37 +97,70 @@ export async function syncEntityBatch(entityType, records, companyId) {
         }
       }
 
-      const companyField = entityType === 'companies' ? '' : ', company_id';
-      const companyPlaceholder = entityType === 'companies' ? '' : `, $3`;
+      const insertRecord = async (queryable) => {
+        if (entityType === 'companies') {
+          const cols = Object.keys(fieldValues);
+          const vals = Object.values(fieldValues);
+          const setClause = cols.map((c, i) => `${c} = $${i + 3}`).join(', ');
+          const colStr = cols.join(', ');
+          const placeholders = cols.map((_, i) => `$${i + 3}`).join(', ');
 
-      if (entityType === 'companies') {
-        const cols = Object.keys(fieldValues);
-        const vals = Object.values(fieldValues);
-        const setClause = cols.map((c, i) => `${c} = $${i + 3}`).join(', ');
-        const colStr = cols.join(', ');
-        const placeholders = cols.map((_, i) => `$${i + 3}`).join(', ');
+          await queryable.query(
+            `INSERT INTO ${entityType} (id, base44_id, ${colStr}, data, synced_at)
+             VALUES ($1, $2, ${placeholders}, $${cols.length + 3}, NOW())
+             ON CONFLICT (base44_id) DO UPDATE SET
+               ${setClause}, data = $${cols.length + 3}, synced_at = NOW()`,
+            [localId, base44Id, ...vals, JSON.stringify(remainingData)]
+          );
+        } else {
+          const cols = Object.keys(fieldValues);
+          const vals = Object.values(fieldValues);
+          const setClause = cols.map((c, i) => `${c} = $${i + 4}`).join(', ');
+          const colStr = cols.join(', ');
+          const placeholders = cols.map((_, i) => `$${i + 4}`).join(', ');
 
-        await pool.query(
-          `INSERT INTO ${entityType} (id, base44_id, ${colStr}, data, synced_at)
-           VALUES ($1, $2, ${placeholders}, $${cols.length + 3}, NOW())
-           ON CONFLICT (base44_id) DO UPDATE SET
-             ${setClause}, data = $${cols.length + 3}, synced_at = NOW()`,
-          [localId, base44Id, ...vals, JSON.stringify(remainingData)]
-        );
+          await queryable.query(
+            `INSERT INTO ${entityType} (id, base44_id, company_id, ${colStr}, data, synced_at)
+             VALUES ($1, $2, $3, ${placeholders}, $${cols.length + 4}, NOW())
+             ON CONFLICT (base44_id) DO UPDATE SET
+               company_id = $3, ${setClause}, data = $${cols.length + 4}, synced_at = NOW()`,
+            [localId, base44Id, recCompanyId, ...vals, JSON.stringify(remainingData)]
+          );
+        }
+      };
+
+      if (entityType === 'invoices' && recCompanyId) {
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          const existing = await client.query(
+            `SELECT id, invoice_number FROM invoices WHERE base44_id = $1 LIMIT 1`,
+            [base44Id]
+          );
+          const existingRow = existing.rows[0] || null;
+          const requested = fieldValues.invoice_number;
+          const incomingNumber = requested !== undefined && requested !== null && String(requested).trim() !== '';
+          if (!existingRow || incomingNumber) {
+            const assigned = await allocateInvoiceNumber(client, recCompanyId, {
+              requested,
+              exceptId: existingRow ? existingRow.id : null,
+              keepWhenTaken: existingRow ? existingRow.invoice_number : null,
+            });
+            fieldValues.invoice_number = assigned.invoiceNumber;
+            if (assigned.replaced && assigned.requested) {
+              remainingData.superseded_invoice_number = assigned.requested;
+            }
+          }
+          await insertRecord(client);
+          await client.query('COMMIT');
+        } catch (syncInvoiceErr) {
+          try { await client.query('ROLLBACK'); } catch (_) {}
+          throw syncInvoiceErr;
+        } finally {
+          client.release();
+        }
       } else {
-        const cols = Object.keys(fieldValues);
-        const vals = Object.values(fieldValues);
-        const setClause = cols.map((c, i) => `${c} = $${i + 4}`).join(', ');
-        const colStr = cols.join(', ');
-        const placeholders = cols.map((_, i) => `$${i + 4}`).join(', ');
-
-        await pool.query(
-          `INSERT INTO ${entityType} (id, base44_id, company_id, ${colStr}, data, synced_at)
-           VALUES ($1, $2, $3, ${placeholders}, $${cols.length + 4}, NOW())
-           ON CONFLICT (base44_id) DO UPDATE SET
-             company_id = $3, ${setClause}, data = $${cols.length + 4}, synced_at = NOW()`,
-          [localId, base44Id, recCompanyId, ...vals, JSON.stringify(remainingData)]
-        );
+        await insertRecord(pool);
       }
 
       synced++;
