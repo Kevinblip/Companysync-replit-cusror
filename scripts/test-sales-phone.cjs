@@ -23,6 +23,7 @@ staging.installOutboundGuards();
 
 const policy = require('../lib/salesAgent/phonePolicy.cjs');
 const audio = require('../lib/salesAgent/audio.cjs');
+const phoneBridge = require('../lib/salesAgent/phoneBridge.cjs');
 const http = require('../lib/salesAgent/http.cjs');
 const outbound = require('../lib/salesAgent/outbound.cjs');
 const store = require('../lib/salesAgent/salesStore.cjs');
@@ -115,6 +116,161 @@ async function post(pathname, fields, { signature, body } = {}) {
   assert.ok(frames.length > 0);
   assert.ok(frames.every((frame) => Buffer.from(frame, 'base64').length <= 160));
   assert.ok(Buffer.from(audio.twilioToGemini(mulaw), 'base64').length > 0);
+
+  function mulawTone(amplitude, samples = 160) {
+    const out = Buffer.alloc(samples);
+    for (let i = 0; i < samples; i += 1) {
+      const sample = Math.round(amplitude * Math.sin((2 * Math.PI * 200 * i) / 8000));
+      out[i] = audio.mulawEncode(sample);
+    }
+    return out.toString('base64');
+  }
+
+  const quiet = mulawTone(200);
+  const speech = mulawTone(3000);
+  assert.ok(audio.mulawRms(quiet) < phoneBridge.DEFAULT_VAD.energyThreshold);
+  assert.ok(audio.mulawRms(speech) > phoneBridge.DEFAULT_VAD.energyThreshold);
+
+  const vadKeys = [
+    'SALES_AGENT_VAD_START_SENSITIVITY',
+    'SALES_AGENT_VAD_END_SENSITIVITY',
+    'SALES_AGENT_VAD_PREFIX_PADDING_MS',
+    'SALES_AGENT_VAD_SILENCE_DURATION_MS',
+    'SALES_AGENT_VAD_ENERGY_THRESHOLD',
+    'SALES_AGENT_VAD_GATE_HANGOVER_MS',
+  ];
+  const savedVad = {};
+  for (const key of vadKeys) {
+    savedVad[key] = process.env[key];
+    delete process.env[key];
+  }
+  const detection = phoneBridge.activityDetection();
+  assert.deepStrictEqual(detection, {
+    disabled: false,
+    start_of_speech_sensitivity: 'START_SENSITIVITY_LOW',
+    end_of_speech_sensitivity: 'END_SENSITIVITY_LOW',
+    prefix_padding_ms: 400,
+    silence_duration_ms: 800,
+  });
+  const setup = phoneBridge.buildGeminiSetup('phone prompt');
+  assert.deepStrictEqual(setup.setup.realtime_input_config.automatic_activity_detection, detection);
+  assert.strictEqual(setup.setup.generation_config.speech_config.voice_config.prebuilt_voice_config.voice_name, 'Fenrir');
+  const phoneTools = setup.setup.tools[0].function_declarations;
+  const bookDecl = phoneTools.find((tool) => tool.name === 'book_appointment');
+  const endDecl = phoneTools.find((tool) => tool.name === 'end_call');
+  assert.match(bookDecl.description, /Do not end the call/);
+  assert.match(endDecl.description, /time zone/);
+  assert.match(endDecl.description, /confirmation link was sent/);
+  assert.match(endDecl.description, /same turn as book_appointment/);
+
+  const hold = 5000;
+  const grace = phoneBridge.HANGUP_AUDIO_GRACE_MS;
+  const bookedAt = 1_000_000;
+  const justBooked = phoneBridge.evaluateHangupGuard({
+    now: bookedAt + 1000,
+    bookedAt,
+    playbackEndsAt: bookedAt + 500,
+    hangupRequestedAt: bookedAt + 1000,
+    holdMs: hold,
+    audioGraceMs: grace,
+  });
+  assert.strictEqual(justBooked.allowTool, false);
+  assert.strictEqual(justBooked.close, false);
+  assert.strictEqual(justBooked.bookingWait, hold - 1000);
+
+  const stillTalking = phoneBridge.evaluateHangupGuard({
+    now: bookedAt + hold + 500,
+    bookedAt,
+    playbackEndsAt: bookedAt + hold + 3500,
+    hangupRequestedAt: bookedAt + hold + 500,
+    holdMs: hold,
+    audioGraceMs: grace,
+  });
+  assert.strictEqual(stillTalking.allowTool, true);
+  assert.strictEqual(stillTalking.close, false);
+  assert.strictEqual(stillTalking.audioWait, 3000);
+
+  const waitingForAudio = phoneBridge.evaluateHangupGuard({
+    now: bookedAt + hold + 500,
+    bookedAt,
+    playbackEndsAt: bookedAt + hold,
+    hangupRequestedAt: bookedAt + hold + 500,
+    holdMs: hold,
+    audioGraceMs: grace,
+  });
+  assert.strictEqual(waitingForAudio.close, false);
+  assert.strictEqual(waitingForAudio.graceWait, grace);
+
+  const goodbyeFinished = phoneBridge.evaluateHangupGuard({
+    now: bookedAt + hold + 8000,
+    bookedAt,
+    playbackEndsAt: bookedAt + hold + 6000,
+    hangupRequestedAt: bookedAt + hold + 500,
+    holdMs: hold,
+    audioGraceMs: grace,
+  });
+  assert.strictEqual(goodbyeFinished.allowTool, true);
+  assert.strictEqual(goodbyeFinished.close, true);
+  assert.strictEqual(goodbyeFinished.waitMs, 0);
+
+  const noBookingAudio = phoneBridge.evaluateHangupGuard({
+    now: 5000,
+    bookedAt: 0,
+    playbackEndsAt: 9000,
+    hangupRequestedAt: 5000,
+    holdMs: hold,
+    audioGraceMs: grace,
+  });
+  assert.strictEqual(noBookingAudio.allowTool, true);
+  assert.strictEqual(noBookingAudio.close, false);
+  assert.strictEqual(noBookingAudio.audioWait, 4000);
+  assert.ok(phoneBridge.BOOKING_HANGUP_HOLD_MS >= 3000);
+  assert.ok(phoneBridge.BOOKING_HANGUP_HOLD_MS <= 15000);
+
+  process.env.SALES_AGENT_VAD_START_SENSITIVITY = 'HIGH';
+  process.env.SALES_AGENT_VAD_END_SENSITIVITY = 'end_sensitivity_high';
+  process.env.SALES_AGENT_VAD_PREFIX_PADDING_MS = '320';
+  process.env.SALES_AGENT_VAD_SILENCE_DURATION_MS = '900';
+  process.env.SALES_AGENT_VAD_ENERGY_THRESHOLD = '0';
+  process.env.SALES_AGENT_VAD_GATE_HANGOVER_MS = '50';
+  const overridden = phoneBridge.activityDetection();
+  assert.strictEqual(overridden.start_of_speech_sensitivity, 'START_SENSITIVITY_HIGH');
+  assert.strictEqual(overridden.end_of_speech_sensitivity, 'END_SENSITIVITY_HIGH');
+  assert.strictEqual(overridden.prefix_padding_ms, 320);
+  assert.strictEqual(overridden.silence_duration_ms, 900);
+  process.env.SALES_AGENT_VAD_START_SENSITIVITY = 'nope';
+  process.env.SALES_AGENT_VAD_PREFIX_PADDING_MS = '-5';
+  const vadFallback = phoneBridge.activityDetection();
+  assert.strictEqual(vadFallback.start_of_speech_sensitivity, 'START_SENSITIVITY_LOW');
+  assert.strictEqual(vadFallback.prefix_padding_ms, 400);
+
+  const gate = phoneBridge.createInboundGate();
+  const second = Buffer.alloc(8000, 0xFF).toString('base64');
+  gate.noteOutbound(second, 1000);
+  assert.strictEqual(gate.speaking(1500), true);
+  assert.strictEqual(gate.shouldForward(quiet, 1500), true);
+  assert.strictEqual(gate.shouldForward(speech, 1500), true);
+  assert.strictEqual(gate.threshold, 0);
+
+  delete process.env.SALES_AGENT_VAD_ENERGY_THRESHOLD;
+  delete process.env.SALES_AGENT_VAD_GATE_HANGOVER_MS;
+  const noisy = phoneBridge.createInboundGate();
+  noisy.noteOutbound(second, 0);
+  assert.strictEqual(noisy.speaking(500), true);
+  assert.strictEqual(noisy.shouldForward(quiet, 100), false);
+  assert.strictEqual(noisy.shouldForward(speech, 200), true);
+  assert.strictEqual(noisy.shouldForward(quiet, 300), true);
+  assert.strictEqual(noisy.shouldForward(quiet, 450), false);
+  assert.strictEqual(noisy.shouldForward(quiet, 1000), true);
+  noisy.noteOutbound(second, 2000);
+  noisy.interrupt(2100);
+  assert.strictEqual(noisy.speaking(2100), false);
+  assert.strictEqual(noisy.shouldForward(quiet, 2200), true);
+
+  for (const key of vadKeys) {
+    if (savedVad[key] === undefined) delete process.env[key];
+    else process.env[key] = savedVad[key];
+  }
 
   const bad = await post('/api/sales-agent/voice', {
     From: '+12163318323',

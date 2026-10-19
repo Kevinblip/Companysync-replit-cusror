@@ -92,6 +92,14 @@ async function call(method, url, body, extra) {
   const phone = prompt.buildPhoneDemoPrompt();
   assert.ok(phone.includes('check_availability'));
   assert.ok(phone.includes('Do not call play_clip'));
+  assert.ok(phone.includes('Read back the day, the time, and the time zone.'));
+  assert.ok(phone.includes('Say the confirmation link was sent and that you will send a reminder.'));
+  assert.ok(phone.includes('Ask if there is anything else or any questions, then answer them.'));
+  assert.ok(phone.includes('Say a natural goodbye.'));
+  assert.ok(phone.includes('Call end_call only after that goodbye, or let the caller hang up.'));
+  assert.ok(phone.includes('Never call end_call in the same turn as book_appointment'));
+  assert.ok(!phone.includes('Close by sending the trial link or booking time'));
+  assert.ok(system.includes('Close by sending the trial link or booking time'));
   assert.deepStrictEqual(pricing.foreignDollarAmounts(phone), []);
 
   const raw = clips.loadRawClips();
@@ -208,6 +216,25 @@ async function call(method, url, body, extra) {
   assert.strictEqual(objection.ok, true);
   const ended = await tools.handleTool('end_call', { outcome: 'trial_link', summary: 'Wants to try one job.' }, { callId: 'call_test' });
   assert.strictEqual(ended.ok, true);
+
+  const phoneSlots = booking.listSlots({});
+  assert.ok(phoneSlots.length > 0, 'expected an open slot for the phone booking');
+  const phoneBooked = await tools.handleTool('book_appointment', {
+    slot_time: phoneSlots[phoneSlots.length - 1].start,
+    name: 'Kevin Cole',
+    email: 'kevin-phone@example.com',
+    phone: '+12163318323',
+  }, { callId: 'call_phone_book', channel: 'phone', appBase: 'https://example.test' });
+  assert.strictEqual(phoneBooked.ok, true, JSON.stringify(phoneBooked));
+  assert.strictEqual(phoneBooked.do_not_end_call, true);
+  assert.match(phoneBooked.say, /Eastern time/);
+  assert.match(phoneBooked.say, /confirmation link was sent/);
+  assert.match(phoneBooked.say, /send a reminder/);
+  assert.match(phoneBooked.say, /anything else or any questions/);
+  assert.match(phoneBooked.say, /natural goodbye/);
+  assert.match(phoneBooked.say, /Do not call end_call until that goodbye is finished/);
+  assert.ok(phoneBooked.booking.when);
+  assert.strictEqual(phoneBooked.booking.timezone_spoken, 'Eastern time');
 
   const preview = sequences.simulate({ leadId: lead.id });
   assert.ok(preview.messages.length >= 3);
