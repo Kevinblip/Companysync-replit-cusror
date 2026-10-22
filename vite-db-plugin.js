@@ -12,6 +12,7 @@ const rateLimit = nodeRequire('./lib/rateLimit.cjs');
 const chatBot = nodeRequire('./lib/chatBot.cjs');
 const insuranceClaimWelcome = nodeRequire('./lib/insuranceClaimWelcome.cjs');
 const bulkDeletion = nodeRequire('./lib/bulkDeletion.cjs');
+const impersonationPrivacy = nodeRequire('./lib/impersonationPrivacy.cjs');
 
 function sendNewClaimWelcome(pool, mutationType, before, after, entityType = 'Project') {
   if (!after?.company_id) return;
@@ -123,11 +124,12 @@ function parseQuery(url) {
 }
 
 function sendJson(res, data, status = 200) {
+  const payload = status >= 400 ? data : impersonationPrivacy.maskIfImpersonating(res._privacyCtx, data);
   res.writeHead(status, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
   });
-  res.end(JSON.stringify(data));
+  res.end(JSON.stringify(payload));
 }
 
 function sendError(res, message, status = 500) {
@@ -1839,7 +1841,7 @@ export default function dbPlugin() {
             }
             if (ctx._sid) {
               await pool.query(
-                `UPDATE sessions SET sess = sess - 'impersonating_company_id' - 'impersonation_expires_at' - 'impersonation_log_id' WHERE sid = $1`,
+                `UPDATE sessions SET sess = sess - 'impersonating_company_id' - 'impersonation_expires_at' - 'impersonation_log_id' - 'impersonation_privacy_revealed' WHERE sid = $1`,
                 [ctx._sid]
               );
             }
@@ -1847,6 +1849,7 @@ export default function dbPlugin() {
               delete req.session.impersonating_company_id;
               delete req.session.impersonation_expires_at;
               delete req.session.impersonation_log_id;
+              delete req.session.impersonation_privacy_revealed;
             }
             console.log(`[Security] IMPERSONATION STOP: ${ctx.email} (log: ${logId})`);
             return sendJson(res, { success: true });
@@ -1885,7 +1888,16 @@ export default function dbPlugin() {
               company_id: ctx.impersonatedCompanyId,
               company_name: companyName,
               expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
+              privacy_revealed: ctx.privacyRevealed === true,
             });
+          }
+
+          if (iPath === '/api/impersonation/reveal' && req.method === 'POST') {
+            const ctx = await tenantGuard.resolveRequestContext(req, pool);
+            const body = await parseBody(req);
+            const result = await impersonationPrivacy.recordPrivacyReveal({ pool, ctx, reason: body?.reason });
+            if (result.status === 200 && req.session) req.session.impersonation_privacy_revealed = true;
+            return sendJson(res, result.body, result.status);
           }
 
           if (iPath === '/api/impersonation/view-as' && req.method === 'POST') {
@@ -1910,7 +1922,7 @@ export default function dbPlugin() {
             if (type === 'all') {
               if (!ctx.isSuperAdmin) return sendError(res, 'Super-admin access required', 403);
               const rows = await pool.query('SELECT * FROM impersonation_logs ORDER BY started_at DESC LIMIT 200');
-              return sendJson(res, rows.rows);
+              return sendJson(res, impersonationPrivacy.maskLogRows(ctx, rows.rows));
             }
             const companyId = parsedUrl.searchParams.get('company_id');
             const ids = Array.from(ctx.allowedCompanyIds);
@@ -1918,7 +1930,7 @@ export default function dbPlugin() {
             if (!targetId) return sendJson(res, []);
             if (!ctx.isSuperAdmin && !ctx.allowedCompanyIds.has(targetId)) return sendError(res, 'Access denied', 403);
             const rows = await pool.query('SELECT * FROM impersonation_logs WHERE target_company_id = $1 ORDER BY started_at DESC LIMIT 100', [targetId]);
-            return sendJson(res, rows.rows);
+            return sendJson(res, impersonationPrivacy.maskLogRows(ctx, rows.rows));
           }
 
           return next();
@@ -1938,6 +1950,7 @@ export default function dbPlugin() {
         //   The per-entity-route checks below remain as defense-in-depth.
         try {
           const expCtx = await tenantGuard.resolveRequestContext(req, getPool());
+          res._privacyCtx = expCtx;
           if (expCtx.impersonationExpired) {
             return sendError(res, 'Impersonation session expired. Please return to the admin dashboard.', 401);
           }

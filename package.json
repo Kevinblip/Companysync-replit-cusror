@@ -18,6 +18,7 @@
     "generate-marketing-videos:force": "node scripts/generate-marketing-videos.cjs --force",
     "preview": "vite preview",
     "test:portal-privacy": "node scripts/test-portal-privacy.cjs",
+    "test:impersonation-privacy": "node scripts/test-impersonation-privacy.cjs",
     "check:portal-privacy-sql": "node scripts/check-portal-privacy-sql.cjs",
     "seed:plan-companies": "node scripts/seed-plan-test-companies.cjs",
     "test:plan-gates": "node scripts/test-plan-feature-gates.cjs",

@@ -40681,6 +40681,15 @@ export default function viteFunctionsPlugin() {
 
         if (req.url?.startsWith('/api/public-estimate-pdf') && req.method === 'GET') {
           try {
+            const impersonationPrivacy = nodeRequire('./lib/impersonationPrivacy.cjs');
+            const privacyCtx = req._impersonationCtx || await tenantGuard.resolveRequestContext(req, getPool());
+            if (impersonationPrivacy.shouldMask(privacyCtx)) {
+              res.writeHead(403, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(impersonationPrivacy.privacyBlockBody()));
+              return;
+            }
+          } catch (_) { /* lookup failure must not change a normal download */ }
+          try {
             const url = new URL(req.url, `https://${req.headers.host}`);
             const id = url.searchParams.get('id');
             const t = url.searchParams.get('t');
@@ -41209,8 +41218,13 @@ export default function viteFunctionsPlugin() {
                 // travels with params (survives object spreads), so those handlers
                 // can fail closed when they see an external call without a request.
                 const result = await handler({ ...(params || {}), __externalCall: true }, apiKey, req);
+                const impersonationPrivacy = nodeRequire('./lib/impersonationPrivacy.cjs');
+                const responseBody = impersonationPrivacy.maskIfImpersonating(
+                  { isImpersonating: invokeDecision.isImpersonating, privacyRevealed: invokeDecision.privacyRevealed },
+                  { data: result }
+                );
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ data: result }));
+                res.end(JSON.stringify(responseBody));
               } catch (err) {
                 console.error(`[Functions] ${functionName} error:`, err.message);
                 if (err?.statusCode === 413) { replyError(res, err); return; }
@@ -41281,9 +41295,14 @@ export default function viteFunctionsPlugin() {
           const portalUrl = new URL(req.url, `http://${req.headers.host}`);
           const portalPath = portalUrl.pathname;
 
+          if (String(req.headers.cookie || '').includes('connect.sid') && !req._impersonationCtx) {
+            try { req._impersonationCtx = await tenantGuard.resolveRequestContext(req, pool); } catch (_) {}
+          }
+          const impersonationPrivacy = nodeRequire('./lib/impersonationPrivacy.cjs');
           function portalJson(status, data) {
+            const payload = status >= 400 ? data : impersonationPrivacy.maskIfImpersonating(req._impersonationCtx, data);
             res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' });
-            res.end(JSON.stringify(data));
+            res.end(JSON.stringify(payload));
           }
 
           // POST /api/public/portal/invoice-checkout — token-gated invoice payment
@@ -42249,13 +42268,18 @@ export default function viteFunctionsPlugin() {
           }
 
           function chatJson(status, data) {
+            const impersonationPrivacy = nodeRequire('./lib/impersonationPrivacy.cjs');
+            const payload = status >= 400 ? data : impersonationPrivacy.maskIfImpersonating(req._impersonationCtx, data);
             res.writeHead(status, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(data));
+            res.end(JSON.stringify(payload));
           }
 
           try {
             const authedEmail = chatAuthedEmail();
             if (!authedEmail) { chatJson(401, { error: 'Not authenticated' }); return; }
+            if (!req._impersonationCtx) {
+              try { req._impersonationCtx = await tenantGuard.resolveRequestContext(req, pool); } catch (_) {}
+            }
 
             // GET /api/chat/conversations
             if (chatPath === '/api/chat/conversations' && req.method === 'GET') {
