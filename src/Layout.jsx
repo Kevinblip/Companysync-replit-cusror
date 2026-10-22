@@ -21,6 +21,7 @@ import { useImpersonation } from "@/lib/ImpersonationContext";
 import { PLATFORM_COMPANY_ID } from "@/lib/constants";
 import { isPlatformAdminCheck } from "@/hooks/usePlatformAdmin";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import CompanySyncLogo from "@/components/brand/CompanySyncLogo";
 import { createPageUrl } from "@/utils";
 import { DEFAULT_SHORTCUT_IDS, SHORTCUT_MAP } from "@/config/quickCreateShortcuts";
 import useHiddenFeatures from "@/hooks/useHiddenFeatures";
@@ -1928,6 +1929,9 @@ export default function Layout({ children, currentPageName }) {
       <div className="min-h-screen flex w-full min-w-0 max-w-full overflow-x-clip bg-background">
         <Sidebar className="border-r border-blue-700">
           <SidebarHeader className="p-6 border-b border-blue-700 flex-shrink-0">
+            <Link to="/" className="mb-4 flex items-center" aria-label="CompanySync home">
+              <CompanySyncLogo tone="dark" className="h-8 w-auto max-w-full" />
+            </Link>
             {showSettingsMenu ? (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1953,9 +1957,7 @@ export default function Layout({ children, currentPageName }) {
                         className="w-10 h-10 rounded-lg object-cover bg-white p-1 flex-shrink-0"
                       />
                     ) : (
-                      <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center flex-shrink-0">
-                        <Sparkles className="w-6 h-6 text-blue-600" />
-                      </div>
+                      <CompanySyncLogo layout="icon" tone="dark" className="w-10 h-10 flex-shrink-0 object-contain" />
                     )}
                     <div className="flex-1 min-w-0">
                       <h2 className="font-bold text-white text-lg truncate flex items-center gap-2">
@@ -2158,6 +2160,9 @@ export default function Layout({ children, currentPageName }) {
             <div className={`flex justify-between gap-2 min-w-0 ${isCompactHeader ? 'items-center' : 'items-start'}`}>
               <div className="flex shrink-0 items-center gap-2 md:gap-4">
                 <SidebarTrigger className={`text-white hover:bg-white/10 p-2 rounded-lg transition-colors duration-200 ${isCompactHeader ? 'h-11 w-11 shrink-0' : ''}`} />
+                <Link to="/" className="lg:hidden inline-flex items-center" aria-label="CompanySync home">
+                  <CompanySyncLogo tone="dark" className="h-7 w-auto max-w-[160px]" />
+                </Link>
 
                 <Button
                   variant="ghost"

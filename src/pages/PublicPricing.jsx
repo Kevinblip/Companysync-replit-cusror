@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Check, Sparkles, Zap, Crown } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import CompanySyncLogo from "@/components/brand/CompanySyncLogo";
 
 export default function PublicPricing() {
   const navigate = useNavigate();
@@ -159,6 +160,7 @@ export default function PublicPricing() {
       {/* Hero Section */}
       <div className="relative overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+          <CompanySyncLogo tone="dark" className="mx-auto mb-8 h-12 w-auto md:h-14" />
           <h1 className="text-5xl md:text-7xl font-bold text-white mb-6 drop-shadow-lg">
             Roofing CRM That Works
           </h1>
@@ -294,6 +296,7 @@ export default function PublicPricing() {
           </div>
         </div>
         <footer className="mt-16 border-t border-gray-200 pt-6 text-center text-sm text-gray-500">
+          <CompanySyncLogo tone="light" className="mx-auto mb-4 h-8 w-auto" />
           <div className="flex flex-wrap justify-center gap-x-5 gap-y-2">
             <a href="/privacy" className="hover:text-blue-700">Privacy Policy</a>
             <a href="/terms" className="hover:text-blue-700">Terms of Service</a>

@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 
 const nodeRequire = createRequire(import.meta.url);
 const { getNotificationQuietHours } = nodeRequire('./lib/notificationQuietHours.cjs');
+const { emailLogoImg } = nodeRequire('./lib/companysyncBrand.cjs');
 const { twilioApiUrl } = nodeRequire('./lib/twilioApiBase.cjs');
 
 async function sendTwilioSms(toPhone, fromPhone, body, accountSid, authToken) {
@@ -32,7 +33,7 @@ function getEmailHtml(title, message, linkUrl) {
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;padding:20px">
       <div style="background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%);border-radius:12px 12px 0 0;padding:24px;text-align:center">
-        <h1 style="color:white;margin:0;font-size:20px">CompanySync</h1>
+        ${emailLogoImg({ variant: 'white', width: 200 })}
       </div>
       <div style="background:#ffffff;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;padding:24px">
         <h2 style="color:#1f2937;margin:0 0 12px 0;font-size:18px">${title}</h2>

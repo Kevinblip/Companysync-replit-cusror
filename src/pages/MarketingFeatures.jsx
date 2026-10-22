@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import CompanySyncLogo from "@/components/brand/CompanySyncLogo";
 
 // Video is served from public/videos/ (Vite copies public/ → dist/ at build time).
 // Prod server checks dist/videos/ at line 8421 (DIST_DIR + pathname), so this
@@ -138,9 +139,8 @@ export default function MarketingFeatures() {
             <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
             Built for Roofing Contractors
           </div>
-          <h1 className="text-5xl md:text-6xl font-black tracking-tight mb-4">
-            <span className="text-white">Company</span>
-            <span className="text-blue-400">Sync</span>
+          <h1 className="mb-6 flex justify-center">
+            <CompanySyncLogo tone="dark" className="h-14 w-auto md:h-16" />
           </h1>
           <p className="text-xl md:text-2xl text-slate-300 max-w-2xl mx-auto mb-8 leading-relaxed">
             The all-in-one platform that runs your roofing business — CRM, AI estimating, scheduling, invoicing, and a 24/7 AI receptionist.

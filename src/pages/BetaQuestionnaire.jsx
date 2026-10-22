@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { CheckCircle2, Loader2, Building2, Wrench, Zap } from "lucide-react";
+import CompanySyncLogo from "@/components/brand/CompanySyncLogo";
 
 const CURRENT_TOOLS = [
   "AccuLynx", "JobNimbus", "Leap", "RoofSnap", "EagleView",
@@ -98,6 +99,7 @@ export default function BetaQuestionnaire() {
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
+          <CompanySyncLogo tone="dark" className="mx-auto mb-6 h-10 w-auto" />
           <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur px-4 py-2 rounded-full mb-6">
             <Zap className="w-4 h-4 text-yellow-400" />
             <span className="text-white/90 text-sm font-medium">Beta Program — Limited Spots</span>
