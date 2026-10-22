@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { getSignupAttribution, trackSignUpOnce } from "@/lib/analytics";
 import SmartSetupPanel from "@/components/setup/SmartSetupPanel";
 import useTranslation from "@/hooks/useTranslation";
 
@@ -332,8 +333,21 @@ export default function QuickSetup() {
         
         // Start the free trial via the guarded server action (sets plan/status/
         // trial window server-side; direct tenant writes to those fields are stripped).
-        const trialRes = await base44.functions.invoke('startCompanyTrial', { companyId: newCompany.id, plan });
+        const trialRes = await base44.functions.invoke('startCompanyTrial', {
+          companyId: newCompany.id,
+          plan,
+          attribution: getSignupAttribution(),
+        });
         if (trialRes?.error) throw new Error(trialRes.error);
+        const tracking = trialRes?.data?.tracking;
+        if (tracking?.is_new_trial && tracking.event_id) {
+          await trackSignUpOnce({
+            eventId: tracking.event_id,
+            method: 'onboarding',
+            plan,
+            email: data.email || user.email,
+          });
+        }
         
         // Clear onboarding data
         sessionStorage.removeItem('onboarding_data');
@@ -427,8 +441,21 @@ export default function QuickSetup() {
         });
 
         // Start the free trial via the guarded server action.
-        const trialRes = await base44.functions.invoke('startCompanyTrial', { companyId: newCompany.id, plan });
+        const trialRes = await base44.functions.invoke('startCompanyTrial', {
+          companyId: newCompany.id,
+          plan,
+          attribution: getSignupAttribution(),
+        });
         if (trialRes?.error) throw new Error(trialRes.error);
+        const tracking = trialRes?.data?.tracking;
+        if (tracking?.is_new_trial && tracking.event_id) {
+          await trackSignUpOnce({
+            eventId: tracking.event_id,
+            method: 'onboarding',
+            plan,
+            email: user.email,
+          });
+        }
 
         return newCompany;
       }

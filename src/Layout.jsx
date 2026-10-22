@@ -135,6 +135,7 @@ import AppSidebarNav, { NavCommandPalette } from "@/components/sidebar/AppSideba
 import { buildSidebarModel, collectVisibleSources } from "@/lib/sidebarNav";
 import { useAuth } from "@/lib/AuthContext";
 import { getLastUsedCompanyId, getPreferredCompanyId, hasCrossTenantCompanyAccess, resolveActiveCompanyId, setLastUsedCompanyId } from "@/lib/activeCompanySelection";
+import { getSignupAttribution, trackSignUpOnce } from "@/lib/analytics";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -649,12 +650,21 @@ export default function Layout({ children, currentPageName }) {
           body: JSON.stringify({
             email: user.email,
             name: user.name || user.email.split('@')[0],
+            attribution: getSignupAttribution(),
           }),
         });
         if (resp.ok) {
           const result = await resp.json();
           if (result.company?.id) {
             setLastUsedCompanyId(result.company.id, user.email);
+          }
+          if (result.created && result.tracking?.is_new_trial && result.tracking.event_id) {
+            await trackSignUpOnce({
+              eventId: result.tracking.event_id,
+              method: 'google',
+              plan: 'professional',
+              email: user.email,
+            });
           }
           queryClient.invalidateQueries({ queryKey: ['layout-companies-list'] });
           queryClient.invalidateQueries({ queryKey: ['staff-profiles'] });

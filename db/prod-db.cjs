@@ -2295,7 +2295,7 @@ async function handleLocalDbRoute(req, res, pathname, url) {
       const rl = rateLimit.checkRateLimit(`auto-provision:${rateLimit.getClientIp(req)}`, { max: 10, windowMs: 60 * 60 * 1000 });
       if (!rl.allowed) return sendJson({ error: 'Too many requests, please try again later.' }, 429);
       const body = await parseBodyJson(req);
-      const { name } = body;
+      const { name, attribution } = body;
       const email = sessionEmail;
 
       // PRIORITY 1: Trust the users table company_id — it is the authoritative source
@@ -2402,6 +2402,13 @@ async function handleLocalDbRoute(req, res, pathname, url) {
       // Auto-provision is a signup path, not a subscription grant. Route it
       // through startCompanyTrial so the durable signup event, Day-0 nurture,
       // platform-admin email/SMS, limits, and trial dates are all created.
+      try {
+        const { attributionFromRequest, saveMarketingAttribution } = require('../lib/marketingAttribution.cjs');
+        const attr = attributionFromRequest(req, attribution);
+        if (attr) await saveMarketingAttribution(p, companyId, attr);
+      } catch (attrErr) {
+        console.warn('[Auto-Provision] attribution save failed:', attrErr.message);
+      }
       const invokeResponse = await fetch(`http://127.0.0.1:${process.env.PORT || 5000}/api/functions/invoke`, {
         method: 'POST',
         headers: {
@@ -2410,7 +2417,7 @@ async function handleLocalDbRoute(req, res, pathname, url) {
         },
         body: JSON.stringify({
           functionName: 'startCompanyTrial',
-          params: { companyId, plan: 'professional' },
+          params: { companyId, plan: 'professional', attribution },
         }),
       });
       const invokeEnvelope = await invokeResponse.json().catch(() => ({}));
@@ -2428,7 +2435,12 @@ async function handleLocalDbRoute(req, res, pathname, url) {
       const newCompany = await p.query('SELECT * FROM companies WHERE id = $1', [companyId]);
       console.log(`[Auto-Provision] Created company "${companyName}" (${companyId}) and staff profile for ${email}`);
       seedDefaultTemplates(p, companyId, companyName).catch(err => console.error('[Templates] Seed error on provision:', err.message));
-      return sendJson({ company: newCompany.rows[0], staffProfile: { id: staffId }, created: true });
+      return sendJson({
+        company: newCompany.rows[0],
+        staffProfile: { id: staffId },
+        created: true,
+        tracking: trialResult?.tracking || { event_id: `trial_signup_${companyId}`, is_new_trial: trialResult?.signup_event_claimed === true },
+      });
     }
 
     if (pathname === '/api/local/admin/seed-templates' && req.method === 'POST') {

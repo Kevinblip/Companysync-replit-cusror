@@ -3,6 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { getSignupAttribution, trackBeginCheckout, trackSignUpOnce } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -226,8 +227,18 @@ export default function Pricing() {
         const trialRes = await base44.functions.invoke('startCompanyTrial', {
           companyId: myCompany.id,
           plan: plan.name.toLowerCase(),
+          attribution: getSignupAttribution(),
         });
         if (trialRes?.error) throw new Error(trialRes.error);
+        const tracking = trialRes?.data?.tracking;
+        if (tracking?.is_new_trial && tracking.event_id) {
+          await trackSignUpOnce({
+            eventId: tracking.event_id,
+            method: 'in_app',
+            plan: plan.name,
+            email: user?.email,
+          });
+        }
 
         alert(`🎉 Your ${plan.name} plan trial has started!\n\n✅ No credit card required\n✅ Full access for 14 days\n\n💡 Add payment details anytime to get 7 bonus days!`);
         
@@ -250,6 +261,7 @@ export default function Pricing() {
       });
 
       if (data?.url) {
+        await trackBeginCheckout({ sessionId: data.id, plan: plan.name, value: plan.price });
         window.location.href = data.url;
       } else {
         throw new Error(data?.error || 'Failed to initialize checkout');

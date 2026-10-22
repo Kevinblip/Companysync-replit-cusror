@@ -7024,6 +7024,17 @@ const server = http.createServer(async (req, res) => {
           }
         }
 
+        // First real subscription charge (trial end, or the first invoice when
+        // there is no trial). Idempotent. Connect/homeowner payments are skipped
+        // inside the helper. A failure here must not fail the webhook.
+        if (event?.type === 'invoice.payment_succeeded') {
+          try {
+            await require('./lib/firstPaidSubscription.cjs').recordFirstPaidSubscription(pool, event);
+          } catch (paidErr) {
+            console.error('[StripeWebhook] first paid subscription record failed:', paidErr.message);
+          }
+        }
+
         // ── SUBSCRIPTION AMOUNT SYNC ───────────────────────────────────────
         // customer.subscription.{created,updated,deleted}: write the real
         // monthly amount and Stripe status onto the companies row so the

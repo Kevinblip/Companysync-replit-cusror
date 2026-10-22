@@ -2491,7 +2491,7 @@ export default function dbPlugin() {
             const rl = rateLimit.checkRateLimit(`auto-provision:${rateLimit.getClientIp(req)}`, { max: 10, windowMs: 60 * 60 * 1000 });
             if (!rl.allowed) return sendError(res, 'Too many requests, please try again later.', 429);
             const body = await parseBody(req);
-            const { name } = body;
+            const { name, attribution } = body;
             const email = sessionEmail;
             const emailLower = email.toLowerCase().trim();
 
@@ -2546,8 +2546,15 @@ export default function dbPlugin() {
               [staffId, companyId, displayName, displayName, email, email]
             );
 
+            try {
+              const { attributionFromRequest, saveMarketingAttribution } = nodeRequire('./lib/marketingAttribution.cjs');
+              const attr = attributionFromRequest(req, attribution);
+              if (attr) await saveMarketingAttribution(pool, companyId, attr);
+            } catch (attrErr) {
+              console.warn('[Auto-Provision] attribution save failed:', attrErr.message);
+            }
             const trialResult = await functionHandlers.startCompanyTrial(
-              { companyId, plan: 'professional' },
+              { companyId, plan: 'professional', attribution },
               null,
               {
                 __trustedSignupOrchestrator: true,
@@ -2557,6 +2564,8 @@ export default function dbPlugin() {
                   is_super_admin: false,
                   is_administrator: true,
                 },
+                headers: req.headers,
+                socket: req.socket,
               }
             );
             if (!trialResult?.success) {
@@ -2584,7 +2593,12 @@ export default function dbPlugin() {
               console.error('[Auto-Provision] Email notification error:', err.message)
             );
 
-            return sendJson(res, { company: newCompany.rows[0], staffProfile: { id: staffId }, created: true });
+            return sendJson(res, {
+              company: newCompany.rows[0],
+              staffProfile: { id: staffId },
+              created: true,
+              tracking: trialResult?.tracking || { event_id: `trial_signup_${companyId}`, is_new_trial: trialResult?.signup_event_claimed === true },
+            });
           }
 
           if (urlPath === '/api/local/admin/seed-templates' && req.method === 'POST') {

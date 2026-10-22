@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Building2, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Link } from "react-router-dom";
+import { getSignupAttribution, trackSignUpOnce } from "@/lib/analytics";
 
 export default function SignupPage() {
   const [email, setEmail] = useState("");
@@ -54,6 +55,7 @@ export default function SignupPage() {
           password,
           selected_plan: selectedPlan,
           redirect: `/QuickSetup?plan=${encodeURIComponent(selectedPlan)}&new_signup=true`,
+          attribution: getSignupAttribution(),
         }),
         credentials: "include",
       });
@@ -63,6 +65,14 @@ export default function SignupPage() {
         return;
       }
       sessionStorage.removeItem("onboarding_data");
+      if (data.tracking?.is_new_trial && data.tracking.event_id) {
+        await trackSignUpOnce({
+          eventId: data.tracking.event_id,
+          method: "email",
+          plan: selectedPlan,
+          email,
+        });
+      }
       window.location.replace(data.redirect || "/");
     } catch (err) {
       setError("Network error. Please try again.");

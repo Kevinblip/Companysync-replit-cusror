@@ -18,6 +18,7 @@ import {
   CheckCircle2
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import { getSignupAttribution, trackSignUpOnce } from "@/lib/analytics";
 import { motion, AnimatePresence } from "framer-motion";
 
 const STEPS = [
@@ -121,10 +122,20 @@ export default function OnboardingWizard() {
             email: formData.email,
             full_name: formData.full_name,
             selected_plan: selectedPlan,
-            onboarding_data: formData
+            onboarding_data: formData,
+            attribution: getSignupAttribution(),
           });
           
           if (response.data?.success) {
+            const tracking = response.data.tracking;
+            if (tracking?.is_new_trial && tracking.event_id) {
+              await trackSignUpOnce({
+                eventId: tracking.event_id,
+                method: 'onboarding',
+                plan: selectedPlan,
+                email: formData.email,
+              });
+            }
             navigate(`/signup?onboarding=true&plan=${encodeURIComponent(selectedPlan)}`);
           } else if (response.data?.error === 'already_exists') {
             const redirect = `/QuickSetup?plan=${encodeURIComponent(selectedPlan)}&new_signup=true`;

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { CreditCard, Gift, X, Calendar, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import { trackBeginCheckout } from '@/lib/analytics';
 
 export default function TrialReminderBanner({ user, myCompany }) {
   const navigate = useNavigate();
@@ -64,7 +65,12 @@ export default function TrialReminderBanner({ user, myCompany }) {
         return;
       }
       const url = response.data?.url || response.url;
+      const sessionId = response.data?.id || response.id;
       if (url) {
+        await trackBeginCheckout({
+          sessionId,
+          plan: myCompany.subscription_plan,
+        });
         window.location.href = url;
       } else {
         alert('No checkout URL returned — please try again or contact support.');
