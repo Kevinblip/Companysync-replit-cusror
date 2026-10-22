@@ -18,6 +18,7 @@ import {
   CheckCircle2
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import CompanySyncLogo from "@/components/brand/CompanySyncLogo";
 import { motion, AnimatePresence } from "framer-motion";
 
 const STEPS = [
@@ -211,11 +212,8 @@ export default function OnboardingWizard() {
           
           {/* Logo and Title */}
           <div className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-xl flex items-center justify-center">
-                <Sparkles className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-2xl font-bold text-gray-900">CompanySync</span>
+            <div className="flex items-center justify-center mb-4">
+              <CompanySyncLogo tone="light" className="h-12 w-auto" />
             </div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Start Your Free Trial</h1>
             <p className="text-gray-600">14 days free • No credit card required • Cancel anytime</p>

@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Lock, Eye, EyeOff, CheckCircle, AlertCircle } from "lucide-react";
 import { Link } from "react-router-dom";
+import CompanySyncLogo from "@/components/brand/CompanySyncLogo";
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState("");
@@ -67,8 +68,10 @@ export default function ResetPasswordPage() {
     <div className="min-h-screen flex" data-testid="reset-password-page">
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 p-12 flex-col justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">CompanySync</h1>
-          <p className="text-blue-200 mt-1 text-sm">Roofing Business Management</p>
+          <h1>
+            <CompanySyncLogo tone="dark" className="h-10 w-auto" />
+          </h1>
+          <p className="text-blue-200 mt-3 text-sm">Roofing CRM for contractors</p>
         </div>
         <div className="space-y-6">
           <h2 className="text-4xl font-serif font-bold text-white leading-tight">
@@ -81,7 +84,9 @@ export default function ResetPasswordPage() {
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white">
         <div className="w-full max-w-sm space-y-8">
           <div className="lg:hidden mb-6 text-center">
-            <h1 className="text-2xl font-bold text-slate-900">CompanySync</h1>
+            <h1>
+              <CompanySyncLogo tone="light" className="mx-auto h-9 w-auto" />
+            </h1>
           </div>
 
           {tokenMissing && (

@@ -1,14 +1,18 @@
-const CACHE_NAME = 'companysync-v4';
+const CACHE_NAME = 'companysync-v5';
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_URLS = [
   '/offline.html',
   '/manifest.json',
-  '/icons/icon-192.svg',
-  '/icons/icon-512.svg',
-  '/icons/icon-180.png',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
+  '/favicon.ico',
+  '/favicon-32.png',
+  '/apple-touch-icon.png',
+  '/android-chrome-192.png',
+  '/android-chrome-512.png',
+  '/brand/companysync-roofing-crm-logo-horizontal.svg',
+  '/brand/companysync-roofing-crm-logo-horizontal-white.svg',
+  '/brand/companysync-roofing-crm-icon.svg',
+  '/brand/companysync-roofing-crm-icon-white.svg',
 ];
 
 const CACHEABLE_EXTENSIONS = ['.css', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.woff2', '.woff'];

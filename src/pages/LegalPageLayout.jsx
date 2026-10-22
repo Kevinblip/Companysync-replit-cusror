@@ -1,13 +1,14 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import CompanySyncLogo from "@/components/brand/CompanySyncLogo";
 
 export default function LegalPageLayout({ title, children }) {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <header className="bg-gradient-to-r from-slate-950 via-blue-950 to-blue-900 text-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-6 px-6 py-5">
-          <Link to="/" className="text-xl font-bold tracking-tight hover:text-blue-200">
-            CompanySync
+          <Link to="/" className="inline-flex items-center" aria-label="CompanySync home">
+            <CompanySyncLogo tone="dark" className="h-8 w-auto" />
           </Link>
           <nav aria-label="Legal navigation" className="flex items-center gap-4 text-sm text-blue-100">
             <Link to="/privacy" className="hover:text-white">Privacy Policy</Link>
@@ -22,7 +23,7 @@ export default function LegalPageLayout({ title, children }) {
       <main className="mx-auto max-w-4xl px-5 py-10 sm:px-8 sm:py-14">
         <article className="rounded-xl border border-slate-200 bg-white px-6 py-8 shadow-sm sm:px-10 sm:py-10">
           <div className="mb-8 border-b border-slate-200 pb-6">
-            <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-blue-700">CompanySync</p>
+            <CompanySyncLogo tone="light" className="mb-3 h-8 w-auto" />
             <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">{title}</h1>
             <p className="mt-3 text-sm text-slate-500">Last updated: September 2, 2026</p>
           </div>
