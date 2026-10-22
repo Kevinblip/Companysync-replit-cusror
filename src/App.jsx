@@ -15,7 +15,6 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { UploadQueueProvider } from '@/context/UploadQueueContext';
 import UpcomingEventAlert from '@/components/UpcomingEventAlert';
 import { getLastUsedCompanyId } from '@/lib/activeCompanySelection';
-import CompanySyncLogo from '@/components/brand/CompanySyncLogo';
 
 const SignContractCustomer = lazy(() => import('@/pages/sign-contract-customer'));
 const ContractEditor = lazy(() => import('@/pages/ContractEditor'));
@@ -42,9 +41,7 @@ const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
 const MainPage = mainPageKey ? Pages[mainPageKey] : <></>;
 const PageLoading = () => (
-  <div className="flex min-h-[240px] flex-col items-center justify-center gap-4 bg-white text-sm text-slate-500 dark:bg-[#1E374D] dark:text-slate-200">
-    <CompanySyncLogo tone="light" className="h-8 w-auto dark:hidden" />
-    <CompanySyncLogo tone="dark" className="hidden h-8 w-auto dark:block" />
+  <div className="flex min-h-[240px] items-center justify-center bg-white text-sm text-slate-500 dark:bg-slate-950 dark:text-slate-400">
     Loading page…
   </div>
 );
@@ -86,10 +83,8 @@ const AuthenticatedApp = () => {
 
   if (isLoadingAuth) {
     return (
-      <div className="fixed inset-0 flex flex-col items-center justify-center gap-6 bg-white dark:bg-[#1E374D] z-50">
-        <CompanySyncLogo tone="light" className="h-12 w-auto dark:hidden" />
-        <CompanySyncLogo tone="dark" className="hidden h-12 w-auto dark:block" />
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-[#087EE1] rounded-full animate-spin"></div>
+      <div className="fixed inset-0 flex items-center justify-center bg-white dark:bg-slate-950 z-50">
+        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
       </div>
     );
   }

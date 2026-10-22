@@ -9,11 +9,6 @@ public/*.jpg
 public/*.jpeg
 public/*.png
 public/*.webp
-# Official favicon PNGs (not user uploads). SVG/PNG brand lockups live in public/brand/.
-!public/favicon-32.png
-!public/apple-touch-icon.png
-!public/android-chrome-192.png
-!public/android-chrome-512.png
 
 # Logs
 logs

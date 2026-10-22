@@ -225,7 +225,6 @@ Deno.serve(async (req) => {
     <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:8px">Tap the button above to open PhotoSync directly for this job</p>
   </div>
   <div style="padding:16px 32px;background:#f1f5f9;text-align:center">
-    <img src="https://getcompanysync.com/brand/companysync-roofing-crm-logo-horizontal.png" alt="CompanySync roofing CRM logo" width="140" height="35" style="display:block;margin:0 auto 8px;width:140px;height:auto;border:0;" />
     <p style="margin:0;color:#94a3b8;font-size:12px">{company_name} • Powered by CompanySync</p>
   </div>
 </div>`,
@@ -343,7 +342,6 @@ Deno.serve(async (req) => {
     <p style="color:#6b7280;font-size:14px;margin:0">Your inspector will reach out to confirm the appointment. If you have any questions, contact us at <a href="mailto:{company_email}" style="color:#1d4ed8">{company_email}</a>.</p>
   </div>
   <div style="padding:16px 32px;background:#f1f5f9;text-align:center">
-    <img src="https://getcompanysync.com/brand/companysync-roofing-crm-logo-horizontal.png" alt="CompanySync roofing CRM logo" width="140" height="35" style="display:block;margin:0 auto 8px;width:140px;height:auto;border:0;" />
     <p style="margin:0;color:#94a3b8;font-size:12px">{company_name} • Powered by CompanySync</p>
   </div>
 </div>`;

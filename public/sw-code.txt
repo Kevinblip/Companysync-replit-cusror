@@ -5,8 +5,8 @@ const PRECACHE_URLS = [
   '/',
   '/offline.html',
   '/manifest.json',
-  '/favicon.ico',
-  '/brand/companysync-roofing-crm-icon.svg',
+  '/icons/icon-192.svg',
+  '/icons/icon-512.svg',
 ];
 
 const CACHEABLE_EXTENSIONS = ['.js', '.css', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.woff2', '.woff'];

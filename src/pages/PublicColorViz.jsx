@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Palette, Download, AlertCircle, Loader2, Sparkles, Upload, Check, X, ZoomIn, ZoomOut } from "lucide-react";
-import CompanySyncLogo from "@/components/brand/CompanySyncLogo";
 import { format } from "date-fns";
 import { base44 } from "@/api/base44Client";
 import {
@@ -508,10 +507,7 @@ export default function PublicColorViz() {
           </div>
         )}
 
-        <div className="mt-12 flex flex-col items-center gap-2">
-          <CompanySyncLogo tone="light" className="h-6 w-auto" />
-          <p className="text-center text-xs text-gray-400">Powered by CompanySync</p>
-        </div>
+        <p className="text-center text-xs text-gray-300 mt-12">Powered by CompanySync</p>
       </div>
     </div>
   );

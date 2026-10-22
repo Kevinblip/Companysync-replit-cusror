@@ -49,7 +49,6 @@ import { appendInsuranceSettlementPdf } from './lib/insuranceSettlement.js';
 import { buildCityBoundaryQuery } from './src/lib/stormAddressUtils.js';
 
 const nodeRequire = createRequire(import.meta.url);
-const { emailLogoImg } = nodeRequire('./lib/companysyncBrand.cjs');
 const inspectionReportDelivery = nodeRequire('./lib/inspectionReportDelivery.cjs');
 const { invalidateCallerCache, invalidateCallerCacheForCompany } = nodeRequire('./lib/lookupCallerByCrmPhone.cjs');
 const emailHealth = nodeRequire('./lib/emailProviderHealth.cjs');
@@ -1874,7 +1873,6 @@ function trialEmailShell(title, bodyHtml, accent = '#7c3aed') {
   return `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: ${accent}; padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
-        ${emailLogoImg({ variant: 'white', width: 210 })}
         <h1 style="color: white; margin: 0; font-size: 22px;">${title}</h1>
       </div>
       <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
@@ -3011,7 +3009,7 @@ function generateNotificationEmailHTML(config, entityType, entityData, companyId
   return `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
       <div style="background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); border-radius: 12px 12px 0 0; padding: 24px; text-align: center;">
-        ${emailLogoImg({ variant: 'white', width: 200 })}
+        <h1 style="color: white; margin: 0; font-size: 20px;">CompanySync</h1>
       </div>
       <div style="background: #ffffff; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; padding: 24px;">
         <h2 style="color: #1f2937; margin: 0 0 12px 0; font-size: 18px;">${config.title}</h2>
@@ -20414,7 +20412,7 @@ Return JSON:
 
       const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px">
         <div style="background:linear-gradient(135deg,#1e40af,#3b82f6);border-radius:12px 12px 0 0;padding:24px;text-align:center">
-          ${emailLogoImg({ variant: 'white', width: 200 })}
+          <h1 style="color:white;margin:0;font-size:20px">CompanySync</h1>
         </div>
         <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;padding:24px">
           ${body}
@@ -20542,7 +20540,6 @@ Return JSON:
     <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:8px">Tap the button above to open PhotoSync directly for this job</p>
   </div>
   <div style="padding:16px 32px;background:#f1f5f9;text-align:center">
-    ${emailLogoImg({ variant: 'color', width: 140 })}
     <p style="margin:0;color:#94a3b8;font-size:12px">${companyName} • Powered by CompanySync</p>
   </div>
 </div>`;
@@ -20622,7 +20619,6 @@ Return JSON:
     <p style="margin:4px 0;font-weight:600;color:#0f766e;font-size:15px">📞 <a href="tel:${(companyName || '').replace(/\D/g,'')}" style="color:#0f766e;text-decoration:none;">${clientPhone || 'See below'}</a></p>
   </div>
   <div style="padding:16px 32px;background:#f0fdfa;text-align:center">
-    ${emailLogoImg({ variant: 'color', width: 140 })}
     <p style="margin:0;color:#6b7280;font-size:12px">${companyName} • Powered by CompanySync</p>
   </div>
 </div>`;
@@ -20767,7 +20763,6 @@ Return JSON:
     <p style="color:#6b7280;font-size:13px;margin-top:24px">Log in to the app to view full details.</p>
   </div>
   <div style="padding:16px 32px;background:#f1f5f9;text-align:center">
-    ${emailLogoImg({ variant: 'color', width: 140 })}
     <p style="margin:0;color:#94a3b8;font-size:12px">${companyName} • Powered by CompanySync</p>
   </div>
 </div>`;
@@ -20836,7 +20831,6 @@ Return JSON:
     <p style="color:#6b7280;font-size:13px;margin-top:24px">Log in to the app to view full details.</p>
   </div>
   <div style="padding:16px 32px;background:#f1f5f9;text-align:center">
-    ${emailLogoImg({ variant: 'color', width: 140 })}
     <p style="margin:0;color:#94a3b8;font-size:12px">${companyName} • Powered by CompanySync</p>
   </div>
 </div>`;

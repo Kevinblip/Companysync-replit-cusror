@@ -1,7 +1,3 @@
-import { emailLogoImg } from "../../lib/companysyncBrand.cjs";
-
-const POWERED_BY_LOGO = emailLogoImg({ variant: "color", width: 140 });
-
 /**
  * Default branded email templates used when admins leave the email body blank in Company Setup.
  *
@@ -52,7 +48,6 @@ export const DEFAULT_ASSIGNMENT_EMAIL_HTML = `
     <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:8px">Tap the button above to open PhotoSync directly for this job</p>
   </div>
   <div style="padding:16px 32px;background:#f1f5f9;text-align:center">
-    ${POWERED_BY_LOGO}
     <p style="margin:0;color:#94a3b8;font-size:12px">{company_name} • Powered by CompanySync</p>
   </div>
 </div>`;
@@ -85,7 +80,6 @@ export const DEFAULT_CLIENT_EMAIL_HTML = `
     <p style="color:#6b7280;font-size:14px;margin:0">Your inspector will reach out to confirm the appointment. If you have any questions, contact us at {company_email}.</p>
   </div>
   <div style="padding:16px 32px;background:#f1f5f9;text-align:center">
-    ${POWERED_BY_LOGO}
     <p style="margin:0;color:#94a3b8;font-size:12px">{company_name} • Powered by CompanySync</p>
   </div>
 </div>`;
