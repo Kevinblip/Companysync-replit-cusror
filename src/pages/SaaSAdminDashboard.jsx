@@ -124,12 +124,14 @@ function AccessLogTab() {
               </thead>
               <tbody>
                 {displayed.map((log) => {
-                  const isView = (log.action_type || 'impersonation') === 'view';
+                  const actionType = log.action_type || 'impersonation';
+                  const isView = actionType === 'view';
+                  const isReveal = actionType === 'privacy_reveal';
                   return (
                     <tr key={log.id} className="border-b last:border-0 hover:bg-gray-50">
                       <td className="py-2 pr-4">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isView ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
-                          {isView ? '👁 View' : '🔑 Impersonate'}
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isReveal ? 'bg-amber-100 text-amber-800' : isView ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+                          {isReveal ? 'Reveal' : isView ? '👁 View' : '🔑 Impersonate'}
                         </span>
                       </td>
                       <td className="py-2 pr-4 font-mono text-xs text-gray-600 max-w-[140px] truncate" title={log.admin_email}>{log.admin_email}</td>
@@ -139,9 +141,9 @@ function AccessLogTab() {
                       <td className="py-2 pr-4 text-gray-500 max-w-xs truncate" title={log.reason}>{log.reason}</td>
                       <td className="py-2 pr-4 font-mono text-xs text-gray-400">{log.view_as_user_email || '—'}</td>
                       <td className="py-2 pr-4 text-gray-500 whitespace-nowrap">{log.started_at ? new Date(log.started_at).toLocaleString() : '—'}</td>
-                      <td className="py-2 pr-4 text-gray-500">{isView ? '—' : (log.duration_minutes != null ? `${log.duration_minutes}m` : (log.is_active ? 'Active' : '—'))}</td>
+                      <td className="py-2 pr-4 text-gray-500">{isView || isReveal ? '—' : (log.duration_minutes != null ? `${log.duration_minutes}m` : (log.is_active ? 'Active' : '—'))}</td>
                       <td className="py-2">
-                        {isView ? (
+                        {isView || isReveal ? (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600">Logged</span>
                         ) : (
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${log.is_active ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>

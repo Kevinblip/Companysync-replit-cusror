@@ -129,6 +129,19 @@ function sendJson(res, data, status = 200) {
   res.end(JSON.stringify(data));
 }
 
+async function blockImpersonationPrivacy(req, res) {
+  try {
+    const tenantGuard = nodeRequire('./lib/tenantGuard.cjs');
+    const privacy = nodeRequire('./lib/impersonationPrivacy.cjs');
+    const ctx = await tenantGuard.resolveRequestContext(req, await getLLMPool());
+    if (privacy.shouldMask(ctx)) {
+      sendJson(res, privacy.privacyBlockBody(), 403);
+      return true;
+    }
+  } catch (_) { /* a failed lookup must not turn a normal session into a block */ }
+  return false;
+}
+
 async function fetchFileAsBase64(url) {
   console.log(`[Integrations] Fetching file from URL: ${url.substring(0, 100)}`);
 
@@ -529,6 +542,7 @@ export default function viteIntegrationsPlugin() {
         }
 
         if (req.url?.startsWith('/api/proxy-pdf') && req.method === 'GET') {
+          if (await blockImpersonationPrivacy(req, res)) return;
           try {
             const urlObj = new URL(req.url, 'http://localhost');
             const targetUrl = urlObj.searchParams.get('url');
@@ -558,6 +572,7 @@ export default function viteIntegrationsPlugin() {
         }
 
         if (req.url === '/api/integrations/invoke-llm' && req.method === 'POST') {
+          if (await blockImpersonationPrivacy(req, res)) return;
           try {
             const body = await parseJsonBody(req);
             const { prompt, file_urls, response_json_schema, model, companyId: bodyCompanyId } = body;

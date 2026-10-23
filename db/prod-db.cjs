@@ -6,6 +6,7 @@ const invoiceCustomerLink = require('../lib/invoiceCustomerLink.cjs');
 const rateLimit = require('../lib/rateLimit.cjs');
 const chatBot = require('../lib/chatBot.cjs');
 const { isRedundantPlatformEstimateWorkflow } = require('../lib/workflowNotificationSafety.cjs');
+const impersonationPrivacy = require('../lib/impersonationPrivacy.cjs');
 
 let pool = null;
 
@@ -1994,9 +1995,11 @@ async function fireWorkflowTriggersAsync(pool, sdkName, mutationType, entityId, 
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function handleLocalDbRoute(req, res, pathname, url) {
+  let privacyCtx = null;
   const sendJson = (data, status = 200) => {
+    const payload = status >= 400 ? data : impersonationPrivacy.maskIfImpersonating(privacyCtx, data);
     res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-    res.end(JSON.stringify(data));
+    res.end(JSON.stringify(payload));
   };
 
   try {
@@ -2017,9 +2020,10 @@ async function handleLocalDbRoute(req, res, pathname, url) {
     //   covers the entity API AND every specialized route (auto-categorize, sync, admin
     //   helpers, etc.) before any of those handlers can run.
     //   The per-entity-route checks below remain as defense-in-depth.
-    if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
-      try {
-        const impCtx = await tenantGuard.resolveRequestContext(req, getPool());
+    try {
+      const impCtx = await tenantGuard.resolveRequestContext(req, getPool());
+      privacyCtx = impCtx;
+      if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
         if (impCtx.impersonationExpired) {
           return sendJson({ error: 'Impersonation session expired. Please return to the admin dashboard.' }, 401);
         }
@@ -2027,8 +2031,8 @@ async function handleLocalDbRoute(req, res, pathname, url) {
           console.warn(`[Security] IMPERSONATION WRITE BLOCKED (central): ${impCtx.email} attempted ${req.method} ${pathname} while impersonating ${impCtx.impersonatedCompanyId}`);
           return sendJson({ error: 'Forbidden: data writes are not permitted during an impersonation session' }, 403);
         }
-      } catch (_) { /* don't break unauthenticated/public local routes */ }
-    }
+      }
+    } catch (_) { /* don't break unauthenticated/public local routes */ }
 
     const bulkDeletion = require('../lib/bulkDeletion.cjs');
     if (pathname === '/api/local/bulk-delete-permission' && req.method === 'GET') {
@@ -3464,7 +3468,7 @@ async function handleImpersonationRoute(req, res, pathname, url) {
       }
       if (ctx._sid) {
         await p.query(
-          `UPDATE sessions SET sess = sess - 'impersonating_company_id' - 'impersonation_expires_at' - 'impersonation_log_id' WHERE sid = $1`,
+          `UPDATE sessions SET sess = sess - 'impersonating_company_id' - 'impersonation_expires_at' - 'impersonation_log_id' - 'impersonation_privacy_revealed' WHERE sid = $1`,
           [ctx._sid]
         );
       }
@@ -3505,7 +3509,15 @@ async function handleImpersonationRoute(req, res, pathname, url) {
         company_id: ctx.impersonatedCompanyId,
         company_name: companyName,
         expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
+        privacy_revealed: ctx.privacyRevealed === true,
       });
+    }
+
+    if (pathname === '/api/impersonation/reveal' && req.method === 'POST') {
+      const ctx = await tenantGuard.resolveRequestContext(req, p);
+      const body = await parseBodyJson(req);
+      const result = await impersonationPrivacy.recordPrivacyReveal({ pool: p, ctx, reason: body?.reason });
+      return sendJson(result.body, result.status);
     }
 
     if (pathname === '/api/impersonation/view-as' && req.method === 'POST') {
@@ -3547,7 +3559,7 @@ async function handleImpersonationRoute(req, res, pathname, url) {
       if (type === 'all') {
         if (!ctx.isSuperAdmin) return sendJson({ error: 'Super-admin access required' }, 403);
         const rows = await p.query('SELECT * FROM impersonation_logs ORDER BY started_at DESC LIMIT 200');
-        return sendJson(rows.rows);
+        return sendJson(impersonationPrivacy.maskLogRows(ctx, rows.rows));
       }
       const companyId = url.searchParams.get('company_id');
       const ids = Array.from(ctx.allowedCompanyIds);
@@ -3555,7 +3567,7 @@ async function handleImpersonationRoute(req, res, pathname, url) {
       if (!targetId) return sendJson([]);
       if (!ctx.isSuperAdmin && !ctx.allowedCompanyIds.has(targetId)) return sendJson({ error: 'Access denied' }, 403);
       const rows = await p.query('SELECT * FROM impersonation_logs WHERE target_company_id = $1 ORDER BY started_at DESC LIMIT 100', [targetId]);
-      return sendJson(rows.rows);
+      return sendJson(impersonationPrivacy.maskLogRows(ctx, rows.rows));
     }
 
     sendJson({ error: 'Not found' }, 404);

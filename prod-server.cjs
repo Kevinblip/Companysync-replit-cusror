@@ -4,6 +4,7 @@ const path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
 const prodDb = require('./db/prod-db.cjs');
 const tenantGuard = require('./lib/tenantGuard.cjs');
+const impersonationPrivacy = require('./lib/impersonationPrivacy.cjs');
 const prodAuth = require('./db/prod-auth.cjs');
 const prodIntegrations = require('./db/prod-integrations.cjs');
 const localAuth = require('./db/local-auth.cjs');
@@ -4420,6 +4421,17 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       req._impersonationCtx = impCtx;
+      if (impersonationPrivacy.shouldMask(impCtx)) {
+        if (impersonationPrivacy.isBlockedImpersonationPath(pathname)) {
+          setCorsHeaders(res, req);
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(impersonationPrivacy.privacyBlockBody()));
+          return;
+        }
+        if (impersonationPrivacy.shouldMaskPath(pathname)) {
+          impersonationPrivacy.installJsonMask(res);
+        }
+      }
     } catch (_) { /* don't fail unauthenticated routes due to session lookup errors */ }
   }
 
@@ -8801,9 +8813,15 @@ const server = http.createServer(async (req, res) => {
       let fnName = '';
       try { fnName = JSON.parse(bodyBuf.toString()).functionName || ''; } catch (_) {}
 
-      // Allowlist: only known read-only function prefixes permitted during impersonation
-      const READ_ONLY_PREFIXES = ['get', 'list', 'fetch', 'search', 'find', 'load', 'check', 'export',
-        'calculate', 'compute', 'analyze', 'verify', 'preview', 'download'];
+      // Allowlist: only known read-only function prefixes permitted during impersonation.
+      // Exports, previews, downloads, and analysis stay closed until a logged reveal.
+      const READ_ONLY_PREFIXES = resolvedCtx.privacyRevealed
+        ? ['get', 'list', 'fetch', 'search', 'find', 'load', 'check', 'export', 'calculate', 'compute', 'analyze', 'verify', 'preview', 'download']
+        : ['get', 'list', 'fetch', 'search', 'find', 'load', 'check', 'calculate', 'compute', 'verify'];
+      if (!resolvedCtx.privacyRevealed && impersonationPrivacy.isBlockedDuringImpersonation(fnName)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify(impersonationPrivacy.privacyBlockBody()));
+      }
       const isReadOnly = READ_ONLY_PREFIXES.some(pfx => fnName.toLowerCase().startsWith(pfx));
       if (!isReadOnly) {
         res.writeHead(403, { 'Content-Type': 'application/json' });

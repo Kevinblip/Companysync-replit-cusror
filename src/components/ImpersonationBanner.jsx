@@ -2,10 +2,11 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Shield, X, ChevronDown, User, Eye } from "lucide-react";
 import { useImpersonation } from "@/lib/ImpersonationContext";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { scrubMoneyInTree } from "@/lib/privacyMoney";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,6 +14,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+function PrivacyAmountScrubber() {
+  useEffect(() => {
+    const run = () => scrubMoneyInTree(document.body);
+    run();
+    const observer = new MutationObserver(run);
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    return () => observer.disconnect();
+  }, []);
+  return null;
+}
 
 export default function ImpersonationBanner() {
   const {
@@ -25,8 +37,14 @@ export default function ImpersonationBanner() {
     isViewingAsUser,
     startViewAsUser,
     stopViewAsUser,
+    privacyRevealed,
+    revealPrivacy,
   } = useImpersonation();
+  const queryClient = useQueryClient();
   const [isStopping, setIsStopping] = useState(false);
+  const [revealOpen, setRevealOpen] = useState(false);
+  const [revealReason, setRevealReason] = useState('');
+  const [isRevealing, setIsRevealing] = useState(false);
 
   const { data: staffMembers = [] } = useQuery({
     queryKey: ['impersonation-staff', impersonatedCompanyId],
@@ -38,6 +56,26 @@ export default function ImpersonationBanner() {
   });
 
   if (!isImpersonating) return null;
+
+  const handleReveal = async () => {
+    const reason = revealReason.trim();
+    if (reason.length < 8) {
+      toast.error('Enter a reason of at least 8 characters.');
+      return;
+    }
+    setIsRevealing(true);
+    try {
+      await revealPrivacy(reason);
+      setRevealOpen(false);
+      setRevealReason('');
+      queryClient.invalidateQueries();
+      toast.success('Personal info is visible for this support session and the reason was logged.');
+    } catch (error) {
+      toast.error(error.message || 'Could not reveal personal info.');
+    } finally {
+      setIsRevealing(false);
+    }
+  };
 
   const handleStop = async () => {
     setIsStopping(true);
@@ -51,12 +89,19 @@ export default function ImpersonationBanner() {
   };
 
   return (
+    <>
+    {!privacyRevealed && <PrivacyAmountScrubber />}
     <Alert className="fixed top-0 left-0 right-0 z-50 rounded-none border-0 bg-red-600 text-white shadow-lg">
-      <AlertDescription className="flex items-center justify-between max-w-7xl mx-auto px-4 py-1">
+      <AlertDescription className="flex items-center justify-between max-w-7xl mx-auto px-4 py-1 gap-3">
         <div className="flex items-center gap-3 flex-wrap">
           <Shield className="w-5 h-5 shrink-0" />
           <span className="font-bold text-base">
             IMPERSONATING: {impersonatedCompanyName}
+          </span>
+          <span className="text-sm font-medium" data-testid="text-privacy-mode">
+            {privacyRevealed
+              ? 'Privacy reveal is on for this session. Personal info is visible.'
+              : 'Privacy mode: personal info and amounts hidden'}
           </span>
 
           {isViewingAsUser ? (
@@ -72,12 +117,57 @@ export default function ImpersonationBanner() {
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
-          ) : (
-            <span className="text-sm opacity-80">(Full access · acting as company admin)</span>
-          )}
+          ) : null}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {!privacyRevealed && (
+            revealOpen ? (
+              <form
+                className="flex items-center gap-1"
+                onSubmit={(event) => { event.preventDefault(); handleReveal(); }}
+              >
+                <input
+                  value={revealReason}
+                  onChange={(event) => setRevealReason(event.target.value)}
+                  placeholder="Reason for revealing"
+                  className="h-8 w-44 rounded border border-white/40 bg-white px-2 text-xs text-slate-900"
+                  data-testid="input-privacy-reveal-reason"
+                  aria-label="Reason for revealing personal info"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={isRevealing}
+                  className="bg-white text-red-600 hover:bg-red-50"
+                  data-testid="button-confirm-privacy-reveal"
+                >
+                  {isRevealing ? 'Saving…' : 'Confirm'}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="bg-white/10 text-white border-white/40"
+                  onClick={() => { setRevealOpen(false); setRevealReason(''); }}
+                >
+                  Cancel
+                </Button>
+              </form>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="bg-white/10 text-white hover:bg-white/20 border-white/40"
+                onClick={() => setRevealOpen(true)}
+                data-testid="button-reveal-privacy"
+              >
+                <Eye className="w-3.5 h-3.5 mr-1" />
+                Reveal
+              </Button>
+            )
+          )}
           {staffMembers.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -143,5 +233,6 @@ export default function ImpersonationBanner() {
         </div>
       </AlertDescription>
     </Alert>
+    </>
   );
 }

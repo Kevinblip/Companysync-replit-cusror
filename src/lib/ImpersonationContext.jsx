@@ -15,6 +15,7 @@ const IMPERSONATION_SESSION_KEYS = [
   'impersonation_expires_at',
   'view_as_user_email',
   'view_as_user_name',
+  'impersonation_privacy_revealed',
 ];
 
 function readSessionStorage() {
@@ -28,6 +29,7 @@ function readSessionStorage() {
     expiresAt: sessionStorage.getItem('impersonation_expires_at') || null,
     viewAsUserEmail: sessionStorage.getItem('view_as_user_email') || null,
     viewAsUserName: sessionStorage.getItem('view_as_user_name') || null,
+    privacyRevealed: sessionStorage.getItem('impersonation_privacy_revealed') === '1',
   };
 }
 
@@ -89,6 +91,7 @@ export function ImpersonationProvider({ children }) {
     if (result.expires_at) sessionStorage.setItem('impersonation_expires_at', result.expires_at);
     sessionStorage.removeItem('view_as_user_email');
     sessionStorage.removeItem('view_as_user_name');
+    sessionStorage.removeItem('impersonation_privacy_revealed');
 
     const data = {
       companyId,
@@ -97,6 +100,7 @@ export function ImpersonationProvider({ children }) {
       expiresAt: result.expires_at || null,
       viewAsUserEmail: null,
       viewAsUserName: null,
+      privacyRevealed: false,
     };
     setImpersonation(data);
 
@@ -132,6 +136,7 @@ export function ImpersonationProvider({ children }) {
     sessionStorage.removeItem('impersonation_expires_at');
     sessionStorage.removeItem('view_as_user_email');
     sessionStorage.removeItem('view_as_user_name');
+    sessionStorage.removeItem('impersonation_privacy_revealed');
 
     sessionStorage.removeItem('pre_impersonation_company_id');
     sessionStorage.removeItem('pre_impersonation_user_email');
@@ -161,6 +166,7 @@ export function ImpersonationProvider({ children }) {
           if (activeSession.expiresAt) sessionStorage.setItem('impersonation_expires_at', activeSession.expiresAt);
           if (activeSession.viewAsUserEmail) sessionStorage.setItem('view_as_user_email', activeSession.viewAsUserEmail);
           if (activeSession.viewAsUserName) sessionStorage.setItem('view_as_user_name', activeSession.viewAsUserName);
+          if (activeSession.privacyRevealed) sessionStorage.setItem('impersonation_privacy_revealed', '1');
           if (previousCompanyId && previousCompanyUserEmail) {
             sessionStorage.setItem('pre_impersonation_company_id', previousCompanyId);
             sessionStorage.setItem('pre_impersonation_user_email', previousCompanyUserEmail);
@@ -192,6 +198,20 @@ export function ImpersonationProvider({ children }) {
     queryClient.invalidateQueries();
   }, [queryClient]);
 
+  const revealPrivacy = useCallback(async (reason) => {
+    const resp = await fetch('/api/impersonation/reveal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ reason }),
+    });
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(body.error || 'Could not reveal personal info');
+    sessionStorage.setItem('impersonation_privacy_revealed', '1');
+    setImpersonation(prev => prev ? { ...prev, privacyRevealed: true } : prev);
+    queryClient.invalidateQueries();
+  }, [queryClient]);
+
   const stopViewAsUser = useCallback(() => {
     sessionStorage.removeItem('view_as_user_email');
     sessionStorage.removeItem('view_as_user_name');
@@ -219,7 +239,13 @@ export function ImpersonationProvider({ children }) {
 
         const local = readSessionStorage();
         if (status?.active && status.company_id) {
-          if (local?.companyId === status.company_id) return;
+          const revealed = status.privacy_revealed === true;
+          if (revealed) sessionStorage.setItem('impersonation_privacy_revealed', '1');
+          else sessionStorage.removeItem('impersonation_privacy_revealed');
+          if (local?.companyId === status.company_id) {
+            if (!!local.privacyRevealed !== revealed) setImpersonation(readSessionStorage());
+            return;
+          }
           sessionStorage.setItem('impersonating_company_id', status.company_id);
           sessionStorage.setItem('impersonating_company_name', status.company_name || 'Unknown');
           if (status.expires_at) sessionStorage.setItem('impersonation_expires_at', status.expires_at);
@@ -275,12 +301,14 @@ export function ImpersonationProvider({ children }) {
     viewAsUserEmail: impersonation?.viewAsUserEmail || null,
     viewAsUserName: impersonation?.viewAsUserName || null,
     isViewingAsUser: !!(impersonation?.viewAsUserEmail),
+    privacyRevealed: impersonation?.privacyRevealed === true,
     startImpersonation,
     stopImpersonation,
     markDirectCompanySelection,
     startViewAsUser,
     stopViewAsUser,
-  }), [impersonation, startImpersonation, stopImpersonation, startViewAsUser, stopViewAsUser]);
+    revealPrivacy,
+  }), [impersonation, startImpersonation, stopImpersonation, startViewAsUser, stopViewAsUser, revealPrivacy]);
 
   return (
     <ImpersonationContext.Provider value={value}>
