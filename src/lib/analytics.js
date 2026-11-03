@@ -21,7 +21,7 @@ const ATTR_KEYS = [
 ];
 const ATTR_COOKIE = 'cs_attr';
 const ATTR_DAYS = 90;
-const PIXEL_ID = '2301170120401803';
+const PIXEL_ID = '1594662235155513';
 
 export function isTrackablePath(pathname = window.location.pathname) {
   return PUBLIC_PATHS.some((re) => re.test(pathname));

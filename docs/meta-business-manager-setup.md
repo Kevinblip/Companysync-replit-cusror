@@ -2,7 +2,7 @@
 
 Do these in Meta Events Manager / Business Manager (requires Kevin or Rad login):
 
-1. Confirm Pixel **2301170120401803** is claimed by the CompanySync BM.
+1. Confirm Pixel **1594662235155513** (CompanySync- Pixel) is claimed by the CompanySync BM.
 2. Generate a **Conversions API** access token for that Pixel; store as Railway env `META_CAPI_TOKEN` (preview first, then prod). Do **not** commit the token.
 3. In Test Events, run a signup on a preview URL and confirm:
    - Browser: `PageView`, `CompleteRegistration`, `StartTrial` (matching `event_id`)

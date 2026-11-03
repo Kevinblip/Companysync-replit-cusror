@@ -2,7 +2,7 @@
 
 ## What ships in the app
 
-- **Pixel ID:** `2301170120401803` (browser Pixel in `index.html`)
+- **Pixel ID:** `1594662235155513` (CompanySync- Pixel; browser + CAPI default)
 - **GTM:** `GTM-M9MP4R78` via `ss.getcompanysync.com` (Stape loader; CAPI tags on Stape are optional)
 - **Direct CAPI:** `lib/metaCapi.cjs` using `META_CAPI_TOKEN` (no-op if unset). Never required for signup/billing success.
 
@@ -31,5 +31,5 @@ Meta `value` and in-app plan copy use display prices from `src/config/planPricin
 
 ## Env (preview / prod — set by ops, not this PR)
 
-- `META_CAPI_TOKEN` — Meta Conversion API access token for Pixel `2301170120401803`
+- `META_CAPI_TOKEN` — Meta Conversion API access token for Pixel `1594662235155513`
 - Optional: `META_PIXEL_ID` override (defaults to the Pixel above)
