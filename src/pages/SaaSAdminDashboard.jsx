@@ -781,10 +781,10 @@ export default function SaaSAdminDashboard() {
     // Keep these in sync with Pricing.jsx; they are NOT used as the source of truth.
     const PLAN_PRICES = {
       'trial': 0,
-      'basic': 59, 'starter': 59, 'freelance': 59,
-      'business': 149, 'professional': 149,
-      'enterprise': 299,
-      'legacy': 149, 'unlimited': 299, 'lifetime': 299,
+      'basic': 99, 'starter': 99, 'freelance': 99,
+      'business': 199, 'professional': 199,
+      'enterprise': 399,
+      'legacy': 199, 'unlimited': 399, 'lifetime': 399,
     };
 
     // MRR: prefer real Stripe amount (stripe_subscription_amount where
@@ -2718,7 +2718,7 @@ export default function SaaSAdminDashboard() {
                   const currentMonthStr = new Date().toISOString().slice(0, 7);
                   const companyUsage = allUsage.filter(u => u.company_id === viewingCompany.id && u.usage_month === currentMonthStr);
                   const aiCostThisMonth = companyUsage.reduce((sum, u) => sum + (u.total_cost || 0), 0);
-                  const planFees = { trial: 0, basic: 59, starter: 59, freelance: 59, business: 149, professional: 149, enterprise: 299, legacy: 149, unlimited: 299, lifetime: 299 };
+                  const planFees = { trial: 0, basic: 99, starter: 99, freelance: 99, business: 199, professional: 199, enterprise: 399, legacy: 199, unlimited: 399, lifetime: 399 };
                   const planFee = planFees[viewingCompany.subscription_plan] || 0;
                   const featureBreakdown = {};
                   companyUsage.forEach(u => { featureBreakdown[u.feature] = (featureBreakdown[u.feature] || 0) + (u.total_cost || 0); });

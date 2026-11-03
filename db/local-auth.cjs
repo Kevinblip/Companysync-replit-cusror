@@ -154,6 +154,38 @@ function parseBody(req) {
   });
 }
 
+
+async function persistMarketingAttribution(pool, companyId, req, attribution) {
+  try {
+    const { extractAttributionFromReq } = require('../lib/metaCapi.cjs');
+    const attr = extractAttributionFromReq(req, attribution || {});
+    attr.captured_at = new Date().toISOString();
+    await pool.query(
+      `UPDATE companies
+       SET data = COALESCE(data, '{}'::jsonb) || jsonb_build_object('marketing_attribution', $2::jsonb),
+           updated_at = NOW()
+       WHERE id = $1`,
+      [companyId, JSON.stringify(attr)]
+    );
+    return attr;
+  } catch (e) {
+    console.warn('[LocalAuth] marketing attribution save failed:', e.message);
+    return null;
+  }
+}
+
+async function fireTrialMetaEvents({ companyId, plan, email, attribution }) {
+  try {
+    const { sendTrialSignupEvents } = require('../lib/metaCapi.cjs');
+    // fire-and-forget; never block signup
+    sendTrialSignupEvents({ companyId, plan, email, attribution }).catch((e) => {
+      console.warn('[LocalAuth] Meta CAPI trial events failed:', e.message);
+    });
+  } catch (e) {
+    console.warn('[LocalAuth] Meta CAPI unavailable:', e.message);
+  }
+}
+
 async function handleSignup(req, res, pool) {
   setCorsHeaders(res, req);
   try {
@@ -167,7 +199,7 @@ async function handleSignup(req, res, pool) {
       return;
     }
 
-    const { email, company_name, password, selected_plan, redirect } = await parseBody(req);
+    const { email, company_name, password, selected_plan, redirect, attribution } = await parseBody(req);
 
     if (!email || !company_name || !password) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -238,6 +270,7 @@ async function handleSignup(req, res, pool) {
       // A public onboarding request creates a pending company/profile before
       // password creation. Start its no-card trial only after the owner has a
       // real authenticated session.
+      let isNewTrial = false;
       if (String(companyResult.rows[0]?.subscription_status || '').toLowerCase() === 'pending') {
         const appUrl = getAppUrl(req);
         await fetch(`http://127.0.0.1:${process.env.PORT || 5000}/api/functions/invoke`, {
@@ -249,9 +282,19 @@ async function handleSignup(req, res, pool) {
             },
             body: JSON.stringify({ functionName: 'startCompanyTrial', params: { companyId: existingCompanyId, plan: companyPlan } }),
           });
+        isNewTrial = true;
+        const attr = await persistMarketingAttribution(pool, existingCompanyId, req, attribution);
+        fireTrialMetaEvents({ companyId: existingCompanyId, plan: companyPlan, email: emailLower, attribution: attr });
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, redirect: safeRedirect }));
+      res.end(JSON.stringify({
+        success: true,
+        redirect: safeRedirect,
+        tracking: {
+          event_id: `trial_signup_${existingCompanyId}`,
+          is_new_trial: isNewTrial,
+        },
+      }));
       return;
     }
 
@@ -337,8 +380,17 @@ async function handleSignup(req, res, pool) {
     // Admin alert fires inside startCompanyTrial (isFresh block) — covers both
     // email/password and Replit OIDC paths, includes plan + trial-end details.
     console.log('[LocalAuth] Signup success for', emailLower, 'company:', companyNameTrimmed, 'trial ends:', trialEndDate.toISOString().slice(0,10));
+    const attr = await persistMarketingAttribution(pool, companyId, req, attribution);
+    fireTrialMetaEvents({ companyId, plan: signupPlan, email: emailLower, attribution: attr });
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true, redirect: safeRedirect === '/' ? `/QuickSetup?plan=${encodeURIComponent(signupPlan)}&new_signup=true` : safeRedirect }));
+    res.end(JSON.stringify({
+      success: true,
+      redirect: safeRedirect === '/' ? `/QuickSetup?plan=${encodeURIComponent(signupPlan)}&new_signup=true` : safeRedirect,
+      tracking: {
+        event_id: `trial_signup_${companyId}`,
+        is_new_trial: true,
+      },
+    }));
   } catch (e) {
     console.error('[LocalAuth] Signup error:', e);
     res.writeHead(500, { 'Content-Type': 'application/json' });

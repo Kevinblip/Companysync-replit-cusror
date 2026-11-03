@@ -649,12 +649,23 @@ export default function Layout({ children, currentPageName }) {
           body: JSON.stringify({
             email: user.email,
             name: user.name || user.email.split('@')[0],
+            attribution: getSignupAttributionPayload(),
           }),
         });
         if (resp.ok) {
           const result = await resp.json();
           if (result.company?.id) {
             setLastUsedCompanyId(result.company.id, user.email);
+          }
+          if (result.created && result.tracking?.is_new_trial) {
+            try {
+              await trackSignupSuccess({
+                plan: result.company?.subscription_plan || 'professional',
+                email: user.email,
+                eventId: result.tracking.event_id,
+                method: 'google',
+              });
+            } catch (_) {}
           }
           queryClient.invalidateQueries({ queryKey: ['layout-companies-list'] });
           queryClient.invalidateQueries({ queryKey: ['staff-profiles'] });
@@ -1346,7 +1357,7 @@ export default function Layout({ children, currentPageName }) {
     // 🎯 SUBSCRIPTION-BASED FEATURE GATING
       const isPlatformAdmin = isPlatformAdminCheck(user, myCompany, myStaffProfile);
       const subscriptionPlan = myCompany?.subscription_plan || 'trial';
-      // Plan hierarchy: Basic=$59(0), Business=$149(1), Enterprise=$299(2)
+      // Plan hierarchy: Basic=$99(0), Business=$199(1), Enterprise=$399(2)
       // Trial grants Enterprise-level ACCESS (feature gating only) so users can explore all features
       // Legacy/unlimited/lifetime get full access (level 3)
       const planHierarchy = { trial: 3, basic: 0, freelance: 0, starter: 0, business: 1, professional: 1, enterprise: 2, legacy: 3, unlimited: 3, lifetime: 3 };

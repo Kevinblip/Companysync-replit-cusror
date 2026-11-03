@@ -1,4 +1,6 @@
-import React from "react";
+import React, { useEffect } from "react";
+import { trackViewContent } from "@/lib/analytics";
+import { planMonthlyUsd } from "@/config/planPricing";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { Button } from "@/components/ui/button";
@@ -10,10 +12,14 @@ import { base44 } from "@/api/base44Client";
 export default function PublicPricing() {
   const navigate = useNavigate();
 
+  useEffect(() => {
+    trackViewContent({ contentName: "pricing" });
+  }, []);
+
   const plans = [
     {
       name: "Basic",
-      price: 59,
+      price: planMonthlyUsd("basic"),
       priceId: "price_1T5NV8CAqGydUaCs2iO0R9yl",
       icon: Sparkles,
       color: "blue",
@@ -44,7 +50,7 @@ export default function PublicPricing() {
     },
     {
       name: "Business",
-      price: 149,
+      price: planMonthlyUsd("business"),
       priceId: "price_1T5NV8CAqGydUaCsJ8SDQSnx",
       icon: Zap,
       color: "purple",
@@ -83,7 +89,7 @@ export default function PublicPricing() {
     },
     {
       name: "Enterprise",
-      price: 299,
+      price: planMonthlyUsd("enterprise"),
       priceId: "price_1T5NV8CAqGydUaCs1kPhAuWo",
       icon: Crown,
       color: "gold",

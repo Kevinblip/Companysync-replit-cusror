@@ -25,6 +25,7 @@ import {
   DialogDescription
 } from "@/components/ui/dialog";
 import { format, addMonths, differenceInDays } from "date-fns";
+import { planMonthlyUsd } from "@/config/planPricing";
 
 export default function Billing() {
   const [showPlanDialog, setShowPlanDialog] = useState(false);
@@ -79,10 +80,13 @@ export default function Billing() {
     return plans.find(p => p.plan_name === currentSubscription.plan_name);
   }, [currentSubscription, plans]);
 
+  const displayPlanPrice = (plan) => planMonthlyUsd(plan?.plan_name || plan?.name || 'basic');
+
   const calculateCost = (plan, userCount) => {
     const includedUsers = plan.included_users || 1;
     const additionalUsers = Math.max(0, userCount - includedUsers);
-    return Number(plan.base_price || 0) + (additionalUsers * Number(plan.price_per_user || 0));
+    // Display/estimate only — Stripe charges remain on Price IDs.
+    return displayPlanPrice(plan) + (additionalUsers * Number(plan.price_per_user || 0));
   };
 
   const handleChangePlan = (plan) => {
@@ -203,7 +207,7 @@ export default function Billing() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <span className="text-sm text-gray-500">Base Plan Cost</span>
-                  <p className="text-lg font-semibold">${currentPlan?.base_price || 0}/month</p>
+                  <p className="text-lg font-semibold">${currentPlan ? displayPlanPrice(currentPlan) : 0}/month</p>
                 </div>
                 <div>
                   <span className="text-sm text-gray-500">Additional Users</span>
@@ -274,7 +278,7 @@ export default function Billing() {
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <div className="text-3xl font-bold">${plan.base_price}<span className="text-lg text-gray-500">/mo</span></div>
+                    <div className="text-3xl font-bold">${displayPlanPrice(plan)}<span className="text-lg text-gray-500">/mo</span></div>
                     {plan.price_per_user > 0 && (
                       <p className="text-sm text-gray-600">
                         + ${plan.price_per_user}/user/month (after {plan.included_users || 1} {plan.included_users === 1 ? 'user' : 'users'})
@@ -323,7 +327,7 @@ export default function Billing() {
                   <div className="bg-gray-50 p-4 rounded-lg space-y-2">
                     <div className="flex justify-between">
                       <span>Base price:</span>
-                      <span className="font-semibold">${selectedPlan.base_price}/month</span>
+                      <span className="font-semibold">${displayPlanPrice(selectedPlan)}/month</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Users ({activeUserCount}):</span>

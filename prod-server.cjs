@@ -7024,6 +7024,86 @@ const server = http.createServer(async (req, res) => {
           }
         }
 
+        // ── META: first paid SaaS invoice (Subscribe + Purchase) ───────────
+        // Tracking only. Does not change charging, invoices, or company status.
+        // Skips Stripe Connect events and $0 trial invoices.
+        if (event?.type === 'invoice.payment_succeeded') {
+          try {
+            const inv = event.data.object;
+            const isConnect = Boolean(event.account);
+            const amountPaid = Number(inv.amount_paid || 0);
+            const billingReason = String(inv.billing_reason || '');
+            const hasSubscription = Boolean(inv.subscription);
+            if (
+              !isConnect
+              && hasSubscription
+              && amountPaid > 0
+              && ['subscription_create', 'subscription_cycle'].includes(billingReason)
+            ) {
+              let companyId = inv.subscription_details?.metadata?.company_id
+                || inv.metadata?.company_id
+                || null;
+              if (!companyId && inv.customer) {
+                const byCust = await pool.query(
+                  `SELECT id FROM companies WHERE stripe_customer_id = $1 AND NOT is_deleted LIMIT 1`,
+                  [inv.customer]
+                );
+                companyId = byCust.rows[0]?.id || null;
+              }
+              if (!companyId && inv.subscription) {
+                const bySub = await pool.query(
+                  `SELECT id FROM companies WHERE stripe_subscription_id = $1 AND NOT is_deleted LIMIT 1`,
+                  [typeof inv.subscription === 'string' ? inv.subscription : inv.subscription?.id]
+                );
+                companyId = bySub.rows[0]?.id || null;
+              }
+              if (companyId) {
+                const dedupeId = `firstpaid_${companyId}`;
+                const prior = await pool.query(
+                  `SELECT 1 FROM generic_entities WHERE entity_type = 'MarketingConversion' AND id = $1 LIMIT 1`,
+                  [dedupeId]
+                );
+                if (!prior.rows.length) {
+                  await pool.query(
+                    `INSERT INTO generic_entities (id, entity_type, company_id, data, created_date, updated_date)
+                     VALUES ($1, 'MarketingConversion', $2, $3::jsonb, NOW(), NOW())
+                     ON CONFLICT DO NOTHING`,
+                    [dedupeId, companyId, JSON.stringify({ invoice: inv.id, amount_paid: amountPaid })]
+                  );
+                  const companyRes = await pool.query(
+                    `SELECT email, subscription_plan, data->'marketing_attribution' AS attribution
+                     FROM companies WHERE id = $1 LIMIT 1`,
+                    [companyId]
+                  );
+                  const row = companyRes.rows[0] || {};
+                  const attr = row.attribution || {};
+                  const { sendSubscribePurchaseEvents } = require('./lib/metaCapi.cjs');
+                  const { planMonthlyUsd } = require('./lib/planPricing.cjs');
+                  const planKey = row.subscription_plan || inv.lines?.data?.[0]?.price?.nickname || 'basic';
+                  sendSubscribePurchaseEvents({
+                    companyId,
+                    plan: planKey,
+                    email: inv.customer_email || row.email,
+                    attribution: {
+                      fbp: attr.fbp,
+                      fbc: attr.fbc,
+                      ip: attr.ip,
+                      ua: attr.ua,
+                    },
+                    // Display/Meta value ($99/$199/$399). Stripe charge amount is unchanged.
+                    value: planMonthlyUsd(planKey),
+                    currency: (inv.currency || 'usd').toUpperCase(),
+                    invoiceId: inv.id,
+                  }).catch((e) => console.warn('[StripeWebhook] Meta CAPI subscribe failed:', e.message));
+                  console.log(`[StripeWebhook] Meta first-paid conversion queued for company ${companyId} invoice ${inv.id}`);
+                }
+              }
+            }
+          } catch (metaPayErr) {
+            console.warn('[StripeWebhook] Meta first-paid handler error:', metaPayErr.message);
+          }
+        }
+
         // ── SUBSCRIPTION AMOUNT SYNC ───────────────────────────────────────
         // customer.subscription.{created,updated,deleted}: write the real
         // monthly amount and Stripe status onto the companies row so the
@@ -13480,7 +13560,7 @@ setInterval(async () => {
 
 // checkTenantCostAlerts — daily at 9 AM UTC.  Scans every active paid tenant's
 // month-to-date platform-key API costs and emails/notifies the super-admin when
-// any single tenant's spend exceeds 50% of their $149 plan price ($74.50).
+// any single tenant's spend exceeds 50% of their $199 plan price ($99.50).
 // Fires at most once per tenant per calendar month (CostAlert entity is the dedup).
 let lastTenantCostAlertRunAt = 0;
 setInterval(async () => {
