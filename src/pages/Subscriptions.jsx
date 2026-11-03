@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { localToday } from "@/utils/localDate";
+import { planMonthlyUsd } from "@/config/planPricing";
 
 export default function Subscriptions() {
   const [selectedPlan, setSelectedPlan] = useState(null);
@@ -60,7 +61,7 @@ export default function Subscriptions() {
         billing_cycle_start: localToday(),
         billing_cycle_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         user_count: 1,
-        monthly_cost: plan.base_price,
+        monthly_cost: planMonthlyUsd(plan.plan_name),
         trial_ends_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       };
       createSubscriptionMutation.mutate(subscriptionData);
@@ -106,7 +107,7 @@ export default function Subscriptions() {
                 <div className="space-y-1 text-sm text-gray-600">
                   <div className="flex items-center gap-2">
                     <DollarSign className="w-4 h-4" />
-                    <span>${currentSubscription.monthly_cost}/month</span>
+                    <span>${planMonthlyUsd(currentSubscription.plan_name) || currentSubscription.monthly_cost}/month</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Users className="w-4 h-4" />
@@ -153,7 +154,7 @@ export default function Subscriptions() {
                 </div>
                 <CardTitle className="text-2xl">{plan.plan_name}</CardTitle>
                 <div className="mt-4">
-                  <span className="text-4xl font-bold text-gray-900">${plan.base_price}</span>
+                  <span className="text-4xl font-bold text-gray-900">${planMonthlyUsd(plan.plan_name)}</span>
                   <span className="text-gray-500">/month</span>
                 </div>
                 {plan.price_per_user > 0 && (

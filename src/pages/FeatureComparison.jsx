@@ -148,7 +148,7 @@ export default function FeatureComparison() {
                 <Sparkles className="w-5 h-5 text-blue-600" />
                 <CardTitle className="text-xl">Basic</CardTitle>
               </div>
-              <p className="text-2xl font-bold text-gray-900 mb-1">$59<span className="text-sm font-normal text-gray-500">/mo</span></p>
+              <p className="text-2xl font-bold text-gray-900 mb-1">$99<span className="text-sm font-normal text-gray-500">/mo</span></p>
               <Badge className="bg-blue-100 text-blue-700 mx-auto">Perfect for freelancers</Badge>
             </CardHeader>
           </Card>
@@ -159,7 +159,7 @@ export default function FeatureComparison() {
                 <Zap className="w-5 h-5 text-purple-600" />
                 <CardTitle className="text-xl">Business</CardTitle>
               </div>
-              <p className="text-2xl font-bold text-gray-900 mb-1">$149<span className="text-sm font-normal text-gray-500">/mo</span></p>
+              <p className="text-2xl font-bold text-gray-900 mb-1">$199<span className="text-sm font-normal text-gray-500">/mo</span></p>
               <Badge className="bg-purple-100 text-purple-700 mx-auto">For growing teams</Badge>
             </CardHeader>
           </Card>
@@ -170,7 +170,7 @@ export default function FeatureComparison() {
                 <Crown className="w-5 h-5 text-amber-600" />
                 <CardTitle className="text-xl">Enterprise</CardTitle>
               </div>
-              <p className="text-2xl font-bold text-gray-900 mb-1">$299<span className="text-sm font-normal text-gray-500">/mo</span></p>
+              <p className="text-2xl font-bold text-gray-900 mb-1">$399<span className="text-sm font-normal text-gray-500">/mo</span></p>
               <Badge className="bg-amber-100 text-amber-700 mx-auto">Full-scale operations</Badge>
             </CardHeader>
           </Card>

@@ -777,7 +777,7 @@ export default function Layout({ children, currentPageName }) {
     // 🎯 SUBSCRIPTION-BASED FEATURE GATING
       const isYICN = myCompany?.company_name?.toUpperCase().includes('YICN');
       const subscriptionPlan = myCompany?.subscription_plan || 'trial';
-      // Plan hierarchy: Basic=$59(0), Business=$149(1), Enterprise=$299(2)
+      // Plan hierarchy: Basic=$99(0), Business=$199(1), Enterprise=$399(2)
       // Trial grants Enterprise-level ACCESS (feature gating only) so users can explore all features
       const planHierarchy = { trial: 2, basic: 0, freelance: 0, starter: 0, business: 1, professional: 1, enterprise: 2, legacy: 2, unlimited: 2 };
       const currentPlanLevel = isYICN ? 999 : (planHierarchy[subscriptionPlan] !== undefined ? planHierarchy[subscriptionPlan] : 0);

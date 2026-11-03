@@ -1227,7 +1227,7 @@ const TRIAL_DAILY_LIMITS = {
 // src/pages/SubscriptionUsage.jsx). Interaction counts alone don't bound cost —
 // features range $0.02–$0.12/unit — so a heavy company could hit $6,000/mo
 // before the 50k count cap. These caps bound worst-case platform spend per
-// company so a $299 subscription stays profitable. BYOK companies bypass
+// company so a $399 subscription stays profitable. BYOK companies bypass
 // entirely (their usage is logged at $0 and they early-return before this).
 const AI_SPEND_WARN_USD = 150;      // once-per-month warning email + banner
 const AI_SPEND_HARD_CAP_USD = 200;  // platform-key AI features blocked
@@ -32237,7 +32237,7 @@ Return JSON:
 
   // checkTenantCostAlerts — called daily by cron (no req) or manually by a
   // super-admin.  Finds every active paid tenant whose month-to-date platform-key
-  // API costs have crossed 50% of their $149 plan price ($74.50) and haven't
+  // API costs have crossed 50% of their $199 plan price ($99.50) and haven't
   // been alerted yet this month.  Sends an in-app bell + email to all super-admin
   // accounts, then stamps a CostAlert entity so it fires only once per tenant
   // per calendar month.
@@ -32252,13 +32252,13 @@ Return JSON:
     const now = new Date();
     const usageMonth = now.toISOString().slice(0, 7);
     // Canonical plan prices — mirrors Pricing.jsx.  Used to compute the 50%-of-plan
-    // alert threshold per tenant so Basic ($59), Business ($149), and Enterprise ($299)
+    // alert threshold per tenant so Basic ($99), Business ($199), and Enterprise ($399)
     // each get the right threshold rather than a one-size-fits-all $74.50.
     const SUBSCRIPTION_PLAN_PRICES = {
-      trial: 0, basic: 59, starter: 59, freelance: 59,
-      business: 149, professional: 149,
-      enterprise: 299,
-      legacy: 149, unlimited: 299, lifetime: 299,
+      trial: 0, basic: 99, starter: 99, freelance: 99,
+      business: 199, professional: 199,
+      enterprise: 399,
+      legacy: 199, unlimited: 399, lifetime: 399,
     };
     const ALERT_THRESHOLD_PCT = 0.5; // alert at 50% of plan price
 
@@ -32455,10 +32455,10 @@ Return JSON:
     const usageMonth = (params?.month) || new Date().toISOString().slice(0, 7);
     // Canonical plan prices — mirrors Pricing.jsx
     const SUBSCRIPTION_PLAN_PRICES = {
-      trial: 0, basic: 59, starter: 59, freelance: 59,
-      business: 149, professional: 149,
-      enterprise: 299,
-      legacy: 149, unlimited: 299, lifetime: 299,
+      trial: 0, basic: 99, starter: 99, freelance: 99,
+      business: 199, professional: 199,
+      enterprise: 399,
+      legacy: 199, unlimited: 399, lifetime: 399,
     };
 
     try {

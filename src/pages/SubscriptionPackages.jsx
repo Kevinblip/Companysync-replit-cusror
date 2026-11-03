@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, AlertCircle, Zap } from "lucide-react";
 import { createPageUrl } from "@/utils";
+import { planMonthlyUsd } from "@/config/planPricing";
 
 export default function SubscriptionPackages() {
   const [selectedPlan, setSelectedPlan] = useState(null);
@@ -97,7 +98,8 @@ export default function SubscriptionPackages() {
         <div className="grid md:grid-cols-3 gap-6">
           {plans.map((plan) => {
             const isCurrent = currentPlan?.plan_name === plan.plan_name;
-            const isUnlimited = plan.monthly_price === 97 && plan.ai_interactions_limit === -1;
+            const displayPrice = planMonthlyUsd(plan.plan_name);
+            const isUnlimited = plan.ai_interactions_limit === -1 && String(plan.plan_name || '').toLowerCase() === 'enterprise';
 
             return (
               <Card 
@@ -121,7 +123,7 @@ export default function SubscriptionPackages() {
                     )}
                   </div>
                   <div className={`mt-4 ${isUnlimited ? 'text-white' : 'text-gray-900'}`}>
-                    <span className="text-4xl font-bold">${plan.monthly_price}</span>
+                    <span className="text-4xl font-bold">${displayPrice}</span>
                     <span className="text-sm ml-2">/month</span>
                   </div>
                 </CardHeader>

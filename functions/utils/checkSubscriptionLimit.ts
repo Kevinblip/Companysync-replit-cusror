@@ -1,7 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
 
 // Plan limits for AI features - MUST match Pricing page packages
-// Basic: $59 | Business: $149 | Enterprise: $299
+// Basic: $99 | Business: $199 | Enterprise: $399
 export const PLAN_LIMITS = {
   // Actual plans
   basic: {

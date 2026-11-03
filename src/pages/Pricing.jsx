@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Check, Sparkles, Zap, Crown, Loader2 } from "lucide-react";
+import { planMonthlyUsd } from "@/config/planPricing";
 
 export default function Pricing() {
   const navigate = useNavigate();
@@ -62,7 +63,7 @@ export default function Pricing() {
   const plans = [
     {
       name: "Basic",
-      price: 59,
+      price: planMonthlyUsd("basic"),
       priceId: "price_1T5NV8CAqGydUaCs2iO0R9yl",
       icon: Sparkles,
       color: "blue",
@@ -95,7 +96,7 @@ export default function Pricing() {
     },
     {
       name: "Business",
-      price: 149,
+      price: planMonthlyUsd("business"),
       priceId: "price_1T5NV8CAqGydUaCsJ8SDQSnx",
       icon: Zap,
       color: "purple",
@@ -140,7 +141,7 @@ export default function Pricing() {
     },
     {
       name: "Enterprise",
-      price: 299,
+      price: planMonthlyUsd("enterprise"),
       priceId: "price_1T5NV8CAqGydUaCs1kPhAuWo",
       icon: Crown,
       color: "gold",

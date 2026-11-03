@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
     }
 
     // Hardcoded plan limits as fallback (matches SubscriptionPlan entity records)
-    // Basic=$59: 1000 AI, 200 SMS, 50 calls | Business=$149: 5000 AI, -1 SMS, -1 calls | Enterprise=$299: -1 all
+    // Basic=$99: 1000 AI, 200 SMS, 50 calls | Business=$199: 5000 AI, -1 SMS, -1 calls | Enterprise=$399: -1 all
     const FALLBACK_LIMITS = {
       basic:      { ai: 1000, sms: 200, calls: 50 },
       business:   { ai: 5000, sms: -1,  calls: -1 },

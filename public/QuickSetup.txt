@@ -127,7 +127,7 @@ export default function QuickSetup() {
         const trialEndDate = new Date();
         trialEndDate.setDate(trialEndDate.getDate() + 14);
         
-        // Get plan limits - MUST match Pricing page: Basic=$59, Business=$149, Enterprise=$299
+        // Get plan limits - MUST match Pricing page: Basic=$99, Business=$199, Enterprise=$399
         const plan = data.selected_plan || selectedPlan || 'basic';
         const planLimits = {
           basic:        { max_users: 5,  max_customers: 100 },

@@ -2428,7 +2428,28 @@ async function handleLocalDbRoute(req, res, pathname, url) {
       const newCompany = await p.query('SELECT * FROM companies WHERE id = $1', [companyId]);
       console.log(`[Auto-Provision] Created company "${companyName}" (${companyId}) and staff profile for ${email}`);
       seedDefaultTemplates(p, companyId, companyName).catch(err => console.error('[Templates] Seed error on provision:', err.message));
-      return sendJson({ company: newCompany.rows[0], staffProfile: { id: staffId }, created: true });
+      let tracking = { event_id: `trial_signup_${companyId}`, is_new_trial: true };
+      try {
+        const { extractAttributionFromReq, sendTrialSignupEvents } = require('../lib/metaCapi.cjs');
+        const attr = extractAttributionFromReq(req, (body && body.attribution) || {});
+        attr.captured_at = new Date().toISOString();
+        await p.query(
+          `UPDATE companies
+           SET data = COALESCE(data, '{}'::jsonb) || jsonb_build_object('marketing_attribution', $2::jsonb),
+               updated_at = NOW()
+           WHERE id = $1`,
+          [companyId, JSON.stringify(attr)]
+        );
+        sendTrialSignupEvents({
+          companyId,
+          plan: 'professional',
+          email,
+          attribution: attr,
+        }).catch((e) => console.warn('[Auto-Provision] Meta CAPI failed:', e.message));
+      } catch (metaErr) {
+        console.warn('[Auto-Provision] Meta attribution skipped:', metaErr.message);
+      }
+      return sendJson({ company: newCompany.rows[0], staffProfile: { id: staffId }, created: true, tracking });
     }
 
     if (pathname === '/api/local/admin/seed-templates' && req.method === 'POST') {
