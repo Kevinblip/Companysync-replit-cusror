@@ -276,6 +276,19 @@ export async function initDatabase() {
     ALTER TABLE property_measurements ADD COLUMN IF NOT EXISTS invoice_id TEXT;
     ALTER TABLE property_measurements ADD COLUMN IF NOT EXISTS job_id TEXT;
 
+    -- Derived Solar dataLayers traces only. Raw DSM/mask rasters are never stored.
+    CREATE TABLE IF NOT EXISTS solar_roof_trace_cache (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL,
+      address_key TEXT NOT NULL,
+      payload JSONB NOT NULL,
+      payload_bytes INTEGER NOT NULL,
+      trace_ms INTEGER,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE (company_id, address_key)
+    );
+
     CREATE TABLE IF NOT EXISTS payments (
       id TEXT PRIMARY KEY,
       base44_id TEXT UNIQUE,
@@ -670,6 +683,7 @@ export async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_property_measurements_company ON property_measurements(company_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_property_measurements_invoice ON property_measurements(company_id, invoice_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_property_measurements_job ON property_measurements(company_id, job_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_solar_roof_trace_cache_company ON solar_roof_trace_cache(company_id);
     CREATE INDEX IF NOT EXISTS idx_payments_company ON payments(company_id);
     CREATE INDEX IF NOT EXISTS idx_projects_company ON projects(company_id);
     CREATE INDEX IF NOT EXISTS idx_labor_rates_company ON labor_rates(company_id, is_active);
