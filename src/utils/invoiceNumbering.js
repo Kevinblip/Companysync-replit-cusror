@@ -1,6 +1,9 @@
 /**
  * Generate the next human-readable invoice number for a company.
  *
+ * This value is a preview. The server allocates the stored number inside a
+ * per-company lock and keeps a typed number only when it is still free.
+ *
  * Long legacy suffixes came from timestamp-based numbers, not a sequential
  * invoice count. Ignore those when finding the sequence high-water mark, but
  * keep every existing value in the taken set so a new number is never reused.

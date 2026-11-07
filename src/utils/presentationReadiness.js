@@ -23,7 +23,7 @@ export function resolveWallMeasurementSource(measurements = {}) {
   const heroSource = String(
     graph.totals?.gross_wall_area_source || measurements.wall_area_source || '',
   );
-  if (heroSource === 'photo_wall_planes') {
+  if (heroSource === 'photo_wall_planes' || heroSource === 'photo_anchored_footprint') {
     const measured = graph.totals?.photo_measured_faces;
     return {
       kind: 'photo_calibration',
@@ -240,7 +240,8 @@ export function describeWallAreaProvenance(measurements = {}) {
   const graph = measurements.measurement_graph || {};
   const totals = graph.totals || {};
   const source = String(totals.gross_wall_area_source || measurements.wall_area_source || '');
-  const photoCalibrated = source === 'photo_wall_planes';
+  const photoCalibrated = source === 'photo_wall_planes' || source === 'photo_anchored_footprint';
+  const lengthsAnchored = source === 'photo_anchored_footprint';
   const measuredFaces = Array.isArray(totals.photo_measured_faces)
     ? totals.photo_measured_faces
     : (Array.isArray(measurements.photo_measured_faces) ? measurements.photo_measured_faces : []);
@@ -261,11 +262,13 @@ export function describeWallAreaProvenance(measurements = {}) {
     // roof-eave trace or the photos themselves) — the caller prints the real
     // footprint source on the next line.
     headline: photoCalibrated
-      ? 'wall planes measured from photos'
+      ? (lengthsAnchored ? 'photo heights on footprint wall lengths' : 'wall planes measured from photos')
       : 'footprint extrusion + photo opening counts',
     // One-line explanation printed under the headline.
     detail: photoCalibrated
-      ? `📷 Wall area from ${measuredFaces.length} photo-measured elevation${measuredFaces.length === 1 ? '' : 's'}${
+      ? `📷 ${lengthsAnchored ? 'Heights and gables' : 'Wall area'} from ${measuredFaces.length} photo-measured elevation${measuredFaces.length === 1 ? '' : 's'}${
+        lengthsAnchored ? ', wall lengths anchored to the footprint' : ''
+      }${
         substitutedFaces.length > 0
           ? ` (${substitutedFaces.join(', ').replace(/_/g, ' ')} substituted from the footprint)`
           : ''}`

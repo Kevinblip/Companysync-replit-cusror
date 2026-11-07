@@ -5,8 +5,8 @@ description: How to correctly convert Gemini-generated datetimes so the calendar
 
 ## The Rule
 
-Calendar frontend displays times via `new Date(start_time)` (timezone-aware).
-To show **noon ET**, the DB must store **`T16:00:00.000Z`** (noon + 4h = UTC), NOT a local wall-clock string.
+Shared calendar entry and display use the company's timezone, regardless of the staff member's device timezone; see [shared calendar rule](shared-calendar-company-timezone.md).
+Persist UTC instants, not a local wall-clock string. Noon Eastern is `T16:00:00.000Z` during daylight time and `T17:00:00.000Z` during standard time.
 
 ## Correct `toStorageUtc` pattern (used in both dev plugin and prod-server.cjs)
 
@@ -50,10 +50,4 @@ alternative as a bare local wall-clock time in the company timezone.
 
 ## Calendar form also stores UTC
 
-When users manually create/edit events via the UI, `Calendar.jsx` line ~1300 does:
-```js
-if (!finalFormData.start_time.endsWith('Z')) {
-  finalFormData.start_time = new Date(finalFormData.start_time).toISOString();
-}
-```
-This converts datetime-local inputs (local time strings) to UTC Z format — consistent with the Lexi approach.
+Calendar form wall times must be interpreted in the company's configured IANA timezone before conversion to UTC, never with browser-local `new Date(datetimeLocalInput)`.

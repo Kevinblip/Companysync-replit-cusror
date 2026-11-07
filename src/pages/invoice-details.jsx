@@ -1,7 +1,13 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { deductionTypesForInvoice, calculateFeeDeduction, hasRemainingBalanceForDeduction } from "@/utils/paymentDeductionTypes";
 import FeeDeductionCalculator from "@/components/invoice/FeeDeductionCalculator";
 import { previewStandaloneDeduction, reverseStandaloneDeduction } from "@/utils/standaloneDeduction";
+import { describeRelinkAll, describeRelinkMove, invoicePartyLabel, invoicePaymentSummary } from "@/utils/invoiceAmountDisplay";
+import { detailInvoiceTotal, insurancePaysAmount, invoiceCollectibleBalance } from "@/utils/invoiceFinance";
+import { invoiceNeedsCustomerLink } from "@/utils/invoiceCustomerAssociation";
+import { blankInvoiceLine, coerceLineItems } from "@/utils/estimateInvoiceSync";
+import { paymentListedOnInvoice } from "@/utils/paymentOwnership";
+import CustomerIdentityPickerDialog from "@/components/invoices/CustomerIdentityPickerDialog";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -214,14 +220,33 @@ export default function InvoiceDetails() {
   const buildQBInvoiceUrl = (qbInvoiceId) =>
     getQBInvoiceUrl(qbStatus?.realm_id, qbInvoiceId, qbStatus?.sandbox ?? false);
 
-  // Fetch payments linked directly to this invoice — filter by invoice_id only to prevent cross-customer contamination
+  // The balance counts a payment whose invoice id is this invoice's id or its
+  // base44 id, including an id stored only in payments.data, and a payment
+  // with no customer id. The old query asked for the column invoice_id only,
+  // so Wanda's local_ invoice showed Amount Paid and an empty Payments History.
   const { data: invoicePayments = [], isFetched: paymentsReady } = useQuery({
-    queryKey: ['invoice-payments', invoice?.id],
+    queryKey: ['invoice-payments', invoice?.id, invoice?.base44_id, invoice?.invoice_number, invoice?.customer_id, customer?.id, myCompany?.id],
     queryFn: async () => {
-      if (!invoice?.id) return [];
-      return await base44.entities.Payment.filter({ invoice_id: invoice.id });
+      if (!invoice?.id || !myCompany?.id) return [];
+      const companyId = myCompany.id;
+      const ids = [...new Set([invoice.id, invoice.base44_id].map((value) => String(value || '').trim()).filter(Boolean))];
+      const batches = await Promise.all([
+        ...ids.map((id) => base44.entities.Payment.filter({ invoice_id: id, company_id: companyId })),
+        invoice.invoice_number
+          ? base44.entities.Payment.filter({ invoice_number: invoice.invoice_number, company_id: companyId })
+          : Promise.resolve([]),
+      ]);
+      const seen = new Set();
+      const listed = [];
+      for (const payment of batches.flat()) {
+        if (!payment?.id || seen.has(payment.id)) continue;
+        if (!paymentListedOnInvoice(payment, invoice, customer)) continue;
+        seen.add(payment.id);
+        listed.push(payment);
+      }
+      return listed;
     },
-    enabled: !!invoice?.id,
+    enabled: !!invoice?.id && !!myCompany?.id,
   });
 
   const payments = invoicePayments;
@@ -259,6 +284,26 @@ export default function InvoiceDetails() {
     p.invoice_id && p.invoice_id !== invoice?.id &&
     !payments.some(lp => lp.id === p.id)
   );
+
+  const relinkSourceIds = [...new Set(
+    [...otherInvoicePayments, ...sameNumberOtherCustomerPayments]
+      .map(payment => payment.invoice_id)
+      .filter(Boolean)
+  )];
+  const { data: relinkSourceInvoices = [] } = useQuery({
+    queryKey: ['relink-source-invoices', myCompany?.id, relinkSourceIds.slice().sort().join(',')],
+    queryFn: async () => {
+      const rows = await Promise.all(
+        relinkSourceIds.map(id => base44.entities.Invoice.filter({ id, company_id: myCompany.id }))
+      );
+      return rows.flat().filter(Boolean);
+    },
+    enabled: relinkSourceIds.length > 0 && !!myCompany?.id,
+  });
+  const sourceCustomerName = (payment) => {
+    const source = relinkSourceInvoices.find(row => row.id === payment?.invoice_id);
+    return source?.customer_name || payment?.customer_name || '';
+  };
 
   // Shared helper: recalculate + persist an invoice's amount_paid and status from DB
   const _recalcInvoiceBalance = async (invId) => {
@@ -427,13 +472,14 @@ export default function InvoiceDetails() {
         customer_email: invoice.customer_email || '',
         issue_date: invoice.issue_date || '',
         due_date: invoice.due_date || '',
-        items: invoice.items || invoice.line_items || [],
+        items: coerceLineItems(invoice),
         notes: invoice.notes || '',
         claim_number: invoice.claim_number || '',
         insurance_company: invoice.insurance_company || '',
         discount_type: invoice.discount_type || 'none',
         discount_value: invoice.discount_value || 0,
         adjustment_amount: invoice.adjustment_amount || 0,
+        adjustment_label: invoice.adjustment_label || invoice.data?.adjustment_label || '',
         deposit_type: invoice.data?.deposit_type || 'none',
         deposit_value: invoice.data?.deposit_value || 0,
         deductible_amount: Number(invoice.deductible_amount || invoice.data?.deductible_amount || 0),
@@ -599,11 +645,15 @@ export default function InvoiceDetails() {
   const [sendReceipt, setSendReceipt] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [paymentDate, setPaymentDate] = useState(localToday());
+  const [paymentReference, setPaymentReference] = useState('');
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [editPaymentOpen, setEditPaymentOpen] = useState(false);
   const [editPaymentMethod, setEditPaymentMethod] = useState('cash');
   const [editPaymentDate, setEditPaymentDate] = useState(localToday());
   const [requestAmount, setRequestAmount] = useState('');
+  const requestAmountEdited = useRef(false);
+  const [showLinkCustomerPicker, setShowLinkCustomerPicker] = useState(false);
+  const [linkCustomerCandidate, setLinkCustomerCandidate] = useState(null);
   const [showRequestHistory, setShowRequestHistory] = useState(false);
   const [editingRequestId, setEditingRequestId] = useState(null);
   const [editingRequestAmount, setEditingRequestAmount] = useState('');
@@ -709,20 +759,26 @@ export default function InvoiceDetails() {
       const unsupported = ['cash_app','zelle','venmo'];
       const mappedMethod = unsupported.includes(paymentMethod) ? 'other' : paymentMethod;
       const methodNote = unsupported.includes(paymentMethod) ? `Recorded via ${paymentMethod.replace('_',' ')}` : '';
+      const reference = paymentReference.trim();
+      const notes = [methodNote, reference].filter(Boolean).join(' — ');
 
       const newPayment = await base44.entities.Payment.create({
         company_id: myCompany?.id,
         invoice_id: invoice.id,
         invoice_number: invoice.invoice_number,
-        customer_name: invoice.customer_name,
-        customer_id: customer?.id,
-        customer_email: invoice.customer_email,
+        customer_name: invoice.customer_name || customer?.name || '',
+        // The customer record may not resolve (Wanda's invoice id does not
+        // match a customer). Keep the invoice's customer id anyway so the
+        // payment is not saved with a blank one.
+        customer_id: customer?.id || invoice.customer_id || null,
+        customer_email: invoice.customer_email || customer?.email || '',
         amount: amount,
         payment_method: mappedMethod,
         payment_number: paymentNumber,
         payment_date: paymentDate,
         status: 'received',
-        notes: methodNote || undefined
+        reference_number: reference || null,
+        notes: notes || undefined
       });
 
       // Recompute the invoice balance from the SUM of its real payments (source of
@@ -798,6 +854,7 @@ export default function InvoiceDetails() {
       setSendReceipt(true);
       setPaymentMethod('cash');
       setPaymentDate(localToday());
+      setPaymentReference('');
       toast.success(sendReceipt ? 'Payment recorded and receipt sent!' : 'Payment recorded successfully!');
 
       if (isNewlyPaid) {
@@ -1416,7 +1473,7 @@ export default function InvoiceDetails() {
   const handleAddItem = () => {
     setEditForm({
       ...editForm,
-      items: [...editForm.items, { description: '', quantity: 1, rate: 0, amount: 0 }]
+      items: [...coerceLineItems(editForm?.items), blankInvoiceLine()]
     });
   };
 
@@ -1439,13 +1496,19 @@ export default function InvoiceDetails() {
   };
 
   // --- Payment request hooks (MUST be before any early return) ---
+  // Prefill from the same balance the Amount Due line uses (invoice total
+  // minus payments — the deductible is not part of it), and refresh when
+  // that balance changes. A hand-edited amount is kept.
+  const requestBalanceDue = invoice
+    ? invoiceCollectibleBalance(invoice, detailInvoiceTotal(invoice)).due
+    : 0;
   useEffect(() => {
-    if (!invoice?.id) return;
-    const total = Number(invoice.total_amount || invoice.amount || 0);
-    const paid = Number(invoice.amount_paid || 0);
-    const due = total - paid;
-    if (due > 0) setRequestAmount(due.toFixed(2));
+    requestAmountEdited.current = false;
   }, [invoice?.id]);
+  useEffect(() => {
+    if (!invoice?.id || requestAmountEdited.current) return;
+    setRequestAmount(requestBalanceDue > 0 ? requestBalanceDue.toFixed(2) : '');
+  }, [invoice?.id, requestBalanceDue]);
 
   const sendPaymentRequestMutation = useMutation({
     mutationFn: async (amount) => {
@@ -1657,7 +1720,7 @@ export default function InvoiceDetails() {
     return colors[status] || 'bg-gray-100 text-gray-700 border-gray-200';
   };
 
-  const invoiceItems = invoice.items || invoice.line_items || [];
+  const invoiceItems = coerceLineItems(invoice);
   const subtotal = invoiceItems.reduce((sum, item) => sum + Number(item.rcv || item.amount || 0), 0) || 0;
   const discountAmount = invoice.discount_type === "percentage"
     ? subtotal * (Number(invoice.discount_value || 0) / 100)
@@ -1669,7 +1732,8 @@ export default function InvoiceDetails() {
     ? computedTotal
     : Number(invoice.total_amount || invoice.amount || 0);
   const amountPaid = Number(invoice.amount_paid || 0);
-  const amountDue = total - amountPaid;
+  const paymentSummary = invoicePaymentSummary(total, amountPaid);
+  const amountDue = paymentSummary.due;
   const hasRemainingBalance = hasRemainingBalanceForDeduction(amountDue);
 
   const depositType = invoice.data?.deposit_type || 'none';
@@ -2044,6 +2108,12 @@ Payment methods accepted:
                           {payment.payment_date ? format(new Date(payment.payment_date), 'MMM d, yyyy') : ''}
                         </div>
                         <div className="text-xs text-gray-400">{payment.payment_method}</div>
+                        {(() => {
+                          const reference = String(payment.reference_number || '').trim();
+                          const note = String(payment.notes || '').trim();
+                          const extra = reference && note && note !== reference ? `${reference} · ${note}` : (reference || note);
+                          return extra ? <div className="text-xs text-gray-500 mt-1" data-testid={`payment-reference-${payment.id}`}>{extra}</div> : null;
+                        })()}
                         <div className="mt-2 text-xs text-gray-600" data-testid={`payment-alert-${payment.id}`}>
                           {deliverySummaryError ? 'Staff alert history unavailable' : !deliverySummary ? 'Checking staff alerts…' :
                             (deliverySummary.paymentAlerts || []).filter(alert => alert.payment_id === payment.id).length === 0
@@ -2178,7 +2248,7 @@ Payment methods accepted:
                                         </div>
                                         <div className="text-xs text-gray-500">{payment.payment_method}</div>
                                         <div className="text-xs text-blue-600 mt-0.5">
-                                            Currently on: {payment.invoice_number || payment.invoice_id}
+                                            Currently on: {invoicePartyLabel(payment.invoice_number || payment.invoice_id, sourceCustomerName(payment))}
                                         </div>
                                         {payment.notes && <div className="text-xs text-gray-500 mt-1 italic">{payment.notes}</div>}
                                     </div>
@@ -2223,7 +2293,7 @@ Payment methods accepted:
                                             {' · '}{payment.payment_method || 'payment'}
                                         </div>
                                         <div className="text-xs text-gray-600 mt-1">
-                                            Currently applied to: {payment.customer_name || payment.customer_id || 'Unknown customer'}
+                                            Currently applied to: {invoicePartyLabel(payment.invoice_number || payment.invoice_id, sourceCustomerName(payment))}
                                         </div>
                                         <div className="text-xs text-gray-500">
                                             Existing invoice ID: {payment.invoice_id}
@@ -2332,13 +2402,14 @@ Payment methods accepted:
                           customer_email: invoice.customer_email || '',
                           issue_date: invoice.issue_date || '',
                           due_date: invoice.due_date || '',
-                          items: invoice.items || invoice.line_items || [],
+                          items: coerceLineItems(invoice),
                           notes: invoice.notes || '',
                           claim_number: invoice.claim_number || '',
                           insurance_company: invoice.insurance_company || '',
                           discount_type: invoice.discount_type || 'none',
                           discount_value: invoice.discount_value || 0,
                           adjustment_amount: invoice.adjustment_amount || 0,
+                          adjustment_label: invoice.adjustment_label || invoice.data?.adjustment_label || '',
                           deposit_type: invoice.data?.deposit_type || 'none',
                           deposit_value: invoice.data?.deposit_value || 0,
                           deductible_amount: Number(invoice.deductible_amount || invoice.data?.deductible_amount || 0),
@@ -2418,7 +2489,7 @@ Payment methods accepted:
                           onChange={(e) => setEditForm({...editForm, deductible_amount: parseFloat(e.target.value) || 0})}
                           placeholder="e.g. 1500.00"
                         />
-                        <p className="text-xs text-gray-400 mt-1">Homeowner's out-of-pocket</p>
+                        <p className="text-xs text-gray-400 mt-1">Display only. Does not change Amount Due or the total. Waive it with an adjustment or a discount.</p>
                       </div>
                       <div>
                         <Label>Supplement Amount ($)</Label>
@@ -2453,18 +2524,31 @@ Payment methods accepted:
                       if (editForm.discount_type === 'percentage') disc = subtotal * (editForm.discount_value / 100);
                       else if (editForm.discount_type === 'fixed') disc = editForm.discount_value;
                       const total = (subtotal - disc) + Number(editForm.adjustment_amount || 0);
-                      const acv = total - Number(editForm.depreciation_held || 0);
                       // Supplement is deliberately NOT added here: it is a note of an
                       // approved amount, not billed money. It only reaches the balance
                       // once it is on the invoice as line items.
-                      const insurancePays = acv - Number(editForm.deductible_amount || 0);
+                      const carrier = insurancePaysAmount({
+                        total,
+                        depreciation: editForm.depreciation_held,
+                        deductible: editForm.deductible_amount,
+                        adjustment: editForm.adjustment_amount,
+                        discount: disc,
+                      });
                       return (
                         <div className="mt-3 bg-blue-50 border border-blue-200 rounded p-3 text-sm space-y-1">
                           <div className="flex justify-between text-gray-700"><span>Invoice Total (RCV):</span><span className="font-semibold">${total.toFixed(2)}</span></div>
                           {editForm.depreciation_held > 0 && <div className="flex justify-between text-orange-700"><span>Less Depreciation Held:</span><span>-${Number(editForm.depreciation_held).toFixed(2)}</span></div>}
-                          {editForm.depreciation_held > 0 && <div className="flex justify-between text-gray-700"><span>ACV (initial payment):</span><span>${acv.toFixed(2)}</span></div>}
-                          {editForm.deductible_amount > 0 && <div className="flex justify-between text-red-700"><span>Less Deductible:</span><span>-${Number(editForm.deductible_amount).toFixed(2)}</span></div>}
-                          <div className="flex justify-between font-bold border-t border-blue-300 pt-1 text-blue-900"><span>Insurance Pays:</span><span>${insurancePays.toFixed(2)}</span></div>
+                          {editForm.depreciation_held > 0 && <div className="flex justify-between text-gray-700"><span>ACV (initial payment):</span><span>${carrier.acv.toFixed(2)}</span></div>}
+                          {editForm.deductible_amount > 0 && (
+                            <div className="flex justify-between text-red-700">
+                              <span>{carrier.deductibleApplied > 0 ? 'Less Deductible:' : 'Deductible:'}</span>
+                              <span>{carrier.deductibleApplied > 0 ? '-' : ''}${Number(editForm.deductible_amount).toFixed(2)}</span>
+                            </div>
+                          )}
+                          {editForm.deductible_amount > 0 && carrier.alreadyReduced && (
+                            <p className="text-xs text-gray-500">Deductible is not subtracted again. The adjustment or discount is already in the total.</p>
+                          )}
+                          <div className="flex justify-between font-bold border-t border-blue-300 pt-1 text-blue-900"><span>Insurance Pays:</span><span data-testid="invoice-insurance-pays">${carrier.pays.toFixed(2)}</span></div>
                           {editForm.supplement_amount > 0 && (
                             <div className="border-t border-blue-200 pt-1 mt-1">
                               <div className="flex justify-between text-gray-600"><span>Supplement approved (not billed):</span><span>${Number(editForm.supplement_amount).toFixed(2)}</span></div>
@@ -2479,14 +2563,17 @@ Payment methods accepted:
                   <div>
                     <div className="flex items-center justify-between mb-3">
                       <Label className="text-lg">Line Items</Label>
-                      <Button onClick={handleAddItem} size="sm" variant="outline">
+                      <Button onClick={handleAddItem} size="sm" variant="outline" data-testid="button-add-invoice-line">
                         <Plus className="w-4 h-4 mr-2" />
-                        Add Item
+                        Add line item
                       </Button>
                     </div>
+                    {(editForm.items || []).length === 0 && (
+                      <p className="text-sm text-gray-500 mb-3">No line items yet. Add one for an estimate adjustment or any other charge.</p>
+                    )}
                     
                     <div className="space-y-3">
-                      {editForm.items.map((item, index) => (
+                      {(editForm.items || []).map((item, index) => (
                         <Card key={index} className="border-2">
                           <CardContent className="p-4">
                             <div className="grid grid-cols-12 gap-3 items-start">
@@ -2512,7 +2599,6 @@ Payment methods accepted:
                                 <Label className="text-xs">Rate</Label>
                                 <Input
                                   type="number"
-                                  min="0"
                                   step="0.01"
                                   value={item.rate}
                                   onChange={(e) => handleItemChange(index, 'rate', parseFloat(e.target.value) || 0)}
@@ -2622,6 +2708,22 @@ Payment methods accepted:
                         <p className="text-xs text-gray-500 mt-1">+ or - amount (e.g., -1773.44)</p>
                       </div>
 
+                      <div>
+                        <Label>Adjustment label (optional)</Label>
+                        <Input
+                          value={editForm.adjustment_label || ''}
+                          onChange={(e) => setEditForm({ ...editForm, adjustment_label: e.target.value })}
+                          placeholder="Deductible waived"
+                          list="adjustment-label-suggestions"
+                          data-testid="input-adjustment-label"
+                        />
+                        <datalist id="adjustment-label-suggestions">
+                          <option value="Deductible waived" />
+                          <option value="Discount" />
+                        </datalist>
+                        <p className="text-xs text-gray-500 mt-1">Shown beside the adjustment, for example Deductible waived or Discount.</p>
+                      </div>
+
                       <div className="border-t pt-4">
                         <Label className="flex items-center gap-2 mb-2">
                           <span className="text-amber-700 font-semibold">Deposit Request</span>
@@ -2696,7 +2798,7 @@ Payment methods accepted:
                             )}
                             {editForm.adjustment_amount !== 0 && (
                               <div className={`flex justify-between ${editForm.adjustment_amount > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                <span>Adjustment:</span>
+                                <span>Adjustment{String(editForm.adjustment_label || '').trim() ? ` (${String(editForm.adjustment_label).trim()})` : ''}:</span>
                                 <span>{Number(editForm.adjustment_amount || 0) > 0 ? '+' : ''}${Number(editForm.adjustment_amount || 0).toFixed(2)}</span>
                               </div>
                             )}
@@ -2750,7 +2852,31 @@ Payment methods accepted:
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <p className="text-sm font-semibold text-gray-600">Bill To:</p>
-                          <p className="text-sm font-medium">{invoice.customer_name}</p>
+                          <p className="text-sm font-medium">{invoice.customer_name || 'No customer name'}</p>
+                          {invoiceNeedsCustomerLink(invoice, customers) && (
+                            <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900" data-testid="invoice-customer-link-flag">
+                              <p className="font-semibold">
+                                {invoice.customer_id
+                                  ? 'Customer id does not match a customer record.'
+                                  : 'No customer linked. This invoice will not show on a customer profile until it is linked.'}
+                              </p>
+                              {isAdmin && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="mt-2"
+                                  onClick={() => {
+                                    setLinkCustomerCandidate(null);
+                                    setShowLinkCustomerPicker(true);
+                                  }}
+                                  data-testid="button-link-invoice-customer-detail"
+                                >
+                                  <LinkIcon className="mr-1 h-4 w-4" />
+                                  Link customer
+                                </Button>
+                              )}
+                            </div>
+                          )}
                           {customer?.company && (
                             <p className="text-sm text-gray-600">{customer.company}</p>
                           )}
@@ -2833,7 +2959,7 @@ Payment methods accepted:
                         })()}
                         {Number(invoice.adjustment_amount) !== 0 && (
                           <div className={`flex justify-between py-2 border-b ${invoice.adjustment_amount > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            <span className="text-sm">Adjustment:</span>
+                            <span className="text-sm">Adjustment{String(invoice.adjustment_label || invoice.data?.adjustment_label || '').trim() ? ` (${String(invoice.adjustment_label || invoice.data?.adjustment_label).trim()})` : ''}:</span>
                             <span className="text-sm font-semibold">
                               {Number(invoice.adjustment_amount) > 0 ? '+' : ''}${Number(invoice.adjustment_amount || 0).toFixed(2)}
                             </span>
@@ -2847,17 +2973,30 @@ Payment methods accepted:
                           const dep = Number(invoice.data?.depreciation_held || invoice.depreciation_held || 0);
                           const ded = Number(invoice.deductible_amount || invoice.data?.deductible_amount || 0);
                           const sup = Number(invoice.data?.supplement_amount || invoice.supplement_amount || 0);
-                          const acv = total - dep;
                           // Supplement stays out of this figure — see the edit form note:
                           // it is a recorded approval, not an amount billed on this invoice.
-                          const insPays = acv - ded;
+                          const carrier = insurancePaysAmount({
+                            total,
+                            depreciation: dep,
+                            deductible: ded,
+                            adjustment: invoice.adjustment_amount,
+                            discount: discountAmount,
+                          });
                           return (
                             <div className="mt-1 mb-1 bg-blue-50 border border-blue-200 rounded p-2 text-xs space-y-1">
                               <p className="font-semibold text-blue-800 mb-1">Insurance Breakdown</p>
                               {dep > 0 && <div className="flex justify-between text-orange-700"><span>Depreciation Held:</span><span>-${dep.toFixed(2)}</span></div>}
-                              {dep > 0 && <div className="flex justify-between text-gray-600"><span>ACV (initial check):</span><span>${acv.toFixed(2)}</span></div>}
-                              {ded > 0 && <div className="flex justify-between text-red-700"><span>Deductible:</span><span>-${ded.toFixed(2)}</span></div>}
-                              <div className="flex justify-between font-bold border-t border-blue-300 pt-1 text-blue-900"><span>Insurance Pays:</span><span>${insPays.toFixed(2)}</span></div>
+                              {dep > 0 && <div className="flex justify-between text-gray-600"><span>ACV (initial check):</span><span>${carrier.acv.toFixed(2)}</span></div>}
+                              {ded > 0 && (
+                                <div className="flex justify-between text-red-700" data-testid="invoice-deductible-note">
+                                  <span>{carrier.deductibleApplied > 0 ? 'Less Deductible:' : 'Deductible:'}</span>
+                                  <span>{carrier.deductibleApplied > 0 ? '-' : ''}${ded.toFixed(2)}</span>
+                                </div>
+                              )}
+                              {ded > 0 && carrier.alreadyReduced && (
+                                <p className="text-[11px] text-gray-500">Not subtracted again. An adjustment or discount is already in the total.</p>
+                              )}
+                              <div className="flex justify-between font-bold border-t border-blue-300 pt-1 text-blue-900"><span>Insurance Pays:</span><span data-testid="invoice-insurance-pays">${carrier.pays.toFixed(2)}</span></div>
                               {sup > 0 && (
                                 <div className="border-t border-blue-200 pt-1 mt-1">
                                   <div className="flex justify-between text-gray-600"><span>Supplement approved (not billed):</span><span>${sup.toFixed(2)}</span></div>
@@ -2870,7 +3009,7 @@ Payment methods accepted:
                         {amountPaid > 0 && (
                           <div className="flex justify-between py-2 border-b text-green-600">
                             <span className="text-sm">Amount Paid</span>
-                            <span className="text-sm font-semibold">-${amountPaid.toFixed(2)}</span>
+                            <span className="text-sm font-semibold" data-testid="invoice-amount-paid">{paymentSummary.paidText}</span>
                           </div>
                         )}
                         {isDepositRequest ? (
@@ -2883,10 +3022,15 @@ Payment methods accepted:
                             </div>
                             <span className="text-lg font-bold text-amber-700">${depositAmount.toFixed(2)}</span>
                           </div>
+                        ) : paymentSummary.overpaid > 0 ? (
+                          <div className="flex justify-between py-3">
+                            <span className="text-lg font-bold text-amber-700">Credit / Overpaid</span>
+                            <span className="text-lg font-bold text-amber-700" data-testid="invoice-overpaid">{paymentSummary.overpaidText}</span>
+                          </div>
                         ) : (
                           <div className="flex justify-between py-3">
                             <span className="text-lg font-bold text-red-600">Amount Due</span>
-                            <span className="text-lg font-bold text-red-600">${amountDue.toFixed(2)}</span>
+                            <span className="text-lg font-bold text-red-600" data-testid="invoice-amount-due">{paymentSummary.dueText}</span>
                           </div>
                         )}
                       </div>
@@ -2954,7 +3098,7 @@ Payment methods accepted:
                           {amountPaid > 0 && (
                             <div className="flex justify-between items-center mb-2 text-green-600">
                               <span>Amount Paid:</span>
-                              <span className="font-semibold">-${amountPaid.toFixed(2)}</span>
+                              <span className="font-semibold" data-testid="invoice-sidebar-amount-paid">{paymentSummary.paidText}</span>
                             </div>
                           )}
                           {isDepositRequest ? (
@@ -2967,11 +3111,16 @@ Payment methods accepted:
                                 Balance ${(total - depositAmount).toFixed(2)} due on completion
                               </p>
                             </div>
+                          ) : paymentSummary.overpaid > 0 ? (
+                            <div className="flex justify-between items-center pt-2 border-t">
+                              <span className="font-semibold text-amber-700">Credit / Overpaid</span>
+                              <span className="font-bold text-xl text-amber-700" data-testid="invoice-sidebar-overpaid">{paymentSummary.overpaidText}</span>
+                            </div>
                           ) : (
                             <div className="flex justify-between items-center pt-2 border-t">
                               <span className="font-semibold text-gray-900">Amount Due:</span>
                               <span className={`font-bold text-xl ${amountDue > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                ${amountDue.toFixed(2)}
+                                {paymentSummary.dueText}
                               </span>
                             </div>
                           )}
@@ -3272,7 +3421,10 @@ Payment methods accepted:
                               min="0.01"
                               step="0.01"
                               value={requestAmount}
-                              onChange={(e) => setRequestAmount(e.target.value)}
+                              onChange={(e) => {
+                                requestAmountEdited.current = true;
+                                setRequestAmount(e.target.value);
+                              }}
                               className="pl-7 pr-3"
                               data-testid="input-request-amount"
                             />
@@ -3282,7 +3434,10 @@ Payment methods accepted:
                             {parseFloat(requestAmount) > 0 && Math.abs(parseFloat(requestAmount) - amountDue) > 0.01 && (
                               <button
                                 className="text-blue-500 hover:underline"
-                                onClick={() => setRequestAmount(amountDue.toFixed(2))}
+                                onClick={() => {
+                                  requestAmountEdited.current = false;
+                                  setRequestAmount(amountDue.toFixed(2));
+                                }}
                               >reset to balance</button>
                             )}
                           </div>
@@ -3808,10 +3963,13 @@ Payment methods accepted:
                 <p className="font-semibold text-blue-800 text-sm">
                   {relinkPaymentTarget?.payment_number || relinkPaymentTarget?.id}{relinkPaymentTarget ? ` — $${Number(relinkPaymentTarget.amount || 0).toFixed(2)}` : ''}
               </p>
-              <p className="text-sm text-blue-700">
-                This payment will be moved from{' '}
-                <strong>{relinkPaymentTarget?.invoice_number || relinkPaymentTarget?.invoice_id}</strong>{' '}
-                  to <strong>{invoice?.invoice_number}</strong> for <strong>{customer?.name || invoice?.customer_name}</strong>.
+              <p className="text-sm text-blue-700" data-testid="relink-payment-summary">
+                {describeRelinkMove({
+                  fromNumber: relinkPaymentTarget?.invoice_number || relinkPaymentTarget?.invoice_id,
+                  fromCustomer: sourceCustomerName(relinkPaymentTarget),
+                  toNumber: invoice?.invoice_number,
+                  toCustomer: customer?.name || invoice?.customer_name,
+                })}
               </p>
               <p className="text-sm text-blue-700">
                   The original payment date will not change. Both invoice balances will be recalculated automatically.
@@ -3861,8 +4019,15 @@ Payment methods accepted:
                 {otherInvoicePayments?.length} payment{otherInvoicePayments?.length !== 1 ? 's' : ''} —{' '}
                 ${otherInvoicePayments?.reduce((s, p) => s + Number(p.amount || 0), 0).toFixed(2)} total
               </p>
-              <p className="text-sm text-blue-700">
-                All payments will be moved to <strong>{invoice?.invoice_number}</strong> and removed from their current invoices.
+              <p className="text-sm text-blue-700" data-testid="relink-all-summary">
+                {describeRelinkAll(
+                  (otherInvoicePayments || []).map(payment => ({
+                    invoiceNumber: payment.invoice_number || payment.invoice_id,
+                    customerName: sourceCustomerName(payment),
+                  })),
+                  invoice?.invoice_number,
+                  customer?.name || invoice?.customer_name,
+                )}
               </p>
               <p className="text-sm text-blue-700">
                 All affected invoices will be recalculated automatically.
@@ -4088,6 +4253,17 @@ Payment methods accepted:
               <Label>Payment Date</Label>
               <Input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className="mt-1" />
             </div>
+            <div>
+              <Label htmlFor="payment-reference">Reference / note (optional)</Label>
+              <Input
+                id="payment-reference"
+                value={paymentReference}
+                onChange={(e) => setPaymentReference(e.target.value)}
+                placeholder="Check number, Deductible waived, …"
+                className="mt-1"
+                data-testid="input-payment-reference"
+              />
+            </div>
             <div className="flex items-center space-x-2">
               <input
                 type="checkbox"
@@ -4158,6 +4334,66 @@ Payment methods accepted:
               Not now
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <CustomerIdentityPickerDialog
+        open={showLinkCustomerPicker}
+        onOpenChange={setShowLinkCustomerPicker}
+        customers={customers}
+        onSelect={(selected) => {
+          setLinkCustomerCandidate(selected);
+          setShowLinkCustomerPicker(false);
+        }}
+        title="Link this invoice to a customer"
+        description="Search by name, email, phone, or address. The next step copies that customer's id, name, and email onto this invoice."
+      />
+      <Dialog open={!!linkCustomerCandidate} onOpenChange={(open) => { if (!open) setLinkCustomerCandidate(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm customer link</DialogTitle>
+          </DialogHeader>
+          {linkCustomerCandidate && (
+            <div className="space-y-2 text-sm">
+              <p>
+                Set this invoice's customer to <strong>{linkCustomerCandidate.name}</strong>
+                {linkCustomerCandidate.email ? ` (${linkCustomerCandidate.email})` : ''}.
+              </p>
+              <p className="text-gray-600">Customer id {linkCustomerCandidate.id} will be saved, and the name and email will be copied.</p>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setLinkCustomerCandidate(null)}>Cancel</Button>
+                <Button
+                  data-testid="button-confirm-link-invoice-customer-detail"
+                  onClick={async () => {
+                    try {
+                      const response = await fetch('/api/local/invoices/link-customer', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          invoice_id: invoice.id,
+                          customer_id: linkCustomerCandidate.id,
+                          company_id: myCompany?.id,
+                          confirmed: true,
+                        }),
+                      });
+                      const result = await response.json().catch(() => ({}));
+                      if (!response.ok) throw new Error(result.error || 'Could not link this invoice.');
+                      setLinkCustomerCandidate(null);
+                      queryClient.invalidateQueries({ queryKey: ['invoice', invoice.id] });
+                      queryClient.invalidateQueries({ queryKey: ['customer-invoices'] });
+                      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+                      toast.success('Customer linked. Name and email were copied.');
+                    } catch (error) {
+                      toast.error(error.message || 'Could not link this invoice.');
+                    }
+                  }}
+                >
+                  Confirm link
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

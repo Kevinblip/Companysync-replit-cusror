@@ -344,6 +344,11 @@ export default function viteCronPlugin() {
   return {
     name: 'vite-cron-plugin',
     configureServer(server) {
+      if (process.env.STAGING_READ_ONLY_SIDE_EFFECTS === '1') {
+        console.log('[staging] side effects disabled');
+        console.log('[staging] scheduler not started: vite-cron');
+        return;
+      }
       setTimeout(() => {
         console.log('[Cron] Starting local cron scheduler...');
         console.log(`[Cron] ${CRON_JOBS.length} jobs registered:`);

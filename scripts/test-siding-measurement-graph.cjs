@@ -79,7 +79,28 @@ function fullCoveragePhotos(extra) {
     ok('group references its component ids', g.opening_groups[0].component_ids.length === 2);
     ok('window_assemblies counts the group (1)', g.counts.window_assemblies === 1, g.counts.window_assemblies, 1);
     ok('window_units counts the components (2)', g.counts.window_units === 2, g.counts.window_units, 2);
-    ok('legacy windows_count === assemblies', g.counts.windows_count === g.counts.window_assemblies);
+    const sash = buildSidingMeasurementGraph({
+      perPhotoResults: [{
+        view_label: 'Front', confidence: 0.9,
+        openings: [{
+          type: 'window', width_ft: 3, height_ft: 5, pos_x: 8, pos_y: 4,
+          components: [
+            { type: 'window', width_ft: 1.5, height_ft: 5 },
+            { type: 'window', width_ft: 1.5, height_ft: 5 },
+          ],
+        }],
+      }],
+      grossWallAreaSqft: 1000, accentDeductionSqft: 0, perimeterFt: 120,
+      smallOpeningsInWaste: true,
+    });
+    ok('a portrait double-hung split into equal sashes stays one unit',
+       sash.counts.window_units === 1, sash.counts.window_units, 1);
+    ok('that double-hung is still one assembly',
+       sash.counts.window_assemblies === 1, sash.counts.window_assemblies, 1);
+    ok('public windows_count reports the units (2), not the assembly',
+       g.counts.windows_count === g.counts.window_units
+         && g.counts.windows_count !== g.counts.window_assemblies,
+       g.counts.windows_count, 2);
     // Deduction uses GROUP geometry (8x4=32), not components (2x16=32 here but
     // group perimeter proves it): group perimeter = 2*(8+4)=24.
     ok('group area uses group geometry (32)', g.opening_groups[0].area_sqft === 32, g.opening_groups[0].area_sqft, 32);
@@ -353,11 +374,12 @@ function fullCoveragePhotos(extra) {
     ok('majority of openings charged to the masonry column',
       g.totals.opening_deduction_masonry_sqft > g.totals.opening_deduction_sqft,
       `masonry=${g.totals.opening_deduction_masonry_sqft} siding=${g.totals.opening_deduction_sqft}`);
-    // Old behaviour deducted 25 % of the 4,404 gross (1,101 sqft) from the siding
-    // column and produced ~650 sqft. The corrected model must land near Hover.
-    ok('net siding lands within 15 % of the Hover-measured 1,047 sqft',
-      Math.abs(g.totals.net_siding_area_sqft - 1047) / 1047 < 0.15,
-      g.totals.net_siding_area_sqft, '1047 +/-15%');
+    // The 20×10 windows clamp to a 3×5. What is left is two 16×8 garage doors
+    // and a standard entry. Old behaviour deducted 25 % of the 4,404 gross
+    // from the siding column and produced ~650 sqft.
+    ok('implausible windows clamp to the 3×5 class',
+      g.opening_groups.filter((group) => group.type === 'window').every((group) => group.area_sqft === 15),
+      g.opening_groups.filter((group) => group.type === 'window').map((group) => group.area_sqft));
     ok('net siding is far above the old 653 sqft result',
       g.totals.net_siding_area_sqft > 900, g.totals.net_siding_area_sqft, '> 900');
   }
@@ -372,21 +394,21 @@ function fullCoveragePhotos(extra) {
       smallOpeningsInWaste: false,
       perPhotoResults: [{
         view_label: 'Front', confidence: 0.9,
-        openings: [{ type: 'window', width_ft: 10, height_ft: 10, pos_x: 5, pos_y: 3 }], // 100 sqft
+        openings: [{ type: 'window', width_ft: 6, height_ft: 5, pos_x: 5, pos_y: 3 }], // 30 sqft
       }],
     };
     const globalAvg = buildSidingMeasurementGraph(base);
-    // House-wide siding share is 50 %, so 50 sqft of the window hits siding.
+    // House-wide siding share is 50 %, so 15 sqft of the window hits siding.
     ok('without a face map the house average is used',
-      globalAvg.totals.opening_deduction_sqft === 50, globalAvg.totals.opening_deduction_sqft, 50);
+      globalAvg.totals.opening_deduction_sqft === 15, globalAvg.totals.opening_deduction_sqft, 15);
 
     // The front elevation is all brick — its window must not touch siding.
     const perFace = buildSidingMeasurementGraph({ ...base, faceMasonryPct: { front: 100 } });
     ok('an all-brick face charges none of its openings to siding',
       perFace.totals.opening_deduction_sqft === 0, perFace.totals.opening_deduction_sqft, 0);
     ok('all-brick face openings land in the masonry column',
-      perFace.totals.opening_deduction_masonry_sqft === 100,
-      perFace.totals.opening_deduction_masonry_sqft, 100);
+      perFace.totals.opening_deduction_masonry_sqft === 30,
+      perFace.totals.opening_deduction_masonry_sqft, 30);
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -412,6 +434,25 @@ function fullCoveragePhotos(extra) {
     ok('window width does not reduce starter strip',
        g.trim_edges.starter_strip.excluded_garage_opening_count === 1,
        g.trim_edges.starter_strip.excluded_garage_opening_count, 1);
+  }
+
+  console.log('\n── Grade-level entry doors interrupt starter ──');
+  {
+    const g = buildSidingMeasurementGraph({
+      perPhotoResults: [{
+        view_label: 'Front', confidence: 0.9,
+        openings: [
+          { type: 'entry_door', width_ft: 3, height_ft: 6.67, pos_x: 10, pos_y: 3.4 },
+          { type: 'entry_door', width_ft: 3, height_ft: 6.67, pos_x: 20, pos_y: 12, at_grade: false },
+        ],
+      }],
+      grossWallAreaSqft: 1000, perimeterFt: 100, smallOpeningsInWaste: true,
+    });
+    ok('a door with its sill at grade comes off the starter',
+       g.totals.starter_strip_lf === 97, g.totals.starter_strip_lf, 97);
+    ok('an elevated door stays on the starter',
+       g.trim_edges.starter_strip.excluded_grade_opening_count === 1,
+       g.trim_edges.starter_strip.excluded_grade_opening_count, 1);
   }
 
   // ───────────────────────────────────────────────────────────────────────

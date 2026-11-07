@@ -62,6 +62,23 @@ const fs = require('node:fs');
   assert.equal(findSidingScopeCatalogItem([
     { code: 'DEB', description: 'Debris haul away', unit: 'EA', price: 250 },
   ], {}, { description: 'Haul away debris', unit: 'EA' }, 'vinyl').price, 250);
+  const vinylRemoval = findSidingScopeCatalogItem([
+    { code: 'ASB', description: 'Remove Tear off asbestos siding (no haul off)', unit: 'SF', price: 5.03, activity: '-' },
+    { code: 'VTO', description: 'ITEL, Siding, Vinyl, Lap, Tear Out', unit: 'SF', price: 0.58, activity: '-' },
+  ], { codes: ['SID REM'], keywords: ['remove siding', 'tear off siding'] }, {
+    description: 'Remove siding, vinyl or aluminum', unit: 'SF',
+  }, 'vinyl');
+  assert.equal(vinylRemoval.code, 'VTO', 'A vinyl tear-out must not fall through to asbestos');
+  assert.equal(/asbestos/i.test(vinylRemoval.description), false);
+  assert.equal(findSidingScopeCatalogItem([
+    { code: 'ASB', description: 'Remove Tear off asbestos siding (no haul off)', unit: 'SF', price: 5.03, activity: '-' },
+  ], {}, { description: 'Remove siding, vinyl or aluminum', unit: 'SF' }, 'vinyl').price, 0,
+  'Asbestos is not a stand-in when the measured material is vinyl');
+  assert.equal(findSidingScopeCatalogItem([
+    { code: 'FSC', description: 'Aluminum fascia', unit: 'LF', price: 4.2 },
+    { code: 'SFT', description: 'Soffit, vinyl', unit: 'SF', price: 3.1 },
+    { code: 'GUT', description: 'Gutter / downspout - aluminum - up to 5"', unit: 'LF', price: 8 },
+  ], {}, { description: 'Fascia', unit: 'LF' }, 'vinyl').code, 'FSC');
   assert.equal(getActivePriceList('xactimate_new', {
     xactimateNewPriceList: [], xactimatePriceList: catalog,
   }), catalog, 'An imported Xactimate catalog must not disappear behind the New source alias');
@@ -78,7 +95,8 @@ const fs = require('node:fs');
   assert(!persistHandler.includes('ensureCompleteSidingPricing'), 'Pricing review must never block persistence for creates or updates');
   assert(persistHandler.includes('const items = lineItems;'), 'Persist the current user-edited rows without repricing');
   assert(!page.includes('Saving and estimate exports are blocked'));
-  assert(page.includes('aria-label="Confirm siding material"'));
+  assert(page.includes('testId="siding-material-summary"'));
+  assert(!page.includes('aria-label="Confirm siding material"'));
   assert(page.includes('data-testid="siding-pricing-incomplete"'));
   console.log('Siding catalog matching, unit conversion, non-blocking saves and export guards passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

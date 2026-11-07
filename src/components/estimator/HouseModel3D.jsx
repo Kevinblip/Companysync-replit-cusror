@@ -32,7 +32,7 @@ import {
   roofHintsFromSolarSegments,
 } from '@/utils/MeshGeometryBuilder';
 import { partitionGableEndOpenings } from '@/utils/gableOpeningRouting';
-import { resolveRoof3DSource, shouldAttemptFootprintRoof } from '@/utils/roof3DSourceSelection';
+import { footprintClassFor3D, resolveRoof3DSource, shouldAttemptFootprintRoof } from '@/utils/roof3DSourceSelection';
 import {
   compareRoof3DMeasurements,
   formatRoof3DParityWarning,
@@ -68,6 +68,10 @@ const C = {
   edge:    0x5e5c58,
   hip:     0x3e3c38,
 };
+
+// Shared by the parametric roof faces and the calibrated photo-plane roof.
+// buildPhotoRoof sits outside buildRoofFaces, so this cannot stay local there.
+const FACE_COLORS = { south: C.roofS, north: C.roofN, east: C.roofE, west: C.roofW };
 
 // ─── Materials ────────────────────────────────────────────────────────────────
 // Every surface is physically-based (MeshStandardMaterial) so the image-based
@@ -608,7 +612,6 @@ function buildRoofFaces(L, W, wallH, rise, overhang, isHip) {
   const hl = L / 2 + overhang;
   const peakY = wallH + rise;
   const ridgeHL = isHip ? Math.max(0, hl - hw) : 0;
-  const FACE_COLORS = { south: C.roofS, north: C.roofN, east: C.roofE, west: C.roofW };
 
   const makeFace = (tris) => {
     const flat = [];
@@ -1927,6 +1930,9 @@ export default function HouseModel3D({
       ? openings
       : syntheticOpenings(Number(windowsCount)||0, Number(doorsCount)||0, Number(garageDoorCount)||0);
 
+  // One classification for the estimator badge and the Solar/parametric
+  // decision. resolveRoof3DSource does not return the class it consumes.
+  const footprintClass = footprintClassFor3D(footprintPolygon);
   const roofSource = resolveRoof3DSource({
     roofGeometrySource,
     roofMeasurementGraph,
@@ -1935,6 +1941,7 @@ export default function HouseModel3D({
     roofFacets,
     roofSegments,
     footprintPolygon,
+    footprintClass,
     isHip,
   });
 
@@ -3031,7 +3038,9 @@ export default function HouseModel3D({
           </div>
         ))}
         {/* Footprint classification badge */}
-        {!presentation && <div style={{
+        {!presentation && <div
+        data-testid="footprint-class-badge"
+        style={{
           ...btn(false,''),
           background: footprintClass.type === 'rectangle'
             ? 'rgba(12,60,22,0.60)'

@@ -203,9 +203,15 @@ function ok(label, cond, got, expected) {
      graph.totals.opening_deduction_capped === false,
      graph.totals.opening_deduction_capped, false);
 
-  // Net siding area must equal facade − deduction
-  const expectedNet = Math.round((GROSS_SQFT - EXPECTED_DEDUCTION) * 100) / 100;
-  ok(`net_siding_area_sqft = ${GROSS_SQFT} - ${EXPECTED_DEDUCTION} = ${expectedNet}`,
+  // The front photo confirms the 9 ft eave. Lengths stay on the 120 ft
+  // perimeter, so the billed wall is 120 × 9 rather than the dummy 1,500
+  // extrusion used to keep the opening cap from firing.
+  const billedGross = graph.totals.gross_wall_area_sqft;
+  ok('billed wall area is the footprint perimeter at the confirmed eave',
+     Math.abs(billedGross - 120 * 9) < 0.5,
+     billedGross, 1080);
+  const expectedNet = Math.round((billedGross - EXPECTED_DEDUCTION) * 100) / 100;
+  ok(`net_siding_area_sqft = ${billedGross} - ${EXPECTED_DEDUCTION} = ${expectedNet}`,
      Math.abs(graph.totals.net_siding_area_sqft - expectedNet) < 0.1,
      graph.totals.net_siding_area_sqft, expectedNet);
 

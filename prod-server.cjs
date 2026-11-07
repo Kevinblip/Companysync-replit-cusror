@@ -1,9 +1,19 @@
+const stagingSideEffects = require('./lib/stagingSideEffects.cjs');
+stagingSideEffects.installOutboundGuards();
+if (stagingSideEffects.sideEffectsDisabled()) stagingSideEffects.logDisabled();
+const { armInterval, armTimeout } = stagingSideEffects;
+const salesAgentHttp = require('./lib/salesAgent/http.cjs');
+const salesAgentBridge = require('./lib/salesAgent/bridge.cjs');
+const salesAgentPhone = require('./lib/salesAgent/phoneBridge.cjs');
+require('./lib/salesAgent/scheduler.cjs').startSalesAgentScheduler();
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
 const prodDb = require('./db/prod-db.cjs');
 const tenantGuard = require('./lib/tenantGuard.cjs');
+const { prepareEntityWrite, resolvePaymentInvoiceLink } = require('./lib/invoiceNumbers.cjs');
+const { resolveInvoiceCustomerForCreate } = require('./lib/invoiceCustomerLink.cjs');
 const prodAuth = require('./db/prod-auth.cjs');
 const prodIntegrations = require('./db/prod-integrations.cjs');
 const localAuth = require('./db/local-auth.cjs');
@@ -32,6 +42,115 @@ const {
 } = require('./lib/customerProjectProgress.cjs');
 const { toolDedupeKey, createToolCallCache } = require('./lib/toolDedupe.cjs');
 const { GEMINI_38_MODEL, SUPPLEMENT_TOOL, calculateRoofSupplement, isGemini38Line, applyTwilioLineProfile, invokeRoofSupplement } = require('./lib/twilioLineProfile.cjs');
+const lexiPhone = require('./lib/lexiPhone.cjs');
+const lexiBriefing = require('./lib/lexiBriefing.cjs');
+const lexiTranslate = require('./lib/lexiTranslate.cjs');
+
+function lexiPhoneOutboundBlocked(kind, detail) {
+  if (!stagingSideEffects.sideEffectsDisabled()) return null;
+  stagingSideEffects.logSuppressed(kind, detail);
+  return {
+    success: false,
+    suppressed: true,
+    error: 'Staging has outbound messages turned off, so this was not sent.',
+  };
+}
+
+function lexiPhoneCompanyFacts(settings, owner) {
+  const timezone = settings?.timezone || 'America/New_York';
+  const now = new Date();
+  let when = now.toISOString();
+  try {
+    when = now.toLocaleString('en-US', {
+      timeZone: timezone,
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+    });
+  } catch (err) { /* keep the ISO clock if the timezone name is invalid */ }
+  const knowledge = String(settings?.knowledgeBase || '').replace(/\s+/g, ' ').trim().slice(0, 1500);
+  const companyName = settings?.companyName || 'the company';
+  return `Company name: ${companyName}. Caller: ${owner?.name || 'Kevin'}. Timezone: ${timezone}. Now: ${when}. Use this clock when he names a time.${knowledge ? ` Knowledge: ${knowledge}` : ''}`;
+}
+
+async function loadLexiPhonePrompt(owner) {
+  let basePrompt = '';
+  let voice = 'Kore';
+  if (owner?.companyId) {
+    try {
+      const settings = await localGetSettings(owner.companyId);
+      if (settings && !settings.error) {
+        // Facts only. The in-app CRM prompt tells her to call create_calendar_event
+        // and to explain access denials. Those tools are not on this line.
+        basePrompt = lexiPhoneCompanyFacts(settings, owner);
+        const candidate = settings.settings?.voice_id || settings.settings?.voice || '';
+        if (VALID_GEMINI_VOICES.includes(candidate)) voice = candidate;
+      }
+    } catch (err) {
+      console.warn('[LexiPhone] settings load failed:', err.message);
+    }
+  }
+  const pool = prodDb.getPool();
+  const [memories, recentSessions] = await Promise.all([
+    lexiPhone.loadMemoryBlock(pool, owner).catch(() => ''),
+    lexiPhone.loadRecentSessionBlock(pool, owner).catch(() => ''),
+  ]);
+  return { basePrompt, memories, recentSessions, voice };
+}
+
+async function lexiPhoneSendCustomerMessage(draft) {
+  const blocked = lexiPhoneOutboundBlocked(draft?.channel === 'email' ? 'email' : 'sms', {
+    action: 'lexi-phone-customer',
+    to: draft?.to,
+  });
+  if (blocked) return blocked;
+  if (draft?.channel === 'email') {
+    try {
+      await sendEmail({
+        to: draft.to,
+        subject: draft.subject,
+        message: draft.message,
+        html: `<div>${lexiPhone.xmlEscape(draft.message || '')}</div>`,
+      });
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+  return lexiPhone.deliverTwilioSms({
+    to: draft.to,
+    body: draft.message,
+    from: lexiPhone.configFromEnv().lexiNumber,
+    accountSid: process.env.TWILIO_ACCOUNT_SID,
+    authToken: process.env.TWILIO_AUTH_TOKEN,
+  });
+}
+
+async function lexiPhoneSyncCalendar({ userEmail }) {
+  const blocked = stagingSideEffects.blockedAction('google-calendar-sync');
+  if (blocked) return blocked;
+  try {
+    const { getFunctionHandlers } = require('./db/prod-integrations.cjs');
+    const handlers = await getFunctionHandlers();
+    if (typeof handlers.syncUserGoogleCalendar !== 'function') {
+      return { success: false, error: 'Google Calendar sync is not available.' };
+    }
+    return await handlers.syncUserGoogleCalendar({ targetUserEmail: userEmail });
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+function lexiPhoneSendSummarySms(payload) {
+  const blocked = lexiPhoneOutboundBlocked('sms', { action: 'lexi-phone-summary', to: payload?.to });
+  if (blocked) return blocked;
+  return lexiPhone.deliverTwilioSms({
+    to: payload.to,
+    body: payload.body,
+    from: lexiPhone.configFromEnv().lexiNumber,
+    accountSid: process.env.TWILIO_ACCOUNT_SID,
+    authToken: process.env.TWILIO_AUTH_TOKEN,
+  });
+}
 const { canonicalizeGenericEntityType, normalizeGenericEntityData } = require('./lib/expenseNormalize.cjs');
 const emailHealth = require('./lib/emailProviderHealth.cjs');
 const {
@@ -416,6 +535,10 @@ async function getStripeClientProd() {
 // webhookEndpoints.list(). This also lets a later restart hydrate process.env
 // without requiring a manual dashboard step.
 async function registerStripeWebhook() {
+  if (stagingSideEffects.sideEffectsDisabled()) {
+    stagingSideEffects.logSuppressed('stripe-webhook', { action: 'register' });
+    return;
+  }
   try {
     // Resolve the actual Stripe API key. Historically STRIPE_SECRET_KEY was
     // incorrectly set to a whsec_* signing secret; STRIPE_API_KEY holds the
@@ -522,6 +645,10 @@ async function registerStripeWebhook() {
 }
 
 async function billAIUsage(companyId, units = 1) {
+  if (stagingSideEffects.sideEffectsDisabled()) {
+    stagingSideEffects.logSuppressed('stripe-usage', { companyId, units });
+    return;
+  }
   if (!companyId || companyId === 'companysync_master_001') return;
   try {
     const stripe = await getStripeClientProd();
@@ -726,7 +853,7 @@ async function refreshCacheFromAPI() {
 }
 
 // Refresh cache periodically
-setInterval(async () => {
+armInterval('subscriberCacheRefresh', async () => {
   if (Date.now() - cacheLastRefreshed > CACHE_TTL_MS) {
     await refreshCacheFromAPI();
   }
@@ -734,7 +861,7 @@ setInterval(async () => {
 
 // Process workflow queue every 60 seconds
 let workflowQueueRunning = false;
-setInterval(async () => {
+armInterval('processWorkflowQueue', async () => {
   if (workflowQueueRunning) {
     console.warn('[Cron:processWorkflowQueue] Previous run still active; skipping overlap');
     return;
@@ -842,7 +969,7 @@ setInterval(async () => {
 }, 60000);
 
 // Send timezone-aware morning (5am) and EOD (8pm) reports every 15 minutes
-setInterval(async () => {
+armInterval('sendScheduledDailyReports', async () => {
   try {
     const response = await callInternalFunction('sendScheduledDailyReports', {});
     const result = response?.data || response || {};
@@ -2655,43 +2782,19 @@ WEBSITE: https://getcompanysync.com
 SUPPORT: Available through the platform or by calling our main line.`;
 
 const DEFAULT_TRANSFER_INSTRUCTIONS = `Don't transfer a call right away. First, get the caller's name, a good callback number, and the reason they're calling — ask for whatever you're missing, one question at a time, and confirm it back.
-Once you have their name, callback number, and reason: if they asked for a specific person, check whether that person is available. If they're available, say "Let me connect you with [name] now" and transfer the call. If that person is marked unavailable, don't transfer — take a message instead.
+The caller's number is already known from caller ID, so you only need to ask for a callback number if they want a different one.
+Once you have their name and reason: if they asked for a specific person, IMMEDIATELY call transfer_call with target_person set to that name. Do NOT call check_availability, do NOT offer appointments or inspection times, and do NOT try to sell or schedule anything first — the transfer_call tool itself checks whether that person can take calls.
+If transfer_call returns success, say "Let me connect you with [name] now" and stop talking.
+If transfer_call fails, tell the caller the actual reason it gave you in plain words (for example "Kevin has his status set to unavailable right now" or "Kevin is calling from this same phone, so I can't connect you to him"), then take a message. Never say only "I can't transfer the call right now" without the reason.
 If a transfer can't go through (there's no phone number on file for that person, or they don't pick up), do NOT hang up or start the conversation over. Apologize, take a message with the caller's name, callback number, and reason, and let them know that person will call them back as soon as possible.`;
 
 function buildSystemPrompt(cName, aName, isOutbound, outboundLeadName, outboundLeadService, subscriberPrompt, companyDescription, companyKnowledge, forwardedInfo, routingMode, scenario, transferInstructions, screeningEnabled, screeningInstructions) {
+  if (scenario === 'saas_demo') {
+    return require('./lib/salesAgent/prompt.cjs').buildPhoneDemoPrompt();
+  }
   let prompt = '';
 
-  if (scenario === 'saas_demo') {
-    prompt = `IDENTITY & ROLE:
-You are ${aName}, the Lead Sales Representative for CompanySync.io.
-CompanySync is the "Roof Operating System" - the all-in-one CRM built specifically for roofing contractors.
-Your goal is to GET THE ROOFER TO SUBSCRIBE or BOOK A DEMO.
-
-VALUE PROPOSITION:
-- All-in-One: Replaces JobNimbus, Acculynx, and ServiceTitan for just $99/month (flat rate).
-- AI-Powered: Comes with an AI text assistant and "${aName}" (YOU - the AI voice receptionist).
-- Speed: Sets up in 5 minutes. No 4-week onboarding.
-- Features: AI Estimating, Storm Tracking, Mobile App, Automations, Payments.
-
-CONVERSATION FLOW:
-1. QUALIFY:
-   - "Thanks for calling CompanySync! Are you currently running a roofing business?"
-   - "How many crews or sales reps do you have?"
-   - "What software are you using right now?"
-2. PITCH:
-   - If they use JobNimbus/Acculynx: "We replace them for a fraction of the cost, and we include the AI receptionist feature for free."
-   - If they use nothing: "CompanySync is perfect for you. It organizes your leads, estimates, and jobs."
-3. CLOSE:
-   - Push for a live demo: "Want me to set up a quick demo? Takes 15 minutes and you'll see exactly how it works."
-   - Or sign up: "You can start your free trial right now at getcompanysync.com."
-
-RULES:
-- Be enthusiastic but not pushy.
-- You are an AI assistant. If asked whether you are a bot, a robot, or AI, say exactly: "Yes, I'm an AI assistant."
-- ONE question at a time.
-- Keep responses under 25 words.`;
-
-  } else if (forwardedInfo && forwardedInfo.isForwarded && !subscriberPrompt) {
+  if (forwardedInfo && forwardedInfo.isForwarded && !subscriberPrompt) {
     const rName = forwardedInfo.repName || 'the team';
     const rEmail = forwardedInfo.repEmail || '';
     const isThenTransfer = routingMode === 'sarah_then_transfer';
@@ -2825,7 +2928,9 @@ VOICE RULES (non-negotiable):
 - Keep responses under 25 words. Short and natural.
 - NEVER speak for the caller or assume why they're calling. Do not mention leaks, storm damage, or any issue until the CALLER brings it up first.
 - Ask ONE question, then STOP and wait for the caller to answer. NEVER answer your own question. NEVER continue as if the caller replied when they didn't.
-- If you hear silence, background noise, only punctuation, or can't make out words, do NOT guess and do NOT repeat dots or filler. Ask "Are you still there?" — nothing more.
+- If you hear background noise, only punctuation, or can't make out words, do NOT guess and do NOT repeat dots or filler. Just wait. Only ask "Are you still there?" after a long silence with no caller speech at all, and never right after you asked a question or while the caller may still be talking. Never say it twice in a row.
+- If the caller starts talking while you are speaking, stop immediately and listen. Do not finish or repeat what you were saying; respond to what they said.
+- SCHEDULING: Only offer appointment times that a tool returned in this call. Never invent dates, times, or open slots.
 - Only respond to words you clearly heard the caller say. If in doubt, ask them to repeat it.
 - LANGUAGE: Speak in whatever language the caller is using. If they speak Spanish, respond entirely in natural, fluent Spanish; if they switch languages, switch with them. Mirror the caller's language for the whole call — never announce that you're switching or translating.
 - GENDER: Refer to yourself in gender-neutral language. Never use he, she, him, her, his, or hers for yourself.
@@ -2916,7 +3021,7 @@ const LEXI_CRM_TOOLS = [
   { name: "get_photosync_jobs", description: "Look up PhotoSync inspection jobs (also called CrewCam jobs). Use when user asks about photosync, inspections, inspection jobs, crew photo jobs, job status, or photo documentation.", parameters: { type: "object", properties: { status: { type: "string", description: "Filter by status (e.g. scheduled, completed, in_progress, or all)" }, limit: { type: "number", description: "Number of jobs to return (default 10, max 50)" }, days_back: { type: "number", description: "Only return jobs created within the last N days" } } } },
   { name: "find_claim_documents", description: "Search the company's saved rebuttal letters, supplier letters, insurance matching letters, and claim-support email templates. Use when the user asks 'do we have a letter for [topic]', 'find our [supplier] letter', 'show me the rebuttal for [issue]', 'pull up our 3-tab discontinuation letter', 'do we have anything on [shingle brand]', or any request for a claim-support document or email template. Searches Email Templates (insurance_rebuttals, matching_letters) and Documents (supplier_letters, rebuttal_docs).", parameters: { type: "object", properties: { query: { type: "string", description: "Keyword(s) to search — e.g. '3-tab', 'ABC Supply', 'wind mitigation'. Leave blank to list all." }, type: { type: "string", enum: ["all","email_templates","documents"], description: "Which source: email_templates, documents, or all (default)." } } } },
   { name: "scan_check", description: "Scan a check photo using AI vision and automatically record the payment for a customer. Use IMMEDIATELY when the user provides a check image URL and says 'scan this check', 'process this check', 'record this check payment', or similar. Extracts amount, check number, date, and payer name, then records a Payment and Document.", parameters: { type: "object", properties: { file_url: { type: "string", description: "URL of the uploaded check image" }, customer_name: { type: "string", description: "Customer name (fuzzy matched if customer_id not provided)" }, customer_id: { type: "string", description: "Customer ID (preferred if already known)" } }, required: ["file_url"] } },
-  { name: "record_payment", description: "Record a payment for a customer or invoice. Use when the user says 'record a payment', 'mark invoice as paid', 'customer paid', 'log a payment', 'they paid by cash/check/card', etc. Can link to a specific invoice by invoice number. Use scan_check instead when a check photo is attached.", parameters: { type: "object", properties: { amount: { type: "number", description: "Payment amount in dollars (e.g. 1500.00)" }, payment_method: { type: "string", enum: ["cash","check","credit_card","bank_transfer","paypal","stripe","other"], description: "How the payment was made. Optional — defaults to 'other' if not specified. Use credit_card for debit; bank_transfer for ACH/wire." }, customer_name: { type: "string", description: "Customer name (fuzzy matched). Provide this OR customer_id." }, customer_id: { type: "string", description: "Customer ID (preferred if already known)" }, invoice_number: { type: "string", description: "Invoice number to link this payment to (e.g. INV-2025-0042)" }, payment_date: { type: "string", description: "Payment date YYYY-MM-DD (defaults to today)" }, reference_number: { type: "string", description: "Check number, transaction ID, or other reference" }, notes: { type: "string", description: "Optional notes about the payment" } }, required: ["amount"] } },
+  { name: "record_payment", description: "Record a payment for a customer or invoice. Use when the user says 'record a payment', 'mark invoice as paid', 'customer paid', 'log a payment', 'they paid by cash/check/card', etc. Link with invoice_id when you have it. An invoice number is only a label: it is accepted when it matches exactly one invoice, or exactly one invoice for the named customer. A shared invoice number is refused. Use scan_check instead when a check photo is attached.", parameters: { type: "object", properties: { amount: { type: "number", description: "Payment amount in dollars (e.g. 1500.00)" }, payment_method: { type: "string", enum: ["cash","check","credit_card","bank_transfer","paypal","stripe","other"], description: "How the payment was made. Optional — defaults to 'other' if not specified. Use credit_card for debit; bank_transfer for ACH/wire." }, customer_name: { type: "string", description: "Customer name (fuzzy matched). Provide this OR customer_id." }, customer_id: { type: "string", description: "Customer ID (preferred if already known)" }, invoice_id: { type: "string", description: "Invoice id. This is the only link that applies the payment. Prefer this over invoice_number." }, invoice_number: { type: "string", description: "Display label such as INV-2026-0385. Used only when it matches exactly one invoice, or exactly one invoice for this customer. A shared number is refused." }, payment_date: { type: "string", description: "Payment date YYYY-MM-DD (defaults to today)" }, reference_number: { type: "string", description: "Check number, transaction ID, or other reference" }, notes: { type: "string", description: "Optional notes about the payment" } }, required: ["amount"] } },
   { name: "read_emails", description: "Search and list emails in the company Gmail inbox. Use when user asks to check email, show new emails, find emails from someone, search inbox, read messages, etc. Only works if Gmail is connected by the owner in Settings.", parameters: { type: "object", properties: { query: { type: "string", description: "Gmail search query (e.g. 'from:john@example.com', 'subject:invoice', 'is:unread', 'newer_than:7d'). Default: in:inbox." }, limit: { type: "number", description: "Max emails to return (default 10, max 10)" }, unread_only: { type: "boolean", description: "Only return unread emails" } } } },
   { name: "get_email", description: "Get the full content of a specific email by ID. Use after read_emails when the user wants to read an email's full body.", parameters: { type: "object", properties: { email_id: { type: "string", description: "Email message ID (from read_emails results)" } }, required: ["email_id"] } },
   { name: "reply_to_email", description: "Reply to an email thread. Use when user says 'reply to that email', 'send a reply', 'respond to that message'. Always retrieve the email first via get_email before replying.", parameters: { type: "object", properties: { email_id: { type: "string", description: "Message ID to reply to" }, body: { type: "string", description: "Reply body text (plain text)" } }, required: ["email_id","body"] } },
@@ -3744,21 +3849,45 @@ async function handleLexiToolCall(functionCall, companyId, userEmail, companyTim
         }
         if (a.entity_action === 'create' && a.entity_data) {
           const id = genId();
-          const d = a.entity_data;
-          const cols = ['id', 'company_id'];
-          const vals = [id, companyId];
-          const placeholders = ['$1', '$2'];
-          let idx = 3;
-          if (validCols.has('created_by')) { cols.push('created_by'); vals.push(userEmail); placeholders.push(`$${idx++}`); }
-          for (const [k, v] of Object.entries(d)) {
-            if (['id', 'company_id', 'created_by'].includes(k)) continue;
-            if (!validCols.has(k)) continue;
-            if (v === undefined || v === null || v === '') continue;
-            cols.push(k);
-            vals.push(v);
-            placeholders.push(`$${idx++}`);
+          const d = { ...a.entity_data };
+          const writeRow = async (queryable) => {
+            const cols = ['id', 'company_id'];
+            const vals = [id, companyId];
+            const placeholders = ['$1', '$2'];
+            let idx = 3;
+            if (validCols.has('created_by')) { cols.push('created_by'); vals.push(userEmail); placeholders.push(`$${idx++}`); }
+            for (const [k, v] of Object.entries(d)) {
+              if (['id', 'company_id', 'created_by'].includes(k)) continue;
+              if (!validCols.has(k)) continue;
+              if (v === undefined || v === null || v === '') continue;
+              cols.push(k);
+              vals.push(v);
+              placeholders.push(`$${idx++}`);
+            }
+            await queryable.query(`INSERT INTO ${tbl} (${cols.join(',')}) VALUES (${placeholders.join(',')})`, vals);
+          };
+          if (tbl === 'invoices') {
+            const resolvedCustomer = await resolveInvoiceCustomerForCreate(pool, companyId, d);
+            if (!resolvedCustomer.ok) return { error: resolvedCustomer.error, success: false, needs_customer: true };
+            d.customer_id = resolvedCustomer.customer.id;
+            d.customer_name = resolvedCustomer.customer.name || d.customer_name || '';
+            d.customer_email = resolvedCustomer.customer.email || '';
+            const invoiceClient = await pool.connect();
+            try {
+              await invoiceClient.query('BEGIN');
+              d.company_id = companyId;
+              await prepareEntityWrite(invoiceClient, 'invoices', d);
+              await writeRow(invoiceClient);
+              await invoiceClient.query('COMMIT');
+            } catch (invoiceCreateErr) {
+              try { await invoiceClient.query('ROLLBACK'); } catch (_) {}
+              return { error: invoiceCreateErr.message, success: false };
+            } finally {
+              invoiceClient.release();
+            }
+            return { success: true, id, invoice_number: d.invoice_number, message: `${a.entity_name} created` };
           }
-          await pool.query(`INSERT INTO ${tbl} (${cols.join(',')}) VALUES (${placeholders.join(',')})`, vals);
+          await writeRow(pool);
           if ((tbl === 'leads' || tbl === 'customers') && d.phone) invalidateCallerCache(companyId, d.phone);
           return { success: true, id, message: `${a.entity_name} created` };
         }
@@ -4131,23 +4260,12 @@ async function handleLexiToolCall(functionCall, companyId, userEmail, companyTim
 
       case 'record_payment': {
         const rpAmt = a.amount, rpMethod = a.payment_method, rpCustName = a.customer_name, rpCustId = a.customer_id,
-              rpInvNum = a.invoice_number, rpDateRaw = a.payment_date, rpRef = a.reference_number, rpNotes = a.notes;
+              rpInvNum = a.invoice_number, rpInvId = a.invoice_id, rpDateRaw = a.payment_date, rpRef = a.reference_number, rpNotes = a.notes;
         if (!rpAmt || isNaN(Number(rpAmt)) || Number(rpAmt) <= 0) return { error: 'A valid payment amount greater than zero is required.', success: false };
         const rpToday = new Date().toISOString().split('T')[0];
         const rpDate = (typeof rpDateRaw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rpDateRaw)) ? rpDateRaw : rpToday;
-        let rpCustomerId = rpCustId || null, rpCustomerName = '', rpInvoiceId = null, rpInvoiceNumber = rpInvNum || null;
-        if (rpInvNum) {
-          const rpIR = await pool.query(`SELECT id, invoice_number, customer_id, customer_name FROM invoices WHERE company_id = $1 AND LOWER(invoice_number) = LOWER($2) LIMIT 1`, [companyId, rpInvNum.trim()]);
-          if (rpIR.rows.length > 0) {
-            rpInvoiceId = rpIR.rows[0].id; rpInvoiceNumber = rpIR.rows[0].invoice_number;
-            if (!rpCustomerId) rpCustomerId = rpIR.rows[0].customer_id;
-            if (!rpCustomerName) rpCustomerName = rpIR.rows[0].customer_name || '';
-          } else {
-            // Invoice number not found in CRM — treat as external reference (e.g. insurance
-            // remittance numbers like BI-XXXXX from Sedgwick, carrier billing IDs, etc.).
-            rpInvoiceNumber = rpInvNum.trim();
-          }
-        }
+        let rpCustomerId = rpCustId || null, rpCustomerName = '', rpInvoiceId = null, rpInvoiceNumber = null;
+        let rpReference = rpRef || null;
         if (rpCustomerId && !rpCustomerName) {
           const rpCR = await pool.query(`SELECT id, name FROM customers WHERE id::text = $1 AND company_id = $2 LIMIT 1`, [String(rpCustomerId), companyId]);
           if (rpCR.rows.length > 0) rpCustomerName = rpCR.rows[0].name;
@@ -4156,19 +4274,42 @@ async function handleLexiToolCall(functionCall, companyId, userEmail, companyTim
           const rpCR = await pool.query(`SELECT id, name FROM customers WHERE company_id = $1 AND LOWER(name) LIKE $2 ORDER BY (LOWER(name) = $3) DESC, created_at DESC LIMIT 5`, [companyId, `%${rpCn}%`, rpCn]);
           if (rpCR.rows.length === 0) return { error: `No customer found matching "${rpCustName}".`, success: false };
           rpCustomerId = rpCR.rows[0].id; rpCustomerName = rpCR.rows[0].name;
-        } else if (!rpCustomerId && !rpCustName && !rpInvNum) {
+        } else if (!rpCustomerId && !rpCustName && !rpInvNum && !rpInvId) {
           return { error: 'Who is this payment from? Please provide a customer name or invoice number.', success: false };
+        }
+        if (rpInvId || rpInvNum) {
+          try {
+            const link = await resolvePaymentInvoiceLink(pool, {
+              companyId,
+              invoiceId: rpInvId,
+              invoiceNumber: rpInvNum,
+              customerId: rpCustomerId,
+              customerName: rpCustomerName || null,
+            });
+            rpInvoiceId = link.invoice_id;
+            rpInvoiceNumber = link.invoice_number;
+            if (!link.linked && link.unmatched_number && !rpReference) rpReference = link.unmatched_number;
+            if (link.linked) {
+              if (!rpCustomerId && link.customer_id) rpCustomerId = link.customer_id;
+              if (!rpCustomerName && link.customer_name) rpCustomerName = link.customer_name;
+            }
+          } catch (linkErr) {
+            if (linkErr.code === 'AMBIGUOUS_INVOICE_NUMBER' || linkErr.code === 'INVOICE_NOT_FOUND') {
+              return { error: linkErr.message, success: false };
+            }
+            throw linkErr;
+          }
         }
         let rpPmtNum = `PMT-${Date.now().toString().slice(-6)}`;
         try { const rpLP = await pool.query(`SELECT payment_number FROM payments WHERE company_id = $1 ORDER BY created_at DESC LIMIT 1`, [companyId]); if (rpLP.rows.length > 0 && rpLP.rows[0].payment_number) { const rpM = rpLP.rows[0].payment_number.match(/\d+$/); if (rpM) rpPmtNum = `PMT-${String(parseInt(rpM[0])+1).padStart(5,'0')}`; } } catch (e) {}
         const rpPmtId = genId();
         await pool.query(
           `INSERT INTO payments (id,company_id,customer_id,customer_name,invoice_id,invoice_number,payment_number,amount,payment_method,payment_date,reference_number,notes,status,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'received',NOW(),NOW())`,
-          [rpPmtId, companyId, rpCustomerId||null, rpCustomerName||null, rpInvoiceId||null, rpInvoiceNumber||null, rpPmtNum, Number(rpAmt), rpMethod||'other', rpDate, rpRef||null, rpNotes||null]
+          [rpPmtId, companyId, rpCustomerId||null, rpCustomerName||null, rpInvoiceId||null, rpInvoiceNumber||null, rpPmtNum, Number(rpAmt), rpMethod||'other', rpDate, rpReference||null, rpNotes||null]
         );
         setImmediate(async () => {
           try {
-            const pmt = { id: rpPmtId, company_id: companyId, customer_id: rpCustomerId||null, customer_name: rpCustomerName||null, invoice_id: rpInvoiceId||null, invoice_number: rpInvoiceNumber||null, amount: Number(rpAmt), payment_method: rpMethod||'other', payment_date: rpDate, reference_number: rpRef||null };
+            const pmt = { id: rpPmtId, company_id: companyId, customer_id: rpCustomerId||null, customer_name: rpCustomerName||null, invoice_id: rpInvoiceId||null, invoice_number: rpInvoiceNumber||null, amount: Number(rpAmt), payment_method: rpMethod||'other', payment_date: rpDate, reference_number: rpReference||null };
             await qbSync.pushPaymentToQB(pool, companyId, pmt);
             if (rpInvoiceId) {
               const invRow = await pool.query(`SELECT * FROM invoices WHERE id = $1 LIMIT 1`, [rpInvoiceId]);
@@ -4185,7 +4326,7 @@ async function handleLexiToolCall(functionCall, companyId, userEmail, companyTim
           });
         } catch (rpNErr) { console.warn('[Lexi] record_payment notify:', rpNErr.message); }
         return { success: true, payment_number: rpPmtNum, customer: rpCustomerName, invoice: rpInvoiceNumber, amount: Number(rpAmt), method: methodLabel, date: rpDate,
-          message: `Payment recorded — ${rpPmtNum}: $${Number(rpAmt).toFixed(2)} by ${methodLabel}${rpCustomerName?' from '+rpCustomerName:''}${rpInvoiceNumber?', applied to '+rpInvoiceNumber:''}${rpRef?', Ref: '+rpRef:''}` };
+          message: `Payment recorded — ${rpPmtNum}: $${Number(rpAmt).toFixed(2)} by ${methodLabel}${rpCustomerName?' from '+rpCustomerName:''}${rpInvoiceNumber?', applied to '+rpInvoiceNumber:''}${rpReference?', Ref: '+rpReference:''}` };
       }
 
       case 'scan_check': {
@@ -4344,6 +4485,7 @@ YOUR CAPABILITIES (use tools for ALL of these):
 - Email & SMS: Compose and send messages
 - CRM Data: Look up records permitted for the current caller
 - Payments: ALWAYS use record_payment tool — NEVER manage_entity. manage_entity for payments saves to the wrong table and the payment becomes invisible. For check photos, use scan_check. For ANY payment (manual, PDF, insurance remittance, Sedgwick, etc.) use record_payment with: amount, customer_name, payment_date, payment_method=bank_transfer for ACH/insurance, reference_number=carrier invoice number (e.g. BI-XXXXX). The carrier's billing IDs like BI-XXXXX are external references — pass as reference_number, not invoice_number. Record ALL line items. If customer not found by name, say so — do NOT record with a blank customer.
+- Invoices: never create an invoice without a customer. Pass customer_id, or an exact customer_name that matches one customer. If you don't have one, ask which customer and do not create the invoice.
 - Gmail/Email: Use read_emails to list/search inbox. Use get_email to fetch full body. Use reply_to_email to respond (call get_email first). Use mark_email_read to clear unread. If Gmail not connected, tell user to go to Settings → Integrations to connect Gmail. NEVER fabricate email content. CRM AUTO-LINK: read_emails and get_email results may include a "crm_match" field. When present, ALWAYS surface it (e.g. "This is from John Smith (customer)"). After reading an email with a crm_match, proactively offer to log it as a note on that record using add_note. If no crm_match, do not guess or invent a link.
 - Generic CRM management: Use only when the server permits it for the current caller
 - Memory: When the user shares a personal preference, habit, or standing instruction about THEMSELVES ("I always add 15% waste", "I prefer afternoon appointments"), IMMEDIATELY call save_memory to remember it — just save it and briefly confirm. Never use save_memory for facts about customers or leads.
@@ -4400,6 +4542,12 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname.startsWith('/api/sales-demo') || pathname.startsWith('/api/sales-agent')) {
+    setCorsHeaders(res, req);
+    const handled = await salesAgentHttp.handleSalesRequest(req, res);
+    if (handled) return;
+  }
+
   // Centralized impersonation expiry guard — enforced on every authenticated /api/ request.
   // Exempts impersonation/stop (so admin can terminate), webhooks, and static asset routes.
   if (pathname.startsWith('/api/') &&
@@ -4409,7 +4557,8 @@ const server = http.createServer(async (req, res) => {
       !pathname.startsWith('/api/twiml') &&
       !pathname.startsWith('/api/functions/incoming') &&
       !pathname.startsWith('/api/whatsapp') &&
-      !pathname.startsWith('/api/sarah-')) {
+      !pathname.startsWith('/api/sarah-') &&
+      !pathname.startsWith('/api/lexi-phone')) {
     try {
       const pool = prodDb.getPool();
       const impCtx = await tenantGuard.resolveRequestContext(req, pool);
@@ -4421,6 +4570,88 @@ const server = http.createServer(async (req, res) => {
       }
       req._impersonationCtx = impCtx;
     } catch (_) { /* don't fail unauthenticated routes due to session lookup errors */ }
+  }
+
+  if (pathname === '/api/lexi-phone/voice' || pathname === '/api/lexi-phone/sms') {
+    setCorsHeaders(res, req);
+    try {
+      const rawBody = await readBody(req);
+      const config = lexiPhone.configFromEnv();
+      const verifySignature = async (body) => {
+        const { verifyTwilioWebhook } = require('./lib/twilioSignature.cjs');
+        return verifyTwilioWebhook(req, body, prodDb.getPool(), { companyId: config.companyId || null });
+      };
+      const outcome = pathname === '/api/lexi-phone/voice'
+        ? await lexiPhone.handleVoiceHttp({
+          rawBody,
+          host: getPublicHost(req.headers),
+          config,
+          verifySignature,
+          pool: prodDb.getPool(),
+          twilioAccountSid: process.env.TWILIO_ACCOUNT_SID,
+          twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
+          completeCall: ({ callSid }) => lexiPhone.completeTwilioCall({
+            callSid,
+            accountSid: process.env.TWILIO_ACCOUNT_SID,
+            authToken: process.env.TWILIO_AUTH_TOKEN,
+          }),
+        })
+        : await lexiPhone.handleSmsHttp({
+          rawBody,
+          pool: prodDb.getPool(),
+          config,
+          verifySignature,
+          loadPrompt: loadLexiPhonePrompt,
+          sendCustomerMessage: lexiPhoneSendCustomerMessage,
+          syncCalendar: lexiPhoneSyncCalendar,
+          getApiKey: async (owner) => {
+            try {
+              const companyKey = await prodDb.getCompanyGeminiKey(owner?.companyId);
+              if (companyKey) return companyKey;
+            } catch (e) { /* company key is optional */ }
+            return process.env.GOOGLE_GEMINI_API_KEY || '';
+          },
+          generate: ({ body, apiKey }) => lexiPhone.defaultGenerate({ apiKey: apiKey || process.env.GOOGLE_GEMINI_API_KEY, body }),
+        });
+      res.writeHead(outcome.status, { 'Content-Type': outcome.contentType });
+      res.end(outcome.body);
+    } catch (err) {
+      console.error('[LexiPhone] webhook error:', err.message);
+      if (!res.headersSent) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' });
+        res.end('Invalid Twilio signature');
+      }
+    }
+    return;
+  }
+
+  if (pathname === '/api/lexi/briefing/run') {
+    setCorsHeaders(res, req);
+    if (req.method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST', 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'POST required' }));
+      return;
+    }
+    try {
+      let caller = null;
+      try { caller = await getAuthenticatedProdUser(req); } catch (e) { caller = null; }
+      const outcome = await lexiBriefing.runBriefingRequest({
+        userEmail: caller?.email || '',
+        token: req.headers['x-lexi-briefing-token'] || '',
+        env: process.env,
+        pool: prodDb.getPool(),
+        sendSms: (payload) => lexiBriefing.defaultDeliverSms(payload, process.env),
+      });
+      res.writeHead(outcome.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(outcome.body));
+    } catch (err) {
+      console.error('[LexiBriefing] run failed:', err.message);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ sent: false, error: 'The briefing did not run.' }));
+      }
+    }
+    return;
   }
 
   // Provider bounce/complaint ingress. Public by necessity (the provider calls
@@ -5640,6 +5871,12 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/twilio/auto-provision') {
     setCorsHeaders(res, req);
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+    if (stagingSideEffects.sideEffectsDisabled()) {
+      stagingSideEffects.logSuppressed('twilio', { action: 'auto-provision' });
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'staging side effects disabled', suppressed: true }));
+      return;
+    }
     if (req.method === 'POST') {
       try {
         const pool = prodDb.getPool();
@@ -5835,6 +6072,12 @@ const server = http.createServer(async (req, res) => {
   // ==========================================
   if (pathname === '/api/twilio/webrtc-token' && req.method === 'GET') {
     setCorsHeaders(res, req);
+    if (stagingSideEffects.sideEffectsDisabled()) {
+      stagingSideEffects.logSuppressed('call', { action: 'webrtc-token' });
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'staging side effects disabled', suppressed: true }));
+      return;
+    }
     try {
       const companyId = url.searchParams.get('companyId') || DEFAULT_COMPANY_ID;
       const identity = url.searchParams.get('identity') || 'agent';
@@ -5867,6 +6110,12 @@ const server = http.createServer(async (req, res) => {
   // ==========================================
   if (pathname === '/api/twilio/browser-call-twiml') {
     setCorsHeaders(res, req);
+    if (stagingSideEffects.sideEffectsDisabled()) {
+      stagingSideEffects.logSuppressed('call', { action: 'browser-call-twiml' });
+      res.writeHead(200, { 'Content-Type': 'text/xml' });
+      res.end('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Staging does not place calls.</Say><Hangup/></Response>');
+      return;
+    }
     try {
       const body = await readBody(req);
       const params = new URLSearchParams(body);
@@ -5971,7 +6220,17 @@ const server = http.createServer(async (req, res) => {
     const params = new URLSearchParams(body);
     const from = params.get('From') || params.get('Caller') || '';
     const callSid = params.get('CallSid') || '';
-    const calledNumber = params.get('To') || '';
+    const calledNumber = params.get('To') || params.get('Called') || '';
+    if (salesAgentHttp.isColeCalledNumber(calledNumber)) {
+      await salesAgentHttp.handleSalesRequest(req, res, { rawBody: body, coleVoice: true });
+      return;
+    }
+    if (stagingSideEffects.sideEffectsDisabled()) {
+      stagingSideEffects.logSuppressed('call', { action: 'inbound-voice' });
+      res.writeHead(200, { 'Content-Type': 'text/xml' });
+      res.end('<?xml version="1.0" encoding="UTF-8"?><Response><Reject/></Response>');
+      return;
+    }
     const pool = prodDb.getPool();
 
     try {
@@ -6193,10 +6452,8 @@ const server = http.createServer(async (req, res) => {
       console.log(`[Sarah] FORWARD TO CELL: no cell phone configured for rep ${forwardedRepName} — routing to Sarah`);
     }
 
-    const isCompanySyncDemo = calledNumber && calledNumber.replace(/\D/g, '').slice(-10) === '2167777154' && resolvedCompanyId === 'companysync_master_001';
-    const scenarioParam = isCompanySyncDemo ? '?scenario=saas_demo' : '';
-    console.log(`[Sarah] Inbound call from ${from}, SID: ${callSid}, company=${resolvedCompanyId}, forwarded=${isForwarded}${isForwarded ? ` rep=${forwardedRepName}` : ''}, routing=${effectiveRoutingMode}, maxDuration=${maxCallDuration}s${isCompanySyncDemo ? ', scenario=saas_demo' : ''}`);
-    const wsUrl = `wss://${host}/ws/twilio${scenarioParam}`;
+    console.log(`[Sarah] Inbound call from ${from}, SID: ${callSid}, company=${resolvedCompanyId}, forwarded=${isForwarded}${isForwarded ? ` rep=${forwardedRepName}` : ''}, routing=${effectiveRoutingMode}, maxDuration=${maxCallDuration}s`);
+    const wsUrl = `wss://${host}/ws/twilio`;
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Say voice="alice">This call may be monitored or recorded for quality assurance.</Say>
@@ -8119,6 +8376,12 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/functions/incomingSMS' || pathname === '/api/whatsapp-webhook') {
     setCorsHeaders(res, req);
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+    if (stagingSideEffects.sideEffectsDisabled()) {
+      stagingSideEffects.logSuppressed('sms', { action: 'inbound-webhook' });
+      res.writeHead(200, { 'Content-Type': 'text/xml' });
+      res.end('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+      return;
+    }
     try {
       const body = await readBody(req);
       const params = new URLSearchParams(body);
@@ -9113,14 +9376,15 @@ const server = http.createServer(async (req, res) => {
          ON CONFLICT (user_email, conversation_id) DO UPDATE SET last_read_at = NOW()`,
         [authedEmail, conversation_id]
       );
-      // Fire-and-forget: Lexi answers in her own direct thread. Her reply is
-      // inserted with direct SQL (lib/lexiTeamChat.cjs) so it never re-enters
-      // the email/SMS fan-out below.
+      // Fire-and-forget: Lexi answers a direct thread with her, or an @Lexi
+      // mention in a Space or group. Her reply is inserted with direct SQL
+      // (lib/lexiTeamChat.cjs) so it never re-enters the email/SMS fan-out below.
+      // The brain is the phone tool set, not the in-app CRM assistant.
       (async () => {
         try {
           const lexiConv = await pool.query('SELECT chat_type, participants FROM chat_conversations WHERE id = $1 AND company_id = $2', [conversation_id, company_id]);
-          if (!lexiTeamChat.isLexiDirectConversation(lexiConv.rows[0])) return;
           if (resolvedMsgType !== 'text') return;
+          if (!lexiTeamChat.shouldLexiAnswer(lexiConv.rows[0], message, authedEmail)) return;
           await lexiTeamChat.handleLexiTeamChatTurn({
             pool,
             companyId: company_id,
@@ -9128,9 +9392,14 @@ const server = http.createServer(async (req, res) => {
             userEmail: authedEmail,
             userName: resolvedName,
             text: message,
-            // Same handler, same tools, same per-user access scoping as Lexi's
-            // own page — the caller's session drives authz.
-            invokeLexi: (lexiParams) => prodIntegrations.handleLexiChat(lexiParams, req),
+            conversation: lexiConv.rows[0],
+            loadPrompt: loadLexiPhonePrompt,
+            sendCustomerMessage: lexiPhoneSendCustomerMessage,
+            syncCalendar: lexiPhoneSyncCalendar,
+            generate: ({ body }) => lexiPhone.defaultGenerate({
+              apiKey: process.env.GOOGLE_GEMINI_API_KEY || '',
+              body,
+            }),
           });
         } catch (lexiErr) { console.warn('[LexiTeamChat]', lexiErr.message); }
       })();
@@ -11025,15 +11294,111 @@ const server = http.createServer(async (req, res) => {
 
 const twilioWss = new WebSocketServer({ noServer: true });
 const lexiWss = new WebSocketServer({ noServer: true });
+const lexiPhoneWss = new WebSocketServer({ noServer: true });
+const lexiTranslateWss = new WebSocketServer({ noServer: true });
+const salesDemoWss = new WebSocketServer({ noServer: true });
+const salesPhoneWss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
   if (req.url?.startsWith('/ws/twilio')) {
+    if (stagingSideEffects.sideEffectsDisabled()) {
+      stagingSideEffects.logSuppressed('call', { action: 'twilio-media-stream' });
+      socket.destroy();
+      return;
+    }
     twilioWss.handleUpgrade(req, socket, head, ws => twilioWss.emit('connection', ws, req));
   } else if (req.url?.startsWith('/ws/lexi-native')) {
     lexiWss.handleUpgrade(req, socket, head, ws => lexiWss.emit('connection', ws, req));
+  } else if (req.url?.startsWith('/ws/lexi-phone')) {
+    lexiPhoneWss.handleUpgrade(req, socket, head, ws => lexiPhoneWss.emit('connection', ws, req));
+  } else if (req.url?.startsWith('/ws/lexi-translate')) {
+    lexiTranslateWss.handleUpgrade(req, socket, head, ws => lexiTranslateWss.emit('connection', ws, req));
+  } else if (req.url?.startsWith('/ws/sales-demo')) {
+    salesDemoWss.handleUpgrade(req, socket, head, ws => salesDemoWss.emit('connection', ws, req));
+  } else if (req.url?.startsWith('/ws/sales-phone')) {
+    // Railway's proxy upgrades WebSockets on the same public PORT. This path
+    // stays open when staging suppresses other Twilio media streams so an
+    // allowlisted test call can reach Cole.
+    salesPhoneWss.handleUpgrade(req, socket, head, ws => salesPhoneWss.emit('connection', ws, req));
   } else {
     socket.destroy();
   }
+});
+
+salesDemoWss.on('connection', (ws, req) => {
+  salesAgentBridge.attachSalesDemoClient(ws, req);
+});
+
+salesPhoneWss.on('connection', (ws, req) => {
+  salesAgentPhone.attachSalesPhoneClient(ws, req);
+});
+
+lexiPhoneWss.on('connection', (ws) => {
+  console.log('[LexiPhone] media stream connected');
+  lexiPhone.attachCallStream(ws, {
+    twilioToGemini,
+    geminiToTwilio,
+    config: lexiPhone.configFromEnv(),
+    pool: () => prodDb.getPool(),
+    geminiApiKey: async (owner) => {
+      try {
+        const companyKey = await prodDb.getCompanyGeminiKey(owner?.companyId);
+        if (companyKey) return companyKey;
+      } catch (e) { /* company key is optional */ }
+      return process.env.GOOGLE_GEMINI_API_KEY || '';
+    },
+    loadPrompt: loadLexiPhonePrompt,
+    sendCustomerMessage: lexiPhoneSendCustomerMessage,
+    sendSummarySms: lexiPhoneSendSummarySms,
+    syncCalendar: lexiPhoneSyncCalendar,
+    completeCall: ({ callSid }) => lexiPhone.completeTwilioCall({
+      callSid,
+      accountSid: process.env.TWILIO_ACCOUNT_SID,
+      authToken: process.env.TWILIO_AUTH_TOKEN,
+    }),
+    twilioAccountSid: process.env.TWILIO_ACCOUNT_SID,
+    twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
+    publicHost: (() => {
+      try { return process.env.VITE_REPLIT_APP_URL ? new URL(process.env.VITE_REPLIT_APP_URL).host : ''; }
+      catch (e) { return ''; }
+    })(),
+    recordCall: (args) => {
+      const { startCallRecording } = require('./lib/callRecording.cjs');
+      return startCallRecording(args);
+    },
+  });
+});
+
+function lexiTranslateGeminiKey(owner) {
+  return (async () => {
+    try {
+      const companyKey = await prodDb.getCompanyGeminiKey(owner?.companyId);
+      if (companyKey) return companyKey;
+    } catch (e) { /* company key is optional */ }
+    return process.env.GOOGLE_GEMINI_API_KEY || '';
+  })();
+}
+
+lexiTranslateWss.on('connection', (ws) => {
+  console.log('[LexiTranslate] media stream connected');
+  lexiTranslate.attachTranslateStream(ws, {
+    twilioToGemini,
+    geminiToTwilio,
+    config: lexiPhone.configFromEnv(),
+    pool: () => prodDb.getPool(),
+    geminiApiKey: lexiTranslateGeminiKey,
+    recordCall: (args) => {
+      const { startCallRecording } = require('./lib/callRecording.cjs');
+      return startCallRecording(args);
+    },
+    completeCall: ({ callSid }) => lexiPhone.completeTwilioCall({
+      callSid,
+      accountSid: process.env.TWILIO_ACCOUNT_SID,
+      authToken: process.env.TWILIO_AUTH_TOKEN,
+    }),
+    twilioAccountSid: process.env.TWILIO_ACCOUNT_SID,
+    twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
+  });
 });
 
 const transferContextMap = new Map();
@@ -11567,7 +11932,10 @@ Keep responses brief, conversational, and in the caller's language.`;
           realtime_input_config: {
             automatic_activity_detection: {
               disabled: false,
-              start_of_speech_sensitivity: "START_SENSITIVITY_LOW",
+              // MEDIUM-ish: HIGH lets the caller interrupt reliably. Twilio's inbound
+              // track is caller-only, so Alex's own voice isn't fed back except via
+              // handset echo. Override with VOICE_START_SENSITIVITY=LOW if noisy.
+              start_of_speech_sensitivity: process.env.VOICE_START_SENSITIVITY === 'LOW' ? "START_SENSITIVITY_LOW" : "START_SENSITIVITY_HIGH",
               end_of_speech_sensitivity: vad.end,
               prefix_padding_ms: 100,
               silence_duration_ms: vad.silenceMs
@@ -12053,15 +12421,68 @@ Keep responses brief, conversational, and in the caller's language.`;
                   } catch (avE) { console.warn('[Sarah] Availability DB check failed:', avE.message); }
                 }
               }
+              // Self-call: the caller is dialing from the very phone we'd transfer to.
+              // Redirecting would end the AI stream and leave the caller on a dead
+              // <Pause>; tell Alex instead so she explains it and keeps helping.
+              const tDigits10 = transferCellDigits.slice(-10);
+              if (callerPhone && callerPhone.replace(/\D/g, '').slice(-10) === tDigits10) {
+                console.log(`[Sarah] Transfer BLOCKED — caller ${callerPhone} is calling from ${transferTargetName || 'the target'}'s own cell`);
+                responses.push({ id: fc.id, name: fc.name, response: { success: false, message: `TRANSFER NOT POSSIBLE — reason: the caller is calling from the same phone number this call would be transferred to (${transferTargetName || 'the rep'}'s cell). Tell the caller exactly that in one sentence, then offer to take a message. Do not retry.` } });
+                continue;
+              }
               if (transferTargetAvail === 'unavailable') {
                 console.log(`[Sarah] Transfer BLOCKED — ${transferTargetName} is marked unavailable`);
-                responses.push({ id: fc.id, name: fc.name, response: { success: false, message: `${transferTargetName} is currently unavailable and cannot take calls right now. Do NOT attempt to transfer. Instead, apologize to the caller, let them know ${transferTargetName} is unavailable, take their name and phone number, and assure them that ${transferTargetName} will call them back as soon as possible.` } });
+                responses.push({ id: fc.id, name: fc.name, response: { success: false, message: `TRANSFER NOT POSSIBLE — reason: ${transferTargetName} has their status set to Unavailable in the CRM, so calls cannot be put through. Do NOT attempt to transfer again and do NOT offer appointment times. Tell the caller honestly: "${transferTargetName} has their status set to unavailable right now, so I can't put you through." Then take their name and phone number, and assure them that ${transferTargetName} will call them back as soon as possible.` } });
                 continue;
+              }
+              // Appointment check: even when on the clock, treat the person as busy if a
+              // confirmed calendar event (incl. Google-imported) is happening right now.
+              // Fast indexed lookup (idx_calendar_time), LIMIT 1, fails OPEN on any error.
+              if (callCompanyId && transferTargetName) {
+                try {
+                  const apptPool = prodDb.getPool();
+                  let apptEmail = (transferTargetData && (transferTargetData.user_email || transferTargetData.email)) || '';
+                  if (!apptEmail) {
+                    const { rows: emRows } = await apptPool.query(
+                      `SELECT user_email FROM staff_profiles WHERE company_id = $1 AND LOWER(full_name) LIKE $2 AND is_active = true LIMIT 1`,
+                      [callCompanyId, `%${transferTargetName.toLowerCase()}%`]
+                    );
+                    apptEmail = emRows[0]?.user_email || '';
+                  }
+                  if (apptEmail) {
+                    const { rows: apptRows } = await apptPool.query(
+                      `SELECT end_time FROM calendar_events
+                        WHERE company_id = $1
+                          AND (LOWER(assigned_to) = $2 OR LOWER(created_by) = $2)
+                          AND start_time <= (NOW() AT TIME ZONE 'UTC') AND end_time > (NOW() AT TIME ZONE 'UTC')
+                          AND (status IS NULL OR status = '' OR LOWER(status) IN ('confirmed','scheduled','booked'))
+                          AND COALESCE(LOWER(data->>'all_day'), LOWER(data->>'is_all_day'), LOWER(data->>'allDay'), 'false') NOT IN ('true','1')
+                          AND end_time - start_time < INTERVAL '23 hours'
+                        ORDER BY end_time DESC LIMIT 1`,
+                      [callCompanyId, apptEmail.toLowerCase()]
+                    );
+                    if (apptRows.length > 0) {
+                      const endRaw = apptRows[0].end_time;
+                      // TIMESTAMP (no tz) columns are stored in UTC; pg returns them as local Date — normalise.
+                      const endUtc = endRaw instanceof Date
+                        ? new Date(Date.UTC(endRaw.getFullYear(), endRaw.getMonth(), endRaw.getDate(), endRaw.getHours(), endRaw.getMinutes(), endRaw.getSeconds()))
+                        : new Date(String(endRaw).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(String(endRaw)) ? '' : 'Z'));
+                      let untilStr = '';
+                      try { untilStr = endUtc.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: callCompanyTimezone || 'America/New_York' }); } catch (_) {}
+                      const untilPart = untilStr ? ` until ${untilStr}` : '';
+                      console.log(`[Sarah] Transfer BLOCKED — ${transferTargetName} is in an appointment${untilPart} (tz=${callCompanyTimezone})`);
+                      responses.push({ id: fc.id, name: fc.name, response: { success: false, message: `TRANSFER NOT POSSIBLE — reason: ${transferTargetName} is in an appointment${untilPart} local time. Do NOT attempt to transfer again and do NOT offer appointment times. Tell the caller: "${transferTargetName} is in an appointment right now${untilStr ? ' until about ' + untilStr : ''}, so I can't put you through." Do NOT share any details about the appointment (who, what, or where). Offer to take a message or have ${transferTargetName} call them back, and get their name, callback number, and reason.` } });
+                      continue;
+                    }
+                  } else {
+                    console.log(`[Sarah] Appointment check skipped — no email on file for ${transferTargetName}`);
+                  }
+                } catch (apE) { console.warn('[Sarah] Appointment check failed (fail-open, transferring anyway):', apE.message); }
               }
               // After-hours check: even when marked available, respect the person's work-hours schedule.
               if (isOutsideWorkHours(transferTargetData, new Date(), callCompanyTimezone)) {
                 console.log(`[Sarah] Transfer BLOCKED — ${transferTargetName} is outside work hours (${transferTargetData.after_hours_start}-${transferTargetData.after_hours_end}, tz=${callCompanyTimezone})`);
-                responses.push({ id: fc.id, name: fc.name, response: { success: false, message: `${transferTargetName} is outside their working hours right now and cannot take calls. Do NOT attempt to transfer. Instead, apologize to the caller, let them know ${transferTargetName} is unavailable right now, take their name, callback number, and the reason for their call, and assure them that ${transferTargetName} will call them back as soon as possible.` } });
+                responses.push({ id: fc.id, name: fc.name, response: { success: false, message: `TRANSFER NOT POSSIBLE — reason: ${transferTargetName} is outside their set working hours right now. Tell the caller that honestly. Do NOT attempt to transfer again and do NOT offer appointment times unless the caller asks. Instead, apologize to the caller, let them know ${transferTargetName} is unavailable right now, take their name, callback number, and the reason for their call, and assure them that ${transferTargetName} will call them back as soon as possible.` } });
                 continue;
               }
 
@@ -12143,6 +12564,19 @@ Keep responses brief, conversational, and in the caller's language.`;
                 }
               }));
             }, 1500);
+          }
+        }
+
+        // BARGE-IN: Gemini stopped generating because the caller spoke, but
+        // Twilio still holds every audio chunk we already streamed (we send
+        // faster than real time, so this can be several seconds). Without a
+        // 'clear' the caller keeps hearing Alex talk over them.
+        if (data.serverContent?.interrupted) {
+          console.log(`[${assistantName}] Caller barged in — clearing Twilio audio buffer`);
+          if (typingInterval) { clearInterval(typingInterval); typingInterval = null; }
+          if (postToolNudgeTimer) { clearTimeout(postToolNudgeTimer); postToolNudgeTimer = null; }
+          if (currentStreamSid && twilioWs.readyState === WebSocket.OPEN) {
+            twilioWs.send(JSON.stringify({ event: 'clear', streamSid: currentStreamSid }));
           }
         }
 
@@ -12921,6 +13355,20 @@ lexiWss.on('connection', async (clientWs, req) => {
 
 prodDb.initDatabase().then(async () => {
   console.log('[Production] Local database ready');
+  // Approved staging login bootstrap. It has to run before the side-effect
+  // return below: that return is what staging uses to skip rewrites, and this
+  // write is the one Kevin asked for. The helper no-ops unless STAGING and the
+  // three bootstrap env vars are set, and it never throws.
+  try {
+    const { ensureStagingBootstrapAdmin } = require('./lib/stagingBootstrapAdmin.cjs');
+    await ensureStagingBootstrapAdmin(prodDb.getPool());
+  } catch (e) {
+    console.warn('[staging-bootstrap] failed:', e.message);
+  }
+  if (stagingSideEffects.sideEffectsDisabled()) {
+    console.log('[staging] startup rewrites skipped');
+    return;
+  }
   try {
     const { reencryptStoredSecrets } = require('./lib/reencryptSecrets.cjs');
     await reencryptStoredSecrets(prodDb.getPool());
@@ -13025,8 +13473,8 @@ async function runStormAlertCron() {
   }
 }
 
-setTimeout(runStormAlertCron, 90 * 1000);
-setInterval(runStormAlertCron, 30 * 60 * 1000);
+armTimeout('stormAlertsStartup', runStormAlertCron, 90 * 1000);
+armInterval('stormAlerts', runStormAlertCron, 30 * 60 * 1000);
 
 // Helper: call internal function API
 // Attaches an X-Cron-Token header (HMAC of 'internal-cron-2026' via SESSION_SECRET)
@@ -13051,7 +13499,7 @@ async function callInternalFunction(functionName, params = {}) {
 }
 
 // checkReminders — calendar event reminders every 5 minutes
-setInterval(async () => {
+armInterval('checkReminders', async () => {
   try {
     const result = await callInternalFunction('checkReminders', {});
     if (result?.data?.notifications_sent > 0) console.log(`[Cron:checkReminders] ${result.data.notifications_sent} reminders sent`);
@@ -13062,7 +13510,7 @@ setInterval(async () => {
 
 // processLeadConfirmationOutreach — sends queued new-lead texts and escalates
 // unreplied leads through the guarded Alex caller every 5 minutes.
-setInterval(async () => {
+armInterval('processLeadConfirmationOutreach', async () => {
   try {
     const result = await callInternalFunction('processLeadConfirmationOutreach', {});
     const d = result?.data || {};
@@ -13080,7 +13528,7 @@ setInterval(async () => {
 // minutes but only while the page is mounted). This keeps both directions
 // flowing server-side for every connected user.
 let bulkCalendarSyncRunning = false;
-setInterval(async () => {
+armInterval('bulkSyncAllCalendars', async () => {
   if (bulkCalendarSyncRunning) return; // don't pile up if a run outlasts the interval
   bulkCalendarSyncRunning = true;
   try {
@@ -13097,7 +13545,7 @@ setInterval(async () => {
 }, 15 * 60 * 1000);
 
 // processActionItemEscalation — every 15 minutes
-setInterval(async () => {
+armInterval('processActionItemEscalation', async () => {
   try {
     const result = await callInternalFunction('processActionItemEscalation', {});
     const d = result?.data || {};
@@ -13110,7 +13558,7 @@ setInterval(async () => {
 }, 15 * 60 * 1000);
 
 // purgeStaleStormLeads — once daily (2 AM UTC): archives storm_canvass leads with 30+ days no engagement
-setInterval(async () => {
+armInterval('purgeStaleStormLeads', async () => {
   const nowUtc = new Date().getUTCHours();
   if (nowUtc !== 2) return; // only run in the 2 AM UTC window
   try {
@@ -13125,7 +13573,7 @@ setInterval(async () => {
 }, 60 * 60 * 1000); // check every hour, gate on UTC hour
 
 // scanBuildReminders — every hour (idempotent): drafts approval-gated build reminders into Action Items
-setInterval(async () => {
+armInterval('scanBuildReminders', async () => {
   try {
     const result = await callInternalFunction('scanBuildReminders', {});
     const d = result?.data || {};
@@ -13138,7 +13586,7 @@ setInterval(async () => {
 // checkStaleLeads — every 8 hours. Also closes untouched New leads at 60 days.
 // Run once after startup too, so a deployment does not leave an existing
 // 60-day backlog waiting for the next interval.
-setTimeout(async () => {
+armTimeout('checkStaleLeadsStartup', async () => {
   try {
     const result = await callInternalFunction('checkStaleLeads', {});
     const d = result?.data || {};
@@ -13150,7 +13598,7 @@ setTimeout(async () => {
   }
 }, 90 * 1000);
 
-setInterval(async () => {
+armInterval('checkStaleLeads', async () => {
   try {
     const result = await callInternalFunction('checkStaleLeads', {});
     const d = result?.data || {};
@@ -13164,7 +13612,7 @@ setInterval(async () => {
 
 // sendStaleLeadDigest — every 5 minutes, self-gated to 7:00-7:59 AM in
 // America/New_York with a durable per-company/rep/day delivery claim.
-setInterval(async () => {
+armInterval('sendStaleLeadDigest', async () => {
   try {
     const result = await callInternalFunction('sendStaleLeadDigest', {});
     const d = result?.data || {};
@@ -13177,7 +13625,7 @@ setInterval(async () => {
 }, 5 * 60 * 1000);
 
 // scanBuildProgressUpdates — every 15 min, gated internally to Thursday 10am per company timezone (weekly customer progress texts)
-setInterval(async () => {
+armInterval('scanBuildProgressUpdates', async () => {
   try {
     const result = await callInternalFunction('scanBuildProgressUpdates', {});
     const d = result?.data || {};
@@ -13188,7 +13636,7 @@ setInterval(async () => {
 }, 15 * 60 * 1000);
 
 // scanStuckJobs — every 8 hours (internal-only stuck-job alerts; built-in dedup per build+stage)
-setInterval(async () => {
+armInterval('scanStuckJobs', async () => {
   try {
     const result = await callInternalFunction('scanStuckJobs', {});
     const d = result?.data || {};
@@ -13201,7 +13649,7 @@ setInterval(async () => {
 // scanPunchListReminders — every hour (nag cadence is 3 days; the hourly pass
 // only re-arms nags whose due date has passed, and closes nags the moment the
 // last punch item is checked off)
-setInterval(async () => {
+armInterval('scanPunchListReminders', async () => {
   try {
     const result = await callInternalFunction('scanPunchListReminders', {});
     const d = result?.data || {};
@@ -13214,7 +13662,7 @@ setInterval(async () => {
 }, 60 * 60 * 1000);
 
 // nagPersonalTodos — every 30 minutes (cooldown built-in: 4h overdue, 12h due-today)
-setInterval(async () => {
+armInterval('nagPersonalTodos', async () => {
   try {
     const result = await callInternalFunction('nagPersonalTodos', {});
     const d = result?.data || {};
@@ -13227,7 +13675,7 @@ setInterval(async () => {
 }, 30 * 60 * 1000);
 
 // processScheduledCampaigns — every 5 minutes
-setInterval(async () => {
+armInterval('processScheduledCampaigns', async () => {
   try {
     const result = await callInternalFunction('processScheduledCampaigns', {});
     const d = result?.data || {};
@@ -13250,11 +13698,12 @@ const runGhlAutoSyncCron = async () => {
     console.error('[Cron:ghlAutoSyncCron] Error:', err.message);
   }
 };
-setInterval(runGhlAutoSyncCron, 30 * 60 * 1000);
-runGhlAutoSyncCron();
+armInterval('ghlAutoSyncCron', runGhlAutoSyncCron, 30 * 60 * 1000);
+if (!stagingSideEffects.sideEffectsDisabled()) runGhlAutoSyncCron();
+else stagingSideEffects.noteSkippedScheduler('ghlAutoSyncCronStartup');
 
 // checkInvoiceReminders — every 15 minutes (function checks internally if it's 9am)
-setInterval(async () => {
+armInterval('checkInvoiceReminders', async () => {
   try {
     await callInternalFunction('checkInvoiceReminders', {});
   } catch (err) {
@@ -13263,7 +13712,7 @@ setInterval(async () => {
 }, 15 * 60 * 1000);
 
 // checkTaskReminders — every 15 minutes (function checks internally if it's 9am)
-setInterval(async () => {
+armInterval('checkTaskReminders', async () => {
   try {
     await callInternalFunction('checkTaskReminders', {});
   } catch (err) {
@@ -13272,7 +13721,7 @@ setInterval(async () => {
 }, 15 * 60 * 1000);
 
 // decayLeadScores — every 6 hours
-setInterval(async () => {
+armInterval('decayLeadScores', async () => {
   try {
     await callInternalFunction('decayLeadScores', {});
   } catch (err) {
@@ -13281,7 +13730,7 @@ setInterval(async () => {
 }, 6 * 60 * 60 * 1000);
 
 // sendFridayPortalRecap — every 15 minutes, gated to Friday 5pm per company timezone
-setInterval(async () => {
+armInterval('sendFridayPortalRecap', async () => {
   try {
     const result = await callInternalFunction('sendFridayPortalRecap', {});
     const d = result?.data || {};
@@ -13292,7 +13741,7 @@ setInterval(async () => {
 }, 15 * 60 * 1000);
 
 // processReviewRequests — every 6 hours
-setInterval(async () => {
+armInterval('processReviewRequests', async () => {
   try {
     const result = await callInternalFunction('processReviewRequests', {});
     const d = result?.data || {};
@@ -13307,7 +13756,7 @@ setInterval(async () => {
 // send record, or the database was briefly unavailable) are retained on a
 // ledger. Webhook traffic is bursty and can stop entirely, so without a timer
 // an acknowledged outcome that will never be resent stays stranded.
-setInterval(async () => {
+armInterval('reconcileEmailDeliveryEvents', async () => {
   try {
     const result = await require('./lib/emailDeliveryWebhook.cjs')
       .reconcileEmailDeliveryEvents({ pool: prodDb.getPool() });
@@ -13324,7 +13773,7 @@ setInterval(async () => {
 // was never getting automated daily/weekly/monthly backups — only manual ones.
 // Checked every 5 min; fires once when UTC hour hits 2, guarded by a 20h cooldown.
 let lastDailyBackupRunAt = 0;
-setInterval(async () => {
+armInterval('createDailyBackup', async () => {
   try {
     const now = new Date();
     const withinWindow = now.getUTCHours() === 2 && now.getUTCMinutes() <= 4;
@@ -13342,7 +13791,7 @@ setInterval(async () => {
 // cronCleanupBackups — daily at 3am UTC (auto-delete expired backups + 7-day
 // expiry warnings). Same dev-only gap as createDailyBackup above.
 let lastCleanupBackupsRunAt = 0;
-setInterval(async () => {
+armInterval('cronCleanupBackups', async () => {
   try {
     const now = new Date();
     const withinWindow = now.getUTCHours() === 3 && now.getUTCMinutes() <= 4;
@@ -13359,7 +13808,7 @@ setInterval(async () => {
 // checkOverdueInvoices — daily at 8am UTC (create Action Items for invoices 7+
 // days past due). Was dev-only in vite-cron-plugin.js; mirror to production.
 let lastOverdueInvoicesRunAt = 0;
-setInterval(async () => {
+armInterval('checkOverdueInvoices', async () => {
   try {
     const now = new Date();
     const withinWindow = now.getUTCHours() === 8 && now.getUTCMinutes() <= 4;
@@ -13378,7 +13827,7 @@ setInterval(async () => {
 // mirror to production so trial companies actually get onboarding/conversion
 // touches and get flipped to 'expired' when their trial runs out.
 let lastTrialLifecycleRunAt = 0;
-setInterval(async () => {
+armInterval('processTrialLifecycle', async () => {
   try {
     const now = new Date();
     const withinWindow = now.getUTCHours() === 10 && now.getUTCMinutes() <= 4;
@@ -13396,7 +13845,7 @@ setInterval(async () => {
 // retention must cover the UI's 365-day search-history window).
 // Was dev-only in vite-cron-plugin.js; mirror to production.
 let lastPurgeStormRunAt = 0;
-setInterval(async () => {
+armInterval('purgeOldStormEvents', async () => {
   try {
     const now = new Date();
     const withinWindow = now.getUTCHours() === 4 && now.getUTCMinutes() <= 4;
@@ -13414,7 +13863,7 @@ setInterval(async () => {
 // on every calendar conflict; confirmed ones are stamped 'used' and unanswered ones
 // are simply abandoned. Both are unusable after their 10-minute token TTL, so they
 // are swept once an hour. Mirrors the vite-cron-plugin.js registration.
-setInterval(async () => {
+armInterval('cronCleanupLexiPendingSchedules', async () => {
   try {
     const result = await callInternalFunction('cronCleanupLexiPendingSchedules', {});
     const deleted = result?.deleted ?? result?.data?.deleted ?? 0;
@@ -13427,7 +13876,7 @@ setInterval(async () => {
 // purgeOldDailyReports — daily at 4am UTC (delete DailyReports older than 90 days).
 // Was dev-only in vite-cron-plugin.js; mirror to production.
 let lastPurgeReportsRunAt = 0;
-setInterval(async () => {
+armInterval('purgeOldDailyReports', async () => {
   try {
     const now = new Date();
     const withinWindow = now.getUTCHours() === 4 && now.getUTCMinutes() <= 4;
@@ -13443,7 +13892,7 @@ setInterval(async () => {
 
 // sendWeeklyCommissionDigest — every 15 min, self-gated to Friday 4pm per company
 // timezone. Was dev-only in vite-cron-plugin.js; mirror to production.
-setInterval(async () => {
+armInterval('sendWeeklyCommissionDigest', async () => {
   try {
     const result = await callInternalFunction('sendWeeklyCommissionDigest', {});
     const d = result?.data || {};
@@ -13455,7 +13904,7 @@ setInterval(async () => {
 
 // sendWeeklyLeaderboardDigest — every 15 min, self-gated to Monday 8am per
 // company timezone. Sends last week's staff leaderboard to all active staff.
-setInterval(async () => {
+armInterval('sendWeeklyLeaderboardDigest', async () => {
   try {
     const result = await callInternalFunction('sendWeeklyLeaderboardDigest', {});
     const d = result?.data || {};
@@ -13468,7 +13917,7 @@ setInterval(async () => {
 // sendMorningDigest — every 5 min, self-gated to each staff member's work-hours
 // start window. Sends overnight call/text/action-item summary to all staff with
 // a Twilio number. Also fires immediately on manual clock-in (availability toggle).
-setInterval(async () => {
+armInterval('sendMorningDigest', async () => {
   try {
     const result = await callInternalFunction('sendMorningDigest', {});
     const d = result?.data || {};
@@ -13483,7 +13932,7 @@ setInterval(async () => {
 // any single tenant's spend exceeds 50% of their $149 plan price ($74.50).
 // Fires at most once per tenant per calendar month (CostAlert entity is the dedup).
 let lastTenantCostAlertRunAt = 0;
-setInterval(async () => {
+armInterval('checkTenantCostAlerts', async () => {
   try {
     const now = new Date();
     const withinWindow = now.getUTCHours() === 9 && now.getUTCMinutes() <= 4;
@@ -13564,7 +14013,7 @@ async function fireGeminiApiHealthAlert(errorReason, closeCode) {
 // alert per 6 hours rather than per probe run.
 let geminiProbeLastFailureAlertAt = 0;
 let geminiProbeLastStatus = null; // 'ok' | 'fail' | null
-setInterval(async () => {
+armInterval('geminiLiveProbe', async () => {
   try {
     const result = await probeGeminiLiveApi();
     if (result.ok) {
@@ -13597,6 +14046,11 @@ setInterval(async () => {
 
 require('./lib/startupSecrets.cjs').assertStartupSecrets();
 
+lexiBriefing.startBriefingScheduler({
+  getPool: () => prodDb.getPool(),
+  env: process.env,
+});
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[Production] Server running on port ${PORT}`);
   console.log(`[Production] Auth: /api/login, /api/callback, /api/auth/user, /api/logout, /api/auth/google, /api/auth/google/callback, /api/login-local, /api/signup, /api/confirm-email, /api/change-password`);
@@ -13606,11 +14060,16 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[Production] Local DB API: /api/local/*`);
   console.log(`[Production] Lexi native bridge: /ws/lexi-native`);
   console.log(`[Production] Sarah voice bridge: /ws/twilio`);
-  refreshCacheFromAPI().then(() => {
-    console.log(`[Production] Subscriber cache loaded: ${subscriberCache.size} entries`);
-  }).catch(err => {
-    console.warn(`[Production] Initial cache load failed (will retry):`, err.message);
-  });
+  console.log(`[Production] Lexi phone: /api/lexi-phone/voice, /api/lexi-phone/sms, /ws/lexi-phone, /ws/lexi-translate, /api/lexi/briefing/run`);
+  if (stagingSideEffects.sideEffectsDisabled()) {
+    console.log('[staging] subscriber cache refresh skipped');
+  } else {
+    refreshCacheFromAPI().then(() => {
+      console.log(`[Production] Subscriber cache loaded: ${subscriberCache.size} entries`);
+    }).catch(err => {
+      console.warn(`[Production] Initial cache load failed (will retry):`, err.message);
+    });
+  }
   // Register/update the live Stripe webhook URL so events reach this server.
   // Non-blocking — a failure here only logs a warning and does not crash startup.
   registerStripeWebhook().catch(err => {

@@ -38,9 +38,10 @@ check(
     && mapSource.includes('roof_facet_edge_totals: traceGraph.edge_totals'),
 );
 check(
-  'save is blocked until traced topology closes',
-  mapSource.includes('disabled={!traceReady}')
-    && mapSource.includes('traceGraph.totals.open_boundary_count === 0'),
+  'save stays available after a facet is traced, even with an open edge',
+  mapSource.includes('disabled={!canSave}')
+    && mapSource.includes('const canSave = tracedFacetCount > 0')
+    && !mapSource.includes('disabled={!traceReady}'),
 );
 check(
   'each facet has editable pitch and downslope direction',
@@ -62,6 +63,34 @@ check(
   'correction flow does not enter add-on mode',
   estimatorSource.includes('setManualAddOnMode(false);')
     && estimatorSource.includes('manualRoofCorrectionMode && satelliteAnalysis'),
+);
+check(
+  'full roof trace does not show the add-on banner at the same time',
+  estimatorSource.includes("purpose={manualAddOnMode ? 'addon' : 'primary'}")
+    && estimatorSource.includes('data-testid="manual-addon-banner"')
+    && estimatorSource.includes('{manualAddOnMode && ('),
+);
+check(
+  'manual trace can add another facet and undo a point',
+  mapSource.includes('data-testid="button-add-facet"')
+    && mapSource.includes('data-testid="button-undo-point"')
+    && mapSource.includes('data-testid="snap-indicator"')
+    && mapSource.includes('data-testid="manual-trace-advanced"')
+    && mapSource.includes('queueNextFacetRef.current?.(sId)'),
+);
+check(
+  'double-click finishes a facet or line without zooming or keeping the gesture vertices',
+  mapSource.includes('disableDoubleClickZoom: true')
+    && mapSource.includes('_dropGestureVertices')
+    && mapSource.includes("addListener(this._map, 'dblclick'"),
+);
+check(
+  'ridge rake and drip edge can be drawn and a drawn line replaces the traced total',
+  mapSource.includes('data-testid={`draw-${type}`}')
+    && mapSource.includes('drip_edge')
+    && mapSource.includes('manual_lines: manualLines')
+    && mapSource.includes('drip_edge_lf: usedEdges.drip_edge')
+    && estimatorSource.includes('estimateDripEdgeLf(measurements)'),
 );
 
 console.log(`\n${failed ? 'FAILED' : 'ALL PASSED'}: ${passed}/${passed + failed} checks passed`);

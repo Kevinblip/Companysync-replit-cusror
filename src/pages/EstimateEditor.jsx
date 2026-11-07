@@ -8,6 +8,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { downloadXactimateExcel } from "@/utils/xactimateExport";
 import { normalizeSavedLineItem, sumNetAcv, sumRcv } from "@/utils/estimateTotals";
+import { buildLinkedInvoiceUpdate, formatMoney } from "@/utils/estimateInvoiceSync";
 import {
   applyPerLineOverheadProfit,
   calculatePerLineOverheadProfit,
@@ -162,6 +163,7 @@ export default function EstimateEditor() {
   const [selectedContactType, setSelectedContactType] = useState(null); // 'customer' or 'lead'
   const [showCreateContactDialog, setShowCreateContactDialog] = useState(false);
   const [showSupplementConfirm, setShowSupplementConfirm] = useState(false);
+  const [showInvoiceSync, setShowInvoiceSync] = useState(false);
   const [showChangeOrderDetail, setShowChangeOrderDetail] = useState(true);
   const [contactSearch, setContactSearch] = useState("");
   const [isPreviewing, setIsPreviewing] = useState(false);
@@ -233,6 +235,7 @@ export default function EstimateEditor() {
           discount_type: "none",
           discount_value: 0,
           adjustment_amount: 0,
+          adjustment_label: "",
           overhead_pct: null,
           profit_pct: null,
           financing_enabled: false,
@@ -272,6 +275,16 @@ export default function EstimateEditor() {
     },
     enabled: !!estimateId,
   });
+
+  const { data: linkedInvoices = [] } = useQuery({
+    queryKey: ['estimate-linked-invoices', myCompany?.id, estimateId],
+    queryFn: () => base44.entities.Invoice.filter({
+      company_id: myCompany.id,
+      estimate_id: estimateId,
+    }, '-created_date', 5),
+    enabled: !!myCompany?.id && !!estimateId,
+  });
+  const linkedInvoice = linkedInvoices[0] || null;
 
   const { data: estimateVersions = [] } = useQuery({
     queryKey: ['estimate-versions', estimateId],
@@ -504,6 +517,7 @@ export default function EstimateEditor() {
         discount_type: estimate.discount_type || "none",
         discount_value: Number(estimate.discount_value) || 0,
         adjustment_amount: Number(estimate.adjustment_amount) || 0,
+        adjustment_label: estimate.adjustment_label || estimate.data?.adjustment_label || "",
         overhead_pct: estimate.overhead_pct ?? null,
         profit_pct: estimate.profit_pct ?? null,
         financing_enabled: estimate.financing_enabled || false,
@@ -653,6 +667,7 @@ export default function EstimateEditor() {
             discount_type: data.discount_type || 'none',
             discount_value: data.discount_value || 0,
             adjustment_amount: data.adjustment_amount || 0,
+            adjustment_label: data.adjustment_label || '',
           },
           change_description: 'Saved changes to estimate',
           changed_by: user?.email || 'unknown',
@@ -664,18 +679,10 @@ export default function EstimateEditor() {
         console.warn('Failed to create version history:', versionError);
       }
 
-      // Sync adjustment to linked invoice (if one exists)
-      if (estimateId) {
-        try {
-          await base44.functions.invoke('syncEstimateAdjustmentToInvoice', {
-            estimate_id: estimateId,
-            new_total: totalAmount,
-            adjustment_amount: data.adjustment_amount || 0
-          });
-        } catch (syncErr) {
-          console.warn('[EstimateEditor] syncEstimateAdjustmentToInvoice failed (non-fatal):', syncErr);
-        }
-      }
+      // A linked invoice is not updated from here. Saving must not change what
+      // the customer was billed, and it must not email or text them. The
+      // "Update invoice from estimate" action shows the diff and applies it
+      // only after a person confirms.
 
       // Write insurance fields back to the linked customer/lead so they carry over to future estimates
       const hasInsuranceData = data.insurance_company || data.claim_number || data.adjuster_name || data.policy_number;
@@ -2230,6 +2237,49 @@ Categories: Roofing, Gutters, Siding, Windows, Interior, Labor, Debris Removal, 
         ) / 100;
   const totalRcv = afterDiscount + taxTotal + overheadProfit + (Number(formData.adjustment_amount) || 0);
 
+  const estimateShownForInvoice = () => ({
+    ...(estimate || {}),
+    ...formData,
+    id: estimate?.id || estimateId,
+    estimate_number: estimate?.estimate_number,
+    items: lineItems,
+    line_items: lineItems,
+    adjustment_amount: Number(formData.adjustment_amount) || 0,
+    adjustment_label: formData.adjustment_label || '',
+    discount_type: formData.discount_type,
+    discount_value: formData.discount_value,
+    total_amount: totalRcv,
+    amount: totalRcv,
+    data: {
+      ...(estimate?.data && typeof estimate.data === 'object' ? estimate.data : {}),
+      adjustment_amount: Number(formData.adjustment_amount) || 0,
+      adjustment_label: formData.adjustment_label || '',
+    },
+  });
+
+  const invoiceSyncPreview = linkedInvoice
+    ? buildLinkedInvoiceUpdate(linkedInvoice, estimateShownForInvoice()).preview
+    : null;
+
+  const updateInvoiceFromEstimateMutation = useMutation({
+    mutationFn: async () => {
+      if (!linkedInvoice) throw new Error('This estimate has no linked invoice');
+      const { payload } = buildLinkedInvoiceUpdate(linkedInvoice, estimateShownForInvoice());
+      await base44.entities.Invoice.update(linkedInvoice.id, payload);
+      return payload;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['estimate-linked-invoices', myCompany?.id, estimateId] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['invoice'] });
+      setShowInvoiceSync(false);
+      toast.success(`Invoice ${linkedInvoice.invoice_number} updated. The amount already paid was kept, and the customer was not emailed or texted.`);
+    },
+    onError: (error) => {
+      toast.error('Failed to update the invoice: ' + error.message);
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -2535,6 +2585,16 @@ Categories: Roofing, Gutters, Siding, Windows, Interior, Labor, Debris Removal, 
                 <FileText className="w-4 h-4 mr-2" />
                 Convert to Invoice
               </DropdownMenuItem>
+              {linkedInvoice && (
+                <DropdownMenuItem
+                  data-testid="menu-update-invoice-from-estimate"
+                  onClick={() => setShowInvoiceSync(true)}
+                  disabled={updateInvoiceFromEstimateMutation.isPending}
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  Update invoice from estimate
+                </DropdownMenuItem>
+              )}
               {abcSupplySetting && formData.status === 'accepted' && (
                 <>
                   <DropdownMenuSeparator />
@@ -2608,6 +2668,27 @@ Categories: Roofing, Gutters, Siding, Windows, Interior, Labor, Debris Removal, 
         </div>
       </div>
 
+      {linkedInvoice && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm"
+          data-testid="linked-invoice-banner"
+        >
+          <p className="text-amber-950">
+            Linked invoice <span className="font-semibold">{linkedInvoice.invoice_number}</span>
+            {' '}is {formatMoney(linkedInvoice.total_amount || linkedInvoice.amount || 0)}.
+            {' '}{formatMoney(linkedInvoice.amount_paid || 0)} already paid stays on the invoice.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            data-testid="button-update-invoice-from-estimate"
+            onClick={() => setShowInvoiceSync(true)}
+          >
+            Update invoice from estimate
+          </Button>
+        </div>
+      )}
       {revisionChain.length > 0 && (
         <div className={`flex flex-wrap items-center gap-x-2 gap-y-1.5 px-4 py-2.5 rounded-lg text-sm border ${isChangeOrder(estimate) ? 'bg-purple-50 border-purple-200' : 'bg-orange-50 border-orange-200'}`}>
           <span className={`flex items-center gap-1.5 font-medium shrink-0 ${isChangeOrder(estimate) ? 'text-purple-600' : 'text-orange-600'}`}>
@@ -3768,7 +3849,17 @@ Categories: Roofing, Gutters, Siding, Windows, Interior, Labor, Debris Removal, 
                       onChange={(e) => setFormData({...formData, adjustment_amount: parseFloat(e.target.value) || 0})}
                       placeholder="0.00"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Positive or negative amount</p>
+                    <p className="text-xs text-gray-500 mt-1">Positive or negative amount. Becomes its own line when this estimate is invoiced.</p>
+                  </div>
+                  <div>
+                    <Label>Adjustment label</Label>
+                    <Input
+                      value={formData.adjustment_label || ''}
+                      onChange={(e) => setFormData({ ...formData, adjustment_label: e.target.value })}
+                      placeholder="wrapping 27 windows"
+                      data-testid="input-estimate-adjustment-label"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Shown on the invoice line, for example “wrapping 27 windows”.</p>
                   </div>
                 </div>
 
@@ -3794,7 +3885,7 @@ Categories: Roofing, Gutters, Siding, Windows, Interior, Labor, Debris Removal, 
                         )}
                         {formData.adjustment_amount !== 0 && (
                           <div className={`flex justify-between ${formData.adjustment_amount > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            <span>Adjustment:</span>
+                            <span>Adjustment{formData.adjustment_label ? ` (${formData.adjustment_label})` : ''}:</span>
                             <span>{formData.adjustment_amount > 0 ? '+' : ''}${Number(formData.adjustment_amount || 0).toFixed(2)}</span>
                           </div>
                         )}
@@ -5157,6 +5248,57 @@ Categories: Roofing, Gutters, Siding, Windows, Interior, Labor, Debris Removal, 
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showInvoiceSync} onOpenChange={setShowInvoiceSync}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid="dialog-update-invoice-from-estimate">
+          <DialogHeader>
+            <DialogTitle>Update invoice from estimate</DialogTitle>
+            <DialogDescription>
+              {linkedInvoice
+                ? `Apply the estimate lines to ${linkedInvoice.invoice_number}. The amount already paid stays. No email, text, or receipt is sent.`
+                : 'This estimate has no linked invoice.'}
+            </DialogDescription>
+          </DialogHeader>
+          {invoiceSyncPreview && (
+            <div className="space-y-3 text-sm">
+              {invoiceSyncPreview.added.map((line, index) => (
+                <p key={`add-${index}`} className="text-green-700" data-testid="invoice-sync-added">
+                  Added: {line.description || 'Line'} — {formatMoney(line.amount)}
+                </p>
+              ))}
+              {invoiceSyncPreview.changed.map((line, index) => (
+                <p key={`chg-${index}`} className="text-amber-800" data-testid="invoice-sync-changed">
+                  Changed: {line.description || 'Line'} — {formatMoney(line.before.amount)} to {formatMoney(line.after.amount)}
+                </p>
+              ))}
+              {invoiceSyncPreview.removed.map((line, index) => (
+                <p key={`rem-${index}`} className="text-red-700" data-testid="invoice-sync-removed">
+                  Removed: {line.description || 'Line'} — {formatMoney(line.amount)}
+                </p>
+              ))}
+              {invoiceSyncPreview.added.length === 0 && invoiceSyncPreview.changed.length === 0 && invoiceSyncPreview.removed.length === 0 && (
+                <p className="text-gray-600">No line changes.</p>
+              )}
+              <div className="rounded border bg-gray-50 p-3 space-y-1">
+                <div className="flex justify-between"><span>Invoice total</span><span>{formatMoney(invoiceSyncPreview.previousTotal)} → {formatMoney(invoiceSyncPreview.nextTotal)}</span></div>
+                <div className="flex justify-between"><span>Amount paid</span><span>{formatMoney(invoiceSyncPreview.amountPaid)} kept</span></div>
+                <div className="flex justify-between font-semibold"><span>Amount due</span><span data-testid="invoice-sync-amount-due">{formatMoney(invoiceSyncPreview.amountDue)}</span></div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setShowInvoiceSync(false)}>Cancel</Button>
+            <Button
+              type="button"
+              data-testid="button-confirm-update-invoice"
+              disabled={!invoiceSyncPreview || updateInvoiceFromEstimateMutation.isPending}
+              onClick={() => updateInvoiceFromEstimateMutation.mutate()}
+            >
+              {updateInvoiceFromEstimateMutation.isPending ? 'Updating...' : 'Update invoice'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

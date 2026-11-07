@@ -81,8 +81,8 @@ async function run() {
   const analyzePhotos = extractFunction(estimator, 'const handleAnalyzePhotos = async');
   assert.match(
     analyzePhotos,
-    /completeSidingMeasurement\(\{[\s\S]*?autoBuild:\s*false,[\s\S]*?setMeasurements:\s*setPhotoSidingAnalysis/,
-    'Photos Only analysis must store measurements without building an estimate',
+    /completeSidingMeasurement\(\{[\s\S]*?autoBuild:\s*true,[\s\S]*?setMeasurements:\s*setPhotoSidingAnalysis/,
+    'Photo measurement must price siding lines when analysis finishes',
   );
 
   const measurementButtons = [
@@ -111,7 +111,16 @@ async function run() {
   const defaultAutoBuildCalls = estimator.match(/handleAnalyzeSiding\(undefined,\s*\{\s*satelliteOnly:\s*useSatelliteMode\s*\}\)/g) || [];
   assert.equal(defaultAutoBuildCalls.length, 2, 'Generate and Regenerate Estimate must retain exactly two default auto-build calls');
 
-  console.log('✓ Siding measurement paths stop for review; explicit and Generate Estimate builds remain guarded.');
+  const autoRebuilds = [
+    ['ruler reading', /pendingRulerFaceRef\.current[\s\S]{0,2200}handleAnalyzeSiding\(undefined,\s*\{\s*autoBuild:\s*true\s*\}\)/],
+    ['wall material', /<FaceMaterialPicker[\s\S]{0,1600}handleAnalyzeSiding\(undefined,\s*\{\s*autoBuild:\s*true\s*\}\)/],
+    ['wall height', /<FaceHeightPicker[\s\S]{0,2600}handleAnalyzeSiding\(undefined,\s*\{\s*autoBuild:\s*true\s*\}\)/],
+  ];
+  for (const [label, pattern] of autoRebuilds) {
+    assert.match(estimator, pattern, `${label} changes must rebuild priced siding lines`);
+  }
+
+  console.log('✓ Photo measurement prices siding lines; satellite measure buttons stay review-only; explicit builds remain.');
 }
 
 run().catch(error => {

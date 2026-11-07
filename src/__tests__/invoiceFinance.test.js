@@ -7,6 +7,9 @@ import {
   getEffectiveDueDate,
   getDaysOverdue,
   isInvoiceOverdue,
+  invoiceCollectibleBalance,
+  detailInvoiceTotal,
+  insurancePaysAmount,
 } from '../utils/invoiceFinance.js';
 
 // Pin "today" so effective-due-date / days-overdue assertions are deterministic.
@@ -26,6 +29,78 @@ const daysAgo = (n) => {
   d.setDate(d.getDate() - n);
   return d.toISOString();
 };
+
+describe('deductible does not change the balance', () => {
+  const insurance = {
+    total_amount: 35694.07,
+    amount_paid: 10069.54,
+    deductible_amount: 10069.54,
+    insurance_company: 'State Farm',
+    claim_number: 'CLM-1',
+  };
+
+  it('keeps amount due at the invoice total minus payments', () => {
+    const money = invoiceCollectibleBalance(insurance, detailInvoiceTotal(insurance));
+    expect(money.due).toBe(25624.53);
+    expect(getInvoiceBalance(insurance)).toBe(25624.53);
+  });
+
+  it('does not subtract a deductible that was waived with an adjustment', () => {
+    const waived = {
+      total_amount: 26996.67,
+      amount_paid: 0,
+      adjustment_amount: -1976,
+      deductible_amount: 1976,
+      insurance_company: 'State Farm',
+    };
+    expect(getInvoiceBalance(waived)).toBe(26996.67);
+  });
+});
+
+describe('insurance pays', () => {
+  it('does not subtract the deductible again when an adjustment is already in the total', () => {
+    // Wanda: RCV 28972.67, adjustment -1976, deductible 1976.
+    // The stored total already includes the adjustment. Subtracting the
+    // deductible again produced 25020.67.
+    const carrier = insurancePaysAmount({
+      total: 28972.67 - 1976,
+      deductible: 1976,
+      adjustment: -1976,
+    });
+    expect(carrier.deductibleShown).toBe(1976);
+    expect(carrier.deductibleApplied).toBe(0);
+    expect(carrier.pays).toBe(26996.67);
+  });
+
+  it('does not subtract the deductible again when a discount is already in the total', () => {
+    const carrier = insurancePaysAmount({
+      total: 10000 - 1500,
+      deductible: 1500,
+      discount: 1500,
+    });
+    expect(carrier.pays).toBe(8500);
+    expect(carrier.deductibleApplied).toBe(0);
+  });
+
+  it('subtracts the deductible once when nothing else has reduced the total', () => {
+    const carrier = insurancePaysAmount({
+      total: 28972.67,
+      deductible: 1976,
+    });
+    expect(carrier.deductibleApplied).toBe(1976);
+    expect(carrier.pays).toBe(26996.67);
+  });
+
+  it('still subtracts depreciation when the deductible is only displayed', () => {
+    const carrier = insurancePaysAmount({
+      total: 26996.67,
+      depreciation: 500,
+      deductible: 1976,
+      adjustment: -1976,
+    });
+    expect(carrier.pays).toBe(26496.67);
+  });
+});
 
 describe('getInvoiceBalance', () => {
   it('is total minus paid, never negative', () => {

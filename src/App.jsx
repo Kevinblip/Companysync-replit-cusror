@@ -34,6 +34,7 @@ const PublicColorViz = lazy(() => import('@/pages/PublicColorViz'));
 const MarketingFeatures = lazy(() => import('@/pages/MarketingFeatures'));
 const OnboardingWizard = lazy(() => import('@/pages/OnboardingWizard'));
 const PublicPricing = lazy(() => import('@/pages/PublicPricing'));
+const SalesDemo = lazy(() => import('@/pages/SalesDemo'));
 const PrivacyPolicy = lazy(() => import('@/pages/PrivacyPolicy'));
 const TermsOfService = lazy(() => import('@/pages/TermsOfService'));
 
@@ -151,6 +152,12 @@ const AppRouter = () => {
           then continue through the normal /signup flow. */}
       <Route path="/PublicPricing" element={
         <ErrorBoundary><PublicPricing /></ErrorBoundary>
+      } />
+      <Route path="/SalesDemo" element={
+        <ErrorBoundary><SalesDemo /></ErrorBoundary>
+      } />
+      <Route path="/SalesDemo/reschedule" element={
+        <ErrorBoundary><SalesDemo /></ErrorBoundary>
       } />
       <Route path="/OnboardingWizard" element={
         <ErrorBoundary><OnboardingWizard /></ErrorBoundary>

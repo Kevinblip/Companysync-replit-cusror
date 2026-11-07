@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { eaveFeetFromRatio } from '../../utils/photoRuler.cjs';
 
 /**
  * PhotoCalibrationCanvas — interactive calibration & measurement ruler overlay.
@@ -98,8 +99,9 @@ export default function PhotoCalibrationCanvas({
   const lenA = pxLen(lines.a);
   const lenB = pxLen(lines.b);
   const lenC = pxLen(lines.c);
-  const eaveFt = lenA > 2 && refInches > 0 ? (lenB / lenA) * (refInches / 12) : 0;
-  const gableFt = showGable && lenA > 2 && refInches > 0 ? (lenC / lenA) * (refInches / 12) : 0;
+  // Same ratio the estimator uses when it scales a detected door.
+  const eaveFt = eaveFeetFromRatio(lenA, lenB, refInches);
+  const gableFt = showGable ? eaveFeetFromRatio(lenA, lenC, refInches) : 0;
 
   // Live-report upward
   useEffect(() => {

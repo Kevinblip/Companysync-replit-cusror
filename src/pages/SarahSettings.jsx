@@ -719,10 +719,8 @@ export default function SarahSettings() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="gpt-4o-realtime">GPT-4o Realtime (OpenAI)</SelectItem>
-                <SelectItem value="gemini-2.0-flash">Gemini 2.0 Flash</SelectItem>
-                <SelectItem value="gemini-2.0-flash-001">Gemini 2.0 Flash-001</SelectItem>
-                <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash</SelectItem>
+                <SelectItem value="gemini-3.8-live">Gemini 3.8 Live (default, phone calls)</SelectItem>
+                <SelectItem value="gemini-3.1-flash-live-preview">Gemini 3.1 Flash Live (preview)</SelectItem>
               </SelectContent>
             </Select>
             <div className="mt-4 flex items-center justify-between">
@@ -881,16 +879,18 @@ export default function SarahSettings() {
                       <SelectValue placeholder="Select speed" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="normal">Normal (Balanced - Includes Typing Sounds)</SelectItem>
-                      <SelectItem value="fast">Fast (Reduced Latency - No Sounds)</SelectItem>
-                      <SelectItem value="ultra_fast">Ultra Fast (Instant - Minimal Memory)</SelectItem>
+                      <SelectItem value="relaxed">Relaxed (Calm pace, waits longer)</SelectItem>
+                      <SelectItem value="normal">Normal (Slightly brisk - recommended)</SelectItem>
+                      <SelectItem value="fast">Fast (Quicker speech and replies, no sounds)</SelectItem>
+                      <SelectItem value="ultra_fast">Ultra Fast (Fastest speech and replies)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <p className="text-sm text-blue-800">
-                  {form.response_speed === 'normal' && "✅ Uses typing sounds and full memory. Best for natural feel."}
-                  {form.response_speed === 'fast' && "⚡ Skips audio effects to reply faster. Good for efficient calls."}
-                  {form.response_speed === 'ultra_fast' && "🚀 Maximum speed. Skips Knowledge Base and limits memory."}
+                  {form.response_speed === 'relaxed' && "🐢 Calm speaking pace; waits ~0.9s of silence before replying."}
+                  {form.response_speed === 'normal' && "✅ Slightly brisk pace; replies after ~0.55s of silence. Typing sounds allowed."}
+                  {form.response_speed === 'fast' && "⚡ Brisk pace; replies after ~0.4s of silence. No typing sounds."}
+                  {form.response_speed === 'ultra_fast' && "🚀 Fastest pace; replies after ~0.3s of silence. May cut in on slow talkers."}
                 </p>
               </div>
             </CardContent>

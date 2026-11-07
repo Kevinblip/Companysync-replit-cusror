@@ -669,6 +669,18 @@ function LineItemEditor({
                                       )}
                                     </div>
                                   )}
+                                  {item.price_source ? (
+                                    <span
+                                      data-testid={`price-source-${index}`}
+                                      className={`mt-1 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                        item.price_source === 'default'
+                                          ? 'bg-amber-100 text-amber-800'
+                                          : 'bg-gray-100 text-gray-600'
+                                      }`}
+                                    >
+                                      {item.price_source === 'default' ? 'Default rate' : item.price_source}
+                                    </span>
+                                  ) : null}
                                 </td>
                                 {showColorBrand && (
                                   <td className="px-2 py-2">

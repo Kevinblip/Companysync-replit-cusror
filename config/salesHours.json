@@ -1,0 +1,9 @@
+{
+  "timezone": "America/New_York",
+  "weekdays": [1, 2, 3, 4, 5],
+  "startHour": 9,
+  "endHour": 17,
+  "slotMinutes": 30,
+  "demoMinutes": 15,
+  "horizonDays": 10
+}

@@ -123,6 +123,44 @@ const ok = (name, cond) => {
   ok('measured openings still dedupe across a corner overlap',
      withGeometry.counts.window_assemblies === 2);
 
+  console.log('\nShifted corner zones must not add a second copy of the wall');
+  const shifted = buildSidingMeasurementGraph({
+    perPhotoResults: [
+      { view_label: 'Front', openings: [
+        { type: 'window', width_ft: 3, height_ft: 4, zone: 'far_left', pos_x: 4, pos_y: 5 },
+        { type: 'window', width_ft: 3, height_ft: 4, zone: 'center', pos_x: 12, pos_y: 5 },
+        { type: 'entry_door', width_ft: 3, height_ft: 6.8, zone: 'far_right', pos_x: 20, pos_y: 3.4 },
+      ] },
+      { view_label: 'FR Corner', is_corner_shot: true, openings: [
+        { type: 'window', width_ft: 4.4, height_ft: 5.2, zone: 'center_right', pos_x: 6, pos_y: 6 },
+        { type: 'window', width_ft: 4.2, height_ft: 5.1, zone: 'far_left', pos_x: 14, pos_y: 6 },
+        { type: 'entry_door', width_ft: 3.6, height_ft: 7, zone: 'center', pos_x: 18, pos_y: 3.5 },
+      ] },
+    ],
+    storyCount: 1, wallHeightFt: 9, grossWallAreaSqft: 1000, perimeterFt: 100,
+  });
+  ok('a corner with different zones does not double the windows',
+     shifted.counts.window_assemblies === 2);
+  ok('a corner with a different zone does not double the door',
+     shifted.counts.entry_doors === 1);
+  ok('the dropped corner copies are reported',
+     (shifted.diagnostics?.measured_corner_collapsed || 0) >= 3);
+
+  const cornerSeesMoreMeasured = buildSidingMeasurementGraph({
+    perPhotoResults: [
+      { view_label: 'Back', openings: [
+        { type: 'window', width_ft: 3, height_ft: 4, zone: 'far_left', pos_x: 4, pos_y: 5 },
+      ] },
+      { view_label: 'BR Corner', is_corner_shot: true, openings: [
+        { type: 'window', width_ft: 3, height_ft: 4, zone: 'far_left', pos_x: 4, pos_y: 5 },
+        { type: 'window', width_ft: 6, height_ft: 4, zone: 'far_right', pos_x: 16, pos_y: 5 },
+      ] },
+    ],
+    storyCount: 1, wallHeightFt: 9, grossWallAreaSqft: 1000, perimeterFt: 100,
+  });
+  ok('a corner that sees an extra window still adds that window',
+     cornerSeesMoreMeasured.counts.window_assemblies === 2);
+
   console.log('\nDistinct openings in one coarse zone must all survive');
   const sameZone = buildSidingMeasurementGraph({
     perPhotoResults: [{

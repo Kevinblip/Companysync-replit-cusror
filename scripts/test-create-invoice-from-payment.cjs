@@ -37,7 +37,7 @@ const sharedContracts = [
   "'paid'",
   'COALESCE(SUM(amount), 0)',
   "COALESCE(status, 'received') = 'received'",
-  "INV-${invoiceYear}-",
+  'allocateInvoiceNumber',
   'customer-invoice:${company_id}:${customer.id}',
   'This customer already has an invoice',
 ];

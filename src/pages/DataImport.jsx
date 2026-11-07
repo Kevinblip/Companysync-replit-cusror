@@ -1259,19 +1259,47 @@ export default function DataImport() {
         const batchSize = 10;
         let imported = 0;
         
+        const createdBySourceNumber = new Map();
         for (let i = 0; i < records.length; i += batchSize) {
             const batch = records.slice(i, i + batchSize);
-            await base44.entities.Invoice.bulkCreate(batch);
+            const created = await base44.entities.Invoice.bulkCreate(batch);
+            const createdRows = Array.isArray(created) ? created : [];
+            createdRows.forEach((row, idx) => {
+              const source = batch[idx] || {};
+              if (!row || !row.id) return;
+              const labels = [
+                source.invoice_number,
+                row.invoice_number,
+                source?.data?.superseded_invoice_number,
+                row?.data?.superseded_invoice_number,
+                row.superseded_invoice_number,
+              ];
+              for (const label of labels) {
+                const key = String(label || '').trim().toLowerCase();
+                if (key) createdBySourceNumber.set(key, row);
+              }
+            });
             imported += batch.length;
             if (i + batchSize < records.length) await new Promise(r => setTimeout(r, 1000));
         }
   
-        // Import Payments
+        // Import Payments. Stamp invoice_id from the row this batch just
+        // created, including a number the server replaced because it collided.
         if (payments.length > 0) {
-             for (let i = 0; i < payments.length; i += batchSize) {
-                const batch = payments.slice(i, i + batchSize);
+             const stampedPayments = payments.map((payment) => {
+               const key = String(payment.invoice_number || '').trim().toLowerCase();
+               const invoice = key ? createdBySourceNumber.get(key) : null;
+               if (!invoice?.id) return payment;
+               return {
+                 ...payment,
+                 invoice_id: invoice.id,
+                 invoice_number: invoice.invoice_number || payment.invoice_number,
+               };
+             });
+             for (let i = 0; i < stampedPayments.length; i += batchSize) {
+                const batch = stampedPayments.slice(i, i + batchSize);
                 await base44.entities.Payment.bulkCreate(batch);
-                if (i + batchSize < payments.length) await new Promise(r => setTimeout(r, 1000));
+                if (i + batchSize < stampedPayments.length) await new Promise(r => setTimeout(r, 1000));
             }
         }
   

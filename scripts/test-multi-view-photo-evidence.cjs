@@ -137,9 +137,10 @@ function ok(label, condition, got, expected) {
         wall_width_ft: 40,
       },
     ]);
-    ok('conflicting assignment is unresolved', evidence.photos[0].status === 'unresolved');
-    ok('unresolved photo is reported', evidence.unresolved_photos.length === 1);
-    ok('unresolved face is not coverage', evidence.covered_faces.length === 0);
+    ok('a named slot wins over a mirrored visual face', evidence.photos[0].status === 'accepted');
+    ok('the disagreement is reported',
+      evidence.warnings.some(w => w.code === 'slot_overrides_visual_face'));
+    ok('coverage follows the street-facing slot', evidence.covered_faces.includes('front'));
     const graph = buildSidingMeasurementGraph({
       perPhotoResults: [{
         view_label: 'Front',
@@ -150,8 +151,8 @@ function ok(label, condition, got, expected) {
       }],
       smallOpeningsInWaste: true,
     });
-    ok('unresolved opening is not forced onto the raw face',
-      graph.opening_groups[0]?.face === 'unknown');
+    ok('the opening stays on the street-facing slot, not the mirrored face',
+      graph.opening_groups[0]?.face === 'front');
   }
 
   console.log('\nDetail evidence is not a wall anchor');

@@ -122,7 +122,8 @@ import { HIDDEN_FEATURES } from "@/config/hiddenFeatures";
 import { localToday } from "@/utils/localDate";
 import { parsePaymentDate, paymentDateInput } from "@/utils/paymentDates";
 import { cacheSavedCustomer, shouldRefreshCustomerDraft } from "@/utils/customerSaveState";
-import { getInvoicesForCustomerId } from "@/utils/invoiceCustomerAssociation";
+import { getInvoicesForCustomerProfile, invoiceNeedsCustomerLink } from "@/utils/invoiceCustomerAssociation";
+import CustomerIdentityPickerDialog from "@/components/invoices/CustomerIdentityPickerDialog";
 import {
   findUnknownInvoiceIds,
   findForeignInvoiceIds,
@@ -254,6 +255,10 @@ export default function CustomerProfile() {
   const [showAddNote, setShowAddNote] = useState(false);
   const [newNoteText, setNewNoteText] = useState('');
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [linkInvoiceTarget, setLinkInvoiceTarget] = useState(null);
+  const [linkCustomerCandidate, setLinkCustomerCandidate] = useState(null);
+  const [showLinkCustomerPicker, setShowLinkCustomerPicker] = useState(false);
+  const [showLinkCustomerConfirm, setShowLinkCustomerConfirm] = useState(false);
   const [bulkDeleteNotes, setBulkDeleteNotes] = useState('');
   const [phoneErrors, setPhoneErrors] = useState({ phone: null, phone_2: null, adjuster_phone: null });
   const [viewingCrewPhoto, setViewingCrewPhoto] = useState(null);
@@ -688,14 +693,73 @@ export default function CustomerProfile() {
       enabled: !!customer && !!myCompany,
     });
 
+  // Invoices created from one of this profile's estimates belong here even if
+  // the conversion left customer_id blank (e.g. the estimate was made against
+  // a lead or a typed name). Ids are sorted so the query key is stable.
+  const profileEstimateIds = React.useMemo(
+    () => [...new Set((estimates || []).map((e) => String(e?.id || '')).filter(Boolean))].sort(),
+    [estimates]
+  );
+
   const { data: invoices = [] } = useQuery({
-    queryKey: ['customer-invoices', customer?.id, myCompany?.id],
+    queryKey: ['customer-invoices', customer?.id, customer?.base44_id, customer?.name, myCompany?.id, profileEstimateIds.join(',')],
     queryFn: async () => {
       if (!customer?.id || !myCompany?.id) return [];
-      const linked = await base44.entities.Invoice.filter({ customer_id: customer.id, company_id: myCompany.id });
-      return getInvoicesForCustomerId(linked, customer.id);
+      const cid = myCompany.id;
+      const byId = await base44.entities.Invoice.filter({ customer_id: customer.id, company_id: cid });
+      const byAlias = customer.base44_id && customer.base44_id !== customer.id
+        ? await base44.entities.Invoice.filter({ customer_id: customer.base44_id, company_id: cid })
+        : [];
+      // Exact stored name, and only when customer_id is empty. A different
+      // non-empty id stays off this profile even if the name matches.
+      const byName = customer.name
+        ? await base44.entities.Invoice.filter({ customer_name: customer.name, company_id: cid })
+        : [];
+      const byEstimate = profileEstimateIds.length
+        ? await base44.entities.Invoice.filter({ estimate_id: { $in: profileEstimateIds }, company_id: cid })
+        : [];
+      const merged = [...byId, ...byAlias, ...byName, ...(byEstimate || [])].filter((invoice, index, all) =>
+        index === all.findIndex((row) => row.id === invoice.id)
+      );
+      return getInvoicesForCustomerProfile(merged, customer, { estimateIds: profileEstimateIds });
     },
     enabled: !!customer && !!myCompany,
+  });
+
+  const { data: linkableCustomers = [] } = useQuery({
+    queryKey: ['customers', myCompany?.id, 'invoice-link-picker'],
+    queryFn: () => base44.entities.Customer.filter({ company_id: myCompany.id }),
+    enabled: !!myCompany?.id && (showLinkCustomerPicker || showLinkCustomerConfirm),
+  });
+
+  const linkInvoiceMutation = useMutation({
+    mutationFn: async ({ invoiceId, customerId }) => {
+      const response = await fetch('/api/local/invoices/link-customer', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoice_id: invoiceId,
+          customer_id: customerId,
+          company_id: myCompany?.id,
+          confirmed: true,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Could not link this invoice to the customer.');
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      setShowLinkCustomerConfirm(false);
+      setShowLinkCustomerPicker(false);
+      setLinkInvoiceTarget(null);
+      setLinkCustomerCandidate(null);
+      toast.success('Invoice linked. Customer id, name, and email were copied from the selected customer.');
+    },
+    onError: (error) => toast.error(error.message || 'Could not link this invoice.'),
   });
 
   const outstandingInvoicesForCheck = React.useMemo(() => (
@@ -708,11 +772,17 @@ export default function CustomerProfile() {
   ), [invoices]);
 
   const { data: payments = [] } = useQuery({
-    queryKey: ['customer-payments', customer?.id, myCompany?.id],
+    // Include the invoices this profile can see. Payments are also loaded by
+    // those invoice numbers, so the query has to run again once the invoices
+    // arrive — otherwise a mismatched invoice hides its payments on first paint.
+    queryKey: ['customer-payments', customer?.id, customer?.base44_id, myCompany?.id, (invoices || []).map((invoice) => invoice.id).join('|')],
     queryFn: async () => {
       if (!customer || !myCompany) return [];
       const cid = myCompany.id;
       const byId = await base44.entities.Payment.filter({ customer_id: customer.id, company_id: cid });
+      const byAlias = customer.base44_id && customer.base44_id !== customer.id
+        ? await base44.entities.Payment.filter({ customer_id: customer.base44_id, company_id: cid })
+        : [];
       const byName = await base44.entities.Payment.filter({ customer_name: customer.name, company_id: cid });
       let byInvoices = [];
       if (invoices && invoices.length > 0) {
@@ -725,7 +795,7 @@ export default function CustomerProfile() {
         // unique, so this set still has to be vetted below.
         byInvoices = results.flat();
       }
-      const merged = [...byId, ...byName, ...byInvoices];
+      const merged = [...byId, ...byAlias, ...byName, ...byInvoices];
       const unique = merged.filter((p, idx, self) => idx === self.findIndex(x => x.id === p.id));
 
       // invoice_number is only as unique as whoever typed it — historically two
@@ -747,6 +817,7 @@ export default function CustomerProfile() {
       const foreignInvoiceIds = findForeignInvoiceIds(looked, {
         customerId: customer.id,
         customerName: customer.name,
+        customerIds: [customer.id, customer.base44_id],
       });
       return rejectForeignPayments(unique, foreignInvoiceIds);
     },
@@ -2822,9 +2893,38 @@ ${isNewlyAssigned ? '<p class="success">✓ You have been assigned to a new cust
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="profile" value={activeSection} onValueChange={setActiveSection} className="w-full">
-        <div className="flex">
-          <div className="w-64 bg-white border-r min-h-screen">
+      <Tabs defaultValue="profile" value={activeSection} onValueChange={setActiveSection} className="w-full min-w-0">
+        <div className="md:flex min-w-0">
+          <div className="md:hidden mb-3 -mx-3 px-3">
+            <div
+              className="flex gap-2 overflow-x-auto pb-2"
+              aria-label="Customer profile sections"
+            >
+              {sections.map((section) => {
+                const Icon = section.icon;
+                return (
+                  <button
+                    key={section.id}
+                    type="button"
+                    onClick={() => setActiveSection(section.id)}
+                    aria-current={activeSection === section.id ? 'page' : undefined}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-2 text-sm whitespace-nowrap ${
+                      activeSection === section.id
+                        ? 'border-blue-200 bg-blue-50 text-blue-700 font-medium'
+                        : 'border-gray-200 bg-white text-gray-700'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span>{section.label}</span>
+                    {section.count > 0 && (
+                      <span className="text-xs text-gray-500">{section.count}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="hidden md:block md:w-64 md:shrink-0 bg-white border-r min-h-screen">
             <ScrollArea className="h-full">
               <div className="p-4 space-y-1">
                 {sections.map((section) => {
@@ -2860,7 +2960,7 @@ ${isNewlyAssigned ? '<p class="success">✓ You have been assigned to a new cust
             </ScrollArea>
           </div>
 
-          <div className="flex-1 p-6">
+          <div className="w-full min-w-0 flex-1 p-3 sm:p-6">
             <TabsContent value="profile" className="mt-0">
               {activeSection === "profile" && (
                 <form onSubmit={handleSaveCustomer} className="space-y-6">
@@ -3351,6 +3451,9 @@ ${isNewlyAssigned ? '<p class="success">✓ You have been assigned to a new cust
                             <div className="text-sm text-gray-500">
                               Due: {invoice.due_date ? formatDateOnly(invoice.due_date) : 'No due date'}
                             </div>
+                            {!String(invoice.customer_id || '').trim() && (
+                              <div className="text-xs text-amber-700 mt-1">Shown by exact name. Customer id is empty, so this invoice is not linked yet.</div>
+                            )}
                           </div>
                           <div className="flex items-center gap-3">
                             <div className="text-right">
@@ -3380,6 +3483,18 @@ ${isNewlyAssigned ? '<p class="success">✓ You have been assigned to a new cust
                                   <Pencil className="w-4 h-4 mr-2" />
                                   Edit
                                 </DropdownMenuItem>
+                                {isAdmin && invoiceNeedsCustomerLink(invoice, [customer]) && (
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setLinkInvoiceTarget(invoice);
+                                      setLinkCustomerCandidate(null);
+                                      setShowLinkCustomerPicker(true);
+                                    }}
+                                    data-testid={`button-link-invoice-customer-profile-${invoice.id}`}
+                                  >
+                                    Link customer
+                                  </DropdownMenuItem>
+                                )}
                                 {isAdmin && (
                                   <DropdownMenuItem 
                                     onClick={() => handleDeleteInvoice(invoice)}
@@ -3402,6 +3517,52 @@ ${isNewlyAssigned ? '<p class="success">✓ You have been assigned to a new cust
                     </div>
                   </CardContent>
                 </Card>
+              )}
+              <CustomerIdentityPickerDialog
+                open={showLinkCustomerPicker}
+                onOpenChange={setShowLinkCustomerPicker}
+                customers={linkableCustomers.length ? linkableCustomers : (customer ? [customer] : [])}
+                onSelect={(selected) => {
+                  setLinkCustomerCandidate(selected);
+                  setShowLinkCustomerPicker(false);
+                  setShowLinkCustomerConfirm(true);
+                }}
+                title="Link this invoice to a customer"
+                description="Search for the customer record. Confirming copies their id, name, and email onto the invoice."
+              />
+              {showLinkCustomerConfirm && linkInvoiceTarget && linkCustomerCandidate && (
+                <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
+                  <p className="font-medium text-amber-950">
+                    Link {linkInvoiceTarget.invoice_number || 'this invoice'} to {linkCustomerCandidate.name}?
+                  </p>
+                  <p className="mt-1 text-amber-900">
+                    This sets customer id {linkCustomerCandidate.id} and copies {linkCustomerCandidate.name}
+                    {linkCustomerCandidate.email ? ` (${linkCustomerCandidate.email})` : ''}.
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <Button
+                      size="sm"
+                      disabled={linkInvoiceMutation.isPending}
+                      onClick={() => linkInvoiceMutation.mutate({
+                        invoiceId: linkInvoiceTarget.id,
+                        customerId: linkCustomerCandidate.id,
+                      })}
+                      data-testid="button-confirm-link-invoice-customer-profile"
+                    >
+                      {linkInvoiceMutation.isPending ? 'Linking…' : 'Confirm link'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setShowLinkCustomerConfirm(false);
+                        setLinkCustomerCandidate(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
               )}
             </TabsContent>
 

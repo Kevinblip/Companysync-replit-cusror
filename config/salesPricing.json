@@ -1,0 +1,12 @@
+{
+  "currency": "USD",
+  "interval": "month",
+  "trialDays": 14,
+  "trialRequiresCard": false,
+  "cancelAnytime": true,
+  "plans": [
+    { "id": "basic", "name": "Basic", "monthly": 99 },
+    { "id": "business", "name": "Business", "monthly": 199 },
+    { "id": "enterprise", "name": "Enterprise", "monthly": 399 }
+  ]
+}

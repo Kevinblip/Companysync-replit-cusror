@@ -3,6 +3,8 @@ import {
   changeInvoiceCustomerName,
   getCompanyCustomerById,
   getInvoicesForCustomerId,
+  getInvoicesForCustomerProfile,
+  invoiceNeedsCustomerLink,
   isInvoiceUnlinked,
   selectInvoiceCustomer,
 } from '@/utils/invoiceCustomerAssociation';
@@ -55,5 +57,27 @@ describe('invoice customer identity', () => {
     expect(getInvoicesForCustomerId(invoices, 'customer-2')).toEqual([invoices[0]]);
     expect(isInvoiceUnlinked(invoices[2])).toBe(true);
     expect(isInvoiceUnlinked(invoices[0])).toBe(false);
+  });
+
+  it('shows an empty customer id on the profile only when the name matches exactly', () => {
+    const chad = {
+      id: 'local_1772801063426_4t3id847y',
+      base44_id: 'base44-chad',
+      company_id: 'yicn',
+      name: 'Chad Sohl',
+    };
+    const invoices = [
+      { id: 'inv_1781649945868_w1midi5ea', customer_id: '', customer_name: 'Chad Sohl', company_id: 'yicn' },
+      { id: 'by-alias', customer_id: 'base44-chad', customer_name: 'Chad Sohl', company_id: 'yicn' },
+      { id: 'beverly', customer_id: 'cust-beverly', customer_name: 'Chad Sohl', company_id: 'yicn' },
+      { id: 'wanda-blank', customer_id: '', customer_name: 'Wanda Simpson', company_id: 'yicn' },
+    ];
+    expect(getInvoicesForCustomerProfile(invoices, chad).map((row) => row.id)).toEqual([
+      'inv_1781649945868_w1midi5ea',
+      'by-alias',
+    ]);
+    expect(invoiceNeedsCustomerLink(invoices[0], [chad])).toBe(true);
+    expect(invoiceNeedsCustomerLink(invoices[1], [chad])).toBe(false);
+    expect(invoiceNeedsCustomerLink(invoices[2], [chad, { id: 'cust-beverly', name: 'Beverly Owens-Jackson', company_id: 'yicn' }])).toBe(true);
   });
 });

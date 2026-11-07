@@ -6,6 +6,7 @@ import {
   calculateNetSiding,
   openingsFromCounts,
 } from '@/utils/companySyncFormulas';
+import { estimateDripEdgeLf } from '@/utils/roofTraceSession';
 import { enforceGarageRoofSanity } from '@/utils/roofAreaSanity';
 import {
   splitBatchIntoSlots,
@@ -14,12 +15,15 @@ import {
   normalizePhotoClassification,
 } from '@/utils/photoSlotAssignment';
 import { resolveOpeningCounts, formatShutters, summaryCaption } from '@/utils/openingCounts';
+import { applyMeasuredOpeningDeduction } from '@/utils/openingDeductionDisplay';
 import { getPresentationReadiness, getPhotoPresentPlan, describeWallAreaProvenance } from '@/utils/presentationReadiness';
 import { resolveStoredAcv, sumNetAcv, taxIsBakedIntoLines } from '@/utils/estimateTotals';
-import { insuranceSettlementSchema, insuranceSettlementPrompt, normalizeInsuranceSettlement, settlementFromDocument, isInsuranceSettlementAdjustment } from '../../lib/insuranceSettlement.js';
+import { insuranceSettlementSchema, insuranceSettlementPrompt, normalizeInsuranceSettlement, settlementFromDocument, isInsuranceSettlementAdjustment, selectCoverageSettlement } from '../../lib/insuranceSettlement.js';
 import InsuranceSettlementSummary from '../components/estimator/InsuranceSettlementSummary';
 import { createEstimateSourceContext, uploadedFilesMatchEstimateContext } from '@/utils/estimateSourceContext';
-import { getEstimateDocumentIdentityMismatch, getEstimateDocumentBatchIdentityMismatch } from '@/utils/estimateDocumentIdentity';
+import { getEstimateDocumentIdentityMismatch, getEstimateDocumentBatchIdentityMismatch, customerAddressFieldsFromDocument } from '@/utils/estimateDocumentIdentity';
+import { SECTION_ONLY_TOTAL_PROMPT, includeSectionOnlyTotals, importedRcvGap } from '@/utils/estimateSectionTotals';
+import { DUPLICATE_PAGE_PROMPT, dedupeImportedLineItems, registerImportDocument } from '@/utils/estimateDuplicateImport';
 import { resolveOverheadProfitPercentages } from '@/utils/insuranceEstimateTemplates';
 import { parseEstimateChatShortcut, resolveEstimateEditIndex, isRoofSurcharge, createRoofSurchargeLine, getEstimateChatCatalog, findChimneyFlashingItem, searchEstimateCatalog } from '@/utils/estimateChatEdits';
 import {
@@ -30,6 +34,10 @@ import { toast } from "sonner";
 import { generateEstimateHTML } from "@/utils/generateEstimateHTML";
 import { generateMeasurementReportHTML } from "@/utils/generateMeasurementReportHTML";
 import { generateSidingReportHTML } from "@/utils/generateSidingReportHTML";
+import WallMaterialOverlay from "../components/estimator/WallMaterialOverlay";
+import FaceMaterialPicker, { isStagingMaterialPickerHost } from "../components/estimator/FaceMaterialPicker";
+import FaceHeightPicker from "../components/estimator/FaceHeightPicker";
+import { filterLineItemsToMaterials, measureWallMaterialSections } from "../../functions/utils/wallMaterialSections.js";
 import useTranslation from "@/hooks/useTranslation";
 import { usePageGuard } from '@/hooks/usePageGuard';
 import { base44 } from "@/api/base44Client";
@@ -246,6 +254,9 @@ const describePitchDetection = (analysis) => {
       ? ' (📷 photo-verified — area recalculated from 2D footprint)'
       : ' (📷 photo-verified pitch)';
   }
+  if (analysis?.pitch === 'unknown' || analysis?.pitch_confidence === 'unknown') {
+    return ' (pitch unknown — enter the pitch for this building)';
+  }
   if (!analysis?.pitch_confidence) return '';
   if (analysis.pitch_confidence === 'low') {
     return ' (assumed — satellite couldn\u2019t read the slope, please verify)';
@@ -266,13 +277,17 @@ import {
   getFormatForSource,
   getHeaderColorClass,
 } from "@/lib/priceListUtils";
+import { pickLineItem, appendMeasuredTrimLines, trackPriceSource } from "@/lib/lineItemPicker";
 import { sidingMaterial, findSidingCatalogItem, compatibleQuantity, repriceSidingMaterialLines, repriceSidingCatalogDraft, isAmbiguousSideAreaRequest, findSidingScopeCatalogItem, finalizeSidingCatalogLines, sidingPricingIssues } from "@/lib/sidingCatalogPricing";
+import { guardSidingLineItems } from "@/utils/sidingLineItemGuards";
+import { describeSidingPricingBlock, resolveBillableSidingMaterial } from "@/utils/sidingBillableMaterial";
 import { usePriceList } from "@/hooks/usePriceList";
 import StructureSelector from "../components/satellite/StructureSelector";
 import InteractiveRoofMap from "../components/satellite/InteractiveRoofMap";
 import StreetViewPanel from "../components/satellite/StreetViewPanel";
 import VentilationCalculator from "../components/estimator/VentilationCalculator";
 import PhotoCalibrationCanvas from "../components/estimator/PhotoCalibrationCanvas";
+import { PhotoSlotGuide, photoSlotHint } from "../components/estimator/PhotoSlotGuide";
 import useCurrentCompany from "@/components/hooks/useCurrentCompany";
 import { 
   DropdownMenu, 
@@ -288,6 +303,24 @@ import { uploadBatchPhotos } from "@/utils/batchPhotoUpload";
 import { persistCaptureMode, readCaptureMode, slotPickerAttributes } from "@/utils/photoCaptureMode";
 import { computePhotoPerceptualHash } from "@/utils/photoPerceptualHash";
 import { completeSidingMeasurement } from "@/utils/sidingMeasurementFlow";
+
+function SidingMaterialDropdown({ value, lowConfidence = false, onChange, testId = 'siding-material-summary' }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <select
+        aria-label="Siding material"
+        data-testid={testId}
+        value={value === 'aluminum' ? 'aluminum' : 'vinyl'}
+        onChange={(event) => onChange?.(event.target.value)}
+        className="rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs font-semibold capitalize text-gray-800"
+      >
+        <option value="vinyl">Vinyl</option>
+        <option value="aluminum">Aluminum</option>
+      </select>
+      {lowConfidence ? <span className="text-[10px] font-normal text-gray-500">default</span> : null}
+    </span>
+  );
+}
 
 function AddressConfirmMap({ pending, onConfirm, onCancel, googleMapsLoaded }) {
   const mapContainerRef = useRef(null);
@@ -836,6 +869,55 @@ const normalizeEstimatorConfig = (saved = {}) => {
   return merged;
 };
 
+const OUTBUILDING_STRUCTURE = /^(garage|shed|outbuilding|barn|carport)$/i;
+
+function declaredOutbuildingType(structureType, structureOverride) {
+  const override = String(structureOverride?.structureType || '');
+  if (OUTBUILDING_STRUCTURE.test(override)) return override.toLowerCase();
+  const picked = String(structureType || '');
+  if (OUTBUILDING_STRUCTURE.test(picked)) return picked.toLowerCase();
+  return null;
+}
+
+function wallFieldsForRoof(siding) {
+  const gross = Number(siding?.gross_wall_area_sqft) || 0;
+  const net = Number(siding?.wall_area_sqft) || 0;
+  const wall = gross > 0 ? gross : net;
+  if (!(wall > 0)) return {};
+  const storyHeight = Number(siding.story_height_ft) || 0;
+  const stories = Number(siding.story_count) || 0;
+  return {
+    gross_wall_area_sqft: wall,
+    ...(net > 0 ? { wall_area_sqft: net } : {}),
+    ...(stories > 0 ? { story_count: stories } : {}),
+    ...(storyHeight > 0 ? { story_height_ft: storyHeight } : {}),
+    ...(storyHeight > 14 ? { wall_height_ft: storyHeight } : {}),
+  };
+}
+
+function mergeRoofWallReview(roof, siding) {
+  if (!roof || siding?.roof_needs_rep_review !== true || roof.rep_review_confirmed === true) return roof;
+  const extra = Array.isArray(siding.roof_rep_review_reasons) && siding.roof_rep_review_reasons.length
+    ? siding.roof_rep_review_reasons
+    : ['roof_short_for_walls'];
+  const reasons = Array.from(new Set([...(roof.rep_review_reasons || []), ...extra]));
+  const message = siding.roof_rep_review_message || roof.rep_review_message;
+  const warning = !message
+    ? roof.warning_message
+    : (roof.warning_message && String(roof.warning_message).includes(message)
+      ? roof.warning_message
+      : `${message}${roof.warning_message ? ` ${roof.warning_message}` : ''}`);
+  return {
+    ...roof,
+    needs_rep_review: true,
+    measurement_ready: false,
+    requires_manual_review: true,
+    rep_review_reasons: reasons,
+    rep_review_message: message,
+    warning_message: warning,
+  };
+}
+
 function elevationQualityNote(data) {
   const quality = data?.wall_total_quality || data?.measurement_graph?.totals?.wall_total_quality || 'estimated';
   const missing = data?.coverage?.missing_faces || data?.measurement_graph?.coverage?.missing_faces || [];
@@ -849,6 +931,47 @@ function elevationQualityNote(data) {
   if (missing.length) parts.push(`Missing elevation: ${missing.map(faceName).join(', ')}.`);
   if (poor.length) parts.push(`Poor elevation, not used: ${poor.map(faceName).join(', ')}.`);
   return parts.join(' ');
+}
+
+function faceFromPhotoLabel(label) {
+  const text = String(label || '').toLowerCase();
+  if (text.includes('left')) return 'left_side';
+  if (text.includes('right')) return 'right_side';
+  if (text.includes('back') || text.includes('rear')) return 'back';
+  if (text.includes('front')) return 'front';
+  return null;
+}
+
+function storiesForMeasuredEave(eaveFt) {
+  const eave = Number(eaveFt);
+  if (eave < 10.5) return 1;
+  if (eave < 13.25) return 'split';
+  if (eave < 16.25) return 1.5;
+  return 2;
+}
+
+const HEIGHT_FACES = ['front', 'back', 'left_side', 'right_side'];
+const MASONRY_CHOICES = [
+  { id: 'none', label: 'None' },
+  { id: 'quarter', label: '¼' },
+  { id: 'half', label: '½' },
+  { id: 'three_quarter', label: '¾' },
+  { id: 'all', label: 'All' },
+];
+
+function masonryChoiceFromEcho(value) {
+  if (value === true || value === 'all' || value === 'brick' || value === 'stone' || value === 1 || value === '1') return 'all';
+  if (value === 'three_quarter' || value === '3/4' || value === 0.75) return 'three_quarter';
+  if (value === 'half' || value === '1/2' || value === 0.5) return 'half';
+  if (value === 'quarter' || value === '1/4' || value === 0.25) return 'quarter';
+  return 'none';
+}
+
+function storyGuessLabel(guess) {
+  const stories = Number(guess);
+  if (stories >= 2) return '2';
+  if (stories >= 1.5) return '1.5';
+  return '1';
 }
 
 export default function AIEstimator() {
@@ -924,6 +1047,16 @@ export default function AIEstimator() {
   // photos, collapsing yanks the user's own photos off screen at the exact moment
   // they're asked to review the numbers, which reads as "it started over".
   const sidingMeasuredFromPhotosRef = useRef(false);
+  // Rep-confirmed wall materials. A ref so a confirm click is on the payload
+  // of the re-analysis that starts in the same turn.
+  const confirmedFaceMaterialsRef = useRef(null);
+  // Rep-confirmed wall heights. Same turn as the re-analysis, same as materials.
+  const confirmedFaceHeightsRef = useRef(null);
+  // Satellite-only masonry share per side. A ref so the re-analysis in the
+  // same turn sees the choice. The state is what the buttons render.
+  const confirmedMasonryFacesRef = useRef(null);
+  const [satelliteMasonryFaces, setSatelliteMasonryFaces] = useState({});
+  const pendingRulerFaceRef = useRef(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!sidingMeasurements) return;
@@ -931,6 +1064,19 @@ export default function AIEstimator() {
     setShowPhotoSiding(false);
     setSidingRejectionExpanded(false);
   }, [sidingMeasurements?.wall_area_sq]);
+  useEffect(() => {
+    confirmedMasonryFacesRef.current = null;
+    setSatelliteMasonryFaces({});
+  }, [satelliteAddress?.address]);
+  useEffect(() => {
+    const echoed = sidingMeasurements?.masonry_faces;
+    if (!echoed || typeof echoed !== 'object') return;
+    if (confirmedMasonryFacesRef.current) return;
+    const next = {};
+    for (const face of HEIGHT_FACES) next[face] = masonryChoiceFromEcho(echoed[face]);
+    confirmedMasonryFacesRef.current = next;
+    setSatelliteMasonryFaces(next);
+  }, [sidingMeasurements]);
   // Siding-vs-roof sanity warning dialog
   const [showSidingOverflowWarning, setShowSidingOverflowWarning] = useState(false);
   const [pendingSidingMeasurements, setPendingSidingMeasurements] = useState(null);
@@ -1065,6 +1211,15 @@ export default function AIEstimator() {
 
   // NEW: Multi-structure support for AI mode
   const [analyzedStructures, setAnalyzedStructures] = useState([]);
+  const applySidingRoofReview = (siding) => {
+    if (siding?.roof_needs_rep_review !== true) return;
+    setSatelliteAnalysis((prev) => mergeRoofWallReview(prev, siding));
+    setAnalyzedStructures((prev) => prev.map((structure) => (
+      OUTBUILDING_STRUCTURE.test(String(structure?.structureType || ''))
+        ? structure
+        : { ...structure, analysis: mergeRoofWallReview(structure.analysis, siding) }
+    )));
+  };
   const [isAddingStructure, setIsAddingStructure] = useState(false);
   const [showStructureSelector, setShowStructureSelector] = useState(false);
   const [manualAddOnMode, setManualAddOnMode] = useState(false); // NEW: for hybrid AI + manual
@@ -1136,6 +1291,31 @@ export default function AIEstimator() {
   
   const [pricingSource, setPricingSource] = useState("xactimate_new");
   const [confirmedSidingMaterial, setConfirmedSidingMaterial] = useState('');
+  const sidingMaterialOverrideRef = useRef('');
+  const convertSidingRef = useRef(null);
+  const [sidingPricingBanner, setSidingPricingBanner] = useState(null);
+  const [pendingSidingPrice, setPendingSidingPrice] = useState(null);
+  const rememberBillableSidingMaterial = (record) => {
+    if (!record || typeof record !== 'object') return record;
+    const resolved = resolveBillableSidingMaterial(record, sidingMaterialOverrideRef.current);
+    if (!sidingMaterialOverrideRef.current) setConfirmedSidingMaterial(resolved.material);
+    record.siding_material = resolved.material;
+    record.siding_material_source = resolved.source;
+    record.siding_material_low_confidence = resolved.lowConfidence;
+    return record;
+  };
+  const sidingMaterialChoice = (record) => {
+    const resolved = resolveBillableSidingMaterial(record, sidingMaterialOverrideRef.current);
+    const lowConfidence = !sidingMaterialOverrideRef.current && (
+      record?.siding_material_low_confidence === true
+      || resolveBillableSidingMaterial(record, '').lowConfidence
+    );
+    return { material: resolved.material, lowConfidence };
+  };
+  const [heldSidingLines, setHeldSidingLines] = useState([]);
+  const [approvedSidingConfirmIds, setApprovedSidingConfirmIds] = useState([]);
+  const [materialSectionOverrides, setMaterialSectionOverrides] = useState({});
+  const [droppedMaterialLines, setDroppedMaterialLines] = useState([]);
   // Voice → estimate enhancements
   const [linkedJobMeasurements, setLinkedJobMeasurements] = useState(null); // measurements parsed from linked job's EagleView/HOVER/GAF PDF
   const [linkedJobMeasurementsSource, setLinkedJobMeasurementsSource] = useState(null); // { fileName, type }
@@ -1362,6 +1542,11 @@ export default function AIEstimator() {
   // Duplicate customer handling
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [duplicateCustomer, setDuplicateCustomer] = useState(null);
+  const [addressWarningPrompt, setAddressWarningPrompt] = useState(null);
+  const [updateCustomerAddressOnImport, setUpdateCustomerAddressOnImport] = useState(false);
+  const addressWarningResolverRef = useRef(null);
+  const addressWarningAcceptedRef = useRef(false);
+  const importedAddressOverrideRef = useRef(null);
 
   // Send to Production for Approval
   const [showProductionDialog, setShowProductionDialog] = useState(false);
@@ -2092,22 +2277,30 @@ export default function AIEstimator() {
     symbilityPriceList,
     isLoading: isPriceListLoading,
   } = usePriceList(myCompany);
+  useEffect(() => {
+    if (isPriceListLoading || !pendingSidingPrice) return;
+    const next = pendingSidingPrice;
+    setPendingSidingPrice(null);
+    convertSidingRef.current?.(next);
+  }, [isPriceListLoading, pendingSidingPrice]);
   // A pricing selection controls preference, not which uploaded items the
   // estimator is allowed to use. Generation and chat share the visible catalog.
   const getActivePriceList = (source, lists) => getEstimateChatCatalog(source, {
     ...lists, allPriceListItems, companyId: myCompany?.id,
   });
   useEffect(() => {
+    sidingMaterialOverrideRef.current = '';
     setConfirmedSidingMaterial('');
+    setSidingPricingBanner(null);
+    setPendingSidingPrice(null);
   }, [satelliteAddress?.address, customerInfo?.property_address]);
   const safeAllPriceListItems = Array.isArray(allPriceListItems) ? allPriceListItems : [];
 
   const handleApplySidingCatalogPrices = () => {
-    const material = sidingMaterial(confirmedSidingMaterial);
-    if (!material) {
-      toast.error('Select Vinyl or Aluminum before applying catalog prices.');
-      return;
-    }
+    const material = resolveBillableSidingMaterial(
+      photoSidingAnalysis || sidingMeasurements || manualSidingAnalysis,
+      sidingMaterialOverrideRef.current || confirmedSidingMaterial,
+    ).material;
     if (isPriceListLoading || isProcessing) return;
     const catalog = getActivePriceList(pricingSource, { xactimatePriceList, xactimateNewPriceList, symbilityPriceList, customPriceList });
     const result = repriceSidingCatalogDraft(lineItems, material, catalog);
@@ -2535,6 +2728,7 @@ Choose your mode: Upload documents OR use satellite measurements!`,
         ...(satelliteAnalysis?.waste_override_pct != null
           ? { waste_override_pct: satelliteAnalysis.waste_override_pct }
           : {}),
+        ...wallFieldsForRoof(sidingMeasurements || photoSidingAnalysis),
       });
       // Function invokes can remain pending when an upstream imagery request
       // stalls. Recover the UI rather than leaving this screen spinning forever.
@@ -2584,6 +2778,10 @@ Choose your mode: Upload documents OR use satellite measurements!`,
         warning_message: response.data.warning_message,
         measurement_ready: response.data.measurement_ready !== false,
         requires_manual_review: response.data.requires_manual_review === true,
+        needs_rep_review: response.data.needs_rep_review === true,
+        rep_review_confirmed: false,
+        rep_review_reasons: response.data.rep_review_reasons || [],
+        rep_review_message: response.data.rep_review_message || null,
         source_quality_flags: response.data.source_quality_flags || [],
         measurement_imagery_source: response.data.measurement_imagery_source || null,
         review_imagery_source: response.data.review_imagery_source || 'google',
@@ -2600,6 +2798,8 @@ Choose your mode: Upload documents OR use satellite measurements!`,
         pitch: response.data.pitch,
         pitch_source: response.data.pitch_source || null,
         pitch_confidence: response.data.pitch_confidence || null,
+        pitch_unknown: response.data.pitch_unknown === true,
+        footprint_sqft_2d: response.data.footprint_sqft_2d || null,
         segment_pitches: response.data.segment_pitches || [],
         area_is_slope_adjusted: response.data.area_is_slope_adjusted || false,
         is_flat_roof: response.data.is_flat_roof || false,
@@ -2738,10 +2938,13 @@ Choose your mode: Upload documents OR use satellite measurements!`,
           ? `\n\n⚠️ **Warnings:**\n${realConf.warnings.map(w => `• ${w}`).join('\n')}` 
           : '';
         const orderQty = (realConf.correctedAreaSq * (1 + (analysis.waste_percentage || 12) / 100)).toFixed(1);
+        const repReviewLine = analysis.needs_rep_review
+          ? `\n\n${analysis.rep_review_message || '**Needs rep review.** Confirm this is the right roof, or hand-trace it, before marking the measurement ready.'}`
+          : '';
 
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `**Analyzed ${structureData.name}**\n\n**Roof Area:** ${realConf.correctedAreaSq} SQ | **Pitch:** ${analysis.pitch}${describePitchDetection(analysis)}\n**Order Qty:** ${orderQty} SQ (+${analysis.waste_percentage || 12}% waste)\n**Estimate Quality:** ${realConf.grade} (+/- ${realConf.tolerancePct}%)${warningLines}\n\nReview the measurements, add gutters, or add more structures. When ready, click "Generate Estimate".`,
+          content: `**Analyzed ${structureData.name}**\n\n**Roof Area:** ${realConf.correctedAreaSq} SQ | **Pitch:** ${analysis.pitch}${describePitchDetection(analysis)}\n**Order Qty:** ${orderQty} SQ (+${analysis.waste_percentage || 12}% waste)\n**Estimate Quality:** ${realConf.grade} (+/- ${realConf.tolerancePct}%)${warningLines}${repReviewLine}\n\nReview the measurements, add gutters, or add more structures. When ready, click "Generate Estimate".`,
           timestamp: new Date().toISOString()
         }]);
 
@@ -2922,8 +3125,8 @@ Choose your mode: Upload documents OR use satellite measurements!`,
     setWasteSuggestion(null);
     try {
       // Garage profile: 1-story (10ft), 10% opening deduction, 8% waste
-      const isGarageStructure = structureOverride?.structureType === 'garage' ||
-        (analyzedStructures.length > 0 && analyzedStructures[analyzedStructures.length - 1]?.structureType === 'garage' && structureType === 'garage');
+      const declaredStructure = declaredOutbuildingType(structureType, structureOverride);
+      const isGarageStructure = !!declaredStructure;
 
       // ── Await OSM building-tag lookup (if still in flight) ───────────────────
       // If the user clicked Analyze before the background OSM fetch resolved, we
@@ -3027,13 +3230,19 @@ Choose your mode: Upload documents OR use satellite measurements!`,
           openingDeductionPct,
           latitude: sidingLat,
           longitude: sidingLng,
-          use_satellite: !isGarageStructure,
-          structure_type: isGarageStructure ? 'garage' : 'house',
-          ...(roofEaveLf > 0 ? { known_perimeter_ft: roofEaveLf } : {}),
+          use_satellite: !!(sidingLat && sidingLng),
+          structure_type: declaredStructure || 'house',
+          ...(roofEaveLf > 0 ? { known_perimeter_ft: roofEaveLf, roof_eave_lf: roofEaveLf } : {}),
           ...(satelliteAnalysis?.roof_facets?.length ? { roof_facets: satelliteAnalysis.roof_facets } : {}),
           opening_deduct_min_sqft: Number(openingDeductMinSqft) === 33 ? 33 : 20,
           ...(String(sidingWasteOverridePct).trim() !== '' && Number.isFinite(Number(sidingWasteOverridePct))
             ? { siding_waste_override_pct: Math.max(10, Number(sidingWasteOverridePct)) }
+            : {}),
+          ...(confirmedFaceMaterialsRef.current
+            ? { confirmed_face_materials: confirmedFaceMaterialsRef.current }
+            : {}),
+          ...(confirmedFaceHeightsRef.current
+            ? { confirmed_face_heights: confirmedFaceHeightsRef.current }
             : {}),
         });
         const data = validatePhotoSidingResponse(response);
@@ -3045,7 +3254,8 @@ Choose your mode: Upload documents OR use satellite measurements!`,
 
         // Map trim_totals into the fields convertSidingMeasurementsToLineItems reads
         if (data.trim_totals) {
-          data.j_channel_openings_lf = Number(data.trim_totals.j_channel_lf) || 0;
+          data.j_channel_openings_lf = Number(data.trim_totals.j_channel_openings_lf ?? data.trim_totals.j_channel_lf) || 0;
+          data.j_channel_roof_wall_lf = Number(data.trim_totals.j_channel_roof_wall_lf) || 0;
           data.outside_corners_lf = Number(data.outside_corners_lf) || Number(data.trim_totals.outside_corner_lf) || 0;
           data.inside_corners_lf  = Number(data.inside_corners_lf)  || Number(data.trim_totals.inside_corner_lf)  || 0;
           data.starter_strip_lf   = Number(data.trim_totals.starter_strip_lf) || 0;
@@ -3057,26 +3267,13 @@ Choose your mode: Upload documents OR use satellite measurements!`,
         // We only need to: (a) compute the % from the backend's gross/deduction figures,
         // (b) update the Configure select and badge it, (c) tag the chip with count source.
         if (!isGarageStructure) {
-          const detectedW  = data.windows_count ?? data.window_assemblies_count ?? 0;
-          const detectedD  = data.doors_count ?? 0;
-          const detectedGD = data.garage_door_count ?? 0;
-          // Backend returns gross_wall_area_sqft and opening_deduction_sqft directly.
-          const backendGross     = Number(data.gross_wall_area_sqft) || 0;
-          const backendDeduction = Number(data.opening_deduction_sqft ?? data.opening_deduct_sqft) || 0;
-          if (backendGross > 0 && backendDeduction > 0 && (detectedW + detectedD + detectedGD) > 0) {
-            const rawPct    = (backendDeduction / backendGross) * 100;
-            const snappedPct = Math.max(10, Math.min(25, Math.round(rawPct / 5) * 5));
-            // Set opening_deduction_pct so the summary chip shows the authoritative value
-            data.opening_deduction_pct = snappedPct;
-            // Update the Configure select to match and mark as photo-auto-detected
-            setConfig(c => ({ ...c, openingDeductionPct: String(snappedPct) }));
+          const deduction = applyMeasuredOpeningDeduction(data);
+          if (deduction && !deduction.measured) {
+            setConfig(c => ({ ...c, openingDeductionPct: String(deduction.snappedPct) }));
             setPhotoAutoDetected(p => ({ ...p, openingDeductionPct: true }));
-            // Tag the measurement so the chip can display the count source
-            data._photo_detected_windows      = detectedW;
-            data._photo_detected_doors        = detectedD;
-            data._photo_detected_garage_doors = detectedGD;
-            data._photo_detected_opening_pct  = Math.round(rawPct * 10) / 10;
-            console.log(`[OpeningDeduction] backend gross=${backendGross} deduction=${backendDeduction} → ${rawPct.toFixed(1)}% → snapped ${snappedPct}% (${detectedW}w ${detectedD}d ${detectedGD}gd)`);
+          }
+          if (deduction) {
+            console.log(`[OpeningDeduction] backend deduction=${data.opening_deduction_sqft} → ${deduction.rawPct.toFixed(1)}% ${deduction.measured ? 'measured area' : `snapped ${deduction.snappedPct}%`}`);
           }
         }
 
@@ -3092,7 +3289,9 @@ Choose your mode: Upload documents OR use satellite measurements!`,
           autoBuild,
           setMeasurements: setSidingMeasurements,
           buildEstimate: convertSidingMeasurementsToLineItems,
+          resolveMaterial: rememberBillableSidingMaterial,
         });
+        applySidingRoofReview(data);
 
         // ── Keep the capture-UI Stories chip in lockstep with the measurement ──
         // `data.story_count` is the count the backend actually built the wall
@@ -3154,7 +3353,7 @@ Choose your mode: Upload documents OR use satellite measurements!`,
 
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `✅ **Siding measured — ${measurementHeadline}**\n\n${wallProvenance.detail}\n${elevationQualityNote(data)}\n${footprintSource}\n\n📐 **Wall Area:** ${data.wall_area_sq?.toFixed(2)} SQ (${data.wall_area_sqft?.toLocaleString()} sqft)\n🏠 **${heightSummary}** | ${data.window_assemblies_count ?? data.windows_count ?? 0} window assemblies | ${data.window_units_count ?? data.windows_count ?? 0} window units | ${data.doors_count || 0} doors${data.garage_door_count > 0 ? ` | ${data.garage_door_count} garage door(s)` : ''}\n${data.trim_totals ? `📏 **Trim:** J-channel ${data.trim_totals.j_channel_lf} LF | Starter ${data.trim_totals.starter_strip_lf} LF | Corners ${(data.trim_totals.outside_corner_lf || 0) + (data.trim_totals.inside_corner_lf || 0)} LF\n` : ''}🎨 **Material:** ${data.siding_material || 'unknown'} (${data.siding_condition || 'unknown'})\n📊 **Confidence:** Grade ${data.confidence_grade} ${data.overall_confidence}% (±${data.tolerance_pct}%)${data.sanity_review_required ? '\n⚠️ **SANITY-REVIEW:** photo siding and footprint sanity differ by more than 25%.' : ''}\n\n${autoBuild ? 'Line items populated. Use **"Build Siding Estimate"** to rebuild with adjusted measurements.' : '✏️ **Review the Measurement Summary below. Correct any numbers, then tap "Build Siding Estimate".**'}`,
+          content: `✅ **Siding measured — ${measurementHeadline}**\n\n${wallProvenance.detail}\n${elevationQualityNote(data)}\n${footprintSource}\n\n📐 **Wall Area:** ${data.wall_area_sq?.toFixed(2)} SQ (${data.wall_area_sqft?.toLocaleString()} sqft)\n🏠 **${heightSummary}** | ${data.window_assemblies_count ?? data.windows_count ?? 0} window assemblies | ${data.window_units_count ?? data.windows_count ?? 0} window units | ${data.doors_count || 0} doors${data.garage_door_count > 0 ? ` | ${data.garage_door_count} garage door(s)` : ''}\n${data.trim_totals ? `📏 **Trim:** J-channel ${data.trim_totals.j_channel_lf} LF | Starter ${data.trim_totals.starter_strip_lf} LF | Corners ${(data.trim_totals.outside_corner_lf || 0) + (data.trim_totals.inside_corner_lf || 0)} LF\n` : ''}🎨 **Material:** ${data.siding_material || 'unknown'} (${data.siding_condition || 'unknown'})\n📊 **Confidence:** Grade ${data.confidence_grade} ${data.overall_confidence}% (±${data.tolerance_pct}%)\n\n${autoBuild ? 'Line items populated. Use **"Build Siding Estimate"** to rebuild with adjusted measurements.' : '✏️ **Review the Measurement Summary below. Correct any numbers, then tap "Build Siding Estimate".**'}`,
           timestamp: new Date().toISOString()
         }]);
 
@@ -3167,12 +3366,20 @@ Choose your mode: Upload documents OR use satellite measurements!`,
           storyCount,
           storyHeightFt,
           openingDeductionPct,
+          structure_type: declaredStructure || structureType || 'house',
+          story_count_explicit: !!storyCountUserOverride,
+          ...(confirmedFaceHeightsRef.current
+            ? { confirmed_face_heights: confirmedFaceHeightsRef.current }
+            : {}),
+          ...(confirmedMasonryFacesRef.current
+            ? { masonry_faces: confirmedMasonryFacesRef.current }
+            : {}),
         });
         const data = response?.data || response;
         if (data?.success === false) throw new Error(data.error || 'Siding analysis failed');
 
         // If Solar API returned but wall area is zero, fall back to roof-footprint estimate
-        if (needsRoofFootprintFallback(data)) {
+        if (needsRoofFootprintFallback(data) && !(Number(data?.masonry_deduction_sqft) > 0)) {
           console.warn('analyzeSidingMeasurement returned zero wall area — using roof-footprint fallback');
           const fallback = buildRoofFootprintFallback(storyCount, totalWallHt, openingDeductionPct);
           if (fallback) {
@@ -3188,6 +3395,7 @@ Choose your mode: Upload documents OR use satellite measurements!`,
               autoBuild,
               setMeasurements: setSidingMeasurements,
               buildEstimate: convertSidingMeasurementsToLineItems,
+              resolveMaterial: rememberBillableSidingMaterial,
             });
             setMessages(prev => [...prev, {
               role: 'assistant',
@@ -3209,10 +3417,19 @@ Choose your mode: Upload documents OR use satellite measurements!`,
           _ai_net_siding_area_sqft: data.measurement_graph?.totals?.net_siding_area_sqft ?? data.wall_area_sqft,
           _ai_graph_opening_deduction_sqft: data.measurement_graph?.totals?.opening_deduction_sqft,
           },
-          autoBuild,
+          autoBuild: autoBuild && data.stories_confirmed === true,
           setMeasurements: setSidingMeasurements,
           buildEstimate: convertSidingMeasurementsToLineItems,
+          resolveMaterial: rememberBillableSidingMaterial,
         });
+        if (!storyCountUserOverride && !isGarageStructure && Number(data.story_count) > 0) {
+          const measuredStories = Number(data.story_count);
+          const snappedStories = measuredStories <= 1 ? '1'
+            : measuredStories <= 1.5 ? '1.5'
+            : measuredStories <= 2 ? '2'
+            : measuredStories <= 2.5 ? '2.5' : '3';
+          setConfig(prev => ({ ...prev, storyCount: snappedStories }));
+        }
         if (data.recommended_waste_pct != null) {
           setWasteSuggestion({
             pct: data.recommended_waste_pct,
@@ -3221,9 +3438,11 @@ Choose your mode: Upload documents OR use satellite measurements!`,
             dismissed: false
           });
         }
+        const storiesLocked = data.stories_confirmed === true;
+        const guessLabel = storyGuessLabel(data.satellite_story_guess);
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `✅ **Siding measured from satellite only**\n\nWall total is estimated — no elevation photos, so openings and wall area are not photo-measured.\n\n${data.osm_perimeter_used ? '📍 **Perimeter: OpenStreetMap** (real building footprint)' : '📡 **Perimeter: Solar API** (derived from roof segments)'}\n\n📐 **Wall Area:** ${data.wall_area_sq?.toFixed(2)} SQ (${data.wall_area_sqft?.toLocaleString()} sqft)\n📏 **Perimeter:** ${data.perimeter_ft} LF${data.osm_perimeter_used && data.solar_perimeter_ft ? ` (OSM) vs ${data.solar_perimeter_ft} LF (Solar)` : ''}\n🏠 **Building:** ${data.building_length_ft}ft × ${data.building_width_ft}ft ${data.roof_type || ''}\n📊 **Confidence:** Grade ${data.confidence_grade} ${data.overall_confidence}% (±${data.tolerance_pct}%)\n\n💡 **No Street View or photos available** — story count and window deductions are estimated. Upload house photos or wait for Street View to load for better accuracy.`,
+          content: `✅ **Siding measured from satellite only**\n\nSatellite estimate — no elevation photos, so openings and wall area are not photo-measured.\n\n${data.osm_perimeter_used ? '📍 **Perimeter: OpenStreetMap** (real building footprint)' : (String(data.analysis_notes || '').includes('Microsoft') ? '📍 **Perimeter: Microsoft building footprint**' : '📡 **Perimeter: Solar API** (derived from roof segments)')}\n\n${storiesLocked ? `📐 **Satellite estimate:** ${data.wall_area_sq?.toFixed(2)} SQ (${data.wall_area_sqft?.toLocaleString()} sqft)` : `📐 **Satellite estimate:** confirm the prefilled ${guessLabel}-story wall height (one tap) before the siding total is shown.`}\n📏 **Perimeter:** ${data.perimeter_ft} LF${data.osm_perimeter_used && data.solar_perimeter_ft ? ` (OSM) vs ${data.solar_perimeter_ft} LF (Solar)` : ''}\n🏠 **Building:** ${data.building_length_ft}ft × ${data.building_width_ft}ft ${data.roof_type || ''}\n🪟 **Openings:** ${storiesLocked ? (data.windows_count ?? data.estimated_windows ?? '—') : '—'} windows, ${data.doors_count ?? data.estimated_doors ?? '—'} doors${data.masonry_deduction_sqft > 0 ? `\n🧱 **Masonry excluded:** ${Number(data.masonry_deduction_sqft).toLocaleString()} sqft` : ''}${Number(data.gutter_lf) > 0 ? `\n🌧️ **Gutters:** ${Math.round(data.gutter_lf)} LF` : ''}\n📊 **Confidence:** Grade ${data.confidence_grade} ${data.overall_confidence}% (±${data.tolerance_pct}%)\n\n💡 **No elevation photos** — openings use standard window and door sizes once the story count is confirmed. Set masonry to none, ¼, ½, ¾, or all on each side. Upload photos when you have them.`,
           timestamp: new Date().toISOString()
         }]);
       }
@@ -3231,8 +3450,8 @@ Choose your mode: Upload documents OR use satellite measurements!`,
       console.error('Siding analysis error:', error);
 
       // Try to rescue with a roof-footprint-based estimate before giving up
-      const isGarageStructure = structureOverride?.structureType === 'garage' ||
-        (analyzedStructures.length > 0 && analyzedStructures[analyzedStructures.length - 1]?.structureType === 'garage' && structureType === 'garage');
+      const declaredStructure = declaredOutbuildingType(structureType, structureOverride);
+      const isGarageStructure = !!declaredStructure;
       const storyCount = isGarageStructure ? 1 : (Number(config.storyCount) || 1);
       // Garage: accept only 7-12 ft (plausible range); outside that range = stale house data, use 10 ft default.
       const _rawGh2 = Number(config.storyHeightFt);
@@ -3254,6 +3473,7 @@ Choose your mode: Upload documents OR use satellite measurements!`,
           autoBuild,
           setMeasurements: setSidingMeasurements,
           buildEstimate: convertSidingMeasurementsToLineItems,
+          resolveMaterial: rememberBillableSidingMaterial,
         });
         setMessages(prev => [...prev, {
           role: 'assistant',
@@ -3502,7 +3722,7 @@ FIRST decide shot_type:
 For straight_elevation or corner shots, assign exactly one label:
 - "Front" — only when the main/street-facing entrance facade is supported by a visible entry/garage/driveway/front approach cue.
 - "Back" — rear facade, typically supported by patio/deck/backyard context or a clearly non-front wall.
-- "Left Side" / "Right Side" — side wall relative to the front of THIS building; do not guess left versus right from the camera position alone.
+- "Left Side" / "Right Side" — left and right as seen from the street, facing the front of THIS building. Do not name them from the left or right of the camera frame. Back Right is the street-right rear corner, which is on the viewer's left when standing behind the house.
 - "FL Corner", "FR Corner", "BL Corner", or "BR Corner" — only for a clearly visible corner; use the front/rear cue plus the side relationship.
 - "Garage" — a distinct garage/outbuilding face, only when the garage is clearly the subject.
 For detail, not_a_building, or unknown, use "Detail".
@@ -3628,7 +3848,7 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
     setPhotoAutoDetectBefore(null);
     setPhotoAutoDetectDismissed(false);
     try {
-      const isGarageMode = structureType === 'garage';
+      const isGarageMode = OUTBUILDING_STRUCTURE.test(String(structureType || ''));
       // The selector's untouched default is not an override. Photos may synchronize
       // it until the user explicitly changes it; after that the user's value wins.
       const storyCountOverride = isGarageMode ? 1
@@ -3735,18 +3955,42 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
         console.log('[SidingScaleAnchor] No satellite wall-width anchors available for this analysis');
       }
 
+      const photoLat = satelliteAddress?.coordinates?.lat || satelliteAddress?.lat || null;
+      const photoLng = satelliteAddress?.coordinates?.lng || satelliteAddress?.lng || null;
+      const priorFootprintSource = satelliteAnalysis?.footprint_source;
+      // The roof step already resolved the address outline, including a
+      // Microsoft footprint when OSM had none. A rectangle invented for the
+      // 3D view is not that outline. Garage mode keeps the photo box.
+      const priorFootprint = !isGarageMode
+        && satelliteAnalysis?.footprint_geometry !== 'rectangle_estimate'
+        && Array.isArray(satelliteAnalysis?.footprint_polygon_xy)
+        && satelliteAnalysis.footprint_polygon_xy.length >= 3
+        ? satelliteAnalysis.footprint_polygon_xy
+        : null;
       const response = await base44.functions.invoke('analyzeHousePhotosForSiding', {
         photos: photosForAnalysis,
         story_count_override: storyCountOverride,
         storyHeightFt: Number(config.storyHeightFt) || 9,
         openingDeductionPct: Number(config.openingDeductionPct) || 15,
-        latitude: (!isGarageMode && useSatelliteMode) ? (satelliteAddress?.coordinates?.lat || satelliteAddress?.lat || null) : null,
-        longitude: (!isGarageMode && useSatelliteMode) ? (satelliteAddress?.coordinates?.lng || satelliteAddress?.lng || null) : null,
-        use_satellite: !isGarageMode && useSatelliteMode,
-        structure_type: structureType,
+        // Photos measure height, openings, and material. The wall line stays on
+        // the footprint whenever the address has coordinates or a prior outline.
+        latitude: photoLat,
+        longitude: photoLng,
+        use_satellite: photoLat != null && photoLng != null,
+        ...(priorFootprint ? { footprint_polygon_xy: priorFootprint, footprint_source: priorFootprintSource } : {}),
+        ...(Number(satelliteAnalysis?.eave_lf) > 0 ? { roof_eave_lf: Number(satelliteAnalysis.eave_lf) } : {}),
+        ...(Array.isArray(satelliteAnalysis?.roof_facets) && satelliteAnalysis.roof_facets.length
+          ? { roof_facets: satelliteAnalysis.roof_facets } : {}),
+        structure_type: isGarageMode ? structureType : 'house',
         opening_deduct_min_sqft: Number(openingDeductMinSqft) === 33 ? 33 : 20,
         ...(String(sidingWasteOverridePct).trim() !== '' && Number.isFinite(Number(sidingWasteOverridePct))
           ? { siding_waste_override_pct: Math.max(10, Number(sidingWasteOverridePct)) }
+          : {}),
+        ...(confirmedFaceMaterialsRef.current
+          ? { confirmed_face_materials: confirmedFaceMaterialsRef.current }
+          : {}),
+        ...(confirmedFaceHeightsRef.current
+          ? { confirmed_face_heights: confirmedFaceHeightsRef.current }
           : {}),
       });
       if (response?.error) throw new Error(response.error);
@@ -3762,7 +4006,8 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       // Map hybrid-engine trim totals into the fields the line-item converter reads.
       // j_channel_openings_lf is measured from actual window/door perimeters.
       if (data.trim_totals) {
-        data.j_channel_openings_lf = Number(data.trim_totals.j_channel_lf) || 0;
+        data.j_channel_openings_lf = Number(data.trim_totals.j_channel_openings_lf ?? data.trim_totals.j_channel_lf) || 0;
+        data.j_channel_roof_wall_lf = Number(data.trim_totals.j_channel_roof_wall_lf) || 0;
         data.outside_corners_lf = Number(data.outside_corners_lf) || Number(data.trim_totals.outside_corner_lf) || 0;
         data.inside_corners_lf  = Number(data.inside_corners_lf)  || Number(data.trim_totals.inside_corner_lf)  || 0;
         // NOTE: deliberately NOT mapped to wall_bottom_lf — that field also drives a
@@ -3773,32 +4018,22 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       // ── Derive opening deduction % from backend's authoritative gross/deduction ──
       // Same logic as handleAnalyzeSiding — does NOT mutate net wall area.
       if (!isGarageMode) {
-        const detectedW  = data.windows_count ?? data.window_assemblies_count ?? 0;
-        const detectedD  = data.doors_count ?? 0;
-        const detectedGD = data.garage_door_count ?? 0;
-        const backendGross     = Number(data.gross_wall_area_sqft) || 0;
-        const backendDeduction = Number(data.opening_deduction_sqft ?? data.opening_deduct_sqft) || 0;
-        if (backendGross > 0 && backendDeduction > 0 && (detectedW + detectedD + detectedGD) > 0) {
-          const rawPct     = (backendDeduction / backendGross) * 100;
-          const snappedPct = Math.max(10, Math.min(25, Math.round(rawPct / 5) * 5));
-          data.opening_deduction_pct    = snappedPct;
-          data._photo_detected_windows      = detectedW;
-          data._photo_detected_doors        = detectedD;
-          data._photo_detected_garage_doors = detectedGD;
-          data._photo_detected_opening_pct  = Math.round(rawPct * 10) / 10;
-          data._photo_detected_snapped_pct  = snappedPct; // carried into the config block below
-          console.log(`[OpeningDeduction/photos] backend gross=${backendGross} deduction=${backendDeduction} → ${rawPct.toFixed(1)}% → snapped ${snappedPct}% (${detectedW}w ${detectedD}d ${detectedGD}gd)`);
+        const deduction = applyMeasuredOpeningDeduction(data);
+        if (deduction) {
+          console.log(`[OpeningDeduction/photos] deduction=${data.opening_deduction_sqft} → ${deduction.rawPct.toFixed(1)}% ${deduction.measured ? 'measured area' : `snapped ${deduction.snappedPct}%`}`);
         }
       }
 
-      await completeSidingMeasurement({
+      const photoPricing = await completeSidingMeasurement({
         measurements: data,
-        autoBuild: false,
+        autoBuild: true,
         setMeasurements: setPhotoSidingAnalysis,
         buildEstimate: convertSidingMeasurementsToLineItems,
+        resolveMaterial: rememberBillableSidingMaterial,
       });
       setSidingCoverageAcknowledged(false);
       setEditedSidingFields({}); // reset any prior edits when a new analysis runs
+      setMaterialSectionOverrides({});
 
       // ── Apply photo-detected roof pitch to satellite analysis ─────────────
       // Gable-end photos give a more reliable pitch reading than Google Solar's
@@ -3809,8 +4044,11 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
         setPhotoPitch(data.roof_pitch_detected);
         roofBase = roofBase ? applyPhotoPitchToAnalysis(roofBase, data.roof_pitch_detected) : roofBase;
       }
-      const reconciledRoof = reconcileRoofMeasurement(roofBase, data.roof_measurement_graph);
-      if (reconciledRoof) {
+      const reconciledRoof = mergeRoofWallReview(
+        reconcileRoofMeasurement(roofBase, data.roof_measurement_graph) || roofBase,
+        data,
+      );
+      if (reconciledRoof && reconciledRoof !== satelliteAnalysis) {
         setSatelliteAnalysis(reconciledRoof);
         setMeasurementsBySource(prev => ({
           ...prev,
@@ -3854,7 +4092,7 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       detected.sidingWastePct = suggestedWaste;
 
       // Auto-update opening deduction % from photo-detected counts (computed above)
-      if (!isGarageMode && data._photo_detected_snapped_pct != null) {
+      if (!isGarageMode && data._photo_detected_snapped_pct != null && data.opening_deduction_basis !== 'measured') {
         detected.openingDeductionPct = String(data._photo_detected_snapped_pct);
       }
 
@@ -3877,11 +4115,11 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
         ? `wallHt=${data.story_height_ft}ft full plane (stories multiplier=1)`
         : `${data.story_count} stor${data.story_count === 1 ? 'y' : 'ies'} × ${data.story_height_ft}ft story height`;
 
-      // Do NOT auto-generate line items — let the contractor review and correct
-      // the Measurement Summary panel below before committing to an estimate.
+      // Photo measurement prices siding lines immediately. Build Siding Estimate
+      // stays on the summary as a manual refresh.
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `${isGarageMode ? '🏗️' : useSatelliteMode ? '🛰️' : '📸'} **Siding measurements ready — review before building estimate**\n${elevationQualityNote(data)}${dedupedSv.length > 0 ? `\n🌐 **Street View reference:** ${dedupedSv.map(p => p.label).join(', ')} (reference only; not counted as verified elevation coverage)` : ''}${photosCapped ? `\n📸 **${photosForAnalysis.length} of ${allPhotos.length} photos analyzed** — the four elevations are always kept` : ''}\n\n📐 **Wall Area:** ${data.wall_area_sq?.toFixed(2)} SQ (${data.wall_area_sqft?.toLocaleString()} sqft)\n${data.is_garage_job ? '🏗️ **Garage/outbuilding**' : '🏠'} **${analysisHeightSummary}** | ${data.window_assemblies_count ?? data.windows_count ?? 0} window assemblies | ${data.window_units_count ?? data.windows_count ?? 0} window units | ${data.doors_count} doors${data.garage_door_count > 0 ? ` | ${data.garage_door_count} garage door(s)` : ''}${data.gable_area_sqft > 0 ? `\n📐 **Gable area included:** ${data.gable_area_sqft} sqft (${(data.gable_area_sqft/100).toFixed(2)} SQ, ${data.gable_rise_ft}ft rise)` : ''}${data.depth_missing ? '\n⚠️ **No side photos — depth estimated.** Upload left/right elevation photos for best accuracy.' : ''}${isGarageMode ? '\n🏗️ **Garage mode** — satellite skipped, AI analyzed photos as a detached garage/outbuilding.' : !useSatelliteMode ? '\n📸 **Photos Only mode** — satellite was not used. All dimensions are from your uploaded photos.' : data.is_garage_job ? '\n⚠️ **Satellite footprint skipped** — photos show a garage/outbuilding.' : data.osm_perimeter_used ? '\n🗺️ **Footprint: OpenStreetMap** (traced building polygon — highest perimeter accuracy)' : data.used_satellite_footprint ? '\n📡 **Footprint: Solar API** (corrected bounding box)' : '\n📸 **Footprint: Photo-derived** (satellite unavailable or mismatched)'}${data.height_clamped ? '\n⚠️ **Some wall heights clamped to story-count maximum** — verify eave height in the summary below.' : ''}${data.osm_height_warning ? `\n${data.osm_height_warning}` : ''}${data.trim_totals ? `\n📏 **Trim:** J-channel ${data.trim_totals.j_channel_lf} LF | Starter ${data.trim_totals.starter_strip_lf} LF | Corners ${data.trim_totals.outside_corner_lf + data.trim_totals.inside_corner_lf} LF` : ''}${data.sanity_warning ? `\n**${data.sanity_warning}**` : ''}${data.failed_photo_labels?.length > 0 ? `\n⚠️ **${data.failed_photo_labels.length} photo(s) could not be analyzed** (${data.failed_photo_labels.join(', ')}) — opening counts may be low.` : ''}${data.has_mixed_materials && data.accent_deduction_sqft > 0 ? `\n🪨 **Mixed materials detected** — ${data.accent_deduction_sqft} sqft of ${data.accent_material} deducted.` : ''}\n🎨 **Material:** ${data.siding_material || 'unknown'} (${data.siding_condition || 'unknown'} condition)\n📊 **Confidence:** Grade ${data.confidence_grade} ${data.overall_confidence}% (±${data.tolerance_pct}%)\n\n✏️ **Review the Measurement Summary below. Correct any numbers, then tap "Build Siding Estimate".**`,
+        content: `${isGarageMode ? '🏗️' : useSatelliteMode ? '🛰️' : '📸'} **Siding measured**\n${elevationQualityNote(data)}${dedupedSv.length > 0 ? `\n🌐 **Street View reference:** ${dedupedSv.map(p => p.label).join(', ')} (reference only; not counted as verified elevation coverage)` : ''}${photosCapped ? `\n📸 **${photosForAnalysis.length} of ${allPhotos.length} photos analyzed** — the four elevations are always kept` : ''}\n\n📐 **Wall Area:** ${data.wall_area_sq?.toFixed(2)} SQ (${data.wall_area_sqft?.toLocaleString()} sqft)\n${data.is_garage_job ? '🏗️ **Garage/outbuilding**' : '🏠'} **${analysisHeightSummary}** | ${data.window_assemblies_count ?? data.windows_count ?? 0} window assemblies | ${data.window_units_count ?? data.windows_count ?? 0} window units | ${data.doors_count} doors${data.garage_door_count > 0 ? ` | ${data.garage_door_count} garage door(s)` : ''}${data.gable_area_sqft > 0 ? `\n📐 **Gable area included:** ${data.gable_area_sqft} sqft (${(data.gable_area_sqft/100).toFixed(2)} SQ, ${data.gable_rise_ft}ft rise)` : ''}${data.depth_missing ? '\n⚠️ **No side photos — depth estimated.** Upload left/right elevation photos for best accuracy.' : ''}${isGarageMode ? '\n🏗️ **Garage mode** — satellite skipped, AI analyzed photos as a detached garage/outbuilding.' : !useSatelliteMode ? '\n📸 **Photos Only mode** — satellite was not used. All dimensions are from your uploaded photos.' : data.is_garage_job ? '\n⚠️ **Satellite footprint skipped** — photos show a garage/outbuilding.' : data.osm_perimeter_used ? '\n🗺️ **Footprint: OpenStreetMap** (traced building polygon — highest perimeter accuracy)' : data.used_satellite_footprint ? '\n📡 **Footprint: Solar API** (corrected bounding box)' : '\n📸 **Footprint: Photo-derived** (satellite unavailable or mismatched)'}${data.height_clamped ? '\n⚠️ **Some wall heights clamped to story-count maximum** — verify eave height in the summary below.' : ''}${data.osm_height_warning ? `\n${data.osm_height_warning}` : ''}${data.trim_totals ? `\n📏 **Trim:** J-channel ${data.trim_totals.j_channel_lf} LF | Starter ${data.trim_totals.starter_strip_lf} LF | Corners ${data.trim_totals.outside_corner_lf + data.trim_totals.inside_corner_lf} LF` : ''}${data.sanity_warning ? `\n**${data.sanity_warning}**` : ''}${data.failed_photo_labels?.length > 0 ? `\n⚠️ **${data.failed_photo_labels.length} photo(s) could not be analyzed** (${data.failed_photo_labels.join(', ')}) — opening counts may be low.` : ''}${data.has_mixed_materials && data.accent_deduction_sqft > 0 ? `\n🪨 **Mixed materials detected** — ${data.accent_deduction_sqft} sqft of ${data.accent_material} deducted.` : ''}\n🎨 **Material:** ${data.siding_material || 'unknown'} (${data.siding_condition || 'unknown'} condition)\n📊 **Confidence:** Grade ${data.confidence_grade} ${data.overall_confidence}% (±${data.tolerance_pct}%)\n\n${photoPricing?.priced ? 'Priced siding lines are below. **Build Siding Estimate** refreshes them after you edit the summary.' : 'Siding was not priced. The banner on this page says why. **Build Siding Estimate** retries once that is resolved.'}`,
         timestamp: new Date().toISOString()
       }]);
     } catch (error) {
@@ -4016,11 +4254,10 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
     const perim = Number(manualSidingForm.perimeter_ft);
     const stories = Number(manualSidingForm.stories) || 1;
     const eaveHt = Number(manualSidingForm.eave_height_ft) || 9;
-    const selectedMaterial = sidingMaterial(manualSidingForm.siding_material || manualSidingAnalysis?.siding_material);
-    if (!selectedMaterial) {
-      toast.error('Select aluminum or vinyl siding before building the estimate.');
-      return;
-    }
+    const selectedMaterial = resolveBillableSidingMaterial(
+      { siding_material: manualSidingForm.siding_material || manualSidingAnalysis?.siding_material },
+      manualSidingForm.siding_material,
+    ).material;
     if (!perim || perim < 40) {
       toast.error('Enter a valid Perimeter (at least 40 LF).');
       return;
@@ -4048,7 +4285,7 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       handleBuildSidingEstimate(measurements);
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `📏 **Siding estimate — Manual measurements**\n\n📐 **Wall Area:** ${(netWallSqft / 100).toFixed(2)} SQ (${Math.round(netWallSqft).toLocaleString()} sqft)\n🏠 **${stories} stor${stories === 1 ? 'y' : 'ies'}** × ${eaveHt}ft eave | ${windows} windows | ${doors} doors${garageDoors > 0 ? ` | ${garageDoors} garage door(s)` : ''}${gableAreaSqft > 0 ? `\n📐 **Gable area:** ${gableAreaSqft} sqft (${gableRise}ft rise)` : ''}\n📏 **Perimeter:** ${perim} LF\n🎨 **Material:** ${measurements.siding_material}${manualSidingForm.siding_material ? ' (selected manually)' : manualSidingAnalysis?.material_only ? ' (from photo scan)' : ' (unconfirmed — choose a material to price)'}\n\n✅ Source: **Manual measurements** — no AI estimation used for dimensions. Line items populated below.`,
+        content: `📏 **Siding estimate — Manual measurements**\n\n📐 **Wall Area:** ${(netWallSqft / 100).toFixed(2)} SQ (${Math.round(netWallSqft).toLocaleString()} sqft)\n🏠 **${stories} stor${stories === 1 ? 'y' : 'ies'}** × ${eaveHt}ft eave | ${windows} windows | ${doors} doors${garageDoors > 0 ? ` | ${garageDoors} garage door(s)` : ''}${gableAreaSqft > 0 ? `\n📐 **Gable area:** ${gableAreaSqft} sqft (${gableRise}ft rise)` : ''}\n📏 **Perimeter:** ${perim} LF\n🎨 **Material:** ${measurements.siding_material}${manualSidingForm.siding_material ? ' (selected manually)' : manualSidingAnalysis?.material_only ? ' (from photo scan)' : ' (vinyl default)'}\n\n✅ Source: **Manual measurements** — no AI estimation used for dimensions. Line items populated below.`,
         timestamp: new Date().toISOString()
       }]);
     } catch (err) {
@@ -4427,7 +4664,7 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
     
     // 7. DRIP EDGE / EAVE TRIM
     const rakeLF = Math.round((Number(measurements.rake_lf) || 0) * 100) / 100;
-    const totalEdge = rakeLF + eavesLF;
+    const totalEdge = estimateDripEdgeLf(measurements);
     if (totalEdge > 0) {
       const dripItem = findMetalItem(
         ['RFG DE', 'DRIP'],
@@ -4771,6 +5008,22 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
     return rebuildSidingMeasurementsFromEdits(original, edits);
   };
 
+  const confirmedWallMaterials = useMemo(() => {
+    const base = photoSidingAnalysis?.wall_material_sections;
+    if (!base?.inputs) return base || null;
+    if (!Object.keys(materialSectionOverrides).length) return base;
+    const next = measureWallMaterialSections({
+      ...base.inputs,
+      overrides: materialSectionOverrides,
+    });
+    return {
+      ...next,
+      inputs: base.inputs,
+      face_lengths_ft: base.face_lengths_ft,
+      face_length_source: base.face_length_source,
+    };
+  }, [photoSidingAnalysis, materialSectionOverrides]);
+
   const effectivePhotoSiding = photoSidingAnalysis
     ? rebuildSidingFromEdits(photoSidingAnalysis, editedSidingFields)
     : null;
@@ -4802,41 +5055,101 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       })
     : null;
 
+  const holdSidingPricing = (measurements, { force = false } = {}) => {
+    const contract = resolveCanonicalSidingContract(
+      measurements,
+      measurements?._wasteOverride ?? config.sidingWastePct,
+    );
+    const roofSQ = Number(satelliteAnalysis?.corrected_area_sq) || Number(satelliteAnalysis?.roof_area_sq) || 0;
+    const block = describeSidingPricingBlock({
+      priceListLoading: isPriceListLoading,
+      measurements,
+      roofSq: roofSQ,
+      graphPresent: contract.graph_present,
+      graphSupported: contract.supported,
+      graphIssues: contract.issues,
+      ignoreOverridable: force,
+    });
+    if (!block) return null;
+    setSidingPricingBanner({ ...block, measurements });
+    setPendingSidingPrice(block.code === 'price_list_loading' ? measurements : null);
+    if (block.code === 'siding_over_roof') setPendingSidingMeasurements(measurements);
+    return block;
+  };
+
   // Guard that checks the siding-vs-roof ratio before proceeding.
-  // Shows a blocking confirmation dialog when wall_area_sq > roofSQ × 4
-  // and a roof estimate is available; otherwise proceeds directly.
-  const handleBuildSidingEstimate = async (measurements) => {
+  // A visible banner explains why pricing stopped. The 4× roof case also
+  // keeps the confirmation dialog so the rep can price anyway.
+  const handleBuildSidingEstimate = async (measurements, options = {}) => {
+    const force = options.force === true;
     const sidingContract = resolveCanonicalSidingContract(
       measurements,
       measurements?._wasteOverride ?? config.sidingWastePct,
     );
     if (sidingContract.graph_present && !sidingContract.supported) {
-      toast.error(`Siding measurements need correction before an estimate can be created (${sidingContract.issues.join(', ') || 'invalid canonical graph'}).`);
+      const block = describeSidingPricingBlock({
+        measurements,
+        graphPresent: true,
+        graphSupported: false,
+        graphIssues: sidingContract.issues,
+      });
+      setSidingPricingBanner({ ...block, measurements });
       return;
     }
-    const roofSQ = Number(satelliteAnalysis?.corrected_area_sq) || Number(satelliteAnalysis?.roof_area_sq) || 0;
-    const sidingSQ = Number(measurements?.wall_area_sq) || 0;
-    if (roofSQ > 0 && sidingSQ > roofSQ * 4) {
-      setPendingSidingMeasurements(measurements);
-      setShowSidingOverflowWarning(true);
-    } else {
-      setIsBuildingSidingEstimate(true);
-      try {
-        await convertSidingMeasurementsToLineItems(measurements);
-      } catch (error) {
-        console.error('Build siding estimate error:', error);
-        toast.error(error?.message || 'Could not build the siding estimate. Review the measurements and try again.');
-      } finally {
-        setIsBuildingSidingEstimate(false);
-      }
+    const block = holdSidingPricing(measurements, { force });
+    if (block) {
+      if (block.code === 'siding_over_roof') setShowSidingOverflowWarning(true);
+      return;
+    }
+    setSidingPricingBanner(null);
+    setIsBuildingSidingEstimate(true);
+    try {
+      await convertSidingMeasurementsToLineItems(measurements, { force });
+    } catch (error) {
+      console.error('Build siding estimate error:', error);
+      const message = error?.message || 'Could not build the siding estimate. Review the measurements and try again.';
+      setSidingPricingBanner({
+        code: 'pricing_error',
+        overridable: false,
+        message,
+        measurements,
+      });
+    } finally {
+      setIsBuildingSidingEstimate(false);
     }
   };
 
-  const convertSidingMeasurementsToLineItems = async (measurements) => {
-    if (isPriceListLoading) throw new Error('The price catalog is still loading. Please wait before building the siding estimate.');
-    const material = sidingMaterial(confirmedSidingMaterial || measurements.siding_material);
-    if (!material) throw new Error('Confirm the siding material (vinyl or aluminum) using the Siding material selector before building. Other materials require manual catalog selection.');
-    measurements = { ...measurements, siding_material: material };
+  const handleSidingMaterialChoice = (next, measurements) => {
+    const material = sidingMaterial(next) || 'vinyl';
+    sidingMaterialOverrideRef.current = material;
+    setConfirmedSidingMaterial(material);
+    setManualSidingForm(prev => ({ ...prev, siding_material: material }));
+    const source = measurements || photoSidingAnalysis || sidingMeasurements || manualSidingAnalysis;
+    if (!source) return;
+    const stamped = { ...source, siding_material: material, siding_material_source: 'selected', siding_material_low_confidence: false };
+    if (photoSidingAnalysis && (source === photoSidingAnalysis || source === effectivePhotoSiding)) {
+      setPhotoSidingAnalysis(prev => prev ? { ...prev, siding_material: material, siding_material_source: 'selected', siding_material_low_confidence: false } : prev);
+    }
+    if (sidingMeasurements && source === sidingMeasurements) {
+      setSidingMeasurements(prev => prev ? { ...prev, siding_material: material, siding_material_source: 'selected', siding_material_low_confidence: false } : prev);
+    }
+    if (manualSidingAnalysis && source === manualSidingAnalysis && !manualSidingAnalysis.material_only) {
+      setManualSidingAnalysis(prev => prev ? { ...prev, siding_material: material, siding_material_source: 'selected', siding_material_low_confidence: false } : prev);
+    }
+    handleBuildSidingEstimate(stamped);
+  };
+
+  const convertSidingMeasurementsToLineItems = async (measurements, options = {}) => {
+    const held = holdSidingPricing(measurements, { force: options.force === true });
+    if (held) return { priced: false, block: held };
+    setSidingPricingBanner(null);
+    setPendingSidingPrice(null);
+    const material = resolveBillableSidingMaterial(measurements, sidingMaterialOverrideRef.current).material;
+    measurements = {
+      ...measurements,
+      siding_material: material,
+      ...(confirmedWallMaterials ? { wall_material_sections: confirmedWallMaterials } : {}),
+    };
     console.log('🔄 convertSidingMeasurementsToLineItems called with:', measurements);
     
     // Save to history before making changes
@@ -4849,14 +5162,21 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
     const items = [];
     let lineNumber = 1;
 
+    const notePriceSource = trackPriceSource(items);
     const findSidingItem = (searchTerms, fallback) =>
-      findSidingScopeCatalogItem(priceList, searchTerms, fallback, material);
+      notePriceSource(findSidingScopeCatalogItem(priceList, searchTerms, fallback, material));
 
     const wastePct = measurements._wasteOverride != null ? Number(measurements._wasteOverride) : (Number(config.sidingWastePct) || 0);
     const sidingContract = resolveCanonicalSidingContract(measurements, wastePct);
     if (sidingContract.graph_present && !sidingContract.supported) {
       const reason = sidingContract.issues.join(', ') || 'canonical graph needs review';
-      throw new Error(`Cannot create precise siding quantities: ${reason}`);
+      const block = {
+        code: 'sanity_check',
+        overridable: false,
+        message: `Sanity check failed (${reason}), so siding was not priced.`,
+      };
+      setSidingPricingBanner({ ...block, measurements });
+      return { priced: false, block };
     }
     const wasteMultiplier = sidingContract.waste_multiplier;
     const graphTotals = sidingContract.totals;
@@ -4922,9 +5242,14 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       });
     }
 
-    // 3. J-CHANNEL (Wall Top)
-    const wallTopLF = Number(measurements.wall_top_lf) || 0;
-    if (wallTopLF > 0) {
+    // J-channel is the roof-wall line (eave + rake) once, plus opening
+    // perimeters. The full wall perimeter is not billed as both a top and a
+    // bottom run — that counted every wall edge twice.
+    const graphTrim = measurements.measurement_graph?.totals || measurements.trim_totals || {};
+    const roofWallFromGraph = Number(graphTrim.j_channel_roof_wall_lf) || Number(measurements.j_channel_roof_wall_lf) || 0;
+    const roofWallFromEave = (Number(measurements.eave_lf) || 0) + (Number(measurements.rake_lf) || 0);
+    const roofWallJLF = roofWallFromGraph > 0 ? roofWallFromGraph : roofWallFromEave;
+    if (roofWallJLF > 0) {
       const jChannelItem = findSidingItem({
         codes: ['SID J', 'J-CHANNEL'],
         keywords: ['j-channel', 'j channel'],
@@ -4935,49 +5260,17 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
         code: "SID J",
         description: "J-channel, vinyl"
       });
-      
       const price = Number(jChannelItem.price) || 0;
-      
       items.push({
         line: lineNumber++,
         code: jChannelItem.code,
-        description: jChannelItem.description + " (Top)",
-        quantity: wallTopLF,
+        description: jChannelItem.description + " (roof-wall)",
+        quantity: Math.round(roofWallJLF),
         unit: "LF",
         rate: price,
-        rcv: price * wallTopLF,
-        acv: price * wallTopLF,
-        amount: price * wallTopLF,
-        depreciation: 0
-      });
-    }
-
-    // 4. J-CHANNEL (Wall Bottom)
-    const wallBottomLF = Number(measurements.wall_bottom_lf) || 0;
-    if (wallBottomLF > 0) {
-      const jChannelItem = findSidingItem({
-        codes: ['SID J', 'J-CHANNEL'],
-        keywords: ['j-channel', 'j channel'],
-        exclude: []
-      }, {
-        price: 3.50,
-        unit: "LF",
-        code: "SID J",
-        description: "J-channel, vinyl"
-      });
-      
-      const price = Number(jChannelItem.price) || 0;
-      
-      items.push({
-        line: lineNumber++,
-        code: jChannelItem.code,
-        description: jChannelItem.description + " (Bottom)",
-        quantity: wallBottomLF,
-        unit: "LF",
-        rate: price,
-        rcv: price * wallBottomLF,
-        acv: price * wallBottomLF,
-        amount: price * wallBottomLF,
+        rcv: price * roofWallJLF,
+        acv: price * roofWallJLF,
+        amount: price * roofWallJLF,
         depreciation: 0
       });
     }
@@ -5045,6 +5338,7 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
     }
 
     // 7. STARTER STRIP — keep raw LF; use the catalog's measured unit.
+    const wallBottomLF = Number(measurements.wall_bottom_lf) || Number(measurements.perimeter_ft) || 0;
     const perimeterLF = Number(measurements.measurement_graph?.building?.perimeter_ft) || Number(measurements.perimeter_ft) || wallBottomLF || 0;
     const canonicalStarterLF = Number(graphTotals?.starter_strip_lf);
     const starterLF = canonicalStarterLF > 0 ? canonicalStarterLF : wallBottomLF;
@@ -5076,7 +5370,9 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       });
     }
 
-    const openingJChannelLF = Number(graphTotals?.j_channel_lf) || Number(measurements.j_channel_openings_lf) || 0;
+    const openingJChannelLF = Number.isFinite(Number(graphTotals?.j_channel_openings_lf))
+      ? Number(graphTotals.j_channel_openings_lf)
+      : (Number(measurements.j_channel_openings_lf) || Number(graphTotals?.j_channel_lf) || 0);
     if (openingJChannelLF > 0) {
       const jChannelItem = findSidingItem({
         codes: ['SID J', 'J-CHANNEL'],
@@ -5101,6 +5397,85 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
         amount: price * openingJChannelLF,
         depreciation: 0
       });
+    }
+
+    const pushAccessory = (quantity, unit, search, fallback, notes) => {
+      if (!(quantity > 0)) return;
+      const item = findSidingItem(search, fallback);
+      const price = Number(item.price) || 0;
+      items.push({
+        line: lineNumber++,
+        code: item.code,
+        description: item.description,
+        quantity,
+        unit,
+        rate: price,
+        rcv: price * quantity,
+        acv: price * quantity,
+        amount: price * quantity,
+        depreciation: 0,
+        notes,
+      });
+    };
+
+    pushAccessory(
+      Number(measurements.gutter_lf) || 0,
+      'LF',
+      { codes: ['GUTTER', 'RFG GTR'], keywords: ['gutter'], exclude: ['guard', 'screen', 'cover'] },
+      { price: 0, unit: 'LF', code: 'GUTTER', description: 'Gutter, aluminum' },
+      measurements.gutter_source === 'estimated_from_eave' ? 'Estimated from the eave line' : undefined,
+    );
+    lineNumber = appendMeasuredTrimLines(items, measurements, priceList, {
+      soffit: true,
+      fascia: true,
+      downspouts: true,
+      sidingMinimum: true,
+    }, lineNumber);
+
+    const sectionTotals = measurements.wall_material_sections?.totals_gross_sqft;
+    const hasMaterialSections = (measurements.wall_material_sections?.overlay?.length || 0) > 0;
+    if (hasMaterialSections) {
+      const measuredNotes = [
+        ['stone', 'STN', 'Stone veneer — measured wall area'],
+        ['stucco', 'STC', 'Stucco — measured wall area'],
+        ['brick', 'BRK', 'Brick veneer — excluded from vinyl siding'],
+      ];
+      for (const [materialName, code, label] of measuredNotes) {
+        const sqft = Number(sectionTotals?.[materialName]) || 0;
+        if (sqft <= 0) continue;
+        items.push({
+          line: lineNumber++,
+          code,
+          description: `${label} (${Math.round(sqft)} SF)`,
+          quantity: Math.round(sqft),
+          unit: 'SF',
+          rate: 0,
+          rcv: 0,
+          acv: 0,
+          amount: 0,
+          depreciation: 0,
+          catalog_exempt: true,
+          notes: 'Measured from the photo material sections. Not billed as vinyl.',
+        });
+      }
+    } else {
+      const brickSqft = Number(measurements.brick_area_sqft) || Number(measurements.masonry_deduct_sqft) || 0;
+      if (brickSqft > 0) {
+        items.push({
+          line: lineNumber++,
+          code: '',
+          description: `Brick veneer — excluded from vinyl siding (${Math.round(brickSqft)} SF)`,
+          quantity: Math.round(brickSqft),
+          unit: 'SF',
+          rate: 0,
+          rcv: 0,
+          acv: 0,
+          amount: 0,
+          depreciation: 0,
+          catalog_exempt: true,
+          notes: 'Masonry is not billed as vinyl. Openings in brick stay on the masonry column.',
+        });
+      }
     }
 
     // 8. HOUSE WRAP — covers the whole sheathed wall, including behind masonry
@@ -5287,7 +5662,25 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
     }
 
     const materialPricing = finalizeSidingCatalogLines(items, measurements.siding_material, priceList);
-    const pricedItems = materialPricing.items;
+    const presentMaterials = measurements.wall_material_sections?.materials_present;
+    const materialFilter = (hasMaterialSections && Array.isArray(presentMaterials))
+      ? filterLineItemsToMaterials(materialPricing.items, {
+          materialsPresent: presentMaterials,
+          approvedIds: approvedSidingConfirmIds,
+        })
+      : { items: materialPricing.items, dropped: [], held: [] };
+    const guardedLines = guardSidingLineItems(materialFilter.items, {
+      material,
+      approvedIds: approvedSidingConfirmIds,
+    });
+    const pricedItems = guardedLines.items;
+    const heldForApproval = [...materialFilter.held, ...guardedLines.held].map((item) => ({
+      ...item,
+      confirm: true,
+      confirm_id: String(item.confirm_id || `${item.code || ''}|${item.description || ''}`).toLowerCase(),
+    }));
+    setHeldSidingLines(heldForApproval);
+    setDroppedMaterialLines(materialFilter.dropped || []);
     console.log('✅ Siding line items created:', pricedItems);
     console.log('📊 Total items:', pricedItems.length);
     
@@ -5304,17 +5697,18 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
 
     const itemDescriptions = [];
     itemDescriptions.push(`🏠 Wall Area: ${wallAreaSQ.toFixed(2)} SQ (${wallAreaSF.toFixed(0)} SF)`);
-    itemDescriptions.push(`Wall Top: ${wallTopLF.toFixed(0)} LF`);
-    itemDescriptions.push(`Wall Bottom: ${wallBottomLF.toFixed(0)} LF`);
+    itemDescriptions.push(`J-channel roof-wall: ${Math.round(roofWallJLF)} LF`);
     itemDescriptions.push(`Inside Corners: ${measurements.inside_corners_count || 0} (${insideCornersLF.toFixed(0)} LF)`);
     itemDescriptions.push(`Outside Corners: ${measurements.outside_corners_count || 0} (${outsideCornersLF.toFixed(0)} LF)`);
 
     setMessages(prev => [...prev, {
       role: 'assistant',
-      content: `${materialPricing.missing.length ? '⚠️ **Siding draft — catalog pricing needs review**' : '✅ **Created Siding Estimate**'}\n\n📊 **${pricedItems.length} items** • **${materialPricing.missing.length ? 'Priced subtotal only (not a finished estimate)' : 'Total'}: $${total.toLocaleString()}**\n\n${itemDescriptions.join('\n')}${materialPricing.missing.length ? `\n\n⚠️ No valid priced match in the selected ${pricingSource} catalog for: ${materialPricing.missing.join(', ')}. You can enter your own rates and save your work. Use Browse Items to replace these rows with catalog items if needed. Catalog-based estimate exports require reviewed pricing; guessed codes and rates were not substituted.` : ''}\n\n💡 *Ask AI to "add 10% waste" or "add 15% waste" when ready. Use "AI Review" to check for missing items like soffit, fascia, or trim*`,
+      content: `${materialPricing.missing.length ? '⚠️ **Siding draft — catalog pricing needs review**' : '✅ **Created Siding Estimate**'}\n\n📊 **${pricedItems.length} items** • **${materialPricing.missing.length ? 'Priced subtotal only (not a finished estimate)' : 'Total'}: $${total.toLocaleString()}**\n\n${itemDescriptions.join('\n')}${materialPricing.missing.length ? `\n\n⚠️ No valid priced match in the selected ${pricingSource} catalog for: ${materialPricing.missing.join(', ')}. You can enter your own rates and save your work. Use Browse Items to replace these rows with catalog items if needed. Catalog-based estimate exports require reviewed pricing; guessed codes and rates were not substituted.` : ''}${guardedLines.held.length ? `\n\nConfirm before billing: ${guardedLines.held.map(item => item.description).join('; ')}. Those lines stay off the estimate until you approve them.` : ''}\n\n💡 *Ask AI to "add 10% waste" or "add 15% waste" when ready. Use "AI Review" to check for missing items like soffit, fascia, or trim*`,
       timestamp: new Date().toISOString()
     }]);
+    return { priced: true };
   };
+  convertSidingRef.current = convertSidingMeasurementsToLineItems;
 
   // Helper: Convert measurements to line items array (without setting state)
   const convertMeasurementsToLineItemsArray = async (measurements) => {
@@ -5327,79 +5721,9 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
 
     const items = [];
     let lineNumber = 1;
-    const helperFavorites = priceList.filter(item => item.is_favorite);
-
-    const findExactRoofItem = (searchTerms, fallback) => {
-      const matchesExclusions = (desc, excludeList) => {
-        if (!excludeList) return true;
-        for (const w of excludeList) {
-          if (desc.includes(w.toLowerCase())) return false;
-        }
-        return true;
-      };
-      const codeMatches = (itemCode, searchCode) => {
-        if (!itemCode) return false;
-        const ic = itemCode.toUpperCase();
-        const sc = searchCode.toUpperCase();
-        if (ic === sc) return true;
-        if (sc.length >= 4 && (ic.startsWith(sc + '_') || ic.startsWith(sc + '-'))) return true;
-        return false;
-      };
-      const unitOk = (item) => {
-        if (!fallback || !fallback.unit) return true;
-        if (!item.unit || !item.unit.trim()) return true;
-        return item.unit.toUpperCase() === fallback.unit.toUpperCase();
-      };
-      const keywordExclusions = ['vent', 'window', 'kit', 'labor minimum'];
-
-      if (helperFavorites.length > 0) {
-        for (const term of searchTerms.codes || []) {
-          const match = helperFavorites.find(item => {
-            if (!codeMatches(item.code, term)) return false;
-            return unitOk(item) && matchesExclusions(item.description?.toLowerCase() || '', searchTerms.exclude);
-          });
-          if (match) return match;
-        }
-        for (const term of searchTerms.keywords || []) {
-          const match = helperFavorites.find(item => {
-            const itemDesc = item.description?.toLowerCase() || '';
-            if (!itemDesc.includes(term.toLowerCase())) return false;
-            if (!unitOk(item)) return false;
-            if (keywordExclusions.some(ex => itemDesc.includes(ex) && !term.toLowerCase().includes(ex))) return false;
-            return matchesExclusions(itemDesc, searchTerms.exclude);
-          });
-          if (match) return match;
-        }
-      }
-
-      for (const term of searchTerms.codes || []) {
-        const match = priceList.find(item => {
-          if (!codeMatches(item.code, term)) return false;
-          return unitOk(item) && matchesExclusions(item.description?.toLowerCase() || '', searchTerms.exclude);
-        });
-        if (match) return match;
-      }
-      
-      for (const term of searchTerms.keywords || []) {
-        const match = priceList.find(item => {
-          const itemDesc = item.description?.toLowerCase() || '';
-          if (!itemDesc.includes(term.toLowerCase())) return false;
-          if (!unitOk(item)) return false;
-          if (keywordExclusions.some(ex => itemDesc.includes(ex) && !term.toLowerCase().includes(ex))) return false;
-          return matchesExclusions(itemDesc, searchTerms.exclude);
-        });
-        if (match) return match;
-      }
-      
-      if (fallback.description) {
-        const smartMatch = smartDescriptionMatch(fallback.description, priceList);
-        if (smartMatch && unitOk(smartMatch) && matchesExclusions(smartMatch.description?.toLowerCase() || '', searchTerms.exclude)) {
-          return smartMatch;
-        }
-      }
-      
-      return fallback;
-    };
+    const notePriceSource = trackPriceSource(items);
+    const findExactRoofItem = (searchTerms, fallback) =>
+      notePriceSource(pickLineItem(priceList, searchTerms, fallback));
 
     const helperCorrectedSq = Math.round((Number(measurements.corrected_area_sq) || Number(measurements.roof_area_sq) || 0) * 100) / 100;
     // Shingles
@@ -5435,7 +5759,7 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
     }
 
     const rakeLF = Math.round((Number(measurements.rake_lf) || 0) * 100) / 100;
-    const totalEdge = Math.round((rakeLF + eavesLF) * 100) / 100;
+    const totalEdge = estimateDripEdgeLf(measurements);
     const starterLF = Math.round(starterCourseLF(eavesLF, rakeLF, config.starterIncludesRakes) * 100) / 100;
     if (starterLF > 0) {
       const starter = findExactRoofItem({ codes: ['2824', 'ASPHALT_STAR', 'RFG STR'], keywords: ['asphalt starter', 'starter course', 'starter strip'], exclude: ['starting step', 'cupola', 'starter panel', 'wood', 'aluminum'] }, { price: 2.18, unit: "LF", code: "ASPHALT_STAR", description: "Asphalt starter - universal starter course" });
@@ -5490,27 +5814,41 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       items.push({ line: lineNumber++, code: downspout.code, description: downspout.description, quantity: measurements.downspout_count, unit: "EA", rate: Number(downspout.price), rcv: Number(downspout.price) * measurements.downspout_count, acv: Number(downspout.price) * measurements.downspout_count, amount: Number(downspout.price) * measurements.downspout_count, depreciation: 0 });
     }
 
+    lineNumber = appendMeasuredTrimLines(items, measurements, priceList, { soffit: true, fascia: true }, lineNumber);
+
     return items;
   };
 
   // Helper: Convert siding measurements to line items array (without setting state)
-  const convertSidingMeasurementsToLineItemsArray = async (measurements) => {
-    if (isPriceListLoading) throw new Error('The price catalog is still loading. Please wait before building the siding estimate.');
-    const material = sidingMaterial(confirmedSidingMaterial || measurements.siding_material);
-    if (!material) throw new Error('Confirm vinyl or aluminum using the Siding material selector before building the siding estimate.');
-    measurements = { ...measurements, siding_material: material };
+  const convertSidingMeasurementsToLineItemsArray = async (measurements, options = {}) => {
+    const held = holdSidingPricing(measurements, { force: options.force === true });
+    if (held) return [];
+    const material = resolveBillableSidingMaterial(measurements, sidingMaterialOverrideRef.current).material;
+    measurements = {
+      ...measurements,
+      siding_material: material,
+      ...(confirmedWallMaterials ? { wall_material_sections: confirmedWallMaterials } : {}),
+    };
     const priceList = getActivePriceList(pricingSource, { xactimatePriceList, xactimateNewPriceList, symbilityPriceList, customPriceList });
 
     const items = [];
     let lineNumber = 1;
 
+    const notePriceSource = trackPriceSource(items);
     const findSidingItem = (searchTerms, fallback) =>
-      findSidingScopeCatalogItem(priceList, searchTerms, fallback, material);
+      notePriceSource(findSidingScopeCatalogItem(priceList, searchTerms, fallback, material));
 
     const wastePctArr = Number(config.sidingWastePct) || 0;
     const sidingContractArr = resolveCanonicalSidingContract(measurements, wastePctArr);
     if (sidingContractArr.graph_present && !sidingContractArr.supported) {
-      throw new Error(`Cannot create precise siding quantities: ${sidingContractArr.issues.join(', ')}`);
+      const reason = sidingContractArr.issues.join(', ') || 'canonical graph needs review';
+      setSidingPricingBanner({
+        code: 'sanity_check',
+        overridable: false,
+        message: `Sanity check failed (${reason}), so siding was not priced.`,
+        measurements,
+      });
+      return [];
     }
     const wasteMultiplierArr = sidingContractArr.waste_multiplier;
     const graphTotalsArr = sidingContractArr.totals;
@@ -5524,22 +5862,24 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       items.push({ line: lineNumber++, code: siding.code, description: siding.description, quantity: wallAreaSQ, unit: "SQ", rate: Number(siding.price), rcv: Number(siding.price) * wallAreaSQ, acv: Number(siding.price) * wallAreaSQ, amount: Number(siding.price) * wallAreaSQ, depreciation: 0 });
     }
 
-    if (measurements.wall_top_lf > 0) {
+    const roofWallFromGraphArr = Number(graphTotalsArr?.j_channel_roof_wall_lf) || Number(measurements.j_channel_roof_wall_lf) || 0;
+    const roofWallArr = roofWallFromGraphArr > 0
+      ? roofWallFromGraphArr
+      : ((Number(measurements.eave_lf) || 0) + (Number(measurements.rake_lf) || 0));
+    if (roofWallArr > 0) {
       const jChannel = findSidingItem({ codes: ['SID J'], keywords: ['j-channel'], exclude: [] }, { price: 3.50, unit: "LF", code: "SID J", description: "J-channel, vinyl" });
-      items.push({ line: lineNumber++, code: jChannel.code, description: jChannel.description + " (Top)", quantity: measurements.wall_top_lf, unit: "LF", rate: Number(jChannel.price), rcv: Number(jChannel.price) * measurements.wall_top_lf, acv: Number(jChannel.price) * measurements.wall_top_lf, amount: Number(jChannel.price) * measurements.wall_top_lf, depreciation: 0 });
+      const roofQty = Math.round(roofWallArr);
+      items.push({ line: lineNumber++, code: jChannel.code, description: jChannel.description + " (roof-wall)", quantity: roofQty, unit: "LF", rate: Number(jChannel.price), rcv: Number(jChannel.price) * roofQty, acv: Number(jChannel.price) * roofQty, amount: Number(jChannel.price) * roofQty, depreciation: 0 });
     }
 
     // Hybrid photo engine: J-channel measured from actual window/door opening perimeters
-    const jChannelOpeningsLfArr = Number(graphTotalsArr?.j_channel_lf) || Number(measurements.j_channel_openings_lf) || 0;
+    const jChannelOpeningsLfArr = Number.isFinite(Number(graphTotalsArr?.j_channel_openings_lf))
+      ? Number(graphTotalsArr.j_channel_openings_lf)
+      : (Number(measurements.j_channel_openings_lf) || 0);
     if (jChannelOpeningsLfArr > 0) {
       const qty = jChannelOpeningsLfArr;
       const jChannel = findSidingItem({ codes: ['SID J'], keywords: ['j-channel'], exclude: [] }, { price: 3.50, unit: "LF", code: "SID J", description: "J-channel, vinyl" });
       items.push({ line: lineNumber++, code: jChannel.code, description: jChannel.description + " (windows & doors)", quantity: qty, unit: "LF", rate: Number(jChannel.price), rcv: Number(jChannel.price) * qty, acv: Number(jChannel.price) * qty, amount: Number(jChannel.price) * qty, depreciation: 0 });
-    }
-
-    if (measurements.wall_bottom_lf > 0) {
-      const jChannel = findSidingItem({ codes: ['SID J'], keywords: ['j-channel'], exclude: [] }, { price: 3.50, unit: "LF", code: "SID J", description: "J-channel, vinyl" });
-      items.push({ line: lineNumber++, code: jChannel.code, description: jChannel.description + " (Bottom)", quantity: measurements.wall_bottom_lf, unit: "LF", rate: Number(jChannel.price), rcv: Number(jChannel.price) * measurements.wall_bottom_lf, acv: Number(jChannel.price) * measurements.wall_bottom_lf, amount: Number(jChannel.price) * measurements.wall_bottom_lf, depreciation: 0 });
     }
 
     if (measurements.inside_corners_lf > 0) {
@@ -5594,7 +5934,33 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       items.push({ line: lineNumber++, code: waterTable.code, description: waterTable.description, quantity: perimeterLFArr, unit: "LF", rate: Number(waterTable.price), rcv: Number(waterTable.price) * perimeterLFArr, acv: Number(waterTable.price) * perimeterLFArr, amount: Number(waterTable.price) * perimeterLFArr, depreciation: 0 });
     }
 
-    return finalizeSidingCatalogLines(items, measurements.siding_material, priceList).items;
+    lineNumber = appendMeasuredTrimLines(items, measurements, priceList, {
+      soffit: true,
+      fascia: true,
+      downspouts: true,
+      sidingMinimum: true,
+    }, lineNumber);
+
+    const priced = finalizeSidingCatalogLines(items, measurements.siding_material, priceList).items;
+    const presentMaterials = measurements.wall_material_sections?.materials_present;
+    const hasMaterialSections = (measurements.wall_material_sections?.overlay?.length || 0) > 0;
+    const materialFilter = (hasMaterialSections && Array.isArray(presentMaterials))
+      ? filterLineItemsToMaterials(priced, {
+          materialsPresent: presentMaterials,
+          approvedIds: approvedSidingConfirmIds,
+        })
+      : { items: priced, dropped: [], held: [] };
+    const guardedLines = guardSidingLineItems(materialFilter.items, {
+      material,
+      approvedIds: approvedSidingConfirmIds,
+    });
+    setHeldSidingLines([...materialFilter.held, ...guardedLines.held].map((item) => ({
+      ...item,
+      confirm: true,
+      confirm_id: String(item.confirm_id || `${item.code || ''}|${item.description || ''}`).toLowerCase(),
+    })));
+    setDroppedMaterialLines(materialFilter.dropped || []);
+    return guardedLines.items;
   };
 
   const convertMeasurementsToLineItems = async (measurements, userMessage = '') => {
@@ -5642,80 +6008,11 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
     // Check if this is a multi-structure estimate
     const hasMultipleStructures = measurements.structures && measurements.structures.length > 1;
 
-    const favorites = priceList.filter(item => item.is_favorite);
-    console.log(`⭐ ${favorites.length} favorite items in price list`);
+    console.log(`⭐ ${priceList.filter(item => item.is_favorite).length} favorite items in price list`);
 
-    const findExactRoofItem = (searchTerms, fallback) => {
-      const matchesExclusions = (desc, excludeList) => {
-        if (!excludeList) return true;
-        for (const w of excludeList) {
-          if (desc.includes(w.toLowerCase())) return false;
-        }
-        return true;
-      };
-      const codeMatches = (itemCode, searchCode) => {
-        if (!itemCode) return false;
-        const ic = itemCode.toUpperCase();
-        const sc = searchCode.toUpperCase();
-        if (ic === sc) return true;
-        if (sc.length >= 4 && (ic.startsWith(sc + '_') || ic.startsWith(sc + '-'))) return true;
-        return false;
-      };
-      const unitOk = (item) => {
-        if (!fallback || !fallback.unit) return true;
-        if (!item.unit || !item.unit.trim()) return true;
-        return item.unit.toUpperCase() === fallback.unit.toUpperCase();
-      };
-      const keywordExclusions = ['vent', 'window', 'kit', 'labor minimum'];
-
-      if (favorites.length > 0) {
-        for (const term of searchTerms.codes || []) {
-          const match = favorites.find(item => {
-            if (!codeMatches(item.code, term)) return false;
-            return unitOk(item) && matchesExclusions(item.description?.toLowerCase() || '', searchTerms.exclude);
-          });
-          if (match) return match;
-        }
-        for (const term of searchTerms.keywords || []) {
-          const match = favorites.find(item => {
-            const itemDesc = item.description?.toLowerCase() || '';
-            if (!itemDesc.includes(term.toLowerCase())) return false;
-            if (!unitOk(item)) return false;
-            if (keywordExclusions.some(ex => itemDesc.includes(ex) && !term.toLowerCase().includes(ex))) return false;
-            return matchesExclusions(itemDesc, searchTerms.exclude);
-          });
-          if (match) return match;
-        }
-      }
-
-      for (const term of searchTerms.codes || []) {
-        const match = priceList.find(item => {
-          if (!codeMatches(item.code, term)) return false;
-          return unitOk(item) && matchesExclusions(item.description?.toLowerCase() || '', searchTerms.exclude);
-        });
-        if (match) return match;
-      }
-      
-      for (const term of searchTerms.keywords || []) {
-        const match = priceList.find(item => {
-          const itemDesc = item.description?.toLowerCase() || '';
-          if (!itemDesc.includes(term.toLowerCase())) return false;
-          if (!unitOk(item)) return false;
-          if (keywordExclusions.some(ex => itemDesc.includes(ex) && !term.toLowerCase().includes(ex))) return false;
-          return matchesExclusions(itemDesc, searchTerms.exclude);
-        });
-        if (match) return match;
-      }
-      
-      if (fallback.description) {
-        const smartMatch = smartDescriptionMatch(fallback.description, priceList);
-        if (smartMatch && unitOk(smartMatch) && matchesExclusions(smartMatch.description?.toLowerCase() || '', searchTerms.exclude)) {
-          return smartMatch;
-        }
-      }
-      
-      return fallback;
-    };
+    const notePriceSource = trackPriceSource(items);
+    const findExactRoofItem = (searchTerms, fallback) =>
+      notePriceSource(pickLineItem(priceList, searchTerms, fallback));
 
     // If multiple structures, generate line items for EACH structure separately
     if (hasMultipleStructures) {
@@ -5781,7 +6078,7 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
 
         // Starter, Drip, Ridge, Hip, Valley, Step Flashing, Tear Off for this structure
         const rakeLF = Number(structMeasurements.rake_lf) || 0;
-        const totalEdge = rakeLF + eavesLF;
+        const totalEdge = estimateDripEdgeLf(structMeasurements);
         const starterLF = starterCourseLF(eavesLF, rakeLF, config.starterIncludesRakes);
         if (starterLF > 0) {
           const starterItem = findExactRoofItem({ codes: ['2824', 'ASPHALT_STAR', 'RFG STR'], keywords: ['asphalt starter', 'starter course', 'starter strip', 'starter shingle'], exclude: ['starting step', 'cupola', 'starter panel', 'wood', 'aluminum'] }, { price: 2.18, unit: "LF", code: "ASPHALT_STAR", description: "Asphalt starter - universal starter course" });
@@ -5833,6 +6130,8 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
         const downspoutItem = findExactRoofItem({ codes: ['DNSPOUT', 'RFG DS'], keywords: ['downspout', 'down spout'] }, { price: 45.00, unit: "EA", code: "DNSPOUT", description: "Downspout - aluminum - 2\" x 3\"" });
         items.push({ line: lineNumber++, code: downspoutItem.code, description: downspoutItem.description, quantity: measurements.downspout_count, unit: "EA", rate: Number(downspoutItem.price), rcv: Number(downspoutItem.price) * measurements.downspout_count, acv: Number(downspoutItem.price) * measurements.downspout_count, amount: Number(downspoutItem.price) * measurements.downspout_count, depreciation: 0 });
       }
+
+      lineNumber = appendMeasuredTrimLines(items, measurements, priceList, { soffit: true, fascia: true }, lineNumber);
 
       console.log('✅ Line items created with structure breakdown:', items);
       console.log('📊 Total items:', items.length);
@@ -5912,7 +6211,7 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       const underlaymentItem = findExactRoofItem({
         codes: ['ROOFING_FELT', 'ROOFING_FELT_SYNTH', 'RFG UL'],
         keywords: ['roofing felt', 'synthetic underlayment', 'felt - synthetic', 'felt - 30', 'felt - 15', 'underlayment'],
-        exclude: ['vertical', 'units', 'ice', 'water', 'barrier', 'remove']
+        exclude: ['vertical', 'units', 'ice', 'water', 'barrier', 'remove', 'wood', 'shake', 'cedar', 'shingle', 'tile', 'metal']
       }, {
         price: 45.48,
         unit: "SQ",
@@ -5961,7 +6260,7 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
 
     // 4. STARTER STRIP — eaves only unless rake starter is enabled in settings
     const rakeLF = Number(measurements.rake_lf) || 0;
-    const totalEdge = rakeLF + eavesLF;
+    const totalEdge = estimateDripEdgeLf(measurements);
     const starterLF = starterCourseLF(eavesLF, rakeLF, config.starterIncludesRakes);
     
     if (starterLF > 0) {
@@ -6152,6 +6451,8 @@ Example: [{"photo_index":0,"label":"FR Corner","shot_type":"corner","confidence"
       
       console.log(`✅ Added ${qty} downspouts @ $${price} each`);
     }
+
+    lineNumber = appendMeasuredTrimLines(items, measurements, priceList, { soffit: true, fascia: true }, lineNumber);
 
     // ROOF ACCESSORIES (detected from satellite, with sensible minimums for always-present items)
     // Pipe boots — always include at least 1 (every house has at least one plumbing vent)
@@ -8138,7 +8439,7 @@ Create an estimate with line items matching the database.${competitorContext}${i
         });
 
         if (llmResponse && typeof llmResponse === 'object' && Array.isArray(llmResponse.line_items) && llmResponse.line_items.length > 0) {
-          _generateAndSetEstimate(llmResponse, uploadedFiles.length > 0 ? uploadedFiles[0].name : "AI generated estimate", { fromFileUpload: uploadedFiles.length > 0 });
+          await _generateAndSetEstimate(llmResponse, uploadedFiles.length > 0 ? uploadedFiles[0].name : "AI generated estimate", { fromFileUpload: uploadedFiles.length > 0 });
         } else {
           setMessages(prev => [...prev, {
             role: 'assistant',
@@ -8159,10 +8460,71 @@ Create an estimate with line items matching the database.${competitorContext}${i
     setIsProcessing(false);
   };
 
-  const _generateAndSetEstimate = (extractedData, fileName, { fromFileUpload = false } = {}) => {
+  const applyImportedDocumentAddress = async (documentAddress) => {
+    const fields = customerAddressFieldsFromDocument(documentAddress);
+    const nextAddress = fields.property_address || documentAddress;
+    importedAddressOverrideRef.current = nextAddress;
+    setCustomerInfo(prev => ({ ...prev, property_address: nextAddress }));
+    if (!selectedContactId) return;
+    try {
+      await base44.entities.Customer.update(selectedContactId, {
+        street: fields.street,
+        city: fields.city,
+        state: fields.state,
+        zip: fields.zip,
+        property_address: fields.property_address,
+      });
+    } catch (updateError) {
+      console.error('Customer address update failed:', updateError);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `⚠️ The estimate address was updated, but the customer record could not be saved: ${updateError.message}`,
+        timestamp: new Date().toISOString(),
+      }]);
+    }
+  };
+
+  const confirmAddressLocalityWarning = (mismatch) => new Promise((resolve) => {
+    addressWarningResolverRef.current = resolve;
+    setUpdateCustomerAddressOnImport(false);
+    setAddressWarningPrompt(mismatch);
+  });
+
+  const finishAddressWarning = async (proceed) => {
+    const resolve = addressWarningResolverRef.current;
+    const prompt = addressWarningPrompt;
+    const shouldUpdate = proceed && updateCustomerAddressOnImport;
+    addressWarningResolverRef.current = null;
+    setAddressWarningPrompt(null);
+    if (shouldUpdate && prompt?.documentAddress) {
+      await applyImportedDocumentAddress(prompt.documentAddress);
+    }
+    if (resolve) resolve(Boolean(proceed));
+  };
+
+  const rejectOrConfirmDocumentIdentity = async (mismatch) => {
+    if (!mismatch) return;
+    if (mismatch.severity !== 'warn') {
+      const error = new Error(mismatch.message);
+      error.code = 'ESTIMATE_IDENTITY_MISMATCH';
+      throw error;
+    }
+    if (addressWarningAcceptedRef.current) return;
+    const accepted = await confirmAddressLocalityWarning(mismatch);
+    if (!accepted) {
+      const error = new Error('Import cancelled. The document and estimate differ in city or ZIP, and the import was not applied.');
+      error.code = 'ESTIMATE_ADDRESS_WARNING_DECLINED';
+      throw error;
+    }
+    addressWarningAcceptedRef.current = true;
+  };
+
+  const _generateAndSetEstimate = async (extractedData, fileName, { fromFileUpload = false } = {}) => {
     // A carrier estimate is tied to the homeowner/property printed in it.
-    // Reject either conflict before changing history or line items; the user
-    // must correct the selected estimate rather than confirm a different address.
+    // A different house number or street name is rejected before history or
+    // line items change. City or ZIP differences wait for Import anyway.
+    addressWarningAcceptedRef.current = false;
+    importedAddressOverrideRef.current = null;
     if (fromFileUpload && extractedData?.customer_info) {
       const documentCustomer = extractedData.customer_info.customer_name;
       const documentAddress = extractedData.customer_info.property_address;
@@ -8173,17 +8535,41 @@ Create an estimate with line items matching the database.${competitorContext}${i
         currentAddress: customerInfo.property_address,
         hasSelectedContact: Boolean(selectedContactId),
       });
-      if (identityMismatch) {
-        const error = new Error(identityMismatch.message);
-        error.code = 'ESTIMATE_IDENTITY_MISMATCH';
-        throw error;
-      }
+      await rejectOrConfirmDocumentIdentity(identityMismatch);
     }
 
     // Save current state before modifying line items
     saveToHistory();
 
-    const items = extractedData.line_items || [];
+    const duplicateImport = fromFileUpload
+      ? dedupeImportedLineItems({
+        lineItems: extractedData.line_items || [],
+        pages: extractedData.pages || [],
+        name: fileName || 'Document',
+      })
+      : null;
+    if (duplicateImport?.warning) {
+      console.error(`❌ [AIEstimator] ${duplicateImport.warning}`);
+      alert(duplicateImport.warning);
+    }
+    const coverageChoice = fromFileUpload
+      ? selectCoverageSettlement({
+        coverages: extractedData.coverage_summaries || [],
+        settlement: extractedData.insurance_settlement,
+      })
+      : null;
+    if (coverageChoice?.warning) {
+      console.error(`❌ [AIEstimator] ${coverageChoice.warning}`);
+      alert(coverageChoice.warning);
+    }
+    const sectionMerge = fromFileUpload
+      ? includeSectionOnlyTotals({
+        lineItems: duplicateImport.lineItems,
+        sectionTotals: extractedData.section_totals || [],
+        sections: extractedData.sections || [],
+      })
+      : null;
+    const items = sectionMerge ? sectionMerge.lineItems : (extractedData.line_items || []);
 
     const priceList = getActivePriceList(pricingSource, { xactimatePriceList, xactimateNewPriceList, symbilityPriceList, customPriceList });
 
@@ -8333,6 +8719,14 @@ Create an estimate with line items matching the database.${competitorContext}${i
       return acc + (Number(item.rcv) || 0);
     }, 0);
 
+    const rcvGap = fromFileUpload
+      ? importedRcvGap({ lineItems: cleanedItems, documentRcv: extractedData.document_rcv_total })
+      : null;
+    if (rcvGap?.warning) {
+      console.error(`❌ [AIEstimator] ${rcvGap.warning}`);
+      alert(rcvGap.warning);
+    }
+
     // For uploaded documents, $0 rate is intentional (e.g. ITEL supply lines, O&P lines).
     // Only flag "unmatched" for manually-built estimates where a missing rate means
     // the price list had no match and the item needs manual pricing.
@@ -8354,7 +8748,7 @@ Create an estimate with line items matching the database.${competitorContext}${i
       total_rcv: totalRcv,
       total_acv: sumNetAcv(cleanedItems, paidWhenIncurredAmount),
       acv_adjustment_amount: paidWhenIncurredAmount,
-      insurance_settlement: fromFileUpload ? settlementFromDocument(extractedData.insurance_settlement, items) : null,
+      insurance_settlement: fromFileUpload ? settlementFromDocument(coverageChoice?.settlement || extractedData.insurance_settlement, items) : null,
       roof_area_sq: inferredRoofSq || undefined
     });
 
@@ -8365,7 +8759,7 @@ Create an estimate with line items matching the database.${competitorContext}${i
           return {
             ...prev,
             // Don't overwrite name/email/phone if we have a linked contact
-            property_address: prev.property_address || extractedData.customer_info.property_address || "",
+            property_address: importedAddressOverrideRef.current || prev.property_address || extractedData.customer_info.property_address || "",
             claim_number: prev.claim_number || extractedData.customer_info.claim_number || "",
             insurance_company: prev.insurance_company || extractedData.customer_info.insurance_company || "",
             adjuster_name: prev.adjuster_name || extractedData.customer_info.adjuster_name || "",
@@ -8431,12 +8825,14 @@ Create an estimate with line items matching the database.${competitorContext}${i
 
     setMessages(prev => [...prev, {
       role: 'assistant',
-      content: `✅ Extracted ${enrichedItems.length} items. Total: $${totalRcv.toLocaleString()}${unmatched > 0 ? `\n⚠️ ${unmatched} items need pricing` : ''}${fromFileUpload ? '\n_O&P / tax not added — toggle "Insurance Job" on/off to control this._' : ''}`,
+      content: `✅ Extracted ${cleanedItems.length} items. Total: $${totalRcv.toLocaleString()}${unmatched > 0 ? `\n⚠️ ${unmatched} items need pricing` : ''}${sectionMerge?.addedSectionLines?.length ? `\nIncluded ${sectionMerge.addedSectionLines.length} section total${sectionMerge.addedSectionLines.length === 1 ? '' : 's'} that had no item lines: ${sectionMerge.addedSectionLines.map((item) => item.description).join(', ')}.` : ''}${duplicateImport?.warning ? `\n\n❌ **${duplicateImport.warning}**` : ''}${coverageChoice?.warning ? `\n\n❌ **${coverageChoice.warning}**` : ''}${rcvGap?.warning ? `\n\n❌ **${rcvGap.warning}**` : ''}${fromFileUpload ? '\n_O&P / tax not added — toggle "Insurance Job" on/off to control this._' : ''}`,
       timestamp: new Date().toISOString()
     }]);
   };
 
   const _processEstimateRequest = async (fileUrls, userMessage, fileName) => {
+    addressWarningAcceptedRef.current = false;
+    importedAddressOverrideRef.current = null;
     setIsProcessing(true);
 
     setMessages(prev => [...prev, {
@@ -8454,7 +8850,11 @@ Create an estimate with line items matching the database.${competitorContext}${i
         let stagedRoofMeasurements = null;
         let stagedSidingBenchmark = null;
         const extractedIdentities = [];
-        const verifyMultiDocumentIdentity = (customerDetails, docName) => {
+        const seenImportText = new Map();
+        const seenImportItems = new Map();
+        const coverageInputs = [];
+        const coverageSettlements = [];
+        const verifyMultiDocumentIdentity = async (customerDetails, docName) => {
           extractedIdentities.push({ fileName: docName, customer_info: customerDetails || {} });
           const mismatch = getEstimateDocumentBatchIdentityMismatch({
             documents: extractedIdentities,
@@ -8462,11 +8862,7 @@ Create an estimate with line items matching the database.${competitorContext}${i
             currentAddress: customerInfo.property_address,
             hasSelectedContact: Boolean(selectedContactId),
           });
-          if (mismatch) {
-            const error = new Error(mismatch.message);
-            error.code = 'ESTIMATE_IDENTITY_MISMATCH';
-            throw error;
-          }
+          await rejectOrConfirmDocumentIdentity(mismatch);
           if (customerDetails) {
             mergedCustomerInfo = {
               ...mergedCustomerInfo,
@@ -8540,7 +8936,7 @@ Create an estimate with line items matching the database.${competitorContext}${i
             if ((!measurementsResponse.roof_area_sq || Number(measurementsResponse.roof_area_sq) === 0) && Number(measurementsResponse.roof_area_sqft) > 0) {
               measurementsResponse.roof_area_sq = Number(measurementsResponse.roof_area_sqft) / 100;
             }
-            verifyMultiDocumentIdentity(measurementsResponse.customer_info, docName);
+            await verifyMultiDocumentIdentity(measurementsResponse.customer_info, docName);
             const roofItems = await convertMeasurementsToLineItemsArray(measurementsResponse);
             allExtractedItems.push(...roofItems);
             {
@@ -8566,7 +8962,7 @@ Create an estimate with line items matching the database.${competitorContext}${i
               response_json_schema: SIDING_REPORT_EXTRACTION_SCHEMA,
             });
             const sidingResponse = normalizeSidingReportForEstimate(extractedSidingResponse);
-            verifyMultiDocumentIdentity(sidingResponse.customer_info, docName);
+            await verifyMultiDocumentIdentity(sidingResponse.customer_info, docName);
 
             // Convert siding measurements to line items WITHOUT setting state
             const sidingItems = await convertSidingMeasurementsToLineItemsArray(sidingResponse);
@@ -8579,7 +8975,8 @@ Create an estimate with line items matching the database.${competitorContext}${i
           } else {
             // Priced estimate extraction
             const response = await base44.integrations.Core.InvokeLLM({
-              prompt: `Extract ALL repair work items from this estimate. For EACH item, extract: description, quantity, unit, rate, exact printed RCV (including line tax), and ACV. Do NOT compute printed RCV as quantity times rate. Skip totals and policy/payment adjustments. Return JSON.\n${insuranceSettlementPrompt}`,
+              prompt: `Extract ALL repair work items from this estimate. For EACH item, extract: description, quantity, unit, rate, exact printed RCV (including line tax), and ACV. Do NOT compute printed RCV as quantity times rate. Skip a section total only when that section has itemized lines. Skip policy/payment adjustments.\n${SECTION_ONLY_TOTAL_PROMPT}
+${DUPLICATE_PAGE_PROMPT}\n${insuranceSettlementPrompt}`,
               file_urls: singleFileUrl,
               response_json_schema: {
                 type: "object",
@@ -8600,22 +8997,93 @@ Create an estimate with line items matching the database.${competitorContext}${i
                     }
                   },
                   customer_info: { type: "object" },
-                  insurance_settlement: insuranceSettlementSchema,
+                  pages: {
+                type: "array",
+                description: "One entry per PDF page. Used to skip a page that was uploaded or printed twice.",
+                items: {
+                  type: "object",
+                  properties: {
+                    page_number: { type: "number" },
+                    text: { type: "string" },
+                    line_items: { type: "array" }
+                  }
+                }
+              },
+              coverage_summaries: {
+                type: "array",
+                description: "Every coverage summary on the estimate, including Dwelling and Other Structures.",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    rcv: { type: "number" },
+                    acv: { type: "number" }
+                  },
+                  required: ["name", "rcv"]
+                }
+              },
+              insurance_settlement: insuranceSettlementSchema,
+                  section_totals: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string" },
+                        rcv: { type: "number" },
+                        item_count: { type: "number" }
+                      },
+                      required: ["name", "rcv", "item_count"]
+                    }
+                  },
+                  document_rcv_total: { type: "number", description: "Grand Replacement Cost Value from the summary, before deductible." }
                 }
               }
             });
 
-            verifyMultiDocumentIdentity(response?.customer_info, docName);
-            const documentSettlement = settlementFromDocument(response?.insurance_settlement, response?.line_items);
-            if (documentSettlement) {
-              if (!mergedSettlement) mergedSettlement = documentSettlement;
-              else if (JSON.stringify(mergedSettlement) !== JSON.stringify(documentSettlement)) {
-                // Multiple documents may be revisions, not additive insurance payments.
-                mergedSettlement = {
-                  ...mergedSettlement,
-                  warnings: [...mergedSettlement.warnings, 'Multiple documents contain different settlement summaries. The first is retained; review the source documents before relying on it.'],
-                };
-              }
+            await verifyMultiDocumentIdentity(response?.customer_info, docName);
+            const duplicateImport = registerImportDocument({
+              name: docName,
+              lineItems: response?.line_items || [],
+              pages: response?.pages || [],
+              seenText: seenImportText,
+              seenItems: seenImportItems,
+            });
+            if (duplicateImport.warning) {
+              console.error(`❌ [AIEstimator] ${duplicateImport.warning}`);
+              alert(duplicateImport.warning);
+              setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: `❌ **${duplicateImport.warning}**`,
+                timestamp: new Date().toISOString()
+              }]);
+            }
+            if (duplicateImport.duplicate) continue;
+            const sectionMerge = includeSectionOnlyTotals({
+              lineItems: duplicateImport.lineItems,
+              sectionTotals: response?.section_totals || [],
+              sections: response?.sections || [],
+            });
+            if (response) response.line_items = sectionMerge.lineItems;
+            coverageInputs.push(...(response?.coverage_summaries || []));
+            if (response?.insurance_settlement) coverageSettlements.push(response.insurance_settlement);
+            const rcvGap = importedRcvGap({
+              lineItems: sectionMerge.lineItems,
+              documentRcv: response?.document_rcv_total,
+            });
+            if (rcvGap.warning) {
+              console.error(`❌ [AIEstimator] ${rcvGap.warning}`);
+              alert(rcvGap.warning);
+              setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: `❌ **${rcvGap.warning}**`,
+                timestamp: new Date().toISOString()
+              }]);
+            } else if (sectionMerge.addedSectionLines.length > 0) {
+              setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: `Included ${sectionMerge.addedSectionLines.length} section total${sectionMerge.addedSectionLines.length === 1 ? '' : 's'} that had no item lines: ${sectionMerge.addedSectionLines.map((item) => item.description).join(', ')}.`,
+                timestamp: new Date().toISOString()
+              }]);
             }
             if (response?.line_items) {
               const enrichedItems = response.line_items.filter(item => !isInsuranceSettlementAdjustment(item)).map((item, index) => {
@@ -8648,6 +9116,20 @@ Create an estimate with line items matching the database.${competitorContext}${i
           setCalibrationResult(null);
         }
         if (stagedSidingBenchmark) setSidingBenchmarkReport(stagedSidingBenchmark);
+        const coverageChoice = selectCoverageSettlement({
+          coverages: coverageInputs,
+          settlements: coverageSettlements,
+        });
+        if (coverageChoice.warning) {
+          console.error(`❌ [AIEstimator] ${coverageChoice.warning}`);
+          alert(coverageChoice.warning);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `❌ **${coverageChoice.warning}**`,
+            timestamp: new Date().toISOString()
+          }]);
+        }
+        mergedSettlement = coverageChoice.settlement;
         setLineItems(allExtractedItems);
         const totalRcv = allExtractedItems.reduce((acc, item) => acc + (Number(item.rcv) || 0), 0);
         
@@ -8665,7 +9147,8 @@ Create an estimate with line items matching the database.${competitorContext}${i
           setCustomerInfo(prev => ({
             ...prev,
             customer_name: mergedCustomerInfo.customer_name || prev.customer_name,
-            property_address: mergedCustomerInfo.property_address || prev.property_address,
+            property_address: importedAddressOverrideRef.current
+              || (selectedContactId ? (prev.property_address || mergedCustomerInfo.property_address || '') : (mergedCustomerInfo.property_address || prev.property_address)),
             claim_number: mergedCustomerInfo.claim_number || prev.claim_number,
             insurance_company: mergedCustomerInfo.insurance_company || prev.insurance_company
           }));
@@ -9054,8 +9537,8 @@ Return JSON with these exact measurements.`,
 
 **PART 2 — LINE ITEM EXTRACTION RULES:**
 1. ONLY extract numbered/lettered line items from main estimate sections (lines that have a Description, Quantity, Unit Price, and a cost total column).
-2. **SKIP ALL of the following — do NOT create line items from them:**
-   - Any row containing "Subtotal" (e.g. "Roof - Subtotal (21 items)", "Roofplan - Subtotal", "Exterior Plan - Subtotal")
+2. **SKIP these rows when that section also has itemized work lines. A section that shows ONLY a total is not skipped — report it in section_totals with item_count 0:**
+   - A "Subtotal" or "Totals" row for a section that has itemized lines (e.g. "Roof - Subtotal (21 items)", "Roofplan - Subtotal", "Exterior Plan - Subtotal")
    - Any row containing only a grand "Subtotal:" dollar total
    - Summary/breakdown pages: "Total Materials:", "Total Labor:", "Total Equipment:", "Replacement Cost Value:", "Add X% overhead:", "Add X% profit:", "Less Recoverable Depreciation:", "Net Estimate:", "Deductible:", and similar financial summary rows
    - "Trade Summary" pages
@@ -9079,6 +9562,9 @@ Return JSON with these exact measurements.`,
    d. **Paid when incurred**: If the payment summary separately excludes an amount as "Paid When Incurred" (commonly debris removal), put that amount in 'paid_when_incurred_amount'. Do not use ordinary recoverable depreciation for this field.
 10. **SKIP stale "REVISED" placeholder rows:** Xactimate estimates that went through a revision sometimes keep the ORIGINAL (pre-revision) line item printed with the word "REVISED" where the Rate/Tax/RCV/Dep/ACV numbers would be, and NO dollar values at all for that row. These are leftover placeholders — skip them and only extract the later, fully-priced version.
 
+${SECTION_ONLY_TOTAL_PROMPT}
+${DUPLICATE_PAGE_PROMPT}
+
 ${insuranceSettlementPrompt}
 
 **CRITICAL for Xactimate/insurance estimates:**
@@ -9092,7 +9578,7 @@ Extract as: {description: "R&R Gutters - aluminum", quantity: 260.92, unit: "LF"
 **Liberty Mutual / ITEL example (dollar depreciation column, column labeled "RC" not "RCV"):**
 "Replace - Drip Edge, Eave/Rake, Aluminum | 223.95 LF | $3.12 | RC $698.73 | Depreciation $173.00 | ACV $525.73"
 Extract as: {description: "Replace - Drip Edge, Eave/Rake, Aluminum", quantity: 223.95, unit: "LF", rate: 3.12, rcv: 698.73, depreciation_percent: 0, acv: 525.73}
-(Note: "Roof - Subtotal (21 items) $8,056.63 $1,522.35 $6,534.28" → SKIP this row entirely, it is a section total)
+(Note: "Roof - Subtotal (21 items) $8,056.63 $1,522.35 $6,534.28" → SKIP this row because those 21 items are extracted separately. "Totals: Right Elevation $6,106.20" with no item lines → section_totals item_count 0 and one "Totals: Right Elevation" line.)
 
 **Example (Xactimate O&P line item):**
 "Add'l Overhead (10% General) | 1 EA | $0.00 | O&P $500.15 | RCV $500.15"
@@ -9132,6 +9618,45 @@ Return JSON with ONLY unique line items from main estimate sections, plus summar
                total_tax_amount: { type: "number", description: "Sum of ALL summary-level tax dollar amounts (state + county + etc.). Only set when tax appears as SEPARATE additions after the line subtotal (Liberty Mutual / Symbility). Set to 0 for Xactimate where tax is baked into each line RCV." },
               deductible: { type: "number", description: "Deductible dollar amount from the summary payment breakdown (e.g. 1000.00)." },
               paid_when_incurred_amount: { type: "number", description: "Paid-when-incurred amount excluded from net ACV, such as debris removal." },
+              document_rcv_total: { type: "number", description: "Grand Replacement Cost Value from the summary, before deductible. Not ACV and not the net payment." },
+              section_totals: {
+                type: "array",
+                description: "One entry per estimate section. item_count is 0 when the section has a printed total and no itemized work lines.",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    rcv: { type: "number" },
+                    item_count: { type: "number" }
+                  },
+                  required: ["name", "rcv", "item_count"]
+                }
+              },
+              pages: {
+                type: "array",
+                description: "One entry per PDF page. Used to skip a page that was uploaded or printed twice.",
+                items: {
+                  type: "object",
+                  properties: {
+                    page_number: { type: "number" },
+                    text: { type: "string" },
+                    line_items: { type: "array" }
+                  }
+                }
+              },
+              coverage_summaries: {
+                type: "array",
+                description: "Every coverage summary on the estimate, including Dwelling and Other Structures.",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    rcv: { type: "number" },
+                    acv: { type: "number" }
+                  },
+                  required: ["name", "rcv"]
+                }
+              },
               insurance_settlement: insuranceSettlementSchema,
               customer_info: {
                 type: "object",
@@ -9165,7 +9690,7 @@ Return JSON with ONLY unique line items from main estimate sections, plus summar
             }]);
           }
           
-          const imported = _generateAndSetEstimate(response, fileName, { fromFileUpload: true });
+          const imported = await _generateAndSetEstimate(response, fileName, { fromFileUpload: true });
           if (imported === false) {
             setIsProcessing(false);
             return;
@@ -9205,13 +9730,15 @@ Return JSON with ONLY unique line items from main estimate sections, plus summar
 
 CRITICAL RULES:
 - The column labeled "RC" or "RCV" or "Replacement Cost" is the true per-line total — always capture it as rcv. Never compute it yourself.
-- SKIP any row that is a subtotal, section total, or summary row (e.g. "Roof - Subtotal", "Exterior Plan - Subtotal", "Subtotal:", "Total Materials:", "Total Labor:", "Replacement Cost Value:", tax lines, deductible lines). Only extract actual numbered work items.
+- SKIP a subtotal or section total only when that section has itemized work lines. SKIP grand summary rows ("Subtotal:", "Total Materials:", "Total Labor:", "Replacement Cost Value:", tax lines, deductible lines).
 - For each item return: description, quantity, unit (SQ/LF/SF/EA/LS), rate (unit price), rcv (the RC/RCV column value), depreciation_percent (if a percentage column exists, else 0), acv (ACV column value).
 - In the SUMMARY section, ADD UP all tax dollar amounts shown as summary-level additions (e.g. "State 5.750%: $790.76" + "County 2.250%: $309.43" = $1,100.19) → put combined total in the 'total_tax_amount' field. Set 0 for Xactimate where tax is already in each line's RCV.
 - In the SUMMARY payment breakdown, look for "Deductible:" and put the dollar amount in the 'deductible' field.
  - If the summary separately lists an amount as "Paid When Incurred" (often debris removal), put it in 'paid_when_incurred_amount'. Do not put ordinary line depreciation there.
 
 Be thorough — extract EVERY numbered work item from ALL sections of the document.
+${SECTION_ONLY_TOTAL_PROMPT}
+${DUPLICATE_PAGE_PROMPT}
 ${insuranceSettlementPrompt}`,
               file_urls: fileUrls,
               response_json_schema: {
@@ -9238,7 +9765,45 @@ ${insuranceSettlementPrompt}`,
                   total_tax_amount: { type: "number", description: "Sum of all summary-level tax dollar amounts. 0 for Xactimate." },
                   deductible: { type: "number", description: "Deductible dollar amount from summary." },
                   paid_when_incurred_amount: { type: "number", description: "Paid-when-incurred amount excluded from net ACV, such as debris removal." },
-                  insurance_settlement: insuranceSettlementSchema,
+                  document_rcv_total: { type: "number", description: "Grand Replacement Cost Value from the summary, before deductible." },
+                  section_totals: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string" },
+                        rcv: { type: "number" },
+                        item_count: { type: "number" }
+                      },
+                      required: ["name", "rcv", "item_count"]
+                    }
+                  },
+                  pages: {
+                type: "array",
+                description: "One entry per PDF page. Used to skip a page that was uploaded or printed twice.",
+                items: {
+                  type: "object",
+                  properties: {
+                    page_number: { type: "number" },
+                    text: { type: "string" },
+                    line_items: { type: "array" }
+                  }
+                }
+              },
+              coverage_summaries: {
+                type: "array",
+                description: "Every coverage summary on the estimate, including Dwelling and Other Structures.",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    rcv: { type: "number" },
+                    acv: { type: "number" }
+                  },
+                  required: ["name", "rcv"]
+                }
+              },
+              insurance_settlement: insuranceSettlementSchema,
                   customer_info: {
                     type: "object",
                     properties: {
@@ -9258,7 +9823,7 @@ ${insuranceSettlementPrompt}`,
             
             if (fallbackResponse?.line_items && fallbackResponse.line_items.length > 0) {
               console.log(`✅ Fallback extraction succeeded: ${fallbackResponse.line_items.length} items`);
-              const imported = _generateAndSetEstimate(fallbackResponse, fileName, { fromFileUpload: true });
+              const imported = await _generateAndSetEstimate(fallbackResponse, fileName, { fromFileUpload: true });
               if (imported === false) {
                 setIsProcessing(false);
                 return;
@@ -9267,7 +9832,7 @@ ${insuranceSettlementPrompt}`,
               throw new Error('Could not extract line items from estimate - PDF may be scanned image or unreadable');
             }
           } catch (fallbackError) {
-            if (fallbackError.code === 'ESTIMATE_IDENTITY_MISMATCH') throw fallbackError;
+            if (fallbackError.code === 'ESTIMATE_IDENTITY_MISMATCH' || fallbackError.code === 'ESTIMATE_ADDRESS_WARNING_DECLINED') throw fallbackError;
             throw new Error('Could not extract line items - try uploading a different file or enter items manually');
           }
         }
@@ -9275,7 +9840,7 @@ ${insuranceSettlementPrompt}`,
 
     } catch (error) {
       console.error('PDF Extraction Error:', error);
-      const identityConflict = error.code === 'ESTIMATE_IDENTITY_MISMATCH';
+      const identityConflict = error.code === 'ESTIMATE_IDENTITY_MISMATCH' || error.code === 'ESTIMATE_ADDRESS_WARNING_DECLINED';
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: identityConflict
@@ -10840,31 +11405,77 @@ ${insuranceSettlementPrompt}`,
               <div className="mt-2 rounded-lg border border-gray-200 bg-white px-3 py-2">
                 <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700">
                   Siding material
-                  <select
-                    aria-label="Confirm siding material"
-                    value={confirmedSidingMaterial}
-                    onChange={e => {
-                      setConfirmedSidingMaterial(e.target.value);
-                      setManualSidingForm(prev => ({ ...prev, siding_material: e.target.value }));
-                    }}
-                    className="rounded-md border border-gray-300 bg-white px-3 py-2"
-                  >
-                    <option value="">Use identified material / select if unknown</option>
-                    <option value="vinyl">Vinyl</option>
-                    <option value="aluminum">Aluminum</option>
-                  </select>
-                  <span className="text-xs font-normal text-gray-500">Used when building siding items. Changing this does not change prices already on the estimate.</span>
+                  <SidingMaterialDropdown
+                    testId="siding-material-header"
+                    value={sidingMaterialChoice(activePresentationMeasurements).material}
+                    lowConfidence={sidingMaterialChoice(activePresentationMeasurements).lowConfidence}
+                    onChange={(material) => handleSidingMaterialChoice(material, activePresentationMeasurements)}
+                  />
+                  <span className="text-xs font-normal text-gray-500">Changing this reprices the siding lines.</span>
                 </label>
                 {lineItems.some(item => item.pricing_scope === 'siding') && (
                   <Button type="button" variant="outline" size="sm" className="mt-2"
                     onClick={handleApplySidingCatalogPrices}
-                    disabled={!confirmedSidingMaterial || isPriceListLoading || isProcessing}>
+                    disabled={isPriceListLoading || isProcessing}>
                     Apply catalog prices to draft
                   </Button>
+                )}
+                {droppedMaterialLines.length > 0 && (
+                  <p className="mt-2 text-xs text-gray-500" data-testid="dropped-material-lines">
+                    Removed {droppedMaterialLines.map((item) => item.description || item.code).join('; ')} — that material was not measured on this house.
+                  </p>
+                )}
+                {heldSidingLines.length > 0 && (
+                  <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2" data-testid="siding-confirm-hold">
+                    <p className="text-sm font-medium text-amber-950">Confirm before these lines join the estimate</p>
+                    <ul className="mt-2 space-y-2">
+                      {heldSidingLines.map(item => (
+                        <li key={item.confirm_id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-950">
+                          <span>{item.description}</span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setApprovedSidingConfirmIds(ids => ids.includes(item.confirm_id) ? ids : [...ids, item.confirm_id]);
+                              setHeldSidingLines(held => held.filter(row => row.confirm_id !== item.confirm_id));
+                              setLineItems(prev => [...prev, { ...item, confirm: true }].map((row, index) => ({ ...row, line: index + 1 })));
+                            }}
+                          >
+                            Approve
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
             )}
           </div>
+          {sidingPricingBanner && (
+            <div
+              role="alert"
+              data-testid="siding-pricing-block-banner"
+              className="rounded-lg border-2 border-amber-500 bg-amber-50 px-4 py-3 text-amber-950"
+            >
+              <p className="text-sm font-semibold">Siding was not priced</p>
+              <p className="mt-1 text-sm">{sidingPricingBanner.message}</p>
+              {sidingPricingBanner.overridable && sidingPricingBanner.measurements && (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-2 bg-amber-700 hover:bg-amber-800 text-white"
+                  data-testid="button-price-siding-anyway"
+                  onClick={() => {
+                    setShowSidingOverflowWarning(false);
+                    handleBuildSidingEstimate(sidingPricingBanner.measurements, { force: true });
+                  }}
+                >
+                  Price anyway
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
         <Dialog open={showConfig} onOpenChange={setShowConfig}>
@@ -12267,6 +12878,58 @@ ${insuranceSettlementPrompt}`,
                 </div>
               );
             })()}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={Boolean(addressWarningPrompt)}
+          onOpenChange={(open) => {
+            if (!open) finishAddressWarning(false);
+          }}
+        >
+          <DialogContent className="max-w-md" data-testid="dialog-address-warning">
+            <DialogHeader>
+              <DialogTitle>Address differs by city or ZIP</DialogTitle>
+              <DialogDescription>
+                The house number and street match. The city or ZIP does not. Import anyway, or update the customer&apos;s address to the document address.
+              </DialogDescription>
+            </DialogHeader>
+            {addressWarningPrompt && (
+              <div className="space-y-4">
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm space-y-2">
+                  <p><strong>Document:</strong> {addressWarningPrompt.documentAddress || 'not provided'}</p>
+                  <p><strong>Estimate:</strong> {addressWarningPrompt.currentAddress || 'not provided'}</p>
+                </div>
+                <label className="flex items-start gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    data-testid="checkbox-update-customer-address"
+                    checked={updateCustomerAddressOnImport}
+                    onChange={(e) => setUpdateCustomerAddressOnImport(e.target.checked)}
+                  />
+                  <span>{"Update the customer's address to the document address"}</span>
+                </label>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    data-testid="button-cancel-address-warning"
+                    onClick={() => finishAddressWarning(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    className="bg-amber-600 hover:bg-amber-700"
+                    data-testid="button-import-anyway"
+                    onClick={() => finishAddressWarning(true)}
+                  >
+                    Import anyway
+                  </Button>
+                </div>
+              </div>
+            )}
           </DialogContent>
         </Dialog>
 
@@ -14170,13 +14833,46 @@ ${insuranceSettlementPrompt}`,
                           </div>
                         )}
 
-                        {satelliteAnalysis.warning_message && (
-                          <div className="mt-3 bg-orange-100 rounded p-3 border border-orange-300">
+                        {(satelliteAnalysis.warning_message || satelliteAnalysis.rep_review_message) && (
+                          <div className="mt-3 bg-orange-100 rounded p-3 border border-orange-300" data-testid="roof-review-banner">
                             <p className="text-sm font-semibold text-orange-900 mb-1 flex items-center gap-2">
                               <Wind className="w-4 h-4" />
-                              {satelliteAnalysis.measurement_ready === false ? 'Automatic Takeoff Blocked' : 'Visibility Warning'}
+                              {satelliteAnalysis.needs_rep_review && satelliteAnalysis.rep_review_confirmed !== true
+                                ? 'Needs rep review'
+                                : (satelliteAnalysis.measurement_ready === false ? 'Automatic Takeoff Blocked' : 'Visibility Warning')}
                             </p>
-                            <p className="text-sm text-orange-800">{satelliteAnalysis.warning_message}</p>
+                            <p className="text-sm text-orange-800">
+                              {satelliteAnalysis.needs_rep_review && satelliteAnalysis.rep_review_message
+                                ? satelliteAnalysis.rep_review_message
+                                : satelliteAnalysis.warning_message}
+                            </p>
+                            {satelliteAnalysis.needs_rep_review && satelliteAnalysis.rep_review_confirmed !== true && (
+                              <div className="mt-3">
+                                <Button
+                                  type="button"
+                                  className="bg-orange-700 hover:bg-orange-800 text-white"
+                                  data-testid="button-confirm-roof-review"
+                                  onClick={() => {
+                                    const confirmed = {
+                                      measurement_ready: true,
+                                      rep_review_confirmed: true,
+                                      requires_manual_review: false,
+                                    };
+                                    setSatelliteAnalysis((prev) => (prev ? { ...prev, ...confirmed } : prev));
+                                    setAnalyzedStructures((prev) => prev.map((structure, index) => (
+                                      index === 0
+                                        ? { ...structure, analysis: { ...structure.analysis, ...confirmed } }
+                                        : structure
+                                    )));
+                                  }}
+                                >
+                                  Confirm this roof
+                                </Button>
+                                <p className="mt-2 text-xs text-orange-900">
+                                  Confirm this is the right roof, or hand-trace it. The measurement stays unready until you do.
+                                </p>
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -14397,12 +15093,23 @@ ${insuranceSettlementPrompt}`,
                                 })()}
 
                                 {/* Main measurements */}
+                                {(() => {
+                                  const satelliteOnlyCard = !photoSidingAnalysis && sd.face_eave_ft;
+                                  const storiesConfirmed = sd.stories_confirmed === true;
+                                  const showSidingTotal = !satelliteOnlyCard || storiesConfirmed;
+                                  return (
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                                  <div className="bg-teal-50 rounded p-3 shadow-sm border border-teal-100">
-                                    <span className="text-teal-800 block mb-1 text-xs font-semibold">Wall Area:</span>
-                                    <span data-testid="sat-wall-area-sq" className="font-bold text-xl text-teal-700">{Number(sd.wall_area_sq).toFixed(2)}</span>
-                                    <span className="text-xs text-teal-600 ml-1">SQ</span>
-                                    <p className="text-xs text-teal-600 mt-1">{sd.wall_area_sqft?.toLocaleString()} sqft net</p>
+                                  <div className="bg-teal-50 rounded p-3 shadow-sm border border-teal-100" data-testid="sat-wall-area-card">
+                                    <span className="text-teal-800 block mb-1 text-xs font-semibold" data-testid="sat-wall-area-label">{satelliteOnlyCard ? 'Satellite estimate' : 'Wall Area'}:</span>
+                                    {showSidingTotal ? (
+                                      <>
+                                        <span data-testid="sat-wall-area-sq" className="font-bold text-xl text-teal-700">{Number(sd.wall_area_sq).toFixed(2)}</span>
+                                        <span className="text-xs text-teal-600 ml-1">SQ</span>
+                                        <p className="text-xs text-teal-600 mt-1">{sd.wall_area_sqft?.toLocaleString()} sqft net</p>
+                                      </>
+                                    ) : (
+                                      <p data-testid="sat-wall-area-held" className="text-sm text-teal-800 mt-1">Confirm the wall height below to see the siding total.</p>
+                                    )}
                                   </div>
                                   <div className="bg-white rounded p-3 shadow-sm">
                                     <span className="text-gray-600 block mb-1 text-xs">Perimeter:</span>
@@ -14417,6 +15124,101 @@ ${insuranceSettlementPrompt}`,
                                     <p className="text-xs text-gray-500 mt-1">{sd.outside_corners_lf} LF total</p>
                                   </div>
                                 </div>
+                                  );
+                                })()}
+
+                                {!photoSidingAnalysis && sd.face_eave_ft && (
+                                  <div className="mt-3 space-y-2" data-testid="satellite-wall-controls">
+                                    {sd.stories_confirmed !== true && (
+                                      <div className="rounded border border-teal-200 bg-teal-50 p-3" data-testid="satellite-stories-confirm">
+                                        <p className="text-xs text-teal-900">
+                                          The wall height is prefilled from the roof. One tap confirms it and shows the satellite estimate. Window counts follow that story count.
+                                        </p>
+                                        <button
+                                          type="button"
+                                          data-testid="satellite-confirm-stories"
+                                          disabled={isSidingAnalyzing}
+                                          className="mt-2 rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                                          onClick={() => {
+                                            const guess = Number(sd.satellite_story_guess);
+                                            const stories = guess >= 2 ? 2 : (guess >= 1.5 ? 1.5 : 1);
+                                            const next = {};
+                                            for (const face of HEIGHT_FACES) next[face] = { stories, source: 'tap' };
+                                            confirmedFaceHeightsRef.current = next;
+                                            handleAnalyzeSiding(undefined, { satelliteOnly: true, autoBuild: false });
+                                          }}
+                                        >
+                                          Confirm {storyGuessLabel(sd.satellite_story_guess)} stories
+                                        </button>
+                                      </div>
+                                    )}
+                                    <FaceHeightPicker
+                                      suggestedStories={sd.stories_confirmed === true ? null : (Number(sd.satellite_story_guess) >= 2 ? 2 : (Number(sd.satellite_story_guess) >= 1.5 ? 1.5 : 1))}
+                                      faces={HEIGHT_FACES.map((face) => {
+                                        const confirmed = sd.confirmed_face_heights?.[face]
+                                          || confirmedFaceHeightsRef.current?.[face];
+                                        const aiEave = sd.ai_face_eave_ft?.[face] ?? sd.face_eave_ft?.[face];
+                                        return {
+                                          face,
+                                          label: face.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
+                                          aiEaveFt: aiEave,
+                                          eaveFt: confirmed?.eave_ft ?? sd.face_eave_ft?.[face],
+                                          stories: confirmed?.stories,
+                                          confirmed: Boolean(confirmed),
+                                        };
+                                      }).filter((row) => Number(row.aiEaveFt) > 0 || row.confirmed)}
+                                      busy={isSidingAnalyzing}
+                                      onConfirm={(face, height) => {
+                                        confirmedFaceHeightsRef.current = {
+                                          ...(confirmedFaceHeightsRef.current || {}),
+                                          [face]: height,
+                                        };
+                                        const lat = satelliteAddress?.coordinates?.lat || satelliteAddress?.lat;
+                                        const lng = satelliteAddress?.coordinates?.lng || satelliteAddress?.lng;
+                                        if (lat && lng) handleAnalyzeSiding(undefined, { satelliteOnly: true, autoBuild: false });
+                                      }}
+                                      onMeasure={() => {
+                                        toast.error('Add a photo of that wall before measuring it.');
+                                      }}
+                                    />
+                                    {typeof window !== 'undefined' && isStagingMaterialPickerHost(window.location.hostname) && (
+                                      <div className="rounded border border-slate-200 bg-white p-3 space-y-2" data-testid="satellite-masonry-toggles">
+                                        <p className="text-xs font-semibold text-slate-800">Brick or stone</p>
+                                        <p className="text-xs text-slate-500">
+                                          Satellite cannot see masonry. Front and back are the short walls; left and right are the long walls. The share you pick is removed from the siding. Corners drop only on a side set to all. A partial side keeps its corners at the siding height.
+                                        </p>
+                                        {HEIGHT_FACES.map((face) => {
+                                          const selected = masonryChoiceFromEcho(satelliteMasonryFaces[face]);
+                                          return (
+                                            <div key={face} className="flex flex-wrap items-center gap-2" data-testid={`satellite-masonry-row-${face}`}>
+                                              <p className="min-w-[5.5rem] text-xs font-medium text-slate-700">{face.replace(/_/g, ' ')}</p>
+                                              {MASONRY_CHOICES.map((choice) => (
+                                                <button
+                                                  key={choice.id}
+                                                  type="button"
+                                                  data-testid={`satellite-masonry-${face}-${choice.id}`}
+                                                  disabled={isSidingAnalyzing}
+                                                  className={`rounded border px-2 py-1 text-[11px] font-medium disabled:opacity-50 ${selected === choice.id ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-800'}`}
+                                                  onClick={() => {
+                                                    const next = {
+                                                      ...(confirmedMasonryFacesRef.current || {}),
+                                                      [face]: choice.id,
+                                                    };
+                                                    confirmedMasonryFacesRef.current = next;
+                                                    setSatelliteMasonryFaces(next);
+                                                    handleAnalyzeSiding(undefined, { satelliteOnly: true, autoBuild: false });
+                                                  }}
+                                                >
+                                                  {choice.label}
+                                                </button>
+                                              ))}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
 
                                 {/* Hover-style full measurement summary */}
                                 {(() => {
@@ -14451,16 +15253,27 @@ ${insuranceSettlementPrompt}`,
                                   const rows = [
                                     roofSqFt ? { label: 'Roof Area', value: `${roofSqFt.toLocaleString()} ft²` } : null,
                                     { label: 'Roof Facets', value: roofFacetCount },
-                                    { label: 'Siding', value: `${sd.wall_area_sqft?.toLocaleString()} ft²` },
+                                    (!photoSidingAnalysis && sd.face_eave_ft && sd.stories_confirmed !== true)
+                                      ? { label: 'Satellite estimate', value: 'Confirm stories' }
+                                      : { label: (!photoSidingAnalysis && sd.face_eave_ft) ? 'Satellite estimate' : 'Siding', value: `${sd.wall_area_sqft?.toLocaleString()} ft²` },
                                     { label: windowsExact ? 'Windows' : 'Windows (est.)', value: windowsVal ?? '—' },
                                     { label: doorsExact ? 'Doors' : 'Doors (est.)', value: doorsVal ?? '—' },
                                     garageDoors ? { label: 'Garage Doors', value: garageDoors } : null,
                                     shutterText ? { label: 'Shutters', value: shutterText } : null,
                                     sd.fascia_lf ? { label: 'Fascia', value: `${sd.fascia_lf} ft` } : null,
+                                    Number(sd.gutter_lf) > 0 ? { label: 'Gutters', value: `${Math.round(sd.gutter_lf)} LF` } : null,
                                     pitch ? { label: 'Predominant Pitch', value: pitch } : null,
                                     roofPerim ? { label: 'Roof Perimeter', value: `${roofPerim} ft` } : null,
                                     sd.soffit_sqft ? { label: 'Soffit (est.)', value: `${sd.soffit_sqft?.toLocaleString()} ft²` } : null,
                                     sd.trim_sqft ? { label: 'Trim (est.)', value: `${sd.trim_sqft?.toLocaleString()} ft²` } : null,
+                                    { label: 'Material', value: (
+                                      <SidingMaterialDropdown
+                                        testId="siding-material-satellite-summary"
+                                        value={sidingMaterialChoice(sd).material}
+                                        lowConfidence={sidingMaterialChoice(sd).lowConfidence}
+                                        onChange={(material) => handleSidingMaterialChoice(material, sd)}
+                                      />
+                                    ) },
                                   ].filter(Boolean);
                                   return (
                                     <div className="mt-3 rounded-xl border border-gray-200 bg-white overflow-hidden" data-testid="panel-hover-summary">
@@ -14585,12 +15398,20 @@ ${insuranceSettlementPrompt}`,
                                   <div className="mt-3">
                                     <p className="text-xs font-semibold text-gray-700 mb-2">Wall Face Breakdown:</p>
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                      {[
-                                        { label: 'North', key: 'north', color: 'bg-blue-500' },
-                                        { label: 'South', key: 'south', color: 'bg-orange-500' },
-                                        { label: 'East', key: 'east', color: 'bg-green-500' },
-                                        { label: 'West', key: 'west', color: 'bg-purple-500' },
-                                      ].map(f => (
+                                      {(sd.faces.front
+                                        ? [
+                                          { label: 'Front', key: 'front', color: 'bg-blue-500' },
+                                          { label: 'Back', key: 'back', color: 'bg-orange-500' },
+                                          { label: 'Left', key: 'left_side', color: 'bg-green-500' },
+                                          { label: 'Right', key: 'right_side', color: 'bg-purple-500' },
+                                        ]
+                                        : [
+                                          { label: 'North', key: 'north', color: 'bg-blue-500' },
+                                          { label: 'South', key: 'south', color: 'bg-orange-500' },
+                                          { label: 'East', key: 'east', color: 'bg-green-500' },
+                                          { label: 'West', key: 'west', color: 'bg-purple-500' },
+                                        ]
+                                      ).map(f => (
                                         <div key={f.key} className="bg-white rounded p-2 shadow-sm">
                                           <div className="flex items-center gap-1.5 mb-1">
                                             <div className={`w-2.5 h-2.5 rounded-full ${f.color}`} />
@@ -14634,7 +15455,7 @@ ${insuranceSettlementPrompt}`,
                                     </div>
                                   )}
                                   {/* ⚠️ Story-count warning: satellite cannot detect stories; wrong value scales wall area directly */}
-                                  {Number(sd.story_count) > 1 && !photoSidingAnalysis && (
+                                  {Number(sd.story_count) > 1 && !photoSidingAnalysis && sd.height_source !== 'solar_roof_height' && sd.height_source !== 'rep_confirmed' && (
                                     <div className="mb-2 flex items-start gap-2 bg-orange-50 border border-orange-300 rounded p-2">
                                       <span className="text-orange-500 text-base leading-none mt-0.5">⚠️</span>
                                       <div>
@@ -14696,7 +15517,9 @@ ${insuranceSettlementPrompt}`,
                                     ) : (
                                       <Badge variant="outline" className="text-xs cursor-pointer hover:bg-blue-50 hover:border-blue-400 transition-colors" title="Tap to edit"
                                         onClick={() => { setEditingChip('openings'); setChipTempValue(String(sd.opening_deduction_pct)); }}>
-                                        −{sd.opening_deduction_pct}% openings
+                                        {sd.opening_deduction_basis === 'measured' && Number(sd.opening_deduction_sqft) > 0
+                                          ? `−${Math.round(Number(sd.measurement_graph?.totals?.opening_area_total_sqft) || sd.opening_deduction_sqft)} ft² measured`
+                                          : `−${sd.opening_deduction_pct}% openings`}
                                         {sd._photo_detected_windows != null && (
                                           <span className="ml-1 text-teal-600 font-normal">
                                             📸 {sd._photo_detected_windows}w{sd._photo_detected_doors > 0 ? `+${sd._photo_detected_doors}d` : ''}{sd._photo_detected_garage_doors > 0 ? `+${sd._photo_detected_garage_doors}gd` : ''}
@@ -14913,14 +15736,14 @@ ${insuranceSettlementPrompt}`,
                                       ? '📏 Manual Entry: type in your tape-measure numbers — no AI dimension estimation used.'
                                       : useSatelliteMode
                                        ? '🛰️ Satellite mode: measure the house from its aerial footprint only. Photos and Street View are not required.'
-                                      : '📸 Photos Only: siding is measured from your photos, and roof geometry is reported separately only when coverage passes validation.'}
+                                      : '📸 Photos Only: photos measure height, openings, and material. Wall lengths stay on the aerial footprint when the address is known.'}
                                   </p>
                                 </div>
                               )}
 
                               {structureType === 'garage' && (
                                 <p className="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
-                                  🏗️ <strong>Garage / Outbuilding mode:</strong> satellite is disabled. The AI knows it's analyzing a detached garage and will apply garage-specific rules — no satellite footprint from the main house, garage door panels not counted as windows.
+                                  🏗️ <strong>Garage / Outbuilding mode:</strong> this measurement is sent as an outbuilding. The footprint is the building that matches the photos, not the house at the pin. Garage door panels are not counted as windows.
                                 </p>
                               )}
 
@@ -15035,23 +15858,30 @@ ${insuranceSettlementPrompt}`,
                                     Siding material
                                     <select
                                       aria-label="Manual siding material"
-                                      value={manualSidingForm.siding_material}
+                                      value={resolveBillableSidingMaterial(
+                                        { siding_material: manualSidingForm.siding_material || manualSidingAnalysis?.siding_material },
+                                        manualSidingForm.siding_material,
+                                      ).material}
                                       onChange={e => {
-                                        setManualSidingForm(prev => ({ ...prev, siding_material: e.target.value }));
-                                        setConfirmedSidingMaterial(e.target.value);
+                                        const material = e.target.value;
+                                        sidingMaterialOverrideRef.current = material;
+                                        setManualSidingForm(prev => ({ ...prev, siding_material: material }));
+                                        setConfirmedSidingMaterial(material);
+                                        if (manualSidingAnalysis && !manualSidingAnalysis.material_only) {
+                                          handleSidingMaterialChoice(material, manualSidingAnalysis);
+                                        }
                                       }}
                                       className="mt-1 w-full rounded border border-emerald-300 bg-white px-2 py-1.5 text-gray-800"
                                     >
-                                      <option value="">Use photo scan / select material</option>
-                                      <option value="aluminum">Aluminum</option>
                                       <option value="vinyl">Vinyl</option>
+                                      <option value="aluminum">Aluminum</option>
                                     </select>
                                   </label>
                                   <Button
                                     data-testid="button-build-manual-siding-estimate"
                                     size="sm"
                                     onClick={handleBuildManualSidingEstimate}
-                                    disabled={isManualSidingBuilding || !Number(manualSidingForm.perimeter_ft) || !Number(manualSidingForm.eave_height_ft) || !sidingMaterial(manualSidingForm.siding_material || manualSidingAnalysis?.siding_material)}
+                                    disabled={isManualSidingBuilding || !Number(manualSidingForm.perimeter_ft) || !Number(manualSidingForm.eave_height_ft)}
                                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
                                   >
                                     {isManualSidingBuilding
@@ -15123,14 +15953,14 @@ ${insuranceSettlementPrompt}`,
                                   (_, i) => `Detail ${i + 1}`,
                                 );
                                 const houseSlots = [
-                                  { label: 'Front',      emoji: '🏠', hint: 'Front face of house' },
-                                  { label: 'Back',       emoji: '🔄', hint: 'Rear of house' },
-                                  { label: 'Left Side',  emoji: '◀️',  hint: 'Left side wall' },
-                                  { label: 'Right Side', emoji: '▶️',  hint: 'Right side wall' },
-                                  { label: 'FL Corner',  emoji: '↙️',  hint: 'Front-left corner angle' },
-                                  { label: 'FR Corner',  emoji: '↘️',  hint: 'Front-right corner angle' },
-                                  { label: 'BL Corner',  emoji: '↖️',  hint: 'Back-left corner angle' },
-                                  { label: 'BR Corner',  emoji: '↗️',  hint: 'Back-right corner angle' },
+                                  { label: 'Front',      emoji: '🏠', hint: photoSlotHint('Front') },
+                                  { label: 'Back',       emoji: '🔄', hint: photoSlotHint('Back') },
+                                  { label: 'Left Side',  emoji: '◀️',  hint: photoSlotHint('Left Side') },
+                                  { label: 'Right Side', emoji: '▶️',  hint: photoSlotHint('Right Side') },
+                                  { label: 'FL Corner',  emoji: '↙️',  hint: photoSlotHint('FL Corner') },
+                                  { label: 'FR Corner',  emoji: '↘️',  hint: photoSlotHint('FR Corner') },
+                                  { label: 'BL Corner',  emoji: '↖️',  hint: photoSlotHint('BL Corner') },
+                                  { label: 'BR Corner',  emoji: '↗️',  hint: photoSlotHint('BR Corner') },
                                   { label: 'Garage',     emoji: '🏗️', hint: 'Garage face (optional)' },
                                   ...detailLabels.map((label, i) => ({
                                     label,
@@ -15139,12 +15969,12 @@ ${insuranceSettlementPrompt}`,
                                   })),
                                 ];
                                 const garageSlots = [
-                                  { label: 'Front',      emoji: '🏗️', hint: 'Garage front' },
-                                  { label: 'Back',       emoji: '🔄', hint: 'Garage rear' },
-                                  { label: 'Left Side',  emoji: '◀️',  hint: 'Left side' },
-                                  { label: 'Right Side', emoji: '▶️',  hint: 'Right side' },
-                                  { label: 'FL Corner',  emoji: '↙️',  hint: 'Front-left corner angle' },
-                                  { label: 'FR Corner',  emoji: '↘️',  hint: 'Front-right corner angle' },
+                                  { label: 'Front',      emoji: '🏗️', hint: photoSlotHint('Front') },
+                                  { label: 'Back',       emoji: '🔄', hint: photoSlotHint('Back') },
+                                  { label: 'Left Side',  emoji: '◀️',  hint: photoSlotHint('Left Side') },
+                                  { label: 'Right Side', emoji: '▶️',  hint: photoSlotHint('Right Side') },
+                                  { label: 'FL Corner',  emoji: '↙️',  hint: photoSlotHint('FL Corner') },
+                                  { label: 'FR Corner',  emoji: '↘️',  hint: photoSlotHint('FR Corner') },
                                 ];
 
                                 // Hover-style line-art house icons that show the actual angle being captured
@@ -15247,8 +16077,8 @@ ${insuranceSettlementPrompt}`,
                                               <p className={`font-semibold text-gray-600 leading-tight mt-0.5 ${isCorner || compact ? 'text-[8px]' : 'text-[10px]'}`}>
                                                 {slotLabel.replace(' Side', '').replace(' Corner', '°')}
                                               </p>
-                                              {!isCorner && !compact && (
-                                                <p className="text-[8px] text-gray-400 mt-0.5">{isLoading ? 'Uploading…' : 'Tap'}</p>
+                                              {!compact && slot.hint && (
+                                                <p className="text-[8px] leading-tight text-cyan-800 mt-0.5 px-1">{slot.hint}</p>
                                               )}
                                             </div>
                                           )}
@@ -15380,6 +16210,7 @@ ${insuranceSettlementPrompt}`,
                                     <div className="space-y-2">
                                       {batchUploadButton}
                                       {modeToggle}
+                                      <PhotoSlotGuide />
                                       <div className="grid grid-cols-3 gap-2">
                                         {garageSlots.map(s => renderSlot(s.label))}
                                       </div>
@@ -15398,6 +16229,7 @@ ${insuranceSettlementPrompt}`,
                                   <div className="space-y-2">
                                     {batchUploadButton}
                                     {modeToggle}
+                                    <PhotoSlotGuide />
                                     <div className="grid grid-cols-3 gap-1.5">
                                       {DIAGRAM.flatMap((row, ri) =>
                                         row.map((cell, ci) =>
@@ -15417,7 +16249,7 @@ ${insuranceSettlementPrompt}`,
                                         <div key={label} className="h-full">{renderSlot(label, true)}</div>
                                       )}
                                     </div>
-                                    <p className="text-[10px] text-center text-cyan-600 font-medium">📍 Tap any wall to add that photo — corners give the AI depth perspective</p>
+                                    <p className="text-[10px] text-center text-cyan-700 font-medium">Left and right stay as seen from the street. Tap a wall to add that photo.</p>
                                   </div>
                                 );
                               })()}
@@ -15898,8 +16730,24 @@ ${insuranceSettlementPrompt}`,
                                                 if (d.eaveFt < 6 || d.eaveFt > 45) { toast.error(`${d.eaveFt} ft doesn't look like a plausible eave height (6–45 ft). Check that Line A covers the full reference object.`); return; }
                                                 setHousePhotos(prev => prev.map(p => p.label === calibratingLabel
                                                   ? { ...p, calibrated_eave_height_ft: d.eaveFt, calibrated_gable_peak_ft: d.gableFt || null, calibration: d.calibration } : p));
+                                                const ruledFace = pendingRulerFaceRef.current || faceFromPhotoLabel(calibratingLabel);
+                                                pendingRulerFaceRef.current = null;
                                                 toast.success(`${calibratingLabel}: eave height locked at ${d.eaveFt} ft`);
                                                 setCalibratingLabel(null);
+                                                if (ruledFace) {
+                                                  confirmedFaceHeightsRef.current = {
+                                                    ...(confirmedFaceHeightsRef.current || {}),
+                                                    [ruledFace]: {
+                                                      stories: storiesForMeasuredEave(d.eaveFt),
+                                                      eave_ft: d.eaveFt,
+                                                      source: 'ruler',
+                                                    },
+                                                  };
+                                                  const lat = satelliteAddress?.coordinates?.lat || satelliteAddress?.lat;
+                                                  const lng = satelliteAddress?.coordinates?.lng || satelliteAddress?.lng;
+                                                  if (lat && lng) handleAnalyzeSiding(undefined, { autoBuild: true });
+                                                  else if (housePhotos.length > 0) handleAnalyzePhotos();
+                                                }
                                               }}
                                             >Apply Calibrated Height</Button>
                                           </div>
@@ -16017,6 +16865,63 @@ ${insuranceSettlementPrompt}`,
                                       )}
                                     </div>
 
+                                    <FaceMaterialPicker
+                                      proposals={d.material_proposals}
+                                      busy={isSidingAnalyzing || isAnalyzingPhotos}
+                                      onConfirm={(face, shares) => {
+                                        confirmedFaceMaterialsRef.current = {
+                                          ...(confirmedFaceMaterialsRef.current || {}),
+                                          [face]: { confirmed: true, shares },
+                                        };
+                                        const lat = satelliteAddress?.coordinates?.lat || satelliteAddress?.lat;
+                                        const lng = satelliteAddress?.coordinates?.lng || satelliteAddress?.lng;
+                                        if (lat && lng) {
+                                          handleAnalyzeSiding(undefined, { autoBuild: true });
+                                          return;
+                                        }
+                                        if (housePhotos.length > 0) handleAnalyzePhotos();
+                                      }}
+                                    />
+
+                                    <FaceHeightPicker
+                                      faces={HEIGHT_FACES.map((face) => {
+                                        const confirmed = d.confirmed_face_heights?.[face]
+                                          || confirmedFaceHeightsRef.current?.[face];
+                                        const aiEave = d.ai_face_eave_ft?.[face] ?? d.face_eave_ft?.[face];
+                                        return {
+                                          face,
+                                          label: face.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
+                                          aiEaveFt: aiEave,
+                                          eaveFt: confirmed?.eave_ft ?? d.face_eave_ft?.[face],
+                                          stories: confirmed?.stories,
+                                          confirmed: Boolean(confirmed),
+                                        };
+                                      }).filter((row) => Number(row.aiEaveFt) > 0 || row.confirmed)}
+                                      busy={isSidingAnalyzing || isAnalyzingPhotos}
+                                      onConfirm={(face, height) => {
+                                        confirmedFaceHeightsRef.current = {
+                                          ...(confirmedFaceHeightsRef.current || {}),
+                                          [face]: height,
+                                        };
+                                        const lat = satelliteAddress?.coordinates?.lat || satelliteAddress?.lat;
+                                        const lng = satelliteAddress?.coordinates?.lng || satelliteAddress?.lng;
+                                        if (lat && lng) {
+                                          handleAnalyzeSiding(undefined, { autoBuild: true });
+                                          return;
+                                        }
+                                        if (housePhotos.length > 0) handleAnalyzePhotos();
+                                      }}
+                                      onMeasure={(face) => {
+                                        const photo = housePhotos.find((item) => faceFromPhotoLabel(item?.label) === face);
+                                        if (!photo) {
+                                          toast.error('Add a photo of that wall before measuring it.');
+                                          return;
+                                        }
+                                        pendingRulerFaceRef.current = face;
+                                        handleOpenCalibration(photo.label);
+                                      }}
+                                    />
+
                                      {isBelowGradeB && (
                                        <div
                                          className="rounded-lg border-2 border-red-500 bg-red-50 p-3 animate-pulse"
@@ -16089,7 +16994,9 @@ ${insuranceSettlementPrompt}`,
                                          : 0;
                                        const mapStoneSqft = mappedMasonryArea('stone');
                                        const mapBrickSqft = mappedMasonryArea('brick');
+                                       const mapStuccoSqft = mappedMasonryArea('stucco');
                                        const mapStoneBrickSqft = mapStoneSqft + mapBrickSqft;
+                                       const fractionFlags = materialMap?.material_review_flags || [];
                                       const openingSqft = Number(gt?.opening_area_total_sqft) || 0;
                                        const masonryLabel = d.masonry_material
                                         ? d.masonry_material.charAt(0).toUpperCase() + d.masonry_material.slice(1)
@@ -16111,18 +17018,27 @@ ${insuranceSettlementPrompt}`,
                                                )}
                                                 {materialMap && (
                                                   <div
-                                                    className={`mt-2 rounded border px-2 py-1.5 text-[11px] ${materialMap.review_required ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-sky-200 bg-sky-50 text-sky-800'}`}
+                                                    className={`mt-2 rounded border px-2 py-1.5 text-[11px] ${materialMap.review_required || fractionFlags.length ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-sky-200 bg-sky-50 text-sky-800'}`}
                                                     data-testid="material-map-summary"
                                                   >
                                                     <p className="font-semibold">
-                                                      {materialMap.review_required ? '⚠️ Material map needs review' : 'Mixed-material map applied'}
+                                                      {materialMap.review_required || fractionFlags.length ? '⚠️ Material map needs review' : 'Mixed-material map applied'}
                                                     </p>
                                                     <p className="mt-0.5">
                                                       Siding quantity includes lap/vertical siding only
                                                       {mapSidingSqft > 0 ? ` (${Math.round(mapSidingSqft).toLocaleString()} ft² classified)` : ''}.
                                                       {mapStoneBrickSqft > 0 ? ` Stone/brick excluded: ${Math.round(mapStoneBrickSqft).toLocaleString()} ft².` : ''}
+                                                      {mapStuccoSqft > 0 ? ` Stucco excluded: ${Math.round(mapStuccoSqft).toLocaleString()} ft².` : ''}
                                                       {Number(materialMap.unknown_area_sqft) > 0 ? ' Unknown/other areas remain neutral.' : ''}
                                                     </p>
+                                                    {fractionFlags.length > 0 && (
+                                                      <div className="mt-1" data-testid="material-fraction-review">
+                                                        <p className="font-semibold">Needs rep review — low confidence material fractions</p>
+                                                        {fractionFlags.map((flag) => (
+                                                          <p key={flag.face || flag.message} className="mt-0.5">{flag.message}</p>
+                                                        ))}
+                                                      </div>
+                                                    )}
                                                   </div>
                                                 )}
                                             </div>
@@ -16130,7 +17046,7 @@ ${insuranceSettlementPrompt}`,
                                               <div className="text-right">
                                                 <span className="text-xs bg-amber-100 text-amber-700 border border-amber-300 rounded px-2 py-0.5 font-medium">✏️ Edited</span>
                                                 <p className="text-xs text-gray-400 mt-1">AI: {(d.wall_area_sq || 0).toFixed(2)} SQ</p>
-                                                <button className="text-xs text-gray-400 hover:text-gray-600 underline mt-0.5" onClick={() => setEditedSidingFields({})}>Reset to AI</button>
+                                                <button className="text-xs text-gray-400 hover:text-gray-600 underline mt-0.5" onClick={() => { setEditedSidingFields({}); setMaterialSectionOverrides({}); }}>Reset to AI</button>
                                               </div>
                                             )}
                                           </div>
@@ -16255,9 +17171,17 @@ ${insuranceSettlementPrompt}`,
                                           { label: 'Trim', value: `${derivedQ.trimSqft.toLocaleString()} ft²` },
                                           { label: `Roof Perimeter${derivedQ.edgeSource === 'estimated' ? ' (est.)' : ''}`, value: `${derivedQ.roofPerimeterLf} ft` },
                                           { label: 'Wall Perimeter', value: `${eff.perimeter_ft || 0} ft` },
+                                          Number(d.gutter_lf) > 0 ? { label: `Gutters${d.gutter_source === 'estimated_from_eave' ? ' (est.)' : ''}`, value: `${Math.round(d.gutter_lf)} LF` } : null,
                                           coverage?.missing_faces?.length > 0 ? { label: '⚠️ Not photographed (estimated)', value: coverage.missing_faces.map(f => String(f).replace(/_/g, ' ')).join(', '), highlight: true } : null,
                                           (d.poor_faces || graphTotals?.poor_faces || []).length > 0 ? { label: '⚠️ Poor elevation — not used', value: (d.poor_faces || graphTotals.poor_faces).map(f => String(f).replace(/_/g, ' ')).join(', '), highlight: true } : null,
-                                          { label: 'Material', value: <span className="capitalize">{d.siding_material || 'Unknown'}</span> },
+                                          { label: 'Material', value: (
+                                            <SidingMaterialDropdown
+                                              testId="siding-material-summary"
+                                              value={sidingMaterialChoice(hasEdits ? eff : d).material}
+                                              lowConfidence={sidingMaterialChoice(hasEdits ? eff : d).lowConfidence}
+                                              onChange={(material) => handleSidingMaterialChoice(material, hasEdits ? eff : d)}
+                                            />
+                                          ) },
                                           { label: 'Condition', value: <span className="capitalize">{d.siding_condition || 'Unknown'}</span> },
                                         ].filter(Boolean).map((row, i) => (
                                           <div key={i} className={`flex items-center justify-between px-4 py-2 ${row.highlight ? 'bg-amber-50' : ''}`}>
@@ -16520,7 +17444,7 @@ ${insuranceSettlementPrompt}`,
                                       </div>
                                       <div className="bg-white/60 rounded p-2 space-y-0.5">
                                         <p className="text-gray-500 font-medium mb-1">Material / Condition</p>
-                                        <p className="capitalize">🎨 {d.siding_material || 'Unknown'}</p>
+                                        <p className="capitalize">🎨 {sidingMaterialChoice(d).material}</p>
                                         <p className="capitalize">📊 {d.siding_condition || 'Unknown'} cond.</p>
                                         <p className="capitalize">📐 {d.wall_complexity || 'Unknown'} complexity</p>
                                         <p className="text-gray-400 mt-1">{d.used_satellite ? '🛰️ Satellite dims' : '📷 Photo dims'}</p>
@@ -16551,6 +17475,25 @@ ${insuranceSettlementPrompt}`,
                                           <span>I reviewed the missing/uncertain measurements and accept responsibility for these quantities.</span>
                                         </label>
                                       </div>
+                                    )}
+
+                                    {confirmedWallMaterials?.confidence === 'low' && (
+                                      <div className="bg-amber-50 border border-amber-400 rounded p-3 text-xs text-amber-900" data-testid="wall-material-confidence-warning">
+                                        <p className="font-bold">Low confidence wall materials</p>
+                                        <p className="mt-1">These quantities need a look before they are ordered. A face with no photo is an estimate, not a measurement.</p>
+                                        {(confirmedWallMaterials.warnings || []).map((warning, index) => (
+                                          <p key={`${warning}-${index}`} className="mt-1">{String(warning).replaceAll('_', ' ')}</p>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {confirmedWallMaterials?.overlay?.length > 0 && (
+                                      <WallMaterialOverlay
+                                        measurement={confirmedWallMaterials}
+                                        photos={housePhotos}
+                                        elevationImages={elevationImages}
+                                        onRetag={(id, next) => setMaterialSectionOverrides((prev) => ({ ...prev, [id]: next }))}
+                                      />
                                     )}
 
                                     {d.photo_details?.length > 0 && (
@@ -16732,7 +17675,14 @@ ${insuranceSettlementPrompt}`,
                                           m.garage_door_count > 0 ? { label: 'Garage Doors', value: m.garage_door_count } : null,
                                           { label: 'Outside Corners', value: m.outside_corners_count ?? 4 },
                                           m.building_width_ft > 0 ? { label: 'Building', value: `${m.building_length_ft || '?'}ft × ${m.building_width_ft}ft` } : null,
-                                          { label: 'Material', value: <span className="capitalize">{m.siding_material}</span> },
+                                          { label: 'Material', value: (
+                                            <SidingMaterialDropdown
+                                              testId="siding-material-manual-summary"
+                                              value={sidingMaterialChoice(m).material}
+                                              lowConfidence={sidingMaterialChoice(m).lowConfidence}
+                                              onChange={(material) => handleSidingMaterialChoice(material, m)}
+                                            />
+                                          ) },
                                           { label: 'Condition', value: <span className="capitalize">{m.siding_condition}</span> },
                                         ].filter(Boolean).map((row, i) => (
                                           <div key={i} className="flex items-center justify-between px-4 py-2">
@@ -16753,7 +17703,7 @@ ${insuranceSettlementPrompt}`,
                                       </div>
                                       <div className="bg-white/60 rounded p-2 space-y-0.5">
                                         <p className="text-gray-500 font-medium mb-1">Material / Condition</p>
-                                        <p className="capitalize">🎨 {m.siding_material || 'vinyl'}</p>
+                                        <p className="capitalize">🎨 {sidingMaterialChoice(m).material}</p>
                                         <p className="capitalize">📊 {m.siding_condition || 'average'} cond.</p>
                                         <p className="text-gray-400 mt-1">📏 Tape-measure dims</p>
                                       </div>
@@ -17698,7 +18648,8 @@ ${insuranceSettlementPrompt}`,
                               size="sm"
                               onClick={handleGenerateCombinedEstimate}
                               disabled={isSatelliteAnalyzing || isProcessing || (
-                                satelliteAnalysis?.measurement_ready === false
+                                (satelliteAnalysis?.measurement_ready === false
+                                  || (satelliteAnalysis?.needs_rep_review === true && satelliteAnalysis?.rep_review_confirmed !== true))
                                 && uploadedFiles.length === 0
                                 && manualMeasurements.length === 0
                               )}
@@ -17712,8 +18663,10 @@ ${insuranceSettlementPrompt}`,
                               ) : (
                                 <>
                                   <Sparkles className="w-4 h-4 mr-1" />
-                                  {satelliteAnalysis?.measurement_ready === false && uploadedFiles.length === 0 && manualMeasurements.length === 0
-                                    ? 'Correct Measurements Before Estimating'
+                                  {(satelliteAnalysis?.measurement_ready === false
+                                    || (satelliteAnalysis?.needs_rep_review === true && satelliteAnalysis?.rep_review_confirmed !== true))
+                                    && uploadedFiles.length === 0 && manualMeasurements.length === 0
+                                    ? 'Needs rep review'
                                     : uploadedFiles.length > 0
                                     ? 'Read Attached Document'
                                     : (analyzedStructures.length > 1 || manualMeasurements.length > 0
@@ -17804,7 +18757,8 @@ ${insuranceSettlementPrompt}`,
                             const response = await base44.functions.invoke('aiRoofMeasurement', {
                               latitude: coords.lat,
                               longitude: coords.lng,
-                              address: satelliteAddress.address
+                              address: satelliteAddress.address,
+                              structure_type: addingStructureType || 'outbuilding',
                             });
 
                             if (!response.data.success) {
@@ -17909,15 +18863,17 @@ ${insuranceSettlementPrompt}`,
                 </Card>
               )}
 
-              {/* Manual Drawing Mode - Enhanced for Add-On */}
+              {/* Manual trace. The add-on banner is only for extra structures, so a full roof trace does not show both titles. */}
               {(useManualDrawing || manualAddOnMode) && satelliteAddress && googleMapsLoaded && (
                 <Card className="bg-white shadow-lg">
-                  <CardHeader className="bg-gradient-to-r from-green-600 to-blue-600 text-white">
-                    <CardTitle className="flex items-center gap-2">
-                      <Edit className="w-5 h-5" />
-                      {manualAddOnMode ? 'Manual Add-On: Draw Additional Structures' : t.estimates.manualDrawingMode}
-                    </CardTitle>
-                  </CardHeader>
+                  {manualAddOnMode && (
+                    <CardHeader className="bg-gradient-to-r from-green-600 to-blue-600 text-white" data-testid="manual-addon-banner">
+                      <CardTitle className="flex items-center gap-2">
+                        <Edit className="w-5 h-5" />
+                        Manual Add-On: Draw Additional Structures
+                      </CardTitle>
+                    </CardHeader>
+                  )}
                   <CardContent className="p-3 sm:p-6">
                     {manualAddOnMode && satelliteAnalysis && (
                       <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
@@ -17936,6 +18892,7 @@ ${insuranceSettlementPrompt}`,
                       address={satelliteAddress.address}
                       crewCamPhotoCount={linkedJobMedia.length}
                       mapId="4d0eee48c054ed5e6bbcf1fe"
+                      purpose={manualAddOnMode ? 'addon' : 'primary'}
                       initialMeasurements={manualRoofCorrectionMode ? satelliteAnalysis : null}
                       onMeasurementsComplete={(measurements) => {
                         if (manualAddOnMode) {
@@ -19262,15 +20219,10 @@ ${insuranceSettlementPrompt}`,
                       <Button
                         className="bg-gray-700 hover:bg-gray-800 text-white"
                         onClick={() => {
+                          const measurements = pendingSidingMeasurements;
                           setShowSidingOverflowWarning(false);
-                          setIsBuildingSidingEstimate(true);
-                          convertSidingMeasurementsToLineItems(pendingSidingMeasurements)
-                            .catch((error) => {
-                              console.error('Build siding estimate error:', error);
-                              toast.error(error?.message || 'Could not build the siding estimate. Review the measurements and try again.');
-                            })
-                            .finally(() => setIsBuildingSidingEstimate(false));
                           setPendingSidingMeasurements(null);
+                          handleBuildSidingEstimate(measurements, { force: true });
                         }}
                       >
                         I know what I'm doing — proceed anyway

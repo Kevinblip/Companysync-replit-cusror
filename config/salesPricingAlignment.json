@@ -1,0 +1,18 @@
+{
+  "status": "FLAGGED_SEPARATE_ITEM",
+  "doNotChangeCheckoutInThisPr": true,
+  "decidedMonthlyUsd": { "basic": 99, "business": 199, "enterprise": 399 },
+  "displayedMonthlyUsd": { "basic": 59, "business": 149, "enterprise": 299 },
+  "stripePriceIdsCurrentlyCharged": {
+    "basic": "price_1T5NV8CAqGydUaCs2iO0R9yl",
+    "business": "price_1T5NV8CAqGydUaCsJ8SDQSnx",
+    "enterprise": "price_1T5NV8CAqGydUaCs1kPhAuWo"
+  },
+  "stripePriceIdsForDecidedAmounts": {
+    "basic": null,
+    "business": null,
+    "enterprise": null
+  },
+  "pages": ["src/pages/PublicPricing.jsx", "src/pages/Pricing.jsx", "src/components/TrialReminderBanner.jsx"],
+  "todo": "Kevin creates Stripe prices for $99, $199, and $399 a month, then points these price IDs at them and updates the displayed amounts together. This agent must not call Stripe. Checkout keeps charging the existing price IDs until that mapping exists. Cole never quotes the displayed $59/$149/$299 amounts."
+}

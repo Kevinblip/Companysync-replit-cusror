@@ -7,6 +7,7 @@ import { gzipSync, brotliCompressSync, constants as zlibConstants } from "node:z
 import { fileURLToPath } from "url"
 import twilioWsPlugin from "./vite-twilio-ws-plugin.js"
 import lexiNativePlugin from "./vite-lexi-native-plugin.js"
+import salesDemoPlugin from "./vite-sales-demo-plugin.js"
 import signingProxyPlugin from "./vite-signing-plugin.js"
 import dbPlugin from "./vite-db-plugin.js"
 import authPlugin from "./vite-auth-plugin.js"
@@ -31,20 +32,23 @@ function copyProdServer() {
       const dbDir = path.resolve(__dirname, 'db');
       const distDbDir = path.resolve(__dirname, 'dist', 'db');
       if (fs.existsSync(dbDir)) {
-        if (!fs.existsSync(distDbDir)) fs.mkdirSync(distDbDir, { recursive: true });
-        for (const file of fs.readdirSync(dbDir)) {
-          fs.copyFileSync(path.join(dbDir, file), path.join(distDbDir, file));
-        }
+        fs.cpSync(dbDir, distDbDir, { recursive: true });
         console.log('[Build] Copied db/ -> dist/db/');
       }
       // Copy lib/ (CJS helper modules required by prod-server.cjs at runtime)
       const libDir = path.resolve(__dirname, 'lib');
       const distLibDir = path.resolve(__dirname, 'dist', 'lib');
       if (fs.existsSync(libDir)) {
-        if (!fs.existsSync(distLibDir)) fs.mkdirSync(distLibDir, { recursive: true });
-        for (const file of fs.readdirSync(libDir)) {
-          fs.copyFileSync(path.join(libDir, file), path.join(distLibDir, file));
-        }
+        const copyTree = (src, dest) => {
+          fs.mkdirSync(dest, { recursive: true });
+          for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+            const from = path.join(src, entry.name);
+            const to = path.join(dest, entry.name);
+            if (entry.isDirectory()) copyTree(from, to);
+            else if (entry.isFile()) fs.copyFileSync(from, to);
+          }
+        };
+        copyTree(libDir, distLibDir);
         console.log('[Build] Copied lib/ -> dist/lib/');
       }
       for (const pluginFile of ['vite-functions-plugin.js', 'vite-stripe-plugin.js']) {
@@ -87,6 +91,14 @@ function copyProdServer() {
         compressedCount++;
       }
       console.log(`[Build] Precompressed ${compressedCount} generated assets for faster mobile loading.`);
+
+      // Plugins imported by this config (pg pools, cron timers) keep the Node
+      // process alive after a successful build, so `vite build` never exits on
+      // hosts like Railway and the build times out. Skip for --watch builds.
+      // The Replit dev server does not take this path.
+      if (!process.argv.includes('--watch')) {
+        setTimeout(() => process.exit(0), 500);
+      }
     }
   };
 }
@@ -127,6 +139,7 @@ export default defineConfig({
     }),
     react(),
     authPlugin(),
+    salesDemoPlugin(),
     dbPlugin(),
     functionsPlugin(),
     integrationsPlugin(),

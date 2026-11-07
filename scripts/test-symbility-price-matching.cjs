@@ -85,55 +85,6 @@ const SYMBILITY_PRICE_LIST = [
   { code: 'SYM-TW-001', description: 'Remove Wood Shake or Shingle roofing', unit: 'SQ', price: 98  },
 ];
 
-// ── Replicate the findExactRoofItem closure from AIEstimator.jsx ─────────────
-// (This is a pure function; no React state needed for the test.)
-function buildFindExactRoofItem(priceList) {
-  const matchesExclusions = (desc, excludeList) => {
-    if (!excludeList || excludeList.length === 0) return true;
-    for (const w of excludeList) {
-      if (desc.includes(w.toLowerCase())) return false;
-    }
-    return true;
-  };
-  const codeMatches = (itemCode, searchCode) => {
-    if (!itemCode) return false;
-    const ic = itemCode.toUpperCase();
-    const sc = searchCode.toUpperCase();
-    if (ic === sc) return true;
-    if (sc.length >= 4 && (ic.startsWith(sc + '_') || ic.startsWith(sc + '-'))) return true;
-    return false;
-  };
-  const unitOk = (item, fallback) => {
-    if (!fallback || !fallback.unit) return true;
-    if (!item.unit || !item.unit.trim()) return true;
-    return item.unit.toUpperCase() === fallback.unit.toUpperCase();
-  };
-  const keywordExclusions = ['vent', 'window', 'kit', 'labor minimum'];
-
-  return function findExactRoofItem(searchTerms, fallback) {
-    // Code search
-    for (const term of searchTerms.codes || []) {
-      const match = priceList.find(item => {
-        if (!codeMatches(item.code, term)) return false;
-        return matchesExclusions(item.description?.toLowerCase() || '', searchTerms.exclude);
-      });
-      if (match) return match;
-    }
-    // Keyword search
-    for (const term of searchTerms.keywords || []) {
-      const match = priceList.find(item => {
-        const itemDesc = item.description?.toLowerCase() || '';
-        if (!itemDesc.includes(term.toLowerCase())) return false;
-        if (!unitOk(item, fallback)) return false;
-        if (keywordExclusions.some(ex => itemDesc.includes(ex) && !term.toLowerCase().includes(ex))) return false;
-        return matchesExclusions(itemDesc, searchTerms.exclude);
-      });
-      if (match) return match;
-    }
-    return fallback;
-  };
-}
-
 // ── Bad-material detector ─────────────────────────────────────────────────
 const WRONG_MATERIAL_TERMS = ['wood', 'shake', 'cedar', 'slate', 'tile', 'clay', 'concrete tile'];
 function isWrongMaterial(item) {
@@ -145,7 +96,9 @@ function isWrongMaterial(item) {
 async function runTests() {
   // Dynamic-import the ESM priceListUtils
   const { smartDescriptionMatch } = await import('../src/lib/priceListUtils.js');
-  const findExactRoofItem = buildFindExactRoofItem(SYMBILITY_PRICE_LIST);
+  const { pickLineItem } = await import('../src/lib/lineItemPicker.js');
+  const findExactRoofItem = (searchTerms, fallback) =>
+    pickLineItem(SYMBILITY_PRICE_LIST, searchTerms, fallback);
 
   console.log('\n── A) smartDescriptionMatch: underlayment ─────────────────────────────────');
   {

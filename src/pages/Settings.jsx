@@ -1458,8 +1458,8 @@ export default function Settings() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-gray-600">
-                Connect your Gmail account so Lexi can read, search, and reply to emails in your inbox.
-                Only the account owner's Gmail is used — Lexi accesses it on your behalf.
+                Connect yicnteam@gmail.com so Lexi can read that inbox and save drafts. She does not send mail from the phone. You send the draft from Gmail.
+                Only the account owner's Gmail is used.
               </p>
               {gmailAuthError && (
                 <Alert className="border-red-200 bg-red-50">
@@ -1479,7 +1479,7 @@ export default function Settings() {
                       {gmailEmail && (
                         <p className="text-sm text-green-700 truncate">{gmailEmail}</p>
                       )}
-                      <p className="text-xs text-green-600 mt-1">Lexi can read, search, and reply to emails</p>
+                      <p className="text-xs text-green-600 mt-1">Lexi can read this inbox. A reply from the phone is saved as a draft.</p>
                     </div>
                   </div>
                   <Button
@@ -1520,18 +1520,17 @@ export default function Settings() {
                         >
                           APIs &amp; Services → Credentials
                         </a>
-                        , click your OAuth 2.0 Client ID, and add this URI under <strong>Authorized redirect URIs</strong>:
-                        <div className="mt-1 flex items-center gap-2">
-                          <code className="bg-white border border-amber-300 rounded px-2 py-1 text-xs font-mono select-all text-gray-800">
+                        , open OAuth client <strong>783326703651-7cked810oe2o1tvt0vdtrd3n6ai0q0tc</strong>, and add these under <strong>Authorized redirect URIs</strong>:
+                        <div className="mt-1 space-y-1">
+                          <code className="block bg-white border border-amber-300 rounded px-2 py-1 text-xs font-mono select-all text-gray-800">
                             https://getcompanysync.com/api/gmail-callback
                           </code>
-                          <button
-                            type="button"
-                            className="text-xs text-blue-700 underline hover:text-blue-900"
-                            onClick={() => { navigator.clipboard.writeText('https://getcompanysync.com/api/gmail-callback'); }}
-                          >
-                            Copy
-                          </button>
+                          <code className="block bg-white border border-amber-300 rounded px-2 py-1 text-xs font-mono select-all text-gray-800">
+                            https://companysync-web-production.up.railway.app/api/gmail-callback
+                          </code>
+                          <code className="block bg-white border border-amber-300 rounded px-2 py-1 text-xs font-mono select-all text-gray-800">
+                            https://companysync-web-production.up.railway.app/api/auth/google/callback
+                          </code>
                         </div>
                       </li>
                       <li>
@@ -1544,7 +1543,7 @@ export default function Settings() {
                         >
                           OAuth consent screen → Test users
                         </a>
-                        {' '}and add the <strong>exact Gmail address you plan to connect</strong> (required while the app is in Testing mode).
+                        {' '}and add <strong>yicnteam@gmail.com</strong> (required while the app is in Testing mode).
                       </li>
                     </ol>
                     <p className="text-xs text-amber-700">
@@ -1555,7 +1554,7 @@ export default function Settings() {
                   <Alert className="bg-blue-50 border-blue-200">
                     <Mail className="w-4 h-4 text-blue-600" />
                     <AlertDescription className="text-blue-900">
-                      <strong>Not Connected.</strong> After completing the setup steps above, click below to authorize Gmail access for Lexi. You'll be redirected to Google to approve read, send, and modify permissions.
+                      <strong>Not Connected.</strong> After the setup steps, click Connect Gmail and approve read and draft access. Sign in as yicnteam@gmail.com. A draft stays in Gmail until you send it.
                     </AlertDescription>
                   </Alert>
                   <Button

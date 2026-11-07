@@ -8,10 +8,13 @@ import { functionHandlers, executeWorkflowAction } from './vite-functions-plugin
 const nodeRequire = createRequire(import.meta.url);
 const tenantGuard = nodeRequire('./lib/tenantGuard.cjs');
 const invoiceCustomerLink = nodeRequire('./lib/invoiceCustomerLink.cjs');
+const invoiceNumbers = nodeRequire('./lib/invoiceNumbers.cjs');
 const rateLimit = nodeRequire('./lib/rateLimit.cjs');
 const chatBot = nodeRequire('./lib/chatBot.cjs');
 const insuranceClaimWelcome = nodeRequire('./lib/insuranceClaimWelcome.cjs');
 const bulkDeletion = nodeRequire('./lib/bulkDeletion.cjs');
+const { mirroredIdEquality } = nodeRequire('./lib/paymentListFilter.cjs');
+const notificationBell = nodeRequire('./lib/notificationBell.cjs');
 
 function sendNewClaimWelcome(pool, mutationType, before, after, entityType = 'Project') {
   if (!after?.company_id) return;
@@ -373,9 +376,16 @@ function buildDedicatedFilterWhere(filters, startIdx = 1, tableColumns = null) {
     } else {
       if (val === null) {
         clauses.push(`(${colRef} IS NULL OR ${colRef} = '')`);
+      } else if (isDirectCol) {
+        const equality = mirroredIdEquality(normalizedKey, `$${idx}`, {
+          hasDataColumn: Boolean(tableColumns && tableColumns.has('data')),
+        });
+        clauses.push(equality.sql);
+        values.push(equality.asText ? String(val) : val);
+        idx++;
       } else {
         clauses.push(`${colRef} = $${idx}`);
-        values.push(isDirectCol ? val : String(val));
+        values.push(String(val));
         idx++;
       }
     }
@@ -875,6 +885,17 @@ async function checkEntityCreationLimit(pool, entityType, companyId, isSuperAdmi
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function genericCreate(pool, entityType, data) {
+  const guarded = (entityType === 'invoices' || entityType === 'payments')
+    && data?.company_id
+    && typeof pool.connect === 'function';
+  if (!guarded) return genericCreateUnlocked(pool, entityType, data);
+  return invoiceNumbers.withInvoiceWriteTransaction(pool, async (client) => {
+    await invoiceNumbers.prepareEntityWrite(client, entityType, data);
+    return genericCreateUnlocked(client, entityType, data);
+  });
+}
+
+async function genericCreateUnlocked(pool, entityType, data) {
   const id = data.id || `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const companyId = data.company_id || null;
 
@@ -1571,6 +1592,11 @@ export default function dbPlugin() {
             console.warn('[reencrypt] skipped:', error.message);
           });
 
+          if (nodeRequire('./lib/stagingSideEffects.cjs').sideEffectsDisabled()) {
+            console.log('[staging] startup rewrites skipped');
+            return;
+          }
+
           (async () => {
             try {
               const p = getPool();
@@ -2006,6 +2032,21 @@ export default function dbPlugin() {
         const query = parseQuery(req.url);
 
         try {
+          // Exact unread badge count, plus the rows the dropdown is allowed to show.
+          // Audience is the session user (or a company-wide row). Other staff
+          // notifications are excluded before the limit, so they cannot crowd
+          // this user out of the newest 100.
+          if ((urlPath === '/api/local/notifications/unread-count' || urlPath === '/api/local/notifications') && req.method === 'GET') {
+            const pool = getPool();
+            const ctx = await tenantGuard.resolveRequestContext(req, pool);
+            const result = await notificationBell.handleBellRequest(pool, ctx, {
+              path: urlPath,
+              companyId: query.company_id,
+              limit: query.limit,
+            });
+            return sendJson(res, result.body, result.status);
+          }
+
           if (urlPath === '/api/local/invoices/link-customer' && req.method === 'POST') {
             const pool = getPool();
             const ctx = await tenantGuard.resolveRequestContext(req, pool);

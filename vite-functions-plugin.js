@@ -3,10 +3,18 @@ import crypto from 'crypto';
 import { createRequire } from 'node:module';
 import { promises as dnsPromises } from 'node:dns';
 import { createStripeHandlers } from './vite-stripe-plugin.js';
-import { buildSidingMeasurementGraph, collectFaceMasonryPct } from './functions/utils/sidingMeasurementGraph.js';
+import { buildSidingMeasurementGraph, collectFaceMasonryPct, collectLabeledMasonryPct, fitFacesToGross, applyBilledWallIdentity } from './functions/utils/sidingMeasurementGraph.js';
+import {
+  PRODUCTION_MATERIAL_SAMPLE_COUNT,
+  FACE_MATERIAL_RESPONSE_SCHEMA,
+  faceMaterialSystemPrompt,
+  classifyFaceMaterials,
+  materialProposalsFromMap,
+} from './functions/utils/faceMaterialClassification.js';
+import { streetFacingWallAzimuths, cameraForWall, nearestRoadFrontAzimuth } from './functions/utils/photoSlotOrientation.js';
 import { buildMultiViewPhotoEvidence } from './functions/utils/multiViewPhotoEvidence.js';
 import { buildRoofFacetsFromSolarSegments, computeEdgeTotals as computeRoofEdgeTotals } from './functions/utils/roofFacetGeometry.js';
-import { reconcileRoofLinearsWithFacetEdges } from './functions/utils/roofLinearAuthority.js';
+import { assessRoofFacetTraceQuality, reconcileRoofLinearsWithFacetEdges } from './functions/utils/roofLinearAuthority.js';
 import {
   buildFootprintFromFacets,
   polygonPerimeterFt,
@@ -26,10 +34,20 @@ import {
   planFeetToLatLng,
 } from './functions/utils/roofImageryTakeoff.js';
 import { fetchWaybackIds } from './src/lib/mapImagery.js';
-import { resolveVerticalScale, materialToSidingProfile, processShutters, processAwnings } from './src/utils/companySyncFormulas.js';
-import { countFootprintCorners, cornersFromElevationPhotos } from './src/utils/footprintCorners.js';
+import { eaveFromCourseCount, installedRevealIn, resolveVerticalScale, materialToSidingProfile, processShutters, processAwnings } from './src/utils/companySyncFormulas.js';
+import { countFootprintCorners, cornersFromElevationPhotos, cornersFromFacetOutline, chooseCornerTotals, countSidingOutsideCorners, faceWidthsFromFootprint } from './src/utils/footprintCorners.js';
+import { acceptSatelliteFootprint, chooseOutbuildingFootprint, footprintBoxCandidate, footprintCandidatesFromBuildings, footprintDisagreesWithPhotos, footprintFromClientPolygon, footprintSmallerThan, projectRingFeet, roofEdgeAgrees } from './functions/utils/photoFootprintAnchor.js';
+import { measureElevationAccessories, resolveGutterQuantity, selectGutterEaveLf, levelOutlineEaveLf, soffitDepthsFromPhotos } from './functions/utils/elevationAccessories.js';
 import { calculateSidingWaste } from './src/utils/sidingWaste.js';
 import { resolveRoofWaste } from './src/utils/roofWaste.js';
+import { measureFromPhotoAnalysis, mergeVisionMaterialSamples, preferAlternateSolar, reconcileWallSectionGross, resolveSolarRoofArea, solarAreaParts, solarRoofAreaSqFt, solarUndershootsFootprint, storyCountFromPhotos } from './functions/utils/wallMaterialSections.js';
+import { retryTimedOutPhotoRead, GEMINI_PHOTO_TIMEOUT_BACKOFF_MS, GEMINI_PHOTO_RETRY_TIMEOUT_MS } from './functions/utils/geminiPhotoRetry.js';
+import { shrinkPhotoForRetry } from './functions/utils/shrinkPhotoForRetry.js';
+import { billedRoofArea, completeDetectedRoof, independentFootprintPlanSqFt } from './functions/utils/roofCompletion.js';
+import { candidateTags, distanceMeters, pitchOnBuilding, resolveFootprintPitchArea, ringFromLatLngGeometry, selectTargetBuilding } from './functions/utils/roofFootprintArea.js';
+import { areaWeightedPitchMode } from './functions/utils/roofPitch.js';
+import { assessRoofReview, REP_REVIEW_ASK, roofShortForWalls } from './functions/utils/roofReview.js';
+import { fetchMicrosoftBuildingsNear } from './functions/utils/microsoftBuildingFootprints.js';
 
 async function mapWithConcurrency(items, limit, fn) {
   const list = Array.isArray(items) ? items : [];
@@ -49,6 +67,7 @@ import { appendInsuranceSettlementPdf } from './lib/insuranceSettlement.js';
 import { buildCityBoundaryQuery } from './src/lib/stormAddressUtils.js';
 
 const nodeRequire = createRequire(import.meta.url);
+const stagingSideEffects = nodeRequire('./lib/stagingSideEffects.cjs');
 const inspectionReportDelivery = nodeRequire('./lib/inspectionReportDelivery.cjs');
 const { invalidateCallerCache, invalidateCallerCacheForCompany } = nodeRequire('./lib/lookupCallerByCrmPhone.cjs');
 const emailHealth = nodeRequire('./lib/emailProviderHealth.cjs');
@@ -77,13 +96,28 @@ const { normalizeWorkflowSmsDestination, workflowSmsDedupeId } = nodeRequire('./
 const { assertSmsRecipientAllowed } = nodeRequire('./lib/smsRecipientGuard.cjs');
 const { isRedundantPlatformEstimateWorkflow } = nodeRequire('./lib/workflowNotificationSafety.cjs');
 const { isSyntheticSignupEmail } = nodeRequire('./lib/signupSafety.cjs');
+const { allocateInvoiceNumber, resolvePaymentInvoiceLink, prepareEntityWrite } = nodeRequire('./lib/invoiceNumbers.cjs');
+const { resolveInvoiceCustomerForCreate } = nodeRequire('./lib/invoiceCustomerLink.cjs');
+const { invoiceDraftFromEstimate, buildLinkedInvoiceUpdate } = nodeRequire('./lib/estimateInvoiceSync.cjs');
+const { ESTIMATE_CUSTOMER_CANDIDATES_SQL, candidateQueryParams, resolveEstimateInvoiceCustomer } = nodeRequire('./lib/estimateInvoiceCustomer.cjs');
 const { annotateToolResult: groundToolResult, createGroundingLedger, auditLexiResponse, buildWriteVerificationResult } = nodeRequire('./lib/lexiGrounding.cjs');
 const { accessDenied: lexiAccessDenied, buildLexiAccessPolicy, canUseCrmDataType, isPermittedRepTool, isRestrictedRepTool, ownRecordCondition } = nodeRequire('./lib/lexiAccessPolicy.cjs');
 const {
   deriveWallHeight: _deriveWallHeight,
   deriveBuildingDimensions: _deriveBuildingDimensions,
   computeGableArea: _computeGableArea,
+  wallHeightForStructure: _wallHeightForStructure,
+  wingPerimeterRun: _wingPerimeterRun,
+  cappedWallGross: _cappedWallGross,
+  medianPhotoEaveFt: _medianPhotoEaveFt,
+  snapHouseEaveFt: _snapHouseEaveFt,
+  houseEaveFt: _houseEaveFt,
+  faceEavesFt: _faceEavesFt,
+  applyConfirmedFaceHeights: _applyConfirmedFaceHeights,
+  applyPhotoHeightReference: _applyPhotoHeightReference,
+  gableAreaFromPitch: _gableAreaFromPitch,
 } = nodeRequire('./db/siding-aggregate.cjs');
+const _satWalls = nodeRequire('./db/satellite-walls.cjs');
 const {
   analyzePropertyPhotos,
   listPropertyMeasurements,
@@ -2776,11 +2810,20 @@ async function callGeminiMultiImage(apiKey, systemInstruction, prompt, imageUrls
 }
 
 async function callGemini(apiKey, systemInstruction, prompt, options = {}) {
-  const { imageData, mimeType, jsonMode = true, model = 'gemini-2.5-flash', timeoutMs = 60000 } = options;
+  const {
+    imageData, mimeType, images, jsonMode = true, model = 'gemini-2.5-flash',
+    timeoutMs = 60000, temperature = 0.2, retries = 2, retryDelayMs = 800,
+    responseSchema = null,
+  } = options;
   
   const parts = [];
-  if (imageData && mimeType) {
-    parts.push({ inlineData: { mimeType, data: imageData } });
+  const imageList = Array.isArray(images) && images.length
+    ? images
+    : (imageData && mimeType ? [{ imageData, mimeType }] : []);
+  for (const image of imageList) {
+    if (image?.imageData && image?.mimeType) {
+      parts.push({ inlineData: { mimeType: image.mimeType, data: image.imageData } });
+    }
   }
   parts.push({ text: prompt });
 
@@ -2788,8 +2831,9 @@ async function callGemini(apiKey, systemInstruction, prompt, options = {}) {
     systemInstruction: { parts: [{ text: systemInstruction }] },
     contents: [{ role: 'user', parts }],
     generationConfig: {
-      temperature: 0.2,
-      ...(jsonMode ? { responseMimeType: 'application/json' } : {})
+      temperature,
+      ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
+      ...(responseSchema ? { responseSchema } : {}),
     }
   };
 
@@ -2798,7 +2842,7 @@ async function callGemini(apiKey, systemInstruction, prompt, options = {}) {
   const response = await fetchWithRetry(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     fetchOpts,
-    { timeoutMs: timeoutMs || 60000 }
+    { timeoutMs: timeoutMs || 60000, retries, retryDelayMs }
   );
 
   const data = await response.json();
@@ -9611,7 +9655,13 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
   },
 
   async _aiRoofMeasurementImpl(params, apiKey, companyId = null) {
-    const { latitude, longitude, address, imagery_source: reviewImagerySource = 'google' } = params;
+    const {
+      latitude,
+      longitude,
+      address,
+      imagery_source: reviewImagerySource = 'google',
+      structure_type: structureType = 'house',
+    } = params;
     const debugLogs = ['Function started'];
     const googleApiKey = process.env.GOOGLE_MAPS_API_KEY;
 
@@ -9673,21 +9723,20 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     roofSegments.forEach(s => { segmentSumM2 += s.stats?.areaMeters2 || 0; });
     const segmentSumSqFt = segmentSumM2 * 10.764;
 
-    let totalAreaSqFt = 0, areaMethod = '';
-    if (segmentSumSqFt > 0 && wholeAreaSqFt > 0) {
-      const ratio = segmentSumSqFt / wholeAreaSqFt;
-      if (ratio >= 0.85) { totalAreaSqFt = segmentSumSqFt; areaMethod = 'segment_sum'; }
-      else if (ratio >= 0.65) { totalAreaSqFt = segmentSumSqFt * 1.05; areaMethod = 'segment_sum +5%'; }
-      else { totalAreaSqFt = (segmentSumSqFt + wholeAreaSqFt) / 2; areaMethod = 'average'; }
-    } else if (segmentSumSqFt > 0) { totalAreaSqFt = segmentSumSqFt; areaMethod = 'segment_sum'; }
-    else if (wholeAreaSqFt > 0) { totalAreaSqFt = wholeAreaSqFt * 0.92; areaMethod = 'wholeRoofStats'; }
-    else {
+    const resolvedRoofArea = resolveSolarRoofArea(segmentSumSqFt, wholeAreaSqFt);
+    if (!resolvedRoofArea) {
       return {
         success: false,
         error: 'Google Solar returned no measurable roof geometry. Upload clear physical elevation photos or use Manual Drawing.',
         debug_logs: debugLogs,
       };
     }
+    let totalAreaSqFt = resolvedRoofArea.area;
+    let areaMethod = resolvedRoofArea.method;
+    let roofEstimatedAreaSqFt = 0;
+    let roofCompletionMethods = [];
+    let roofCompletedFacets = [];
+    let roofCompletionSkip = null;
 
     let roofAreaSquares = Math.round((totalAreaSqFt / 100) * 100) / 100;
     // Reassigned when an imagery takeoff supersedes Solar's segment count.
@@ -9710,15 +9759,18 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
         segmentPitches.push({ pitch: degToX12(segDeg), pitch_deg: Math.round(segDeg * 10) / 10, area_sqft: Math.round(segArea * 10.764) });
       }
     }
-    // Area-weighted pitch: every facet votes proportionally to its size,
-    // instead of the single largest facet deciding for the whole roof.
+    // Area-weighted mode: the x/12 that covers the most area. A mean would let
+    // a small dormer pull the whole roof off by a pitch.
     const weightedDeg = pitchAreaSum > 0 ? Math.atan(pitchTanWeighted / pitchAreaSum) * 180 / Math.PI : null;
-    const effectiveDeg = weightedDeg ?? predominantDeg;
-    const pitchStr = effectiveDeg ? degToX12(effectiveDeg) : '6/12';
-    const pitchRad = effectiveDeg ? (effectiveDeg * Math.PI / 180) : (Math.atan(6/12));
-    const pitchVal = effectiveDeg ? Math.round(Math.tan(effectiveDeg * Math.PI / 180) * 12) : 6;
-    const pitchSource = weightedDeg != null ? 'solar_segments_weighted' : 'default_assumption';
-    const pitchConfidence = weightedDeg == null ? 'low' : (segmentPitches.length >= 2 ? 'high' : 'medium');
+    const pitchMode = areaWeightedPitchMode(roofSegments);
+    let effectiveDeg = pitchMode?.degrees ?? weightedDeg ?? predominantDeg;
+    let pitchStr = pitchMode?.label || (effectiveDeg ? degToX12(effectiveDeg) : '6/12');
+    let pitchRad = effectiveDeg ? (effectiveDeg * Math.PI / 180) : (Math.atan(6/12));
+    let pitchVal = effectiveDeg ? Math.round(Math.tan(effectiveDeg * Math.PI / 180) * 12) : 6;
+    let pitchSource = pitchMode?.source || (weightedDeg != null ? 'solar_segments_weighted' : 'default_assumption');
+    let pitchConfidence = weightedDeg == null ? 'low' : (segmentPitches.length >= 2 ? 'high' : 'medium');
+    let billedSegmentPitches = segmentPitches;
+    let pitchUnknown = false;
     debugLogs.push(`Pitch: ${pitchStr} (${pitchSource}, ${pitchConfidence} confidence, ${segmentPitches.length} pitched facets)`);
 
     const analyzeSegments = (segments) => {
@@ -9839,11 +9891,47 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     // Step 2: Query OpenStreetMap for real building footprint — most accurate for gutter/eave LF
     const solarEaveFt = 2 * (estLength + estWidth);
     let osmPolygonXY = null; // [[east_ft, north_ft], …] for 3D viewer
+    let osmFrameOrigin = null; // centroid the polygon is centred on
     let osmGarageXY  = null;
     let osmFootprintSqFt = 0;   // true mapped footprint for the facet-subdivision invariant
+    let queriedFootprintSqFt = 0; // plan of the building under the pin, even when the eave-ratio gate rejects it
+    let queriedFootprintRing = null;
+    let queriedFootprintOrigin = null;
+    let footprintSource = null;
+    let footprintSelectMethod = 'none';
+    let footprintContainsAddress = false;
+    let chosenBuildingTags = {};
+    let largerNeighborRatio = null;
     let osmGarageFootprintSqFt = 0; // exact traced secondary-structure footprint (shoelace)
     let osmGaragePerimeterFt = 0;   // …and its true perimeter, for overhang math
     let footprintClamped = false;
+    let footprintLookupTimedOut = false;
+    let footprintLookupError = null;
+    let solarOnDifferentBuilding = false;
+    let queriedFootprintGeometry = null;
+    let solarCentroid = null;
+    let solarCentroidWeight = 0;
+    let solarCentroidLat = 0;
+    let solarCentroidLng = 0;
+    for (const seg of roofSegments) {
+      const segArea = seg.stats?.areaMeters2 || 0;
+      const segLat = seg.center?.latitude;
+      const segLng = seg.center?.longitude;
+      if (!(segArea > 0) || segLat == null || segLng == null) continue;
+      solarCentroidLat += segLat * segArea;
+      solarCentroidLng += segLng * segArea;
+      solarCentroidWeight += segArea;
+    }
+    if (solarCentroidWeight > 0) {
+      solarCentroid = { lat: solarCentroidLat / solarCentroidWeight, lng: solarCentroidLng / solarCentroidWeight };
+    } else if (solarData?.center?.latitude != null) {
+      solarCentroid = { lat: solarData.center.latitude, lng: solarData.center.longitude };
+    }
+    const buildingPick = {
+      address,
+      structureType,
+      solarCentroid,
+    };
     try {
       // The raw query previously contained quotes and brackets directly in the
       // URL. Overpass now rejects that form with HTTP 406, silently removing the
@@ -9872,7 +9960,39 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
               return { el, bboxAreaM2: nsM * ewM, nsFt: nsM * 3.2808, ewFt: ewM * 3.2808 };
             });
           candidates.sort((a, b) => b.bboxAreaM2 - a.bboxAreaM2);
-          const best = candidates[0];
+          // The addressed building, not the largest way inside the 80 m search.
+          // 917 Brunswick is bigger than 2051 Hanover and sits 14 m away.
+          const selected = selectTargetBuilding(candidates, latitude, longitude, { ...buildingPick, maxDistanceM: 25 });
+          solarOnDifferentBuilding = selected.solarOnDifferentBuilding === true;
+          const queriedBuilding = selected.building;
+          footprintSelectMethod = selected.method;
+          if (queriedBuilding) {
+            const queriedRing = ringFromLatLngGeometry(queriedBuilding.el?.geometry);
+            if (queriedRing?.areaSqFt > 0) {
+              queriedFootprintSqFt = queriedRing.areaSqFt;
+              queriedFootprintRing = queriedRing.xy;
+              queriedFootprintOrigin = queriedRing.origin;
+              queriedFootprintGeometry = queriedBuilding.el?.geometry || null;
+              footprintSource = 'osm';
+              chosenBuildingTags = candidateTags(queriedBuilding);
+              footprintContainsAddress = selected.method === 'contains_point' || selected.method === 'address_tag';
+              let maxOther = 0;
+              for (const other of candidates) {
+                if (other === queriedBuilding) continue;
+                const otherRing = ringFromLatLngGeometry(other.el?.geometry);
+                if (!(otherRing?.areaSqFt > 0) || !queriedRing.origin) continue;
+                const apart = distanceMeters(
+                  queriedRing.origin.latitude,
+                  queriedRing.origin.longitude,
+                  otherRing.origin.latitude,
+                  otherRing.origin.longitude,
+                );
+                if (apart <= 25 && otherRing.areaSqFt > maxOther) maxOther = otherRing.areaSqFt;
+              }
+              largerNeighborRatio = maxOther > 0 ? maxOther / queriedRing.areaSqFt : null;
+            }
+          }
+          const best = queriedBuilding;
           if (best) {
             const osmEaveFt = 2 * (best.nsFt + best.ewFt);
             const ratio = osmEaveFt / solarEaveFt;
@@ -9885,6 +10005,7 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
               const osmLngs = osmNodes.map(n => n.lon);
               const osmCLat = osmLats.reduce((a,b)=>a+b,0)/osmLats.length;
               const osmCLng = osmLngs.reduce((a,b)=>a+b,0)/osmLngs.length;
+              osmFrameOrigin = { latitude: osmCLat, longitude: osmCLng };
               const osmHavFt = (la1,ln1,la2,ln2) => { const R=20902231,dLa=(la2-la1)*Math.PI/180,dLn=(ln2-ln1)*Math.PI/180,a=Math.sin(dLa/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dLn/2)**2; return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); };
               const isClosed = osmNodes.length>1 && osmNodes[0].lat===osmNodes[osmNodes.length-1].lat && osmNodes[0].lon===osmNodes[osmNodes.length-1].lon;
               const openOsmNodes = isClosed ? osmNodes.slice(0,-1) : osmNodes;
@@ -9956,11 +10077,66 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
               debugLogs.push(`OSM footprint used: L=${estLength.toFixed(1)}ft W=${estWidth.toFixed(1)}ft (ratio=${ratio.toFixed(2)}, ${openOsmNodes.length} vertices)`);
             } else {
               debugLogs.push(`OSM perimeter rejected (ratio=${ratio.toFixed(2)}) — using Solar azimuth estimate`);
+              // A partial Solar model makes the eave estimate short, so a real
+              // house fails the 2.5× gate and completion never sees a footprint.
+              // Keep the building under the pin for area. Do not adopt its
+              // length and width — those still drive the gutter heuristic.
+              if (queriedFootprintSqFt > 0 && queriedFootprintRing) {
+                osmPolygonXY = queriedFootprintRing;
+                osmFrameOrigin = queriedFootprintOrigin;
+                osmFootprintSqFt = queriedFootprintSqFt;
+                debugLogs.push(`Kept address footprint ${Math.round(queriedFootprintSqFt)} sqft for roof area (eave ratio ${ratio.toFixed(2)}, ${footprintSelectMethod})`);
+              }
             }
           }
         } else { debugLogs.push('OSM: no building found within 50m'); }
       } else { debugLogs.push(`OSM: HTTP ${osmResp.status}`); }
     } catch (osmErr) { debugLogs.push(`OSM lookup skipped: ${osmErr.message}`); }
+
+    // OSM had no building at this address. Microsoft's free global footprints
+    // are the fallback. A paid imagery service is not.
+    if (!(queriedFootprintSqFt > 0)) {
+      try {
+        const microsoft = await fetchMicrosoftBuildingsNear(latitude, longitude, { timeoutMs: 30000 });
+        if (microsoft.timedOut) {
+          footprintLookupTimedOut = true;
+          footprintLookupError = microsoft.error || 'Microsoft building footprints timed out';
+          console.warn(`[roof] ${footprintLookupError} at ${latitude},${longitude}`);
+          debugLogs.push(`Microsoft footprint lookup timed out: ${footprintLookupError}`);
+        }
+        const selected = selectTargetBuilding(microsoft.buildings || [], latitude, longitude, { ...buildingPick, maxDistanceM: 12 });
+        if (selected.building) solarOnDifferentBuilding = selected.solarOnDifferentBuilding === true;
+        if (selected.building) {
+          const ring = ringFromLatLngGeometry(selected.building.el?.geometry);
+          if (ring?.areaSqFt > 0) {
+            queriedFootprintSqFt = ring.areaSqFt;
+            queriedFootprintRing = ring.xy;
+            queriedFootprintOrigin = ring.origin;
+            queriedFootprintGeometry = selected.building.el?.geometry || null;
+            osmPolygonXY = ring.xy;
+            osmFrameOrigin = ring.origin;
+            osmFootprintSqFt = ring.areaSqFt;
+            footprintSource = 'microsoft';
+            footprintSelectMethod = selected.method;
+            footprintContainsAddress = selected.method === 'contains_point' || selected.method === 'address_tag';
+            chosenBuildingTags = candidateTags(selected.building);
+            debugLogs.push(`Microsoft footprint ${Math.round(ring.areaSqFt)} sqft (${selected.method}) — OSM had no building at the address`);
+          }
+        } else {
+          debugLogs.push('Microsoft footprints: no building at the address');
+        }
+      } catch (msErr) {
+        const timedOut = msErr?.timedOut === true || msErr?.name === 'TimeoutError' || msErr?.name === 'AbortError';
+        if (timedOut) {
+          footprintLookupTimedOut = true;
+          footprintLookupError = msErr.message || 'Microsoft building footprints timed out';
+          console.warn(`[roof] ${footprintLookupError} at ${latitude},${longitude}`);
+          debugLogs.push(`Microsoft footprint lookup timed out: ${footprintLookupError}`);
+        } else {
+          debugLogs.push(`Microsoft footprint lookup skipped: ${msErr.message}`);
+        }
+      }
+    }
 
     // ─── Footprint-consistency invariant ─────────────────────────────────────
     // The sum of every facet's flat 2D projection can never exceed the building
@@ -10157,15 +10333,58 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     // footprint ceiling — re-enforce the invariant on the calibrated result.
     applyFootprintClamp('post-calibration');
 
-    const isFlatRoof = pitchStr === '0/12' || pitchStr === '1/12' || pitchStr === '2/12';
+    // The pitch above is the whole Solar model. When that model sits on a
+    // different building than the pin, keep only the planes that overlap
+    // this outline. None of them means the pitch is unknown — do not borrow
+    // the house pitch, including a near-flat 1/12.
+    if (solarOnDifferentBuilding) {
+      const onBuilding = pitchOnBuilding(roofSegments, queriedFootprintGeometry);
+      if (onBuilding.known) {
+        pitchStr = onBuilding.label;
+        effectiveDeg = onBuilding.degrees;
+        pitchVal = onBuilding.rise;
+        pitchRad = (onBuilding.degrees * Math.PI) / 180;
+        pitchSource = onBuilding.source;
+        pitchConfidence = 'low';
+        pitchUnknown = false;
+        billedSegmentPitches = onBuilding.segments.map((seg) => {
+          const segDeg = seg.pitchDegrees ?? seg.tiltDegrees ?? null;
+          const segArea = seg.stats?.areaMeters2 || 0;
+          return {
+            pitch: segDeg > 0 ? degToX12(segDeg) : pitchStr,
+            pitch_deg: segDeg > 0 ? Math.round(segDeg * 10) / 10 : null,
+            area_sqft: Math.round(segArea * 10.764),
+          };
+        });
+        debugLogs.push(`Pitch on the pinned building: ${pitchStr} from ${onBuilding.segmentCount} overlapping segment(s)`);
+      } else {
+        pitchStr = 'unknown';
+        effectiveDeg = null;
+        pitchVal = null;
+        pitchRad = 0;
+        pitchSource = 'unknown_other_building';
+        pitchConfidence = 'unknown';
+        pitchUnknown = true;
+        billedSegmentPitches = [];
+        debugLogs.push('Pitch unknown: no Solar segment overlaps the building under the pin. The house pitch was not used.');
+      }
+    }
+
+    const isFlatRoof = !pitchUnknown && (pitchStr === '0/12' || pitchStr === '1/12' || pitchStr === '2/12');
     const hasGoodData = segmentSumSqFt > 0 && roofSegments.length >= 2;
     const typeConfidence = roofClassification.confidence;
     const baseConf = hasGoodData ? 85 : 70;
     let overallConf = Math.min(98, Math.round(baseConf * (typeConfidence / 100) + (calibrationApplied ? 8 : 0)));
     if (footprintClamped) overallConf = Math.min(overallConf, 55);
-    const solarGroundSqFt = Number(solarData.solarPotential?.wholeRoofStats?.groundAreaMeters2 || 0) * 10.7639;
-    const solarFootprintCoverageRatio = osmFootprintSqFt > 0 && solarGroundSqFt > 0
-      ? solarGroundSqFt / osmFootprintSqFt
+    let solarGroundSqFt = Number(solarData.solarPotential?.wholeRoofStats?.groundAreaMeters2 || 0) * 10.7639;
+    if (!(solarGroundSqFt > 0)) {
+      let segmentGroundM2 = 0;
+      for (const seg of roofSegments) segmentGroundM2 += Number(seg.stats?.groundAreaMeters2 || 0);
+      solarGroundSqFt = segmentGroundM2 * 10.7639;
+    }
+    const coverageFootprintSqFt = queriedFootprintSqFt > 0 ? queriedFootprintSqFt : osmFootprintSqFt;
+    const solarFootprintCoverageRatio = coverageFootprintSqFt > 0 && solarGroundSqFt > 0
+      ? solarGroundSqFt / coverageFootprintSqFt
       : null;
     const imageryAgeMonths = solarImageryDate
       ? Math.max(0, (new Date().getUTCFullYear() - solarData.imageryDate.year) * 12
@@ -10358,9 +10577,18 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     );
     if (requiresManualReview) overallConf = Math.min(overallConf, 40);
     const measurementReady = !requiresManualReview;
-    const warningMessage = requiresManualReview
+    let warningMessage = requiresManualReview
       ? `Automatic measurement was stopped because the Solar roof model appears incomplete. ${sourceQualityFlags.join(' ')} Use Manual Drawing, enter verified dimensions, or upload a trusted measurement report before generating the estimate.`
       : (sourceQualityFlags.length ? sourceQualityFlags.join(' ') : null);
+    // A 7-facet partial model misses the three-way gate above (it is not
+    // "suspiciously simple"), so these stay writable when the footprint
+    // pitch fallback later decides the number is not ready.
+    let billedMeasurementReady = measurementReady;
+    let billedManualReview = requiresManualReview;
+    let areaConfidence = 'standard';
+    let footprintPitchReason = null;
+    let solarAreaReplacedSqFt = null;
+    let measurementImagerySource = 'google_solar';
 
     let roofWaste = resolveRoofWaste({
       pitchVal,
@@ -10595,6 +10823,124 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       debugLogs.push(`3D facet geometry failed (non-fatal): ${facetErr.message}`);
     }
 
+    // Bill a completed wing only when the mapped footprint is at least 25%
+    // larger than the planes already measured. A near-complete outline stays
+    // on the Solar blend.
+    try {
+      if (Array.isArray(roofFacets3d) && roofFacets3d.length > 0) {
+        const completion = completeDetectedRoof({
+          facets: roofFacets3d,
+          footprint: osmPolygonXY,
+          footprintOrigin: osmFrameOrigin,
+          attachedFootprints: osmGarageXY ? [osmGarageXY] : [],
+        });
+        const billed = billedRoofArea(totalAreaSqFt, completion, {
+          footprintPlanSqFt: independentFootprintPlanSqFt(osmPolygonXY, osmGarageXY ? [osmGarageXY] : []),
+        });
+        roofCompletionSkip = billed.skip;
+        if (billed.source === 'solar_completed') {
+          totalAreaSqFt = billed.area;
+          roofAreaSquares = Math.round((totalAreaSqFt / 100) * 100) / 100;
+          finalOrderQty = Number((roofAreaSquares * (1 + wastePercent / 100)).toFixed(2));
+          areaMethod = 'solar_completed';
+          roofEstimatedAreaSqFt = billed.estimated_sqft;
+          roofCompletionMethods = billed.methods;
+          roofCompletedFacets = (completion.facets || []).filter((facet) => facet.quality === 'estimated');
+          debugLogs.push(`Roof completion added ${Math.round(billed.estimated_sqft)} sqft via ${(billed.methods || []).join(', ') || 'geometry'}`);
+        } else if (billed.skip) {
+          debugLogs.push(`Roof completion not billed (${billed.skip})`);
+        }
+      }
+    } catch (completionErr) {
+      debugLogs.push(`Roof completion skipped: ${completionErr.message}`);
+    }
+
+    // Completion bills from the plan of the Solar rectangles. Those boxes can
+    // already cover the footprint while the Solar stat area is still a
+    // fraction of the roof, so the gate reports outline_complete and the
+    // short number stands. The centroid re-query that would ask Solar again
+    // lives on the siding analyzer, not this handler, and solar_query stays
+    // 'geocode'. When the stat plan is far under the building we actually
+    // pinned, bill footprint × pitch instead of the fragment. Past report
+    // calibrations (including Hover) are not an input to that number.
+    const footprintPlanForArea = queriedFootprintSqFt > 0 ? queriedFootprintSqFt : osmFootprintSqFt;
+    const footprintPitch = resolveFootprintPitchArea({
+      solarPotential: solarData.solarPotential,
+      footprintPlanSqFt: footprintPlanForArea,
+      pitchLabel: pitchUnknown ? null : pitchStr,
+      pitchDegrees: pitchUnknown ? null : effectiveDeg,
+      pitchKnown: !pitchUnknown,
+      imageryTakeoffRan: imageryTakeoff != null,
+      solarOnDifferentBuilding,
+    });
+    if (footprintPitch.use_footprint_pitch) {
+      solarAreaReplacedSqFt = Math.round(totalAreaSqFt);
+      totalAreaSqFt = footprintPitch.area_sqft;
+      roofAreaSquares = Math.round((totalAreaSqFt / 100) * 100) / 100;
+      finalOrderQty = Number((roofAreaSquares * (1 + wastePercent / 100)).toFixed(2));
+      areaMethod = footprintPitch.area_method || 'footprint_x_pitch';
+      footprintPitchReason = footprintPitch.reason;
+      areaConfidence = 'low';
+      billedMeasurementReady = false;
+      billedManualReview = true;
+      measurementImagerySource = footprintPitch.pitch_unknown ? 'footprint_pitch_unknown' : 'footprint_x_pitch';
+      overallConf = Math.min(overallConf, 35);
+      const coveragePct = footprintPitch.solar_coverage_ratio == null
+        ? null
+        : Math.round(footprintPitch.solar_coverage_ratio * 100);
+      const takeoffClause = imageryTakeoff
+        ? 'The imagery takeoff was not used as the measurement.'
+        : 'No imagery takeoff ran.';
+      const footprintPitchNote = footprintPitch.reason === 'solar_measured_other_building'
+        ? (footprintPitch.pitch_unknown
+          ? `The pin is on a different building than the one Google Solar measured. Pitch is unknown — enter it before this roof can be ready. The outline is ${Math.round(footprintPlanForArea).toLocaleString()} sq ft and has not been pitched.`
+          : `The pin is on a different building than the one Google Solar measured. Roof area is that outline times the ${pitchStr} pitch from the segments on it (${totalAreaSqFt.toLocaleString()} sq ft).`)
+        : `${takeoffClause} Google Solar's plan covers ${coveragePct == null ? 'far less than' : `${coveragePct}% of`} the mapped footprint, so roof area is the footprint times the ${pitchStr} pitch factor (${totalAreaSqFt.toLocaleString()} sq ft). Low confidence — not a ready measurement.`;
+      sourceQualityFlags.push(footprintPitchNote);
+      warningMessage = warningMessage ? `${warningMessage} ${footprintPitchNote}` : footprintPitchNote;
+      debugLogs.push(`Footprint pitch area: ${totalAreaSqFt} sqft = ${Math.round(footprintPlanForArea)} sqft × ${footprintPitch.pitch_factor} (${footprintPitch.reason}); replaced Solar ${solarAreaReplacedSqFt} sqft`);
+    }
+
+    const reviewFootprint = queriedFootprintSqFt > 0 ? {
+      areaSqFt: queriedFootprintSqFt,
+      containsPoint: footprintContainsAddress,
+      distanceM: footprintSelectMethod === 'closest' && queriedFootprintOrigin
+        ? distanceMeters(latitude, longitude, queriedFootprintOrigin.latitude, queriedFootprintOrigin.longitude)
+        : 0,
+      method: footprintSelectMethod,
+      tags: chosenBuildingTags,
+    } : null;
+    const roofReview = assessRoofReview({
+      latitude,
+      longitude,
+      address,
+      footprint: reviewFootprint,
+      solarGroundSqFt,
+      solarSlopeSqFt: solarAreaReplacedSqFt > 0 ? solarAreaReplacedSqFt : totalAreaSqFt,
+      pitchLabel: pitchStr,
+      segmentCount: roofSegments.length,
+      solarCentroid,
+      largerNeighborRatio,
+      footprintPitchApplied: footprintPitch.use_footprint_pitch === true,
+      solarOnDifferentBuilding,
+      footprintLookupTimedOut,
+      structureType,
+      billedRoofSqFt: totalAreaSqFt,
+      wallAreaSqFt: Number(params.gross_wall_area_sqft) || Number(params.wall_area_sqft) || 0,
+      wallHeightFt: Number(params.wall_height_ft) || 0,
+      storyCount: Number(params.story_count) || 0,
+      storyHeightFt: Number(params.story_height_ft) || 0,
+    });
+    if (roofReview.needs_rep_review) {
+      billedMeasurementReady = false;
+      billedManualReview = true;
+      overallConf = Math.min(overallConf, 40);
+      if (areaConfidence === 'standard') areaConfidence = 'low';
+      sourceQualityFlags.push(roofReview.message);
+      warningMessage = warningMessage ? `${roofReview.message} ${warningMessage}` : roofReview.message;
+      debugLogs.push(`Needs rep review: ${roofReview.reasons.map((reason) => reason.code).join(', ')}`);
+    }
+
     return {
       success: true,
       detectedLines,
@@ -10608,12 +10954,20 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       rake_lf: rakeLf, eave_lf: eaveLf,
       step_flashing_lf: stepFlashingLf,
       apron_flashing_lf: apronFlashingLf || 0,
-      pitch: pitchStr, is_flat_roof: isFlatRoof,
+      pitch: pitchUnknown ? 'unknown' : pitchStr, is_flat_roof: isFlatRoof,
       pitch_source: pitchSource, pitch_confidence: pitchConfidence,
-      segment_pitches: segmentPitches,
-      // Solar API segment areas are already slope-adjusted — consumers must
-      // NOT apply a pitch multiplier again (double-count risk).
-      area_is_slope_adjusted: true,
+      pitch_unknown: pitchUnknown,
+      // The address outline (OSM, or Microsoft when OSM had none). The photo
+      // siding step uses this for wall corners instead of per-elevation counts.
+      footprint_polygon_xy: Array.isArray(osmPolygonXY) && osmPolygonXY.length >= 3 ? osmPolygonXY : null,
+      footprint_source: footprintSource,
+      footprint_geometry: Array.isArray(osmPolygonXY) && osmPolygonXY.length >= 3 ? 'traced_polygon' : null,
+      footprint_sqft_2d: solarOnDifferentBuilding && footprintPlanForArea > 0 ? Math.round(footprintPlanForArea) : null,
+      segment_pitches: billedSegmentPitches,
+      // Solar's own area is already a slope. A pin on another building with
+      // no overlapping plane is the outline only, so a pitch the rep enters
+      // still has to be applied.
+      area_is_slope_adjusted: !pitchUnknown,
       roof_type: roofType, roof_type_confidence: typeConfidence,
       final_order_quantity_sq: finalOrderQty,
       waste_percentage: wastePercent,
@@ -10626,17 +10980,47 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       rake_count: roofFacetEdgeTotals?.counts?.rake || 0,
       eave_count: roofFacetEdgeTotals?.counts?.eave || 0,
       num_segments: roofSegments.length, area_method: areaMethod,
+      roof_estimated_area_sqft: roofEstimatedAreaSqFt > 0 ? Math.round(roofEstimatedAreaSqFt) : 0,
+      roof_completion_methods: roofCompletionMethods,
+      roof_completed_facets: roofCompletedFacets,
+      roof_diagnostics: {
+        sources: ['google_solar', osmFootprintSqFt > 0 ? 'osm_footprint' : null].filter(Boolean),
+        segment_count: roofSegments.length,
+        segment_area_sqft: Math.round(segmentSumSqFt * 10) / 10,
+        whole_area_sqft: Math.round(wholeAreaSqFt * 10) / 10,
+        segment_to_whole_ratio: wholeAreaSqFt > 0 ? Math.round((segmentSumSqFt / wholeAreaSqFt) * 1000) / 1000 : null,
+        ground_area_sqft: Math.round(solarGroundSqFt * 10) / 10,
+        roof_plan_area_sqft: solarGroundSqFt > 0 ? Math.round(solarGroundSqFt) : null,
+        footprint_plan_sqft: osmFootprintSqFt > 0 ? Math.round(osmFootprintSqFt) : null,
+        footprint_source: footprintSource,
+        footprint_select_method: footprintSelectMethod,
+        review_reasons: roofReview.reasons.map((reason) => reason.code),
+        osm_building_count: null,
+        area_method: areaMethod,
+        completion_applied: areaMethod === 'solar_completed',
+        completion_methods: roofCompletionMethods,
+        completion_skip_reason: roofCompletionSkip,
+        footprint_pitch_reason: footprintPitchReason,
+        solar_area_replaced_sqft: solarAreaReplacedSqFt,
+        area_confidence: areaConfidence,
+        solar_query: 'geocode',
+      },
       calibration_applied: calibrationApplied,
       calibration_details: calibrationDetails,
       uncalibrated_linears: uncalibratedLinears,
       overall_confidence: overallConf,
-      measurement_ready: measurementReady,
-      requires_manual_review: requiresManualReview,
+      area_confidence: areaConfidence,
+      measurement_ready: billedMeasurementReady,
+      requires_manual_review: billedManualReview,
+      needs_rep_review: roofReview.needs_rep_review || billedManualReview,
+      rep_review_reasons: roofReview.reasons.map((reason) => reason.code),
+      rep_review_message: roofReview.message,
       // What actually produced the numbers above, so the reviewer is never
       // guessing whether the image on screen is the image that was measured.
-      // The reported numbers always come from Google Solar. The selected
-      // imagery is traced independently and used to CHECK that model, never to
-      // replace it — a single-shot vision trace benchmarked far too unstable.
+      // Google Solar supplies pitch and, when its plan covers the footprint,
+      // the area. A far-short Solar plan is replaced by footprint × pitch and
+      // is not marked ready. The selected imagery is not measured unless the
+      // experimental takeoff ran, and that trace does not set the area.
       measured_from_selected_imagery: false,
       imagery_cross_check: imageryTakeoff
         ? (takeoffCorroborates ? 'corroborates' : takeoffContradicts ? 'contradicts' : 'inconclusive')
@@ -10667,7 +11051,7 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
         : null,
       warning_message: warningMessage,
       source_quality_flags: sourceQualityFlags,
-      measurement_imagery_source: 'google_solar',
+      measurement_imagery_source: measurementImagerySource,
       review_imagery_source: reviewImagerySource,
       solar_imagery_date: solarImageryDate,
       solar_footprint_coverage_ratio: solarFootprintCoverageRatio == null
@@ -10693,7 +11077,11 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
   },
 
   async analyzeSidingMeasurement(params, apiKey) {
-    const { latitude, longitude, address = '', storyCount = 1, storyHeightFt = 9, openingDeductionPct = 15 } = params;
+    const {
+      latitude, longitude, address = '', storyCount = 1, storyHeightFt = 9,
+      openingDeductionPct = 15, structure_type = 'house', story_count_explicit = false,
+      confirmed_face_heights = null, masonry_faces = null,
+    } = params;
     const debugLogs = ['Siding satellite measurement started'];
     const googleApiKey = process.env.GOOGLE_MAPS_API_KEY;
     if (!latitude || !longitude) throw new Error('Latitude and longitude are required');
@@ -10832,8 +11220,38 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     } catch (osmErr) {
       debugLogs.push(`OSM lookup skipped: ${osmErr.message}`);
     }
-    const perimeterFt = osmUsed ? osmPerimeterFt : solarPerimeterFt;
+    // No OSM outline: use Microsoft's free building footprints, the same ring
+    // the photo path bills. The Solar segment box undercounts wings.
+    // This is a billed perimeter, computed before the render-only facet trace.
+    let msRingXY = null;
+    if (!osmUsed) {
+      try {
+        const microsoft = await fetchMicrosoftBuildingsNear(latitude, longitude, { timeoutMs: 20000 });
+        const selected = selectTargetBuilding(microsoft.buildings || [], latitude, longitude, { maxDistanceM: 12 });
+        const ring = selected.building ? ringFromLatLngGeometry(selected.building.el?.geometry) : null;
+        if (ring?.xy?.length >= 3 && ring.areaSqFt > 0) {
+          const msPerim = polygonPerimeterFt(ring.xy);
+          const ratio = solarPerimeterFt > 0 ? msPerim / solarPerimeterFt : 0;
+          if (ratio >= 0.5 && ratio <= 2.5) {
+            msRingXY = ring.xy;
+            debugLogs.push(`Microsoft footprint: perimeter ${Math.round(msPerim)}ft, ${ring.xy.length} corners (ratio ${ratio.toFixed(2)} vs Solar)`);
+          } else {
+            debugLogs.push(`Microsoft footprint ${Math.round(msPerim)}ft rejected (ratio ${ratio.toFixed(2)} vs Solar)`);
+          }
+        }
+      } catch (msErr) {
+        debugLogs.push(`Microsoft footprint skipped: ${msErr.message}`);
+      }
+    }
+    const perimeterFt = osmUsed ? osmPerimeterFt : (msRingXY ? polygonPerimeterFt(msRingXY) : solarPerimeterFt);
     // Use OSM-derived dimensions when available (bbox from real polygon beats Solar segment ratios)
+    if (!osmUsed && msRingXY) {
+      const dims = polygonBBoxDims(msRingXY);
+      buildingLengthFt = dims.lengthFt;
+      buildingWidthFt = dims.widthFt;
+      buildingLengthM = buildingLengthFt / 3.2808;
+      buildingWidthM = buildingWidthFt / 3.2808;
+    }
     if (osmUsed && osmLengthFt && osmWidthFt) {
       buildingLengthFt = osmLengthFt;
       buildingWidthFt  = osmWidthFt;
@@ -10888,6 +11306,10 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
         }
       }
     }
+    if (msRingXY) {
+      footprintPolygonXY = msRingXY;
+      footprintGeometry = 'traced_polygon';
+    }
     // Always hand the viewer a polygon. A rectangle here is not a downgrade:
     // it still gets real openings punched, which the box fallback never does.
     if (!Array.isArray(footprintPolygonXY) && buildingLengthFt > 0 && buildingWidthFt > 0) {
@@ -10909,31 +11331,159 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       gableAreaSqFt = gableTriSqM * 10.764 * 2;
     }
 
-    // Wall area
-    const stories = Number(storyCount) || 1;
-    const storyHt = Number(storyHeightFt) || 9;
+    // Wall area. A detached garage or other outbuilding is one story, and the
+    // prism cannot grow more than 10% once the gable is added.
+    const outbuilding = /^(garage|shed|outbuilding|barn|carport)$/i.test(String(structure_type || ''));
+    let stories = Math.max(1, Number(storyCount) || 1);
+    let storyHt = Number(storyHeightFt) || 9;
+    if (outbuilding) {
+      stories = 1;
+      storyHt = _wallHeightForStructure(storyHt, { outbuilding: true });
+    }
+    // Eave height from the Solar roof planes and free USGS ground elevation,
+    // unless the rep set the story count. A rep tap per side wins over both.
+    // Pitch, fascia, soffit, and the roof report are not read or written here.
+    let heightSource = 'story_count';
+    let solarEave = null;
+    if (!outbuilding && !story_count_explicit) {
+      try {
+        const groundM = await _satWalls.fetchGroundElevationM(latitude, longitude);
+        solarEave = _satWalls.eaveFromSolarSegments(roofSegments, groundM);
+        if (solarEave) {
+          debugLogs.push(`Eave ${solarEave.eave_ft}ft from Solar roof height (top plane center ${solarEave.center_height_ft}ft above ground, ${solarEave.pitch_deg}°, depth ${solarEave.depth_ft}ft${solarEave.clamped ? `, raw ${solarEave.raw_eave_ft}ft clamped` : ''})`);
+        } else {
+          debugLogs.push('Solar roof height unusable — default story height');
+        }
+      } catch (elevErr) {
+        debugLogs.push(`Ground elevation skipped: ${elevErr.message}`);
+      }
+    }
+    const SAT_FACES = _satWalls.SAT_FACES;
+    const autoEaveFt = solarEave ? solarEave.eave_ft : stories * storyHt;
+    if (solarEave) heightSource = 'solar_roof_height';
+    let satFaceEaves = Object.fromEntries(SAT_FACES.map((face) => [face, autoEaveFt]));
+    const aiFaceEaves = { ...satFaceEaves };
+    let confirmedApplied = null;
+    if (confirmed_face_heights && typeof confirmed_face_heights === 'object' && Object.keys(confirmed_face_heights).length) {
+      const applied = _applyConfirmedFaceHeights(
+        { eaves: satFaceEaves },
+        confirmed_face_heights,
+        { gableFaces: isGable ? ['front', 'back'] : [] },
+      );
+      satFaceEaves = applied.eaves;
+      confirmedApplied = applied.confirmed;
+      if (Object.keys(confirmedApplied || {}).length) {
+        heightSource = 'rep_confirmed';
+        debugLogs.push(`Rep-confirmed heights: ${Object.entries(confirmedApplied).map(([f, v]) => `${f.replace(/_/g, ' ')} ${v.eave_ft}ft`).join(', ')}`);
+      }
+    }
+    // Satellite faces have no front/back orientation, so the wall height is
+    // the mean of the four per-face eaves. Front/back are the short walls.
+    const satEaveFt = SAT_FACES.reduce((sum, face) => sum + (Number(satFaceEaves[face]) || autoEaveFt), 0) / SAT_FACES.length;
+    if (heightSource !== 'story_count') {
+      stories = _satWalls.storiesForEave(satEaveFt);
+      storyHt = Math.round((satEaveFt / stories) * 10) / 10;
+    }
     const openDeduct = Number(openingDeductionPct) || 15;
-    const totalWallHeightFt = stories * storyHt;
-    const grossWallAreaSqFt = perimeterFt * totalWallHeightFt + gableAreaSqFt;
-    const openingDeductSqFt = grossWallAreaSqFt * (openDeduct / 100);
-    const netWallAreaSqFt = grossWallAreaSqFt - openingDeductSqFt;
+    const totalWallHeightFt = heightSource === 'story_count' ? stories * storyHt : satEaveFt;
+    const wallBodySqFt = Math.max(0, perimeterFt) * Math.max(0, totalWallHeightFt);
+    const grossWallAreaSqFt = _cappedWallGross({
+      perimeterFt,
+      wallHeightFt: totalWallHeightFt,
+      gableSqft: gableAreaSqFt,
+    });
+    const openingStories = heightSource === 'story_count'
+      ? stories
+      : _satWalls.storiesForEave(satEaveFt);
+    const faceLengths = {
+      front: buildingWidthFt,
+      back: buildingWidthFt,
+      left_side: buildingLengthFt,
+      right_side: buildingLengthFt,
+    };
+    // A confirmed story tap sets that wall's window bays. An untouched wall
+    // keeps the story band of its own eave, not the tallest wall on the house.
+    const faceStories = {};
+    for (const face of SAT_FACES) {
+      const tapped = _satWalls.storyCountFromConfirmed(confirmedApplied?.[face]);
+      faceStories[face] = tapped || _satWalls.storiesForEave(satFaceEaves[face]) || openingStories;
+    }
+    const satOpenings = _satWalls.defaultOpenings({
+      perimeterFt,
+      stories: openingStories,
+      faceLengths,
+      faceStories: heightSource === 'story_count' ? null : faceStories,
+    });
+    const useCountedOpenings = heightSource !== 'story_count';
+    const countedOpeningSqFt = useCountedOpenings
+      ? Math.min(grossWallAreaSqFt * 0.35, satOpenings.opening_sqft)
+      : grossWallAreaSqFt * (openDeduct / 100);
+    if (useCountedOpenings) debugLogs.push(`Openings ${satOpenings.windows} windows + ${satOpenings.doors} doors = ${satOpenings.opening_sqft} sqft (${satOpenings.basis})`);
+    const masonryBill = _satWalls.applyMasonryAndOpenings({
+      grossSqft: grossWallAreaSqFt,
+      bodySqft: wallBodySqFt,
+      faceLengths,
+      eaves: satFaceEaves,
+      gableEnds: isGable ? ['front', 'back'] : [],
+      openingSqft: countedOpeningSqFt,
+      masonryFaces: masonry_faces,
+    });
+    const openingDeductSqFt = masonryBill.openingOnSiding;
+    const masonryDeductSqFt = masonryBill.masonrySqft;
+    const netWallAreaSqFt = masonryBill.net;
     const netWallAreaSQ = netWallAreaSqFt / 100;
+    if (masonryDeductSqFt > 0) {
+      const listed = SAT_FACES
+        .filter((face) => (masonryBill.masonryShares?.[face] || 0) > 0)
+        .map((face) => `${face.replace(/_/g, ' ')} ${masonryBill.masonryChoices[face].replace(/_/g, ' ')}`);
+      debugLogs.push(`Masonry ${listed.join(', ')}: ${Math.round(masonryDeductSqFt)} sqft kept off the siding`);
+    }
 
-    // Per-face breakdown (net, after openings)
-    const faceArea = (lenFt) => Math.round(lenFt * totalWallHeightFt * (1 - openDeduct / 100));
+    // Per-face siding area after the masonry share and the openings on the siding that remains.
+    const faceNet = (face) => {
+      const fraction = masonryBill.masonryShares?.[face] || 0;
+      const sidingGross = (masonryBill.faceGross[face] || 0) * (1 - fraction);
+      const sidingBodyFace = (masonryBill.faceBody[face] || 0) * (1 - fraction);
+      const share = masonryBill.sidingBody > 0 ? openingDeductSqFt * (sidingBodyFace / masonryBill.sidingBody) : 0;
+      return Math.max(0, Math.round(sidingGross - share));
+    };
+    const faceMasonry = (face) => (masonryBill.masonryShares?.[face] || 0) >= 1;
     const faces = {
-      north: { length_ft: Math.round(buildingLengthFt), area_sqft: faceArea(buildingLengthFt) },
-      south: { length_ft: Math.round(buildingLengthFt), area_sqft: faceArea(buildingLengthFt) },
-      east:  { length_ft: Math.round(buildingWidthFt),  area_sqft: faceArea(buildingWidthFt) },
-      west:  { length_ft: Math.round(buildingWidthFt),  area_sqft: faceArea(buildingWidthFt) },
+      front: { length_ft: Math.round(buildingWidthFt), area_sqft: faceNet('front'), eave_ft: satFaceEaves.front, masonry: faceMasonry('front'), masonry_share: masonryBill.masonryChoices.front },
+      back: { length_ft: Math.round(buildingWidthFt), area_sqft: faceNet('back'), eave_ft: satFaceEaves.back, masonry: faceMasonry('back'), masonry_share: masonryBill.masonryChoices.back },
+      left_side: { length_ft: Math.round(buildingLengthFt), area_sqft: faceNet('left_side'), eave_ft: satFaceEaves.left_side, masonry: faceMasonry('left_side'), masonry_share: masonryBill.masonryChoices.left_side },
+      right_side: { length_ft: Math.round(buildingLengthFt), area_sqft: faceNet('right_side'), eave_ft: satFaceEaves.right_side, masonry: faceMasonry('right_side'), masonry_share: masonryBill.masonryChoices.right_side },
+      north: { length_ft: Math.round(buildingLengthFt), area_sqft: faceNet('left_side') },
+      south: { length_ft: Math.round(buildingLengthFt), area_sqft: faceNet('right_side') },
+      east: { length_ft: Math.round(buildingWidthFt), area_sqft: faceNet('front') },
+      west: { length_ft: Math.round(buildingWidthFt), area_sqft: faceNet('back') },
     };
 
-    // Linear measurements
+    // Linear measurements. Corners stay on the footprint unless a side has a
+    // masonry share. Only an "all" side drops its corners. A partial side
+    // keeps them at the height that is still siding.
     const wallTopLf = Math.round(perimeterFt);
     const wallBottomLf = Math.round(perimeterFt);
     const footprintCorners = countFootprintCorners(footprintPolygonXY, totalWallHeightFt);
-    const outsideCornersCount = footprintCorners.outside_count;
-    const outsideCornersLf = footprintCorners.outside_lf;
+    let outsideCornersCount = footprintCorners.outside_count;
+    let outsideCornersLf = footprintCorners.outside_lf;
+    let insideCornersCount = footprintCorners.inside_count;
+    let insideCornersLf = footprintCorners.inside_lf;
+    let cornerSource = footprintCorners.source;
+    const masonryCorners = _satWalls.sidingOutsideCorners({
+      masonryFaces: masonry_faces,
+      eaves: satFaceEaves,
+      geometricCount: footprintCorners.outside_count,
+      geometricInsideCount: footprintCorners.inside_count,
+      geometricInsideLf: footprintCorners.inside_lf,
+    });
+    if (masonryCorners) {
+      outsideCornersCount = masonryCorners.outside_count;
+      outsideCornersLf = masonryCorners.outside_lf;
+      insideCornersCount = masonryCorners.inside_count;
+      insideCornersLf = masonryCorners.inside_lf;
+      cornerSource = 'masonry_face';
+    }
 
     // Confidence scoring
     let confidence = 68;
@@ -10969,10 +11519,20 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     if (dimensionCapped) wasteReason += ' (note: building shape uncertain from satellite)';
 
     // No elevation photo on this path, so soffit depth stays the 2.0/1.5 estimate.
+    // Fascia and the returned eave stay on the labeled Solar eave edges.
+    // Gutters use the level outline when that labeled eave is a short share
+    // of it. The roof report's eave, ridge, hip, valley, and rake are not
+    // written here.
     const roofEdgeTotals = computeRoofEdgeTotals(tracedFacets);
     const hasFacetEdges = roofEdgeTotals.eave > 0;
     const eaveLfRaw = hasFacetEdges ? roofEdgeTotals.eave : (isGable ? 2 * buildingLengthFt : perimeterFt);
     const rakeLfRaw = hasFacetEdges ? roofEdgeTotals.rake : 0;
+    const gutterBasis = _satWalls.gutterFromSolarEdges({
+      facetEaveLf: roofEdgeTotals.eave,
+      levelBoundaryLf: levelOutlineEaveLf(tracedFacets),
+      fallbackLf: eaveLfRaw,
+    });
+    debugLogs.push(`Gutters ${gutterBasis.gutter_lf} LF from ${gutterBasis.gutter_source} (labeled eave ${roofEdgeTotals.eave} LF)`);
     const fasciaLf = Math.round(hasFacetEdges ? (eaveLfRaw + rakeLfRaw) : (isGable ? 2 * buildingLengthFt : perimeterFt));
     const soffitLevelDepthFt = hasFacetEdges ? 2.0 : 1.5;
     const soffitSlopedDepthFt = hasFacetEdges ? 1.5 : 1.5;
@@ -10982,16 +11542,16 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     const sidingWaste = calculateSidingWaste({
       openingCount: 0,
       outsideCorners: outsideCornersCount,
-      insideCorners: footprintCorners.inside_count,
+      insideCorners: insideCornersCount,
       gableAreaSqft: gableAreaSqFt,
     });
     let trimTotals = {
       j_channel_lf: 0,
       starter_strip_lf: Math.round(perimeterFt * 100) / 100,
       outside_corner_lf: Math.round(outsideCornersLf),
-      inside_corner_lf: footprintCorners.inside_lf,
+      inside_corner_lf: insideCornersLf,
       outside_corners_count: outsideCornersCount,
-      inside_corners_count: footprintCorners.inside_count,
+      inside_corners_count: insideCornersCount,
     };
     try {
       const trimGraph = buildSidingMeasurementGraph({
@@ -11002,7 +11562,7 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
         grossWallAreaSqft: grossWallAreaSqFt,
         buildingWidthFt,
         buildingLengthFt,
-        footprintSource: osmUsed ? 'osm' : 'solar',
+        footprintSource: osmUsed ? 'osm' : (msRingXY ? 'microsoft' : 'solar'),
         roofFacets: tracedFacets,
         openingDeductMinSqft: 20,
       });
@@ -11014,13 +11574,21 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     } catch (trimErr) {
       debugLogs.push(`Trim graph skipped: ${trimErr.message}`);
     }
-    // Trim: estimated from typical residential window/door count (use % deduction to back-calculate)
-    const typicalWindows = Math.round(flatFootprintSqFt / 120); // ~1 window per 120 sqft footprint
-    const typicalDoors = stories <= 1 ? 2 : 3;
+    // Trim follows the counted openings when the wall height came from the
+    // roof or a rep tap. The story-count path keeps the footprint estimate.
+    const typicalWindows = useCountedOpenings ? satOpenings.windows : Math.round(flatFootprintSqFt / 120);
+    const typicalDoors = useCountedOpenings ? satOpenings.doors : (stories <= 1 ? 2 : 3);
     const trimSqFt = Math.round(typicalWindows * 2.5 + typicalDoors * 5.0);
+    const openingNote = useCountedOpenings
+      ? `${satOpenings.windows} windows + ${satOpenings.doors} doors (${Math.round(openingDeductSqFt)} sqft on siding)`
+      : `${openDeduct}% opening deduction`;
+    const heightNote = heightSource === 'rep_confirmed'
+      ? 'rep-confirmed wall heights'
+      : (heightSource === 'solar_roof_height' ? `eave ${Math.round(satEaveFt * 10) / 10} ft from the roof` : `${stories} stor${stories === 1 ? 'y' : 'ies'} × ${storyHt} ft`);
+    const footprintNote = osmUsed ? '📍 OSM footprint' : (msRingXY ? '📍 Microsoft footprint' : '📡 Solar-derived');
 
     debugLogs.push(`Footprint: ${flatFootprintSqFt.toFixed(0)} sqft | L=${buildingLengthFt.toFixed(1)}ft W=${buildingWidthFt.toFixed(1)}ft | Perimeter: ${perimeterFt.toFixed(0)}ft`);
-    debugLogs.push(`${stories} stor${stories === 1 ? 'y' : 'ies'} × ${storyHt}ft | Gross: ${grossWallAreaSqFt.toFixed(0)} sqft | −${openDeduct}% → Net: ${netWallAreaSqFt.toFixed(0)} sqft`);
+    debugLogs.push(`${stories} stor${stories === 1 ? 'y' : 'ies'} × ${storyHt}ft | Gross: ${grossWallAreaSqFt.toFixed(0)} sqft | −${Math.round(openingDeductSqFt)} sqft openings −${Math.round(masonryDeductSqFt)} sqft masonry → Net: ${netWallAreaSqFt.toFixed(0)} sqft`);
     debugLogs.push(`Fascia: ${fasciaLf}ft | Soffit: ${soffitSqFt} sqft | Trim: ~${trimSqFt} sqft`);
     debugLogs.push(`Waste recommendation: ${recommendedWastePct}% — ${wasteReason}`);
 
@@ -11032,9 +11600,9 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       wall_bottom_lf: wallBottomLf,
       outside_corners_count: outsideCornersCount,
       outside_corners_lf: Math.round(outsideCornersLf),
-      inside_corners_count: footprintCorners.inside_count,
-      inside_corners_lf: footprintCorners.inside_lf,
-      corner_source: footprintCorners.source,
+      inside_corners_count: insideCornersCount,
+      inside_corners_lf: insideCornersLf,
+      corner_source: cornerSource,
       wall_total_quality: 'estimated',
       building_length_ft: Math.round(buildingLengthFt),
       building_width_ft: Math.round(buildingWidthFt),
@@ -11054,9 +11622,11 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       dimension_capped: dimensionCapped,
       recommended_waste_pct: recommendedWastePct,
       waste_reason: wasteReason,
-      analysis_notes: `${osmUsed ? '📍 OSM footprint' : '📡 Solar-derived'} perimeter: ${Math.round(perimeterFt)}ft. ${roofSegments.length} roof segments. ~${Math.round(buildingLengthFt)}ft × ${Math.round(buildingWidthFt)}ft ${roofType} building. ${stories} stor${stories === 1 ? 'y' : 'ies'} × ${storyHt}ft. ${openDeduct}% opening deduction.`,
+      analysis_notes: `${footprintNote} perimeter: ${Math.round(perimeterFt)}ft. ${roofSegments.length} roof segments. ~${Math.round(buildingLengthFt)}ft × ${Math.round(buildingWidthFt)}ft ${roofType} building. ${heightNote}. ${openingNote}.${masonryDeductSqFt > 0 ? ` Brick/stone ${Math.round(masonryDeductSqFt)} sqft excluded.` : ''}`,
       fascia_lf: fasciaLf,
       eave_lf: Math.round(eaveLfRaw * 10) / 10,
+      gutter_lf: gutterBasis.gutter_lf,
+      gutter_source: gutterBasis.gutter_source,
       rake_lf: Math.round(rakeLfRaw * 10) / 10,
       soffit_sqft: soffitSqFt,
       soffit_level_sqft: soffitLevelSqft,
@@ -11073,6 +11643,17 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       trim_sqft: trimSqFt,
       estimated_windows: typicalWindows,
       estimated_doors: typicalDoors,
+      windows_count: useCountedOpenings ? satOpenings.windows : null,
+      doors_count: useCountedOpenings ? satOpenings.doors : null,
+      openings_by_face: useCountedOpenings ? satOpenings.by_face : null,
+      opening_sqft: Math.round(openingDeductSqFt),
+      opening_deduction_sqft: Math.round(openingDeductSqFt),
+      opening_deduct_sqft: Math.round(openingDeductSqFt),
+      height_source: heightSource,
+      solar_eave: solarEave,
+      face_eave_ft: satFaceEaves,
+      ai_face_eave_ft: aiFaceEaves,
+      confirmed_face_heights: confirmedApplied,
       osm_perimeter_used: osmUsed,
       osm_perimeter_ft: osmUsed ? Math.round(osmPerimeterFt) : null,
       solar_perimeter_ft: Math.round(solarPerimeterFt),
@@ -11095,16 +11676,27 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
       solar_pitch_multiplier: Math.round(pitchMultiplier * 1000) / 1000,
       // Flat (horizontal) footprint area that Solar is working from
       flat_footprint_sqft: Math.round(flatFootprintSqFt),
-      // Masonry / brick-wainscot deduction — zero until photo analysis populates it
-      masonry_deduction_sqft: 0,
+      masonry_deduction_sqft: Math.round(masonryDeductSqFt),
+      masonry_faces: masonryBill.masonryChoices,
+      satellite_story_guess: solarEave ? _satWalls.storiesForEave(solarEave.eave_ft) : _satWalls.storiesForEave(autoEaveFt),
+      stories_confirmed: heightSource === 'rep_confirmed',
       debug_logs: debugLogs
     };
   },
 
   async analyzeHousePhotosForSiding(params, apiKey) {
     const { photos = [], story_count_override = null, storyHeightFt = 9, openingDeductionPct = 15, latitude, longitude, use_satellite = true, structure_type = 'house', known_perimeter_ft = 0, pitch_only = false } = params;
-    const isGarageMode = structure_type === 'garage';
+    const materialSampleCount = pitch_only ? 1 : Math.max(1, Math.min(5,
+      Number(params.material_samples) || Number(process.env.SIDING_MATERIAL_SAMPLES) || PRODUCTION_MATERIAL_SAMPLE_COUNT));
+    // Dimensions and openings are one read per photo. Materials come from the
+    // face call, so repeating the full photo prompt was only adding timeouts.
+    const photoReadCount = 1;
+    const isGarageMode = /^(garage|shed|outbuilding|barn|carport)$/i.test(String(structure_type || ''));
     const debugLogs = [`Siding photo analysis started (structure_type=${structure_type})`];
+    let solarRoofAreaSqFtValue = 0;
+    let solarPotentialForRoof = null;
+    let solarQueryPoint = 'none';
+    debugLogs.push(`Material samples per photo: ${photoReadCount} dimension read at temperature 0; each face is classified ${materialSampleCount} times from every photo of that face`);
     if (!photos || photos.length === 0) return { success: false, error: 'No photos provided. Upload at least one exterior photo.', debug_logs: debugLogs };
     if (!apiKey) return { success: false, error: 'GOOGLE_GEMINI_API_KEY not configured.', debug_logs: debugLogs };
 
@@ -11176,6 +11768,12 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
             }
             // Rule 6: Extract Solar API roof normal vectors for authoritative pitch
             // pitchDegrees is derived from the 3D normal vectors of each roof segment
+            const preRoofSqFt = solarRoofAreaSqFt(solarData.solarPotential);
+            if (preRoofSqFt > 0) solarRoofAreaSqFtValue = preRoofSqFt;
+            if (solarData.solarPotential) {
+              solarPotentialForRoof = solarData.solarPotential;
+              solarQueryPoint = 'geocode';
+            }
             const preSegs = solarData.solarPotential?.roofSegmentStats || [];
             if (preSegs.length > 0) {
               let dominantPitchDeg = null, steepestPitchDeg = 0, maxArea = 0;
@@ -11233,6 +11831,9 @@ Dark rectangular voids may indicate missing shingles. Do not assume every circul
     // Extracted into a named function so a rejected Street View frame can be
     // re-analyzed with a recaptured image without duplicating the prompt, the
     // schema, or the post-processing below.
+    // Image bytes stay here for the face classification call. They are not
+    // copied onto the result the client receives.
+    const photoImageBytes = new WeakMap();
     const analyzeOnePhoto = async (photo) => {
       const localLogs = [];
       try {
@@ -11269,15 +11870,16 @@ ${satelliteScaleContext}
 PHOTO USABILITY AND ANGLE (MANDATORY):
 - A straight elevation must show one dominant wall plane nearly head-on with
   enough of both wall boundaries to be useful for width measurement.
-- If two intersecting wall planes are visible, set is_corner_shot=true and
-  measure only the more prominent wall; never treat the image as a full
-  straight facade.
+- If two intersecting wall planes are visible, set is_corner_shot=true,
+  set wall_face to the more prominent wall and secondary_wall_face to the
+  other one, and tag each section with the wall it sits on. Never bill a
+  corner as one full straight facade.
 - If this is a close-up, roof-only view, blocked/mostly hidden view, interior,
   neighboring structure, or otherwise unclear image, set wall_width_ft to 0,
   set is_corner_shot=false, and do not use it as a facade-width observation.
-- Do not infer Front/Back/Left/Right from a door or driveway alone. Use the
-  strongest visible building-context evidence and lower confidence when the
-  orientation is uncertain.
+- The upload label is only a hint. Set wall_face from the photo. Garage doors
+  that open onto a driveway or the street are the FRONT, even when the file
+  was labeled Right Side or Left Side. Set faces_driveway=true in that case.
 
 ${photoUsabilityGate.FRAME_SUBJECT_PROMPT}
 
@@ -11287,16 +11889,16 @@ WALL HEIGHT — PRIMARY METHOD (MANDATORY, DO NOT SKIP)
 You MUST use siding course counting as your first and primary method for eave_height_ft:
 
 1. Identify the siding profile (lap width / exposure) — this sets your scale ruler:
-   → vinyl_4: standard 4" vinyl or aluminium lap siding (most common)
-   → vinyl_5: 5" vinyl or fibre-cement (Hardie-style) lap siding
-   → cedar_lap: cedar or wood lap siding with ~8" exposure (wider reveals)
+   → vinyl_4: standard 4" vinyl or aluminium lap siding (most common). A double-4 panel is still a 4" reveal
+   → vinyl_5: 5" vinyl lap. Fibre-cement (Hardie-style) is billed at this 5" reveal, not the 8" board
+   → cedar_lap: cedar or wood lap. An 8" board laps about 1", so the reveal is 7" — do not multiply by the board width
    → board_batten: vertical board-and-batten — use door height as anchor when visible
    → shake: wood or fibre-cement shake shingles — use door height as anchor when visible
-2. Count the courses from the foundation/grade line up to the EAVE LINE (where the roof slope begins).
-3. Multiply by the correct exposure for the identified profile:
+2. Count the courses from the foundation/grade line up to the EAVE LINE (where the roof slope begins). Stop there. Courses inside the gable triangle are not part of eave_height_ft.
+3. Multiply by the installed reveal, not the nominal board or panel width. 8", 8.25", and 10" are the board or a double-wide panel, not the reveal:
    → vinyl_4:   course_count × 4" ÷ 12 = eave ft
    → vinyl_5:   course_count × 5" ÷ 12 = eave ft
-   → cedar_lap: course_count × 8" ÷ 12 = eave ft
+   → cedar_lap: course_count × 7" ÷ 12 = eave ft (8" board with a 1" lap)
    → board_batten / shake: if a door is visible → use 80" ÷ 12 = 6.67 ft as anchor;
      otherwise course_count × 7" ÷ 12 = eave ft
 
@@ -11310,8 +11912,9 @@ If siding is not visible, use door/window heights:
 - Standard window = ~4 ft tall
 
 GARAGE DOOR HEIGHT ANCHOR (STRONG — use whenever a garage door is visible):
-- A standard sectional garage door opening is 7.0 ft (84") tall. This is one of the most reliable scale anchors in residential photos.
-- Establish the pixels-per-foot scale from the garage door's visible height, then measure grade → eave with that scale.
+- A standard sectional garage door opening is 7.0 ft (84") tall. A tall garage door is 8.0 ft. An entry door is 6 ft 8 in (80"). This is the same scale as the in-app ruler.
+- Establish the pixels-per-foot scale from the door's visible height, then measure grade → eave with that scale.
+- Return door_box as the door in normalized photo coordinates (x, y, w, h; 0,0 is the top-left) and eave_line_y as the eave line in that same frame (0 at the top, 1 at the bottom). door_kind is "garage", "tall_garage", or "entry". Null when no door is visible.
 - On a typical detached garage the eave sits only ~0.5-1.5 ft above the garage door top → eave_height_ft ≈ 8-9 ft. An eave more than 3 ft above the garage door top is almost always a measurement error.
 - When this anchor sets your eave height, report height_method: "garage_door_anchor".
 - Cross-check against the siding course count; if they disagree by more than 15%, prefer the garage door anchor and lower your confidence.
@@ -11388,7 +11991,11 @@ SIDING MATERIAL IDENTIFICATION:
 - "aluminum": Metal horizontal lap siding. May show oil-canning (gentle waves/ripples), metallic sheen, small dents. Common on garages and homes built 1950s-1980s.
 - "fiber_cement": Thick, heavy-looking lap siding. Very flat matte finish, crisp edges.
 - "wood": Visible wood grain, may show peeling paint.
-- "brick" / "stucco": Self-explanatory.
+- "stucco": smooth or textured cementitious plaster, including acrylic and EIFS. No horizontal laps and no mortar joints between units. A continuous textured wall with no courses is stucco, not vinyl and not fiber cement.
+- "stone": irregular units with visible mortar. Stacked stone, cultured stone, ledge stone, limestone, and fieldstone are stone. Not a color change in the siding.
+- "brick": regular rectangular units in a running bond with mortar.
+Count brick, stone, or stucco wherever that surface is visible. A color change, a shadow, or foundation parging is not masonry. Do not call a stone or stucco wall siding because the units are irregular or the texture is flat.
+- vinyl: horizontal laps with a J-channel at the edges.
 - KEY: If the siding is on a garage and shows any ripple/wave or metallic quality, call it "aluminum".
 
 MIXED MASONRY + SIDING WALLS (critical — do not skip):
@@ -11417,22 +12024,52 @@ Calibration anchors:
     spans essentially the entire face width and the full first-story height
   • Just a brick chimney chase on an otherwise sided wall → about 5
   • Entire wall is brick with no siding at all → 100 (and siding_material "brick")
+  • Entire wall is stone or stucco with no siding at all → 100
+  • Stone or stucco covering the whole first story of a 2-story wall → about 50
+  • A gable end that is all stucco or all stone → 100 of that wall
   • No masonry anywhere on this wall → 0 (and non_siding_material "none")
 Report non_siding_pct for EVERY wall face, including when it is 0. If masonry is
 present but you cannot judge its height, estimate from the storyline: masonry that
-stops at the floor line between stories is about 50% on a 2-story wall.
+stops at the floor line between stories is about 50% on a 2-story wall. Do not
+shrink a full stone or stucco wall down to a wainscot percent.
 
-MATERIAL REGION MAP (required — this is the quantity authority):
+WALL SECTION POLYGONS (required — each material is measured from these):
+Trace every distinct material region as a polygon in wall-frame coordinates, not photo-pixel coordinates:
+- x = 0 at the left edge of the wall VISIBLE IN THIS PHOTO, x = 1 at the right edge of what is visible. A close-up, a garage wing, or one slice of a long wall must not be stretched to the full footprint face.
+- y = 0 at the EAVE LINE of the wall in frame, y = 1 at grade. y increases downward.
+- A gable triangle sits ABOVE the eave, so its peak has y < 0. Peak y = -(gable_rise_ft / eave_height_ft). Use the eave of THIS wall, not the taller part of the house.
+- Set visible_width_fraction to the share of the footprint face actually in frame (1 only when both corners of that face are visible). Set visible_x_start to where that span begins (0 at the face's left corner). Set visible_width_ft to the feet actually visible. Do not copy the satellite width anchor into those three fields.
+- On a corner, split the two walls: each section's wall_face is the wall that region belongs to, and face coverage is that face's visible fraction, not the whole elevation.
+A wainscot polygon covers only that band. Do not extend it up to the eave.
+Tag material with only: "siding", "stone", "stucco", "brick", "trim".
+Vinyl, aluminum, fiber-cement, wood lap, shake, and board-and-batten are "siding".
+Stone veneer, cultured stone, and ledge stone are "stone".
+Do not trace windows or doors as sections. Sections of one wall meet at their edges and their areas must sum to that wall's visible area, not past it.
+Set window_rows to the number of distinct horizontal rows of windows on this wall (1 on a one-story garage wing, 2 when a second story of windows is visible). Do not count garage-door lights as a row.
+A one-story garage wing keeps the eave measured from the garage door (about 8-10 ft). Do not report the two-story house eave for that wing. Set height_method to garage_door_anchor and window_rows to 1.
+On every openings[] entry, set material to the wall material that opening is cut into: "siding", "stone", "stucco", "brick", or "trim". Set pos_x to feet from the left edge of that footprint face so the same opening in another photo can be matched.
+
+MATERIAL SHARES (required — report the visible wall, and the traced regions must agree):
+Report material_shares as the percent of the VISIBLE wall each material covers. The percents must sum to 100. Use 0 for a material that is not on this wall.
+- siding: horizontal laps with a J-channel at the edges (vinyl, aluminum, fiber-cement, wood lap). Also use siding for board-and-batten.
+- stone: irregular units with visible mortar joints, including stacked, cultured, ledge, limestone, and fieldstone. A painted band is not stone.
+- stucco: smooth or textured cementitious plaster, including acrylic and EIFS. No laps and no mortar joints between units.
+Do not shrink these percents because the photo is a close-up. visible_width_fraction already says how much of the footprint face is in the frame. The shares describe the wall that is visible. A stone or stucco share must match the traced region for that material.
+
+MATERIAL REGION MAP (required — same wall, finer labels for the overlay):
 For every visible wall region, classify the material and estimate that region's
 share of THIS wall's gross area. Use only these exact categories:
 "lap_siding", "vertical_siding", "stone", "brick", "stucco", "glass", "other".
 Horizontal vinyl, aluminum, fiber-cement, wood lap, and shake are "lap_siding".
 Board-and-batten or other vertical plank siding is "vertical_siding".
 Chimneys, veneer, stone skirts, and brick lower stories belong in "stone" or
-"brick", never in a siding category. Windows and curtain-wall areas are "glass".
-The percentages should total 100 when the wall is sufficiently visible. If the
-photo cannot distinguish stone/brick from siding, set material_uncertain=true and
-use an "other" or partial region rather than claiming it is siding.
+"brick", never in a siding category. A continuous plaster wall is "stucco",
+never "lap_siding". Windows and curtain-wall areas are "glass".
+The percentages should total 100 when the wall is sufficiently visible. Those
+stone, brick, and stucco percents are measured, not a hint: they must equal
+the area of that material on this wall. If the photo cannot distinguish
+stone, brick, or stucco from siding, set material_uncertain=true and trace
+the region you do see. Do not zero a visible stone or stucco field.
 
 GABLE RAKE PITCH MEASUREMENT (Rule 6 — perform when gable end is visible):
 When this photo shows a gable-end wall with a visible rake edge (sloped roof edge meeting the gable):
@@ -11462,23 +12099,33 @@ Return JSON ONLY — no markdown, no explanation:
 ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
   "building_type": "house" | "garage" | "shed" | "commercial",
   "story_count": 1,
+  "window_rows": <number, distinct horizontal rows of windows on this wall>,
   "siding_profile": "vinyl_4" | "vinyl_5" | "cedar_lap" | "board_batten" | "shake" | "unknown",
-  "siding_exposure_in": <number, measured exposure (lap reveal) per course in inches — 4 for vinyl_4, 5 for vinyl_5, 8 for cedar_lap, 0 if board_batten/shake/unknown>,
+  "siding_exposure_in": <number, measured butt-to-butt reveal per course in inches — 4 for vinyl_4, 5 for vinyl_5 and fiber cement, 7 for cedar_lap. Never report the 8" board or a 10" double panel. 0 if board_batten/shake/unknown>,
   "siding_course_count": <number, count of lap siding courses from grade to eave; 0 if not countable>,
   "height_method": "course_count" | "door_scale" | "garage_door_anchor" | "window_scale" | "estimate",
+  "door_kind": "garage" | "tall_garage" | "entry" | null,
+  "door_box": { "x": <0-1>, "y": <0-1>, "w": <0-1>, "h": <0-1> } | null,
+  "eave_line_y": <0-1, eave line in this photo, 0 at the top; null if the eave is not visible>,
   "wall_height_ft": <number, full wall height including gable if gable end>,
   "eave_height_ft": <number, height from ground to EAVE LINE ONLY — NOT the ridge or peak>,
   "gable_rise_ft": <number, vertical height of triangular gable ABOVE the eave line; 0 if no gable>,
   "soffit_depth_ft": <number, horizontal depth of the visible eave soffit in feet; 0 if the overhang is not measurable in this photo>,
+  "rake_soffit_depth_ft": <number, horizontal depth of the rake overhang in feet; 0 when the rake overhang is not measurable. Keep this separate from the eave soffit — a 1 inch rake is not a 2 foot eave>,
   "gutter_run_lf": <number, length of gutter along THIS wall's eave; 0 if no gutter is visible or the run cannot be measured>,
   "gutter_visible": <boolean, true only when a gutter is clearly visible on this elevation>,
-  "outside_corners_visible": <number 0-2, vertical outside corners on THIS elevation whose full height is in frame>,
+  "outside_corners_visible": <number, siding outside corners on THIS elevation whose full height is in frame. A rectangle end shows 2. A jog can show 3 or more. Count only corners where the siding turns — a brick pier is not a siding corner>,
   "inside_corners_visible": <number, inside corners visible on this elevation; 0 if none>,
   "elevation_usable": <boolean, false when the wall edges are cropped, dark, obstructed, or too oblique to measure — do not invent width, openings, or corners>,
   "has_gable_end": <boolean, true if this wall face has a triangular gable peak>,
   "has_visible_rake": <boolean, true only if an actual measurable roof rake is visible>,
   "is_corner_shot": <boolean, true if two walls are both visible at an angle>,
   "wall_face": "front" | "back" | "left_side" | "right_side" | "unknown",
+  "secondary_wall_face": "front" | "back" | "left_side" | "right_side" | null,
+  "faces_driveway": <boolean, true when garage doors on this wall face a driveway or the street>,
+  "visible_width_fraction": <number 0-1, share of this footprint face actually in the frame; 1 only when both corners are visible>,
+  "visible_x_start": <number 0-1, where the visible span starts along the face>,
+  "visible_width_ft": <number, feet of this face actually visible — not the satellite anchor>,
   "wall_width_ft": <number, estimated TOTAL width of the PRIMARY wall face>,
   "reference_anchor": "<what you used to estimate width and height>",
   "windows_count": <number, WALL windows only — NOT glass panels in garage doors>,
@@ -11491,6 +12138,7 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
   "openings": [{
     "observation_id": "<stable physical assembly id>",
     "type": "window" | "entry_door" | "slider_door" | "garage_door" | "vent",
+    "material": "siding" | "stone" | "stucco" | "brick" | "trim",
     "width_ft": <outside TOTAL frame width including all mullion sections>,
     "height_ft": <outside frame height>,
     "zone": "far_left"|"center_left"|"center"|"center_right"|"far_right",
@@ -11522,6 +12170,20 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
   "has_mixed_materials": <boolean, true when siding and non-siding masonry share this wall face>,
   "non_siding_material": "brick" | "stone" | "block" | "stucco" | "none",
   "non_siding_pct": <0-100, percentage of this wall's gross area covered by NON-SIDING material>,
+  "sections": [{
+    "id": "<stable id for this material region>",
+    "material": "siding" | "stone" | "stucco" | "brick" | "trim",
+    "wall_face": "front" | "back" | "left_side" | "right_side" | null,
+    "polygon": [[<x 0-1 of the VISIBLE wall>, <y, 0 at eave and 1 at grade, negative above the eave>]],
+    "confidence": <0-1>
+  }],
+  "material_shares": {
+    "siding": <percent of the visible wall, 0-100>,
+    "stone": <percent of the visible wall, 0-100>,
+    "stucco": <percent of the visible wall, 0-100>,
+    "brick": <percent of the visible wall, 0-100>,
+    "trim": <percent of the visible wall, 0-100>
+  },
   "material_regions": [{
     "material": "lap_siding" | "vertical_siding" | "stone" | "brick" | "stucco" | "glass" | "other",
     "percent": <0-100, share of this wall's gross area>,
@@ -11560,7 +12222,50 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
   "gutter_observation_complete": <boolean>
 }`;
 
-        const result = await callGemini(apiKey, sysPrompt, prompt, { imageData: b64, mimeType, jsonMode: true, model: 'gemini-2.5-flash' });
+        const samples = [];
+        for (let sampleIndex = 0; sampleIndex < photoReadCount; sampleIndex += 1) {
+          try {
+            const sample = await retryTimedOutPhotoRead(
+              ({ retry } = {}) => {
+                let imageData = b64;
+                let imageType = mimeType;
+                if (retry) {
+                  const smaller = shrinkPhotoForRetry(b64, mimeType);
+                  imageData = smaller.imageData;
+                  imageType = smaller.mimeType || mimeType;
+                  localLogs.push(
+                    `${viewLabel}: material sample ${sampleIndex + 1}/${photoReadCount} timed out; `
+                    + `retrying after ${GEMINI_PHOTO_TIMEOUT_BACKOFF_MS}ms with a ${GEMINI_PHOTO_RETRY_TIMEOUT_MS}ms timeout`
+                    + (smaller.shrunk
+                      ? ` and a smaller image (${smaller.width}x${smaller.height}, ${smaller.bytes} bytes)`
+                      : ' and the original image'),
+                  );
+                }
+                return callGemini(apiKey, sysPrompt, prompt, {
+                  imageData,
+                  mimeType: imageType,
+                  jsonMode: true,
+                  model: 'gemini-2.5-flash',
+                  temperature: 0,
+                  timeoutMs: retry ? GEMINI_PHOTO_RETRY_TIMEOUT_MS : 60000,
+                  retries: 0,
+                });
+              },
+              { backoffMs: GEMINI_PHOTO_TIMEOUT_BACKOFF_MS },
+            );
+            if (sample.value && typeof sample.value === 'object') samples.push(sample.value);
+          } catch (sampleErr) {
+            localLogs.push(`${viewLabel}: material sample ${sampleIndex + 1}/${photoReadCount} failed (${sampleErr.message || sampleErr})`);
+          }
+        }
+        if (!samples.length) {
+          localLogs.push(`${viewLabel}: all ${photoReadCount} material samples failed`);
+          return { result: null, logs: localLogs };
+        }
+        const result = mergeVisionMaterialSamples(samples) || samples[0];
+        if (samples.length > 1) {
+          localLogs.push(`${viewLabel}: merged ${samples.length} material reads (max share spread ${result.material_share_spread_max ?? 0})`);
+        }
 
         const hasRoofObservation = Array.isArray(result?.roof_planes)
           || Array.isArray(result?.roof_edges)
@@ -11580,6 +12285,8 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
             : null;
           result.source_type = photo.source_type || 'uploaded';
           result.panorama_id = photo.panorama_id || photo.panoId || null;
+          const headingDeg = Number(photo.heading ?? photo.exif_heading ?? photo.exif_heading_deg);
+          result.heading_deg = Number.isFinite(headingDeg) ? headingDeg : null;
           result.verified_elevation = photo.verified_elevation === true;
            result.classification_confidence = Number.isFinite(Number(photo.classification_confidence))
              ? Math.max(0, Math.min(100, Number(photo.classification_confidence)))
@@ -11602,6 +12309,22 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
            } else if (result.classification_shot_type === 'corner') {
              result.is_corner_shot = true;
            }
+          const visibleWidthFt = Number(result.visible_width_ft);
+          result.observed_wall_width_ft = Number.isFinite(visibleWidthFt) && visibleWidthFt > 0
+            ? visibleWidthFt
+            : (Number(result.wall_width_ft) || 0);
+          const visibleFrac = Number(result.visible_width_fraction);
+          result.visible_width_fraction = Number.isFinite(visibleFrac) && visibleFrac > 0 && visibleFrac <= 1
+            ? visibleFrac
+            : null;
+          const visibleXStart = Number(result.visible_x_start);
+          result.visible_x_start = Number.isFinite(visibleXStart)
+            ? Math.max(0, Math.min(1, visibleXStart))
+            : null;
+          result.faces_driveway = result.faces_driveway === true;
+          result.eave_before_clamp_ft = Number(result.eave_height_ft) || 0;
+          // The rep's ruler, then a detected door, before any story clamp.
+          _applyPhotoHeightReference(result, photo);
           if (satelliteWallWidthFt > 0) {
             result.wall_width_ft = satelliteWallWidthFt;
             result.satellite_width_anchor_ft = satelliteWallWidthFt;
@@ -11611,18 +12334,40 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
           // ── Fix #1: Clamp eave height to physically plausible range ──────
           const photoStories = result.story_count || 1;
           const maxEave = MAX_EAVE_BY_STORY[photoStories] ?? 22;
-          // Rule 3: 2-story architectural minimum = 17ft (10.5ft is physically impossible for 2 stories)
-          const minEave = photoStories === 1 ? 7 : photoStories >= 3 ? 25 : 17;
+          // Measured grade-to-eave stays measured. Raising every 2-story read
+          // to 17 ft discarded story-and-a-half eaves, then the gable was added
+          // on top of a full second story. Readings under 7 ft are not a wall.
+          const minEave = 7;
+          const windowRowsNow = Number(result.window_rows);
+          const measuredEaveNow = Number(result.eave_height_ft) || 0;
+          const garageAnchor = result.height_method === 'garage_door_anchor'
+            || (Number(result.garage_doors_count) || 0) > 0;
+          // A garage eave near the door is the wing. A garage-scaled eave
+          // above 12.5 ft is the two-story wall.
+          const oneStoryWing = (garageAnchor && measuredEaveNow > 0 && measuredEaveNow <= 12.5)
+            || (result.is_one_story_wing === true && !(measuredEaveNow > 12.5) && !(windowRowsNow >= 2));
+          result.is_one_story_wing = oneStoryWing;
+          // A 1-story garage wing keeps the eave the photo measured.
+          const eaveFloor = 7;
           const normalEave = photoStories * 9; // spec: replace over-cap with story_count × 9
+          const doorScaled = result.manually_calibrated === true
+            || result.height_method === 'manual_calibration'
+            || result.height_method === 'door_anchor'
+            || result.height_method === 'door_scale'
+            || result.height_method === 'garage_door_anchor'
+            || result.height_reference === 'door_box'
+            || result.height_reference === 'ruler';
 
-          if (result.eave_height_ft > maxEave) {
+          if (!doorScaled && result.eave_height_ft > maxEave) {
             localLogs.push(`⚠️ ${viewLabel}: eave_height_ft ${result.eave_height_ft}ft exceeds ${photoStories}-story max → replacing with ${normalEave}ft (height_method=${result.height_method})`);
             result.eave_height_ft = normalEave;
             result.height_clamped = true;
           } else if (result.eave_height_ft > 0 && result.eave_height_ft < minEave) {
-            localLogs.push(`⚠️ ${viewLabel}: eave_height_ft raised ${result.eave_height_ft}ft → ${minEave}ft (${photoStories}-story min)`);
-            result.eave_height_ft = minEave;
+            localLogs.push(`⚠️ ${viewLabel}: eave_height_ft ${result.eave_height_ft}ft is below ${minEave}ft and is not used as a wall height`);
             result.height_clamped = true;
+          } else if (oneStoryWing) {
+            result.eave_height_ft = result.eave_before_clamp_ft || result.eave_height_ft;
+            result.height_clamped = false;
           }
 
           // If course count was provided, use the profile-aware ScaleAnchorResolver
@@ -11633,15 +12378,17 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
               ? result.siding_profile
               : materialToSidingProfile(result.siding_material);
             const hasDoor = (result.doors_count > 0 || result.garage_doors_count > 0);
-            const courseBasedEave = Math.round(
-              resolveVerticalScale(profile, result.siding_course_count, hasDoor) * 10
-            ) / 10;
-            // Also store the resolved exposure so downstream consumers can see it
+            const courseBasedEave = eaveFromCourseCount({
+              courseFt: resolveVerticalScale(profile, result.siding_course_count, hasDoor, result.siding_exposure_in),
+              namedEaveFt: result.eave_height_ft,
+              gableRiseFt: result.gable_rise_ft,
+              hasGable: result.has_gable_end === true,
+            });
+            // Also store the resolved exposure so downstream consumers can see it.
+            // The profile reveal wins over an 8" board or a 10" panel. No 0.9 factor.
             result.siding_profile_resolved = profile;
-            result.siding_exposure_in_resolved = result.siding_exposure_in > 0
-              ? result.siding_exposure_in
-              : { vinyl_4: 4, vinyl_5: 5, cedar_lap: 8, board_batten: 0, shake: 0 }[profile] ?? 4;
-            if (courseBasedEave >= minEave && courseBasedEave <= maxEave &&
+            result.siding_exposure_in_resolved = installedRevealIn(profile, result.siding_exposure_in);
+            if (courseBasedEave >= eaveFloor && courseBasedEave <= maxEave &&
                 Math.abs(courseBasedEave - result.eave_height_ft) > 1) {
               localLogs.push(`  ${viewLabel}: course-based eave correction: ${result.eave_height_ft}ft → ${courseBasedEave}ft (${result.siding_course_count} courses × profile=${profile}${hasDoor ? ', door-anchored' : ''})`);
               result.eave_height_ft = courseBasedEave;
@@ -11667,9 +12414,12 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
                 ? Math.max(mullionCount + 1, Math.round(rawUnits))
                 : mullionCount + 1;
               const isAssembly = mullionCount > 0 || o.is_assembly === true;
-              // Synthesize components from mullion breakdown when AI didn't list them explicitly
+              const portraitOpening = Number(o.height_ft) > Number(o.width_ft);
+              // Synthesize side-by-side units only for a landscape assembly.
+              // A taller-than-wide opening with one "mullion" is a double-hung
+              // sash rail, and splitting it invents a second window.
               let components = Array.isArray(o.components) ? o.components : [];
-              if (components.length === 0 && mullionCount > 0) {
+              if (components.length === 0 && mullionCount > 0 && !portraitOpening) {
                 const unitW = Math.round((Number(o.width_ft) / unitCount) * 10) / 10;
                 components = Array.from({ length: unitCount }, () => ({
                   type: 'window',
@@ -11677,8 +12427,14 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
                   height_ft: Math.round(Number(o.height_ft) * 10) / 10,
                 }));
               }
+              if (portraitOpening && components.length > 1) {
+                const slice = Number(o.width_ft) / components.length;
+                const equalSplits = components.every((c) => Math.abs(Number(c.width_ft) - slice) <= Math.max(0.25, Number(o.width_ft) * 0.08));
+                if (equalSplits) components = [];
+              }
               return {
                 type: o.type || 'window',
+                material: o.material || null,
                 observation_id: o.observation_id || null,
                 width_ft: Math.round(Number(o.width_ft) * 10) / 10,
                 height_ft: Math.round(Number(o.height_ft) * 10) / 10,
@@ -11697,8 +12453,12 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
                 components,
               };
             });
+          const windowRows = Number(result.window_rows);
+          result.window_rows = Number.isFinite(windowRows) && windowRows > 0 ? Math.round(windowRows) : null;
+          result.sections = Array.isArray(result.sections) ? result.sections : [];
 
           localLogs.push(`  ${viewLabel}: ${result.wall_width_ft}ft wide × ${result.eave_height_ft}ft eave [${result.height_method || 'estimate'}, ${result.siding_course_count || 0} courses${result.height_clamped ? ', CLAMPED' : ''}] | gd=${result.garage_doors_count} d=${result.doors_count} w=${result.windows_count} | ${result.siding_material} | ${result.confidence}%`);
+          photoImageBytes.set(result, { data: b64, mimeType });
           return { result, logs: localLogs };
         } else {
           localLogs.push(`${viewLabel}: No structured data returned from Gemini`);
@@ -11929,6 +12689,31 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     perPhotoResults = allPerPhotoResults.filter((_, index) =>
       preAggregateEvidence.photos[index]?.status !== 'duplicate');
 
+    // Materials are classified per face: every photo of the face goes in one
+    // structured call, and that call is sampled materialSampleCount times.
+    // The median is what gets billed. A material that swings by more than 20
+    // points falls back to the set confirmed on the other faces. Per-photo
+    // reads remain only when the face call fails.
+    let faceMaterialByFace = {};
+    if (!pitch_only) {
+      faceMaterialByFace = await classifyFaceMaterials({
+        results: perPhotoResults,
+        sampleCount: materialSampleCount,
+        imageForResult: (photo) => photoImageBytes.get(photo) || null,
+        callModel: ({ images, prompt }) => callGemini(apiKey, faceMaterialSystemPrompt(), prompt, {
+          images: images.map((image) => ({ imageData: image.data, mimeType: image.mimeType })),
+          jsonMode: true,
+          responseSchema: FACE_MATERIAL_RESPONSE_SCHEMA,
+          temperature: 0,
+          model: 'gemini-2.5-flash',
+          timeoutMs: 90000,
+          retries: 1,
+        }),
+        confirmedByFace: params.confirmed_face_materials,
+        log: (line) => debugLogs.push(line),
+      });
+    }
+
     // ── Aggregate ──────────────────────────────────────────────────
     // Exclude corner and detail shots from facade width/opening aggregation.
     // Details can still be useful evidence when no usable elevation exists,
@@ -11941,14 +12726,32 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     const resultsForOpenings = nonCornerResults.length > 0 ? nonCornerResults : perPhotoResults;
 
     // Determine if this is a garage job (user declaration takes priority)
-    const photoBuildingTypes = perPhotoResults.map(r => r.building_type || 'house');
-    const isGarageJob = isGarageMode || photoBuildingTypes.every(t => t === 'garage' || t === 'shed');
+    const OUTBUILDING_TYPES = new Set(['garage', 'shed', 'outbuilding', 'barn', 'carport']);
+    const reportedTypes = perPhotoResults
+      .map((r) => String(r.building_type || '').toLowerCase())
+      .filter((t) => t && t !== 'unknown');
+    let isGarageJob = isGarageMode || (
+      reportedTypes.length > 0 && reportedTypes.every((t) => OUTBUILDING_TYPES.has(t))
+    );
 
     // An explicit user override wins. An untouched selector default is sent as null,
     // allowing the physical photos to synchronize the visible story count.
-    const detectedStoryCount = Math.max(1, ...perPhotoResults.map(r => Number(r.story_count || 1)));
-    const storyCount = isGarageJob ? 1
+    // Story count is the multi-story reading with the most votes. A tie stays
+    // with the lower count. A single 1-story garage wing does not pull a
+    // 2-story house down, and window rows alone do not invent a third story.
+    const detectedStory = storyCountFromPhotos(perPhotoResults.map((r) => ({
+      window_rows: r.window_rows,
+      story_count: r.story_count,
+      confidence: Number(r.confidence) > 1 ? Number(r.confidence) / 100 : r.confidence,
+      is_one_story_wing: r.is_one_story_wing === true,
+      height_method: r.height_method,
+      eave_height_ft: r.eave_height_ft,
+    })));
+    const detectedStoryCount = detectedStory.story_count
+      || Math.max(1, ...perPhotoResults.map(r => Number(r.story_count || 1)));
+    let storyCount = isGarageJob ? 1
       : (Number(story_count_override) >= 1 ? Number(story_count_override) : detectedStoryCount);
+    debugLogs.push(`Story count ${storyCount} from ${isGarageJob ? 'garage' : (Number(story_count_override) >= 1 ? 'user override' : `photos (${detectedStory.source}, reads ${detectedStory.reads.join(',') || 'none'})`)}`);
 
     // Rule 6: Cross-reference Solar API 3D normal-vector pitch with photo gable-rake detection.
     // Solar normal-vector pitch is ground truth; photo detection fills in when Solar is unavailable.
@@ -12115,13 +12918,13 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       } else {
         // Clearly marked fallback geometry when Gemini omitted per-opening data.
         for (let i = 0; i < wCount; i++) {
-          openingsDetail.push({ observation_id: `synthetic_window_${face}_${i}`, type: 'window', wall_face: zone, zone: 'unknown', width_ft: 3, height_ft: 4, sqft: 12, confidence: 25, synthetic: true });
+          openingsDetail.push({ observation_id: `synthetic_window_${face}_${i}`, type: 'window', wall_face: zone, zone: 'unknown', width_ft: 3, height_ft: 5, sqft: 15, confidence: 25, synthetic: true });
         }
         for (let i = 0; i < dCount; i++) {
           openingsDetail.push({ observation_id: `synthetic_door_${face}_${i}`, type: 'entry_door', wall_face: zone, zone: 'unknown', width_ft: 3, height_ft: 6.8, sqft: 20.4, confidence: 25, synthetic: true });
         }
         for (let i = 0; i < gCount; i++) {
-          openingsDetail.push({ observation_id: `synthetic_garage_${face}_${i}`, type: 'garage_door', wall_face: zone, zone: 'unknown', width_ft: 16, height_ft: 7, sqft: 112, confidence: 25, synthetic: true });
+          openingsDetail.push({ observation_id: `synthetic_garage_${face}_${i}`, type: 'garage_door', wall_face: zone, zone: 'unknown', width_ft: 9, height_ft: 7, sqft: 63, confidence: 25, synthetic: true });
         }
       }
     }
@@ -12135,25 +12938,66 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     const condition = mode(conditions) || 'unknown';
     const complexity = complexities.includes('complex') ? 'complex' : complexities.includes('moderate') ? 'moderate' : 'simple';
 
-    // Wall height — use canonical calibrated-anchor logic (shared with test suite)
-    const heightResults = nonCornerResults.length > 0 ? nonCornerResults : perPhotoResults;
+    // Wall height — every valid eave, corners included, weighted by wall width.
+    // Detail close-ups are not elevations. A one-story wing stays in the average.
+    const heightResults = perPhotoResults.filter((r) => !isDetailShot(r));
     const _dwh = _deriveWallHeight(heightResults, storyCount);
     const _rawAvgEaveHt = _dwh.wallHeightFt;
     let _wallHtSource = _dwh.heightSource;
-    // Rule 3: Enforce architectural minimum for 2-story structures.
-    // A 10.5ft eave height is physically impossible on a 2-story home (min ~17ft).
+    // A formula that never saw an eave can still be raised to the 2-story
+    // minimum. A measured full elevation is left alone: story-and-a-half eaves
+    // are real, and the gable is added separately.
     const TWO_STORY_MIN_FT = 17;
-    const avgEaveHt = (storyCount >= 2 && _rawAvgEaveHt < TWO_STORY_MIN_FT)
+    const measuredFullElevation = /full_elevation|manual_calibration/.test(_wallHtSource);
+    let avgEaveHt = (storyCount >= 2 && _rawAvgEaveHt < TWO_STORY_MIN_FT && !measuredFullElevation)
       ? TWO_STORY_MIN_FT
       : _rawAvgEaveHt;
-    if (storyCount >= 2 && _rawAvgEaveHt < TWO_STORY_MIN_FT) {
+    if (storyCount >= 2 && _rawAvgEaveHt < TWO_STORY_MIN_FT && !measuredFullElevation) {
       // Honest provenance: any floor that replaces a measured value must be
       // visible in the height source label, not just the debug log.
       _wallHtSource += `+raised_to_2story_min(${TWO_STORY_MIN_FT}ft)`;
       debugLogs.push(`⚠️ Rule 3: 2-story wall height ${_rawAvgEaveHt}ft is below architectural minimum — raised to ${TWO_STORY_MIN_FT}ft`);
     }
+    if (isGarageJob) {
+      const oneStoryHt = _wallHeightForStructure(avgEaveHt, { outbuilding: true });
+      if (oneStoryHt + 0.01 < avgEaveHt) {
+        _wallHtSource += '+outbuilding_1story';
+        debugLogs.push(`Outbuilding wall height ${avgEaveHt}ft is above one story — using ${oneStoryHt}ft`);
+        avgEaveHt = oneStoryHt;
+      }
+    }
+    // A door or the ruler sets the eave before the story guess. Story count
+    // × 9 ft plus the band joist is only the fallback when no reference is
+    // visible and the votes agree. Split votes keep the median eave.
+    let storyHeightUncertain = false;
+    if (!isGarageJob) {
+      const medianEave = _medianPhotoEaveFt(heightResults);
+      const decided = _houseEaveFt({
+        storyCount,
+        storyReads: detectedStory.reads,
+        medianEaveFt: medianEave,
+        perPhotoResults: heightResults,
+      });
+      if (decided.eaveFt > 0) {
+        avgEaveHt = decided.eaveFt;
+        _wallHtSource = decided.source;
+        storyHeightUncertain = decided.uncertain === true;
+      } else if (decided.suppressTwoStoryFloor) {
+        // The only height was a garage below the main floor. Do not keep
+        // the two-story average or the 17 ft floor that came from it.
+        const withoutGarage = heightResults.filter((row) => (
+          row?.height_method !== 'garage_door_anchor'
+          && !((Number(row?.garage_doors_count) || 0) > 0)
+          && !/garage/.test(String(row?.door_kind || row?.door_type || ''))
+        ));
+        const plain = _deriveWallHeight(withoutGarage, 1);
+        avgEaveHt = plain.wallHeightFt > 0 ? plain.wallHeightFt : 10;
+        _wallHtSource = decided.source;
+        storyHeightUncertain = true;
+      }
+    }
     const heightAdjusted = _wallHtSource.includes('raised_to_');
-    const totalWallHt = avgEaveHt;
+    let totalWallHt = avgEaveHt;
     debugLogs.push(`Wall height: ${avgEaveHt}ft (${_wallHtSource})`);
 
     // Gable area (computed after dimensions are resolved below)
@@ -12172,7 +13016,17 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     };
 
     let footprintPolygonXY = null; // [[east_ft, north_ft], ...] for 3D viewer
+    // OSM or Microsoft ring from this call or the roof step. Corner counts use
+    // this outline. A Solar facet trace and a photo rectangle do not.
+    let buildingFootprintRing = null;
+    let footprintFrameOrigin = null; // lat/lng the polygon is centred on
+    let footprintSharesFacetFrame = false; // solar-traced outline already uses the facet origin
+    let osmRoofRing = null; // OSM outline kept even when a Solar trace replaces the wall line
+    let osmAttachedRings = [];
+    let osmRoofPlanSqFt = 0;
+    let osmBuildingCount = 0;
     let garagePolygonXY    = null; // nearby secondary building (garage/addition)
+    let nearestRoadAzimuth = null;
     // Whether footprintPolygonXY is a real traced outline (OSM way / Solar facet
     // union) or the degenerate rectangle we fall back to. `footprintSource` keeps
     // its established vocabulary because buildRoofMeasurementGraph whitelists it;
@@ -12197,12 +13051,14 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       let osmVertexCount = 0;
       let osmIsCrude = false;
       try {
-        const osmQuery = `[out:json][timeout:10];way["building"](around:30,${latitude},${longitude});out geom;`;
+        const osmQuery = `[out:json][timeout:10];(way["building"](around:30,${latitude},${longitude});way["highway"](around:40,${latitude},${longitude}););out geom;`;
         const osmUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(osmQuery)}`;
         const osmRes = await fetch(osmUrl, { signal: AbortSignal.timeout(8000) });
         if (osmRes.ok) {
           const osmData = await osmRes.json();
-          const ways = (osmData.elements || []).filter(el => el.type === 'way' && el.geometry?.length >= 3);
+          const roadAz = nearestRoadFrontAzimuth(osmData.elements, latitude, longitude);
+          if (roadAz != null) nearestRoadAzimuth = roadAz;
+          const ways = (osmData.elements || []).filter(el => el.type === 'way' && el.tags?.building != null && el.geometry?.length >= 3);
           if (ways.length > 0) {
             // Pick largest building by bbox area
             const scoredWays = ways.map(way => {
@@ -12233,6 +13089,8 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
             // ── Extract polygon XY (feet, centred at building centroid) for 3D viewer ──
             const cLat = lats.reduce((a,b) => a+b, 0) / lats.length;
             const cLng = lngs.reduce((a,b) => a+b, 0) / lngs.length;
+            footprintFrameOrigin = { latitude: cLat, longitude: cLng };
+            footprintSharesFacetFrame = false;
             const isClosed = nodes.length > 1 &&
               nodes[0].lat === nodes[nodes.length-1].lat && nodes[0].lon === nodes[nodes.length-1].lon;
             const openNodes = isClosed ? nodes.slice(0, -1) : nodes;
@@ -12240,6 +13098,10 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
               haversineFt(cLat, cLng, cLat, n.lon) * (n.lon >= cLng ? 1 : -1),
               haversineFt(cLat, cLng, n.lat, cLng) * (n.lat >= cLat ? 1 : -1),
             ]);
+            osmRoofRing = footprintPolygonXY.map((pt) => [pt[0], pt[1]]);
+            buildingFootprintRing = osmRoofRing;
+            osmRoofPlanSqFt = polygonAreaFt2(osmRoofRing);
+            osmBuildingCount = scoredWays.length;
 
             // Detect nearby secondary building as potential garage/addition
             // (second-largest OSM way that is 4–55% of the main building area)
@@ -12257,6 +13119,20 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
                 ]);
                 debugLogs.push(`OSM secondary building found (${openGNodes.length} nodes) — rendered as garage`);
               }
+            }
+            osmAttachedRings = [];
+            for (const other of scoredWays.slice(1)) {
+              const nodes = other.way.geometry;
+              if (!Array.isArray(nodes) || nodes.length < 3) continue;
+              const closed = nodes.length > 1
+                && nodes[0].lat === nodes[nodes.length - 1].lat
+                && nodes[0].lon === nodes[nodes.length - 1].lon;
+              const open = closed ? nodes.slice(0, -1) : nodes;
+              const ring = open.map((n) => [
+                haversineFt(cLat, cLng, cLat, n.lon) * (n.lon >= cLng ? 1 : -1),
+                haversineFt(cLat, cLng, n.lat, cLng) * (n.lat >= cLat ? 1 : -1),
+              ]);
+              if (polygonAreaFt2(ring) >= 40) osmAttachedRings.push(ring);
             }
 
             // Provisionally accept the OSM polygon. OSM buildings are drawn by
@@ -12287,6 +13163,39 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
         debugLogs.push(`OSM error: ${osmErr.message} — falling back to Solar API`);
       }
 
+      // OSM had no outline. The roof step uses Microsoft's free building
+      // footprints for the same miss. Corners and the wall cap need that
+      // ring; a Solar facet trace is not a substitute for it.
+      if (!buildingFootprintRing) {
+        try {
+          const microsoft = await fetchMicrosoftBuildingsNear(latitude, longitude, { timeoutMs: 30000 });
+          if (microsoft.timedOut) {
+            debugLogs.push(`Microsoft footprint lookup timed out: ${microsoft.error || 'timed out'}`);
+          }
+          const selected = selectTargetBuilding(microsoft.buildings || [], latitude, longitude, { maxDistanceM: 12 });
+          const ring = selected.building ? ringFromLatLngGeometry(selected.building.el?.geometry) : null;
+          if (ring?.xy?.length >= 3 && ring.areaSqFt > 0) {
+            buildingFootprintRing = ring.xy;
+            if (!osmSuccess) {
+              const dims = polygonBBoxDims(ring.xy);
+              footprintPolygonXY = ring.xy;
+              buildingLengthFt = Math.round(dims.lengthFt);
+              buildingWidthFt = Math.round(dims.widthFt);
+              perimeterFt = Math.round(polygonPerimeterFt(ring.xy));
+              usedSatellite = true;
+              footprintSource = 'microsoft';
+              footprintGeometry = 'traced_polygon';
+              footprintFrameOrigin = ring.origin;
+              debugLogs.push(`Microsoft footprint: ${buildingLengthFt}×${buildingWidthFt} ft, perimeter ${perimeterFt} ft, ${ring.xy.length} corners (${selected.method})`);
+            } else {
+              debugLogs.push(`Microsoft footprint kept for corners (${ring.xy.length} corners); OSM remains the wall line`);
+            }
+          }
+        } catch (msErr) {
+          debugLogs.push(`Microsoft footprint skipped: ${msErr.message}`);
+        }
+      }
+
       // ── Fix #2b: Solar API fallback ──────────────────────────────────────────
       // Runs when OSM found nothing, OR when OSM only had a bare rectangle that
       // cannot represent wings. In the latter case the Solar candidate must add
@@ -12315,6 +13224,12 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
             }
           }
           if (solarData) {
+            const slopeRoofSqFt = solarRoofAreaSqFt(solarData.solarPotential);
+            if (slopeRoofSqFt > 0) solarRoofAreaSqFtValue = slopeRoofSqFt;
+            if (solarData.solarPotential) {
+              solarPotentialForRoof = solarData.solarPotential;
+              solarQueryPoint = 'geocode';
+            }
             const segs = solarData.solarPotential?.roofSegmentStats || [];
             if (!roofFacetsForGraph && segs.length > 0) {
               try {
@@ -12384,13 +13299,14 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
               candNote = 'no traceable roof facets — rectangle approximation';
             }
 
-            const ratio = photoEstPerim > 0 ? candPerim / photoEstPerim : 1.0;
-            // Accept satellite when:
-            //   ratio >= 0.55 → satellite not drastically smaller than photos (would indicate wrong building)
-            //   ratio <= 4.0  → satellite can be much larger than photos for complex multi-wing houses
-            //                   (photos only see the front wing; satellite sees the full footprint)
-            // Only reject when satellite footprint is much smaller than what photos show (wrong building)
-            // or astronomically larger (data error).
+            // Photos that see only part of the house produce a short box. That box
+            // must not throw away a longer measured outline. Reject the satellite
+            // candidate only when it is much smaller than the photos (wrong building).
+            const footprintDecision = acceptSatelliteFootprint({
+              photoPerimeterFt: photoEstPerim,
+              satellitePerimeterFt: candPerim,
+            });
+            const ratio = footprintDecision.ratio ?? 1;
             // If OSM already supplied an outline, we only got here because it was a
             // bare quadrilateral. A genuinely traced outline may replace it to retain
             // wings and re-entrant corners, but only within a tight wall-perimeter
@@ -12406,16 +13322,21 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
                 candidateGeometry: candGeometry,
               })
             );
-            if (ratio >= 0.55 && ratio <= 4.0 && candPoly && safeOsmGeometryOverride) {
+            if (footprintSource === 'microsoft' && buildingFootprintRing) {
+              debugLogs.push('Kept the Microsoft outline; the Solar trace is not the wall line or the corner count');
+            } else if (footprintDecision.accept && candPoly && safeOsmGeometryOverride) {
               const priorPerimFt = perimeterFt;
               buildingLengthFt = Math.round(candLen);
               buildingWidthFt = Math.round(candWid);
               perimeterFt = candPerim;
               footprintPolygonXY = candPoly;
               footprintGeometry = candGeometry;
+              footprintSharesFacetFrame = candGeometry === 'traced_polygon';
               usedSatellite = true;
               footprintSource = 'solar';
-              const complexNote = ratio > 1.5 ? ` (complex/multi-wing building — photos underestimated perimeter)` : '';
+              const complexNote = footprintDecision.reason === 'photos_short_of_footprint'
+                ? ` (photos are short of the footprint — wall line stays on the outline)`
+                : (ratio > 1.5 ? ` (complex/multi-wing building — photos underestimated perimeter)` : '');
               debugLogs.push(`✅ Solar footprint (${candNote}): ${buildingLengthFt}ft × ${buildingWidthFt}ft, perimeter=${perimeterFt}ft${complexNote}`);
               if (osmOverrideOnly) {
                 usingOSM = false;
@@ -12425,9 +13346,9 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
               // Keep OSM. Not a rejection — OSM's outline stands.
               debugLogs.push(`Kept OSM footprint (${perimeterFt}ft, ${osmVertexCount} corners): Solar candidate (${candNote}, ${candPerim}ft) was not a perimeter-safe geometry improvement`);
             } else {
-              const rejMsg = `Solar footprint ratio=${ratio.toFixed(2)} out of range (expected 0.55–4.0) — satellite may point to wrong building, using photo estimates`;
+              const rejMsg = `Solar footprint ratio=${ratio.toFixed(2)} out of range (expected at least 0.55) — satellite may point to wrong building, using photo estimates`;
               debugLogs.push(rejMsg);
-              satelliteRejectionReason = `Satellite footprint rejected: perimeter ratio ${ratio.toFixed(2)} is outside the accepted range (0.55–4.0). This usually means the satellite data is pointing to a neighboring building. Measurement is based on photos only — dimensions may be lower than actual for complex or multi-wing buildings. Use Manual Entry or upload an EagleView/Hover report to calibrate.`;
+              satelliteRejectionReason = `Satellite footprint rejected: perimeter ratio ${ratio.toFixed(2)} is below 0.55, so the outline is much smaller than the photos. This usually means the satellite data is pointing to a neighboring building. Measurement is based on photos only. Use Manual Entry or upload an EagleView/Hover report to calibrate.`;
             }
           }
         } catch (err) { debugLogs.push(`Solar error: ${err.message}`); }
@@ -12475,6 +13396,125 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       usingRoofEave    = true;
     }
 
+    // An outbuilding at the same pin as the house must not inherit the house
+    // ring. The Microsoft footprint under the pin is that house, and marking
+    // it usedSatellite used to skip this picker. A declared garage or
+    // outbuilding still takes the ring whose longest side and perimeter match
+    // the photos. An unlabeled house is swapped only when the photos read one
+    // story AND that ring is smaller than the pin. A larger ring is never
+    // adopted, and a two-story reading is never capped to one story. Matching
+    // each photo to the nearest edge misfires on an L: the long elevation is
+    // several colinear edges.
+    const straightPhotoWidths = perPhotoResults
+      .filter((r) => !isDetailShot(r) && !r.is_corner_shot)
+      .map((r) => Number(r.wall_width_ft) || 0);
+    const pinCandidate = footprintBoxCandidate(footprintPolygonXY, {
+      lengthFt: buildingLengthFt,
+      widthFt: buildingWidthFt,
+      perimeterFt,
+    });
+    const pinDisagrees = footprintDisagreesWithPhotos(pinCandidate, straightPhotoWidths);
+    let detectedOutbuilding = false;
+    if ((isGarageJob || pinDisagrees) && use_satellite && latitude && longitude) {
+      try {
+        const candidates = [];
+        const osmQuery = `[out:json][timeout:10];(way["building"](around:30,${latitude},${longitude});way["highway"](around:40,${latitude},${longitude}););out geom;`;
+        try {
+          const osmRes = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(osmQuery)}`, { signal: AbortSignal.timeout(8000) });
+          if (osmRes.ok) {
+            const osmData = await osmRes.json();
+            const roadAz = nearestRoadFrontAzimuth(osmData.elements, latitude, longitude);
+            if (roadAz != null) nearestRoadAzimuth = roadAz;
+            const ways = (osmData.elements || []).filter((el) => el.type === 'way' && el.tags?.building != null && el.geometry?.length >= 3);
+            candidates.push(...ways.map((way) => {
+              const ring = projectRingFeet(way.geometry);
+              return ring ? { ...ring, source: 'osm' } : null;
+            }).filter(Boolean));
+          }
+        } catch (osmErr) {
+          debugLogs.push(`Outbuilding OSM lookup skipped: ${osmErr.message}`);
+        }
+        try {
+          const microsoft = await fetchMicrosoftBuildingsNear(latitude, longitude, { timeoutMs: 30000 });
+          if (microsoft.timedOut) {
+            debugLogs.push(`Outbuilding Microsoft footprints timed out: ${microsoft.error || 'timed out'}`);
+          }
+          candidates.push(...footprintCandidatesFromBuildings(microsoft.buildings || []));
+        } catch (msErr) {
+          debugLogs.push(`Outbuilding Microsoft footprints skipped: ${msErr.message}`);
+        }
+        const roofEdges = computeRoofEdgeTotals(roofFacetsForGraph || []);
+        const roofEdgeFt = (Number(roofEdges.eave) || 0) + (Number(roofEdges.rake) || 0);
+        const photoWidths = straightPhotoWidths;
+        const chosen = chooseOutbuildingFootprint(candidates, { photoWidths, roofEdgeFt });
+        if (chosen?.candidate?.polygon?.length >= 3) {
+          const ring = chosen.candidate;
+          const smallerThanPin = footprintSmallerThan(ring, pinCandidate);
+          const photosReadOneStory = !(detectedStoryCount >= 2);
+          const adoptRing = () => {
+            footprintPolygonXY = ring.polygon;
+            buildingFootprintRing = ring.polygon;
+            buildingLengthFt = Math.round(ring.lengthFt);
+            buildingWidthFt = Math.round(ring.widthFt);
+            perimeterFt = Math.round(ring.perimeterFt);
+            usedSatellite = true;
+            usingOSM = ring.source !== 'microsoft';
+            footprintSource = ring.source === 'microsoft' ? 'microsoft' : 'osm';
+            footprintGeometry = 'traced_polygon';
+            osmBuildingCount = candidates.length;
+            debugLogs.push(`Outbuilding footprint matches photo widths: ${buildingLengthFt}×${buildingWidthFt} ft, perimeter ${perimeterFt} ft (photo error ${(chosen.photoError * 100).toFixed(0)}%, roof-edge check ${(chosen.roofError * 100).toFixed(0)}%)`);
+          };
+          const roofAgrees = roofEdgeAgrees(roofEdgeFt, chosen.roofError);
+          if (isGarageJob) {
+            adoptRing();
+          } else if (pinDisagrees && photosReadOneStory && smallerThanPin && roofAgrees) {
+            adoptRing();
+            detectedOutbuilding = true;
+          } else if (pinDisagrees) {
+            debugLogs.push(`Pin outline kept (${Math.round(buildingLengthFt)}×${Math.round(buildingWidthFt)} ft). A larger ring, a ${detectedStoryCount}-story reading, or a roof edge ${(chosen.roofError * 100).toFixed(0)}% off is not an outbuilding.`);
+          }
+        } else {
+          debugLogs.push('Outbuilding footprint: no ring matched the photo widths — wall line stays on the photos');
+        }
+      } catch (outbuildingErr) {
+        debugLogs.push(`Outbuilding footprint lookup skipped: ${outbuildingErr.message}`);
+      }
+    }
+    if (detectedOutbuilding && !(detectedStoryCount >= 2)) {
+      const wasHouse = !isGarageJob;
+      isGarageJob = true;
+      storyCount = 1;
+      if (wasHouse) {
+        const oneStoryHt = _wallHeightForStructure(avgEaveHt, { outbuilding: true });
+        if (oneStoryHt + 0.01 < avgEaveHt) {
+          _wallHtSource += '+outbuilding_1story';
+          debugLogs.push(`Pin footprint disagrees with the photo widths — outbuilding wall height ${avgEaveHt}ft capped at ${oneStoryHt}ft`);
+          avgEaveHt = oneStoryHt;
+        }
+        totalWallHt = avgEaveHt;
+        debugLogs.push('Outbuilding detected: the photos read one story and the matching footprint is smaller than the pin');
+      }
+    }
+
+    // A footprint the caller already measured wins over the photo box. Photos
+    // still supply height, openings, and material; they do not redraw the wall line.
+    if (!usedSatellite && !isGarageJob) {
+      const clientFootprint = footprintFromClientPolygon(params.footprint_polygon_xy);
+      if (clientFootprint) {
+        footprintPolygonXY = clientFootprint.polygon;
+        buildingLengthFt = clientFootprint.lengthFt;
+        buildingWidthFt = clientFootprint.widthFt;
+        perimeterFt = clientFootprint.perimeterFt;
+        footprintGeometry = 'traced_polygon';
+        footprintSource = ['osm', 'microsoft', 'solar', 'roof_eave', 'satellite'].includes(params.footprint_source)
+          ? params.footprint_source
+          : 'satellite';
+        buildingFootprintRing = clientFootprint.polygon;
+        usedSatellite = true;
+        debugLogs.push(`Anchored perimeter to the measured footprint (${perimeterFt} LF, ${clientFootprint.polygon.length} corners). Photo widths are not the wall line.`);
+      }
+    }
+
     // Photo-based dimension estimate — routed through shared module (tested in test:siding-aggregate)
     if (!usedSatellite) {
       const dimRes = _deriveBuildingDimensions(perPhotoResults, isGarageJob);
@@ -12506,8 +13546,197 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       debugLogs.push(`Footprint: ${footprintGeometry}, ${footprintPolygonXY.length} corners, plan area ${footprintPlanAreaSqFt} sqft (bbox ${bboxArea} sqft), perimeter ${perimeterFt} LF`);
     }
 
-    // Gable area — routed through shared module; uses correct base dim per wall_face (tested in test:siding-aggregate)
-    const { gableAreaSqft: gableAreaSqFt } = _computeGableArea(gableResults, buildingWidthFt, buildingLengthFt);
+    // findClosest returns one building. A Solar trace of that building cannot
+    // reveal a missing wing, because the outline is the union of the planes
+    // already measured. The OSM ring is the independent footprint. When Solar's
+    // plan is much smaller than that ring, ask again at the OSM centroid.
+    const googleKeyForRoof = process.env.GOOGLE_MAPS_API_KEY;
+    const rememberSolar = (payload, queryPoint, replaceFacets) => {
+      const parts = solarAreaParts(payload?.solarPotential);
+      if (!parts || !(parts.area_sqft > 0)) return null;
+      solarPotentialForRoof = payload.solarPotential;
+      solarRoofAreaSqFtValue = parts.area_sqft;
+      solarQueryPoint = queryPoint;
+      const segs = payload.solarPotential.roofSegmentStats || [];
+      if (segs.length > 0 && (replaceFacets || !roofFacetsForGraph)) {
+        try {
+          const built = buildRoofFacetsFromSolarSegments(segs);
+          if (built.length > 0) roofFacetsForGraph = built;
+        } catch (facetErr) {
+          debugLogs.push(`Roof facet build skipped: ${facetErr.message}`);
+        }
+      }
+      return parts;
+    };
+    const fetchClosestSolar = async (lat, lng) => {
+      if (!googleKeyForRoof || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
+      for (const q of ['HIGH', 'MEDIUM', '']) {
+        const qp = q ? `&requiredQuality=${q}` : '';
+        try {
+          const r = await fetch(
+            `https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${lat}&location.longitude=${lng}${qp}&key=${googleKeyForRoof}`,
+            { signal: AbortSignal.timeout(8000) },
+          );
+          if (r.ok) return await r.json();
+        } catch (err) {
+          debugLogs.push(`Solar ${q || 'BASE'} lookup failed: ${err.message}`);
+        }
+      }
+      return null;
+    };
+    if (!solarPotentialForRoof && canUseSatellite) {
+      const first = await fetchClosestSolar(Number(latitude), Number(longitude));
+      const parts = rememberSolar(first, 'geocode', false);
+      if (parts) debugLogs.push(`Solar roof from geocode: ${parts.segment_count} segments, plan ${parts.ground_area_sqft} sqft`);
+    }
+    const primaryParts = solarAreaParts(solarPotentialForRoof);
+    if (
+      canUseSatellite
+      && osmRoofPlanSqFt > 0
+      && footprintFrameOrigin
+      && solarUndershootsFootprint(primaryParts?.ground_area_sqft, osmRoofPlanSqFt)
+    ) {
+      const alt = await fetchClosestSolar(footprintFrameOrigin.latitude, footprintFrameOrigin.longitude);
+      const altParts = solarAreaParts(alt?.solarPotential);
+      const slopeOf = (parts) => (parts?.whole_area_sqft > 0 ? parts.whole_area_sqft : parts?.segment_area_sqft);
+      if (preferAlternateSolar({
+        primaryGroundSqFt: primaryParts?.ground_area_sqft,
+        primarySlopeSqFt: slopeOf(primaryParts),
+        alternateGroundSqFt: altParts?.ground_area_sqft,
+        alternateSlopeSqFt: slopeOf(altParts),
+        footprintPlanSqFt: osmRoofPlanSqFt,
+      })) {
+        rememberSolar(alt, 'osm_centroid', true);
+        debugLogs.push(`Solar building at the OSM centroid fits the footprint (${Math.round(altParts.ground_area_sqft)} sqft plan, footprint ${Math.round(osmRoofPlanSqFt)} sqft)`);
+      } else {
+        debugLogs.push(`Kept the geocode Solar building (centroid plan ${Math.round(altParts?.ground_area_sqft || 0)} sqft, footprint ${Math.round(osmRoofPlanSqFt)} sqft)`);
+      }
+    }
+    const diagParts = solarAreaParts(solarPotentialForRoof);
+
+    // Complete only against the OSM ring. A rectangle, and a Solar trace built
+    // from the same facets, already look complete and must not add area.
+    let roofAreaSource = solarRoofAreaSqFtValue > 0 ? 'solar' : null;
+    let roofEstimatedAreaSqFt = 0;
+    let roofCompletionMethods = [];
+    let roofCompletionSkip = null;
+    let roofObservedPlanSqFt = diagParts?.ground_area_sqft || 0;
+    const independentPlanSqFt = independentFootprintPlanSqFt(osmRoofRing, osmAttachedRings);
+    try {
+      if (Array.isArray(roofFacetsForGraph) && roofFacetsForGraph.length > 0) {
+        const independentRing = Array.isArray(osmRoofRing) && osmRoofRing.length >= 3 ? osmRoofRing : null;
+        const completion = completeDetectedRoof({
+          facets: roofFacetsForGraph,
+          footprint: independentRing,
+          footprintOrigin: footprintFrameOrigin,
+          attachedFootprints: independentRing ? osmAttachedRings : [],
+          sameFrame: false,
+        });
+        if (completion?.observed_plan_sqft > 0) roofObservedPlanSqFt = completion.observed_plan_sqft;
+        const billed = billedRoofArea(solarRoofAreaSqFtValue, completion, {
+          footprintPlanSqFt: independentRing ? independentPlanSqFt : 0,
+        });
+        roofCompletionSkip = billed.skip;
+        if (billed.source === 'solar_completed') {
+          solarRoofAreaSqFtValue = billed.area;
+          roofAreaSource = billed.source;
+          roofEstimatedAreaSqFt = billed.estimated_sqft;
+          roofCompletionMethods = billed.methods;
+          debugLogs.push(`Roof completion added ${Math.round(billed.estimated_sqft)} sqft via ${(billed.methods || []).join(', ') || 'geometry'}`);
+        } else if (billed.skip) {
+          debugLogs.push(`Roof completion not billed (${billed.skip})`);
+        }
+      }
+    } catch (completionErr) {
+      debugLogs.push(`Roof completion skipped: ${completionErr.message}`);
+    }
+
+    // Front bearing is known once the road or a front photo heading is in.
+    // Edge widths need it before the wall is billed. A later road lookup can
+    // still fill it in when this pass has neither.
+    const frontHeadingPhotoEarly = (Array.isArray(photos) ? photos : []).find((photo) => {
+      const label = String(photo?.label || '').toLowerCase();
+      return Number.isFinite(Number(photo?.exif_heading)) && label.includes('front') && !/corner|angle/.test(label);
+    });
+    let frontAzimuthDeg = Number.isFinite(Number(params.front_azimuth_deg))
+      ? Number(params.front_azimuth_deg)
+      : (frontHeadingPhotoEarly ? (Number(frontHeadingPhotoEarly.exif_heading) + 180) % 360 : nearestRoadAzimuth);
+    const anchoredWidths = faceWidthsFromFootprint(footprintPolygonXY, frontAzimuthDeg);
+    const footprintAnchored = anchoredWidths.perimeter_ft > 0 && Number.isFinite(Number(frontAzimuthDeg));
+    // Gable area is the roof pitch times the gable-end edges. A photo's
+    // gable_rise_ft is not the bill — that is what swung one run by 630 sqft.
+    const pitchGable = _gableAreaFromPitch({
+      bearings: anchoredWidths.bearings,
+      widths: anchoredWidths,
+      pitch: detectedRoofPitch || params.roof_pitch || null,
+      roofFacets: roofFacetsForGraph || [],
+      wallHeightFt: totalWallHt,
+    });
+    const photoGable = _computeGableArea(gableResults, buildingWidthFt, buildingLengthFt);
+    const gableAreaSqFt = footprintAnchored ? pitchGable.gableAreaSqft : photoGable.gableAreaSqft;
+    if (footprintAnchored && anchoredWidths.perimeter_ft > 0) {
+      const edgeNote = ['front', 'back', 'left_side', 'right_side'].map((face) => {
+        const parts = (anchoredWidths.edges?.[face] || []).map((edge) => edge.length_ft);
+        const sum = Math.round((Number(anchoredWidths[face]) || 0) * 10) / 10;
+        return `${face.replace(/_/g, ' ')} ${sum}ft (${parts.join('+') || '0'})`;
+      }).join('; ');
+      debugLogs.push(`Footprint edges by face: ${edgeNote}`);
+    }
+    if (footprintAnchored && gableAreaSqFt > 0) {
+      debugLogs.push(`Gable ${gableAreaSqFt} sqft from pitch × gable-end edges (${(pitchGable.gableFaces || []).join(', ') || 'none'})`);
+    }
+    const faceEaves = _faceEavesFt({
+      houseEaveFt: totalWallHt,
+      storyCount,
+      storyReads: detectedStory.reads,
+      bearings: anchoredWidths.bearings,
+      gableFaces: pitchGable.gableFaces,
+      roofFacets: roofFacetsForGraph || [],
+      perPhotoResults,
+    });
+    if (faceEaves.oneStoryFaces.length) {
+      const note = faceEaves.oneStoryFaces.map((face) => {
+        const eave = faceEaves.eaves[face];
+        return `${face.replace(/_/g, ' ')} ${eave}ft`;
+      }).join(', ');
+      debugLogs.push(`Gambrel sides are one story (${note}).`);
+    }
+    if (faceEaves.gambrelEnds?.length) {
+      const note = faceEaves.gambrelEnds.map((face) => `${face.replace(/_/g, ' ')} ${faceEaves.eaves[face]}ft`).join(', ');
+      debugLogs.push(`Gambrel ends use the silhouette between the plate and the full eave (${note}).`);
+    }
+    if (faceEaves.references?.length) {
+      const note = faceEaves.references.map((row) => {
+        const name = row.face ? String(row.face).replace(/_/g, ' ') : 'house';
+        return `${name} ${row.eaveFt}ft from ${row.source}${row.kind ? ` (${row.kind})` : ''}`;
+      }).join('; ');
+      debugLogs.push(`Door/ruler eave before the story guess: ${note}`);
+    }
+    const aiFaceEaves = { ...faceEaves.eaves };
+    const confirmedHeights = _applyConfirmedFaceHeights(faceEaves, params.confirmed_face_heights, {
+      gableFaces: pitchGable.gableFaces,
+      gambrelEnds: faceEaves.gambrelEnds,
+    });
+    if (Object.keys(confirmedHeights.confirmed || {}).length) {
+      faceEaves.eaves = confirmedHeights.eaves;
+      faceEaves.confirmed = confirmedHeights.confirmed;
+      faceEaves.aiEaves = confirmedHeights.aiEaves || aiFaceEaves;
+      const note = Object.entries(confirmedHeights.confirmed).map(([face, row]) => {
+        const name = face.replace(/_/g, ' ');
+        return `${name} ${row.eave_ft}ft (${row.source}${row.stories != null ? ` ${row.stories}` : ''})`;
+      }).join('; ');
+      debugLogs.push(`Rep confirmed wall height: ${note}`);
+      const billed = ['front', 'back', 'left_side', 'right_side']
+        .map((face) => Number(faceEaves.eaves[face]))
+        .filter((value) => value > 0);
+      if (billed.length) {
+        const mid = billed.slice().sort((a, b) => a - b)[Math.floor((billed.length - 1) / 2)];
+        avgEaveHt = Math.round(mid * 2) / 2;
+        totalWallHt = avgEaveHt;
+        _wallHtSource = 'rep_confirmed';
+        storyHeightUncertain = false;
+      }
+    }
     const avgGableRise = gableResults.length > 0
       ? gableResults.reduce((s, r) => s + (Number(r.gable_rise_ft) || 0), 0) / gableResults.length
       : 0;
@@ -12518,37 +13747,39 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     // traces the actual outline, so the wing is measured rather than guessed at,
     // and adding it again would double-count it.
 
-    // ── Non-siding (brick/stone/masonry) coverage — PER FACE, area-weighted ────
-    // A plain mean across photos lets duplicate or near-duplicate shots of one
-    // elevation (e.g. two photos of the same brick garage) vote twice, and then
-    // applies that percentage to the entire house. Taking a median per elevation
-    // collapses repeat shots of the same wall, and weighting each face by the
-    // wall area it actually represents stops a small elevation from carrying the
-    // same weight as a long one.
-    const _median = (arr) => {
-      const s = [...arr].sort((a, b) => a - b);
-      const m = Math.floor(s.length / 2);
-      return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-    };
-    const faceMasonryPct = collectFaceMasonryPct(resultsForOpenings, faceToZone);
+    // ── Non-siding (brick/stone/stucco) coverage — PER FACE, confidence-weighted ─
+    // Each face is the confidence-weighted average of every photo of that face.
+    // A face with no photo takes the area-weighted house share, not 0.
+    const masonryPhotos = perPhotoResults.filter((r) => !isDetailShot(r));
+    const faceMasonryPct = collectFaceMasonryPct(masonryPhotos, faceToZone);
+    const labeledFacePct = collectLabeledMasonryPct(masonryPhotos);
     const observedFacePcts = Object.values(faceMasonryPct);
-    const houseMasonryPct = observedFacePcts.length > 0 ? _median(observedFacePcts) : 0;
 
     const FACE_BASE_DIM = {
       front: buildingWidthFt,      back: buildingWidthFt,
       left_side: buildingLengthFt, right_side: buildingLengthFt,
     };
+    let houseWeight = 0;
+    let houseWeightedPct = 0;
+    // House share is the labeled reading. A traced region stays on its own face.
+    for (const [zone, pct] of Object.entries(labeledFacePct)) {
+      const faceHeight = Number(faceEaves.eaves?.[zone]) || totalWallHt;
+      const area = (Number(FACE_BASE_DIM[zone]) || 0) * faceHeight;
+      const weight = area > 0 ? area : 1;
+      houseWeightedPct += pct * weight;
+      houseWeight += weight;
+    }
+    const houseMasonryPct = houseWeight > 0 ? houseWeightedPct / houseWeight : 0;
     let facePrismSqFt = 0, faceMasonrySqFt = 0;
     const faceMasonryNotes = [];
     for (const [zone, baseDim] of Object.entries(FACE_BASE_DIM)) {
-      const faceArea = (Number(baseDim) || 0) * totalWallHt;
+      const faceHeight = Number(faceEaves.eaves?.[zone]) || totalWallHt;
+      const faceArea = (Number(baseDim) || 0) * faceHeight;
       const observed = faceMasonryPct[zone];
-      // Deduct only masonry actually visible in an analyzed elevation; do not
-      // project a brick wainscot from one wall onto unseen sides of the house.
-      const pct = observed ?? 0;
+      const pct = observed == null ? houseMasonryPct : observed;
       facePrismSqFt  += faceArea;
       faceMasonrySqFt += faceArea * (pct / 100);
-      faceMasonryNotes.push(`${zone}=${Math.round(pct)}%${observed == null ? '(not observed)' : ''}`);
+      faceMasonryNotes.push(`${zone}=${Math.round(pct)}%${observed == null ? '(house share)' : ''}`);
     }
     const avgNonSidingPct = facePrismSqFt > 0
       ? (faceMasonrySqFt / facePrismSqFt) * 100
@@ -12562,7 +13793,29 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       ? nonSidingMaterials.sort((a, b) => nonSidingMaterials.filter(v => v===b).length - nonSidingMaterials.filter(v => v===a).length)[0]
       : null;
 
-    const grossWallSqFt = (perimeterFt * totalWallHt) + gableAreaSqFt;
+    const wingRun = _wingPerimeterRun(nonCornerResults, {
+      perimeterFt,
+      boxPerimeterFt: 2 * ((Number(buildingWidthFt) || 0) + (Number(buildingLengthFt) || 0)),
+    });
+    const billedPerimeterFt = footprintAnchored ? anchoredWidths.perimeter_ft : perimeterFt;
+    const faceBodySqft = footprintAnchored
+      ? ['front', 'back', 'left_side', 'right_side'].reduce(
+        (sum, face) => sum + (Number(anchoredWidths[face]) || 0) * (Number(faceEaves.eaves[face]) || 0),
+        0,
+      )
+      : 0;
+    const capGross = _cappedWallGross({
+      perimeterFt: billedPerimeterFt,
+      wallHeightFt: totalWallHt,
+      gableSqft: gableAreaSqFt,
+      wingRunFt: footprintAnchored ? 0 : wingRun.runFt,
+      wingEaveFt: footprintAnchored ? 0 : wingRun.eaveFt,
+      bodySqft: faceBodySqft,
+    });
+    let grossWallSqFt = capGross;
+    if (wingRun.runFt > 0 && totalWallHt > wingRun.eaveFt + 0.5) {
+      debugLogs.push(`1-story wing ${Math.round(wingRun.runFt)}ft billed at ${wingRun.eaveFt}ft, not the ${totalWallHt}ft house eave`);
+    }
     const masonryDeductSqFt = avgNonSidingPct > 2 ? Math.round(grossWallSqFt * (avgNonSidingPct / 100)) : 0;
     // Feed the original observations to the graph. It owns both measured-opening
     // identity dedupe and count-only reconciliation; rebuilding one synthetic
@@ -12573,19 +13826,41 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       footprint: footprintPolygonXY,
       storyCount,
       wallHeightFt: totalWallHt,
-      grossWallAreaSqft: grossWallSqFt,
+      grossWallAreaSqft: capGross,
       accentDeductionSqft: masonryDeductSqFt,
       // Lets the graph charge each opening to its own wall's material instead of
       // deducting every window/door from the siding column.
       faceMasonryPct,
-      perimeterFt,
+      perimeterFt: billedPerimeterFt,
       buildingWidthFt,
       buildingLengthFt,
+      faceWidthsFt: footprintAnchored ? anchoredWidths : null,
+      faceEaveFt: footprintAnchored ? faceEaves.eaves : null,
+      gableByFace: footprintAnchored ? pitchGable.byFace : null,
       footprintSource,
       smallOpeningsInWaste: params.small_openings_in_waste === true,
       openingDeductMinSqft: Number(params.opening_deduct_min_sqft) === 33 ? 33 : 20,
+      outbuilding: isGarageJob,
       roofFacets: roofFacetsForGraph || undefined,
     });
+    const photoFaceSum = Number(measurementGraph.totals?.photo_wall_area_sqft) || 0;
+    const materialFaceSum = Object.values(measurementGraph.material_map?.faces || {})
+      .reduce((sum, face) => sum + (Number(face.gross_wall_area_sqft) || 0), 0);
+    const faceSum = photoFaceSum > 0 ? photoFaceSum : materialFaceSum;
+    // Anchored walls are the footprint prism. A photo face sum must not
+    // replace it — that is the 3654 vs 5040 swing on one outline.
+    if (measurementGraph.totals?.footprint_anchored && capGross > 0) {
+      grossWallSqFt = capGross;
+    } else if (faceSum > 0) {
+      grossWallSqFt = capGross > 0 ? Math.min(faceSum, capGross) : faceSum;
+    }
+    const widthReviewFlags = measurementGraph.totals?.width_review_flags || [];
+    if (widthReviewFlags.length) {
+      debugLogs.push(`Photo widths disagree with the footprint by more than 15% (${widthReviewFlags.map((flag) => flag.message).join('; ')}). The footprint edge was billed.`);
+    }
+    fitFacesToGross(measurementGraph.material_map, grossWallSqFt);
+    applyBilledWallIdentity(measurementGraph, grossWallSqFt);
+    grossWallSqFt = measurementGraph.totals.gross_wall_area_sqft;
     totalWindows = measurementGraph.counts.window_assemblies;
     totalDoors = measurementGraph.counts.entry_doors;
     totalGarageDoors = measurementGraph.counts.garage_doors;
@@ -12603,15 +13878,29 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     ));
     const materialStoneSqFt = materialAreaFor('stone');
     const materialBrickSqFt = materialAreaFor('brick');
+    const materialStuccoSqFt = materialAreaFor('stucco');
     const canonicalMasonrySqFt = Math.round(
       Number(measurementGraph.totals.masonry_area_sqft) || 0,
     );
-    if (hasClassifiedMaterialPhoto && materialMap?.review_required) {
+    if (hasClassifiedMaterialPhoto && materialMap?.complete !== true) {
       debugLogs.push(
         `Material map review required: ${materialMap.covered_faces.length}/4 faces classified; `
         + `${Math.round(materialMap.unknown_area_sqft || 0)} sqft unknown/other`,
       );
     }
+    const materialReviewFlags = Array.isArray(materialMap?.material_review_flags)
+      ? materialMap.material_review_flags
+      : [];
+    const storyReviewNote = storyHeightUncertain
+      ? `Story count is uncertain, so the wall height is the raw photo median (${avgEaveHt} ft).`
+      : null;
+    const widthReviewNote = widthReviewFlags.length
+      ? `Photo widths disagree with the footprint by more than 15%. ${widthReviewFlags.map((flag) => flag.message).join(' ')}`
+      : null;
+    const materialRepReviewMessage = materialReviewFlags.length || widthReviewNote || storyReviewNote
+      ? `Needs rep review. ${materialReviewFlags.length ? `Material fractions are low confidence. ${materialReviewFlags.map((flag) => flag.message).join(' ')}` : ''}${storyReviewNote ? ` ${storyReviewNote}` : ''}${widthReviewNote ? ` ${widthReviewNote}` : ''}`.trim()
+      : null;
+    if (materialRepReviewMessage) debugLogs.push(materialRepReviewMessage);
     const canonicalOpenings = measurementGraph.opening_groups.map(group => ({
       id: group.id,
       type: group.type,
@@ -12625,9 +13914,89 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       confidence: group.confidence,
       component_count: group.component_ids.length || (group.type === 'window' ? 1 : 0),
     }));
-    const footprintCorners = countFootprintCorners(footprintPolygonXY, totalWallHt);
+    // Corners come from the outline kept at the pin. Adopting a different
+    // ring (the auto-outbuilding miss on an L) changes the vertex count and
+    // was the outside-corner regression. A Solar trace and the photo
+    // rectangle are not that outline, so elevation counts are capped at
+    // 4 + 2×reflex outside and reflex inside instead of being summed.
+    const footprintCorners = countFootprintCorners(buildingFootprintRing, totalWallHt);
+    const facetOutline = Array.isArray(roofFacetsForGraph) && roofFacetsForGraph.length
+      ? buildFootprintFromFacets(roofFacetsForGraph, {
+        overhangFt: DEFAULT_EAVE_OVERHANG_FT,
+        simplifyFt: 1,
+      })
+      : null;
+    const outlineCorners = facetOutline
+      ? cornersFromFacetOutline(
+        facetOutline.polygon,
+        totalWallHt,
+        footprintCorners,
+        Array.isArray(buildingFootprintRing) ? buildingFootprintRing.length : 0,
+      )
+      : null;
+    if (outlineCorners) {
+      debugLogs.push(
+        `Corners from the roof outline: ${outlineCorners.outside_count} outside, ${outlineCorners.inside_count} inside`
+        + ` (${(buildingFootprintRing || []).length}-vertex wall ring had ${footprintCorners.outside_count} outside, ${footprintCorners.inside_count} inside)`,
+      );
+    }
     const photoCorners = cornersFromElevationPhotos(perPhotoResults, totalWallHt);
-    const cornerTotals = photoCorners || footprintCorners;
+    const chosenCorners = chooseCornerTotals(photoCorners, outlineCorners || footprintCorners);
+    const cornerPolygon = chosenCorners?.source === 'roof_facet_outline'
+      ? facetOutline?.polygon
+      : (chosenCorners?.source === 'footprint_polygon' ? buildingFootprintRing : null);
+    const explicitFrontAz = Number.isFinite(Number(params.front_azimuth_deg))
+      ? Number(params.front_azimuth_deg)
+      : null;
+    if (explicitFrontAz == null && nearestRoadAzimuth == null && latitude && longitude) {
+      try {
+        const roadQuery = `[out:json][timeout:10];way["highway"](around:40,${latitude},${longitude});out geom;`;
+        const roadRes = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(roadQuery)}`, { signal: AbortSignal.timeout(8000) });
+        if (roadRes.ok) {
+          const roadData = await roadRes.json();
+          const roadAz = nearestRoadFrontAzimuth(roadData.elements, latitude, longitude);
+          if (roadAz != null) nearestRoadAzimuth = roadAz;
+        }
+      } catch (roadErr) {
+        debugLogs.push(`Road bearing lookup skipped: ${roadErr.message}`);
+      }
+    }
+    if (frontAzimuthDeg == null) frontAzimuthDeg = explicitFrontAz != null ? explicitFrontAz : nearestRoadAzimuth;
+    if (explicitFrontAz == null && nearestRoadAzimuth != null) {
+      debugLogs.push(`Front wall faces the nearest road at ${Math.round(nearestRoadAzimuth)}° (no photo heading)`);
+    }
+    // Each outside corner is the eave of its two faces. A roof-outline bump-out
+    // the footprint simplified away is added once. Siding against masonry is
+    // not a corner. Scaling the whole count by a masonry fraction zeroed Walsh.
+    const outlineSupplement = chosenCorners?.source === 'roof_facet_outline'
+      ? null
+      : facetOutline?.polygon;
+    const cornerTotals = countSidingOutsideCorners({
+      polygon: cornerPolygon,
+      outlinePolygon: outlineSupplement,
+      corners: chosenCorners,
+      materialMap: measurementGraph.material_map,
+      frontAzimuthDeg,
+      wallHeightFt: totalWallHt,
+      faceEaveFt: faceEaves?.eaves || null,
+      faceStories: Object.fromEntries(
+        Object.entries(faceEaves?.confirmed || {})
+          .filter(([, row]) => row && row.stories != null)
+          .map(([face, row]) => [face, row.stories]),
+      ),
+    });
+    if (cornerTotals.bump_out_corners > 0) {
+      debugLogs.push(
+        `Outside corners add ${cornerTotals.bump_out_corners} bump-outs the roof outline sees past the ${(buildingFootprintRing || []).length}-vertex footprint`,
+      );
+    }
+    if (cornerTotals.corner_rule === 'siding_meets_siding') {
+      debugLogs.push(`Outside corners count only where siding meets siding (${cornerTotals.outside_count} outside, ${cornerTotals.outside_lf} LF)`);
+    }
+    const starterFraction = Number(measurementGraph?.trim_edges?.starter_strip?.masonry_fraction) || 0;
+    if (starterFraction > 0) {
+      debugLogs.push(`Starter excludes the width of full-height brick or stone (${Math.round(starterFraction * 100)}% of the perimeter)`);
+    }
     const outsideCornersLf = cornerTotals.outside_lf;
     const insideCornersLf = cornerTotals.inside_lf;
     const sidingWaste = calculateSidingWaste({
@@ -12637,7 +14006,12 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       gableAreaSqft: gableAreaSqFt,
       overridePct: params.siding_waste_override_pct,
     });
-    if (canonicalMasonrySqFt > 0) debugLogs.push(`Masonry/non-siding map: ${dominantNonSidingMaterial || 'mixed'} = −${canonicalMasonrySqFt} sqft`);
+    if (canonicalMasonrySqFt > 0) {
+      const split = [['stone', materialStoneSqFt], ['stucco', materialStuccoSqFt], ['brick', materialBrickSqFt]]
+        .filter(([, sqft]) => sqft > 0)
+        .map(([name, sqft]) => `${name} ${sqft}`);
+      debugLogs.push(`Masonry/non-siding map: ${split.length > 0 ? split.join(' + ') : (dominantNonSidingMaterial || 'mixed')} = −${canonicalMasonrySqFt} sqft`);
+    }
 
     // Sanity ratio is diagnostic-only. The canonical measured area is never
     // replaced by a heuristic target because every consumer must agree with
@@ -12650,8 +14024,8 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       footprintSource,
       footprintAreaSqft: footprintPlanAreaSqFt,
     });
-    let sanityWarning = hasClassifiedMaterialPhoto && materialMap?.review_required
-      ? '⚠️ Material classification is incomplete or ambiguous. Siding quantity includes only classified lap/vertical siding; stone, brick, glass, and unknown areas are excluded until reviewed.'
+    let sanityWarning = hasClassifiedMaterialPhoto && materialMap?.complete !== true
+      ? '⚠️ Material classification is incomplete or ambiguous. Siding quantity includes only classified lap/vertical siding; stone, brick, stucco, glass, and unknown areas are excluded until reviewed.'
       : null;
     const sanityCorrected = false;
     const anyHeightClamped = perPhotoResults.some(r => r.height_clamped);
@@ -12692,15 +14066,6 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     // it includes pitch rather than collapsing the gable edge onto the footprint.
     // Retain the historical footprint calculation only when roof facets are absent.
     const EAVE_OVERHANG_FT = 1.5;
-    const measuredSoffitDepths = perPhotoResults
-      .map(r => Number(r.soffit_depth_ft))
-      .filter(n => n >= 0.5 && n <= 6);
-    const measuredSoffitDepthFt = measuredSoffitDepths.length
-      ? Math.round((measuredSoffitDepths.reduce((sum, n) => sum + n, 0) / measuredSoffitDepths.length) * 10) / 10
-      : null;
-    const soffitDepthSource = measuredSoffitDepthFt ? 'measured' : 'estimated';
-    const LEVEL_SOFFIT_DEPTH_FT = measuredSoffitDepthFt || 2.0;
-    const SLOPED_SOFFIT_DEPTH_FT = measuredSoffitDepthFt || 1.5;
     const hasGable = gableResults.length > 0;
     const expandedLengthFt = buildingLengthFt + 2 * EAVE_OVERHANG_FT;
     const expandedWidthFt  = buildingWidthFt  + 2 * EAVE_OVERHANG_FT;
@@ -12721,8 +14086,10 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       ? tracedWallPerimFt + 8 * EAVE_OVERHANG_FT
       : bboxDripLf;
     const roofEdgeTotals = computeRoofEdgeTotals(roofFacetsForGraph || []);
-    const hasMeasuredRoofEdges = roofEdgeTotals.eave > 0
-      && (!hasGable || roofEdgeTotals.rake > 0);
+    // A measured eave is still the eave when the rake was not classified.
+    // Dropping both and using the footprint box is what left soffit and
+    // gutters short on gable houses.
+    const hasMeasuredRoofEdges = roofEdgeTotals.eave > 0;
     const gableEaveRatio = (expandedLengthFt + expandedWidthFt) > 0
       ? expandedLengthFt / (expandedLengthFt + expandedWidthFt)
       : 0.5;
@@ -12730,20 +14097,51 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       ? dripEdgeLf * gableEaveRatio   // eave sides only for a gable roof
       : dripEdgeLf;                   // all sides for a hip roof
     const roofEaveLf = hasMeasuredRoofEdges ? roofEdgeTotals.eave : fallbackEaveLf;
+    // Gutters use roof eave lengths. The +8×overhang box is a simplified
+    // four-corner perimeter and is only the fallback when no roof eave exists.
+    const facetTrace = assessRoofFacetTraceQuality(roofFacetsForGraph || []);
+    const levelBoundaryLf = levelOutlineEaveLf(roofFacetsForGraph || []);
+    const gutterBasis = selectGutterEaveLf({
+      facetEaveLf: roofEdgeTotals.eave,
+      facetTraceUsable: facetTrace.usable === true,
+      roofEaveLf: Number(params.roof_eave_lf) || 0,
+      footprintFallbackLf: fallbackEaveLf,
+      levelBoundaryLf,
+    });
+    const gutterEaveLf = gutterBasis.eave_lf;
     const roofRakeLf = hasMeasuredRoofEdges ? roofEdgeTotals.rake : 0;
-    const photoFasciaLf = Math.round(hasMeasuredRoofEdges
-      ? roofEaveLf + roofRakeLf
-      : dripEdgeLf);
-    const levelSoffitSqFt = Math.round(
-      roofEaveLf * (hasMeasuredRoofEdges ? LEVEL_SOFFIT_DEPTH_FT : EAVE_OVERHANG_FT),
-    );
-    const slopedSoffitSqFt = Math.round(
-      roofRakeLf * (hasMeasuredRoofEdges ? SLOPED_SOFFIT_DEPTH_FT : EAVE_OVERHANG_FT),
-    );
-    const photoSoffitSqFt = levelSoffitSqFt + slopedSoffitSqFt;
+    const soffitDepths = soffitDepthsFromPhotos(perPhotoResults, { hasMeasuredRoofEdges });
+    const photoTrimTakeoff = measureElevationAccessories({
+      eaveLf: roofEaveLf,
+      rakeLf: roofRakeLf,
+      fasciaLf: hasMeasuredRoofEdges ? roofEaveLf + roofRakeLf : dripEdgeLf,
+      levelDepthFt: soffitDepths.levelDepthFt,
+      slopedDepthFt: soffitDepths.slopedDepthFt,
+    });
+    const photoFasciaLf = photoTrimTakeoff.fascia_lf;
+    const levelSoffitSqFt = photoTrimTakeoff.soffit_level_sqft;
+    const slopedSoffitSqFt = photoTrimTakeoff.soffit_sloped_sqft;
+    const photoSoffitSqFt = photoTrimTakeoff.soffit_sqft;
+    const soffitDepthSource = soffitDepths.soffitDepthSource;
+    const gutterTakeoff = resolveGutterQuantity({
+      perPhotoResults,
+      roofGraphGutterLf: Number(roofMeasurementGraph?.totals?.gutter_lf) || 0,
+      roofGraphComplete: roofMeasurementGraph?.coverage?.gutter_coverage_complete === true,
+      eaveLf: gutterEaveLf,
+      eaveBasisSource: gutterBasis.source,
+    });
     const photoTrimSqFt = Math.round(totalWindows * 2.5 + totalDoors * 5.0);
+    debugLogs.push(
+      `Gutters ${gutterTakeoff.gutter_lf} LF from ${gutterTakeoff.gutter_source}`
+      + ` (eave basis ${gutterEaveLf} LF via ${gutterBasis.source}`
+      + `, facet ${roofEdgeTotals.eave.toFixed(1)} LF trace ${facetTrace.usable === true ? 'usable' : (facetTrace.reason || 'unusable')}`
+      + `, roof eave param ${Number(params.roof_eave_lf) || 0} LF`
+      + `, level outline ${levelBoundaryLf.toFixed(1)} LF`
+      + `, footprint fallback ${fallbackEaveLf.toFixed(1)} LF`
+      + `${gutterTakeoff.gutter_note ? `; ${gutterTakeoff.gutter_note}` : ''})`,
+    );
     debugLogs.push(`Fascia (roof edges): eave=${roofEaveLf.toFixed(1)}ft + pitch-corrected rake=${roofRakeLf.toFixed(1)}ft → ${photoFasciaLf}ft (${hasMeasuredRoofEdges ? 'facet measured' : 'footprint fallback'})`);
-    debugLogs.push(`Soffit: level=${levelSoffitSqFt} sqft (${roofEaveLf.toFixed(1)}ft × ${hasMeasuredRoofEdges ? LEVEL_SOFFIT_DEPTH_FT : EAVE_OVERHANG_FT}ft) + sloped=${slopedSoffitSqFt} sqft (${roofRakeLf.toFixed(1)}ft × ${hasMeasuredRoofEdges ? SLOPED_SOFFIT_DEPTH_FT : EAVE_OVERHANG_FT}ft)`);
+    debugLogs.push(`Soffit: level=${levelSoffitSqFt} sqft (${roofEaveLf.toFixed(1)}ft × ${soffitDepths.levelDepthFt}ft) + sloped=${slopedSoffitSqFt} sqft (${roofRakeLf.toFixed(1)}ft × ${soffitDepths.slopedDepthFt}ft)`);
 
     // ── AccessoryDetector: shutters & awnings ─────────────────────────────────
     // Build DetectedWindow objects from AI-reported shutters_detail and call
@@ -12787,7 +14185,48 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     debugLogs.push(`Accessories: ${shutterAccessory.shutter_pair_count} shutter pairs (${shutterAccessory.shutter_total_sqft} sqft) | ${awningAccessory.awning_count} awnings (${awningAccessory.awning_total_sqft} sqft)`);
 
     debugLogs.push(`Net wall: ${netWallSqFt.toFixed(0)} sqft (${netWallSQ.toFixed(2)} SQ) | Gable: ${gableAreaSqFt} sqft | Openings deducted: ${openDeductSqFt.toFixed(0)} sqft`);
+
+    const photoWallSqFt = Number(measurementGraph?.totals?.photo_wall_area_sqft) || 0;
+    const graphWallSqFt = Number(measurementGraph?.totals?.gross_wall_area_sqft) || 0;
+    const wallForRoofCheck = Math.max(Number(grossWallSqFt) || 0, photoWallSqFt, graphWallSqFt);
+    const wallRoofGap = isGarageJob ? null : roofShortForWalls({
+      roofSlopeSqFt: solarRoofAreaSqFtValue,
+      wallAreaSqFt: wallForRoofCheck,
+      wallHeightFt: avgEaveHt,
+      storyCount,
+      pitchLabel: detectedRoofPitch,
+      structureType: 'house',
+    });
+    if (wallRoofGap) {
+      debugLogs.push(`Roof needs rep review (${wallRoofGap.code}): roof area stays ${Math.round(solarRoofAreaSqFtValue) || 0} sqft`);
+      sanityWarning = `${sanityWarning ? `${sanityWarning} ` : ''}${wallRoofGap.detail}`;
+    }
+    const roofRepReviewMessage = wallRoofGap
+      ? `Needs rep review. ${wallRoofGap.detail} ${REP_REVIEW_ASK}`
+      : null;
+
+    const materialSource = perPhotoResults.filter((r) => !isDetailShot(r));
+    const wallMaterialSections = measureFromPhotoAnalysis({
+      photos: materialSource,
+      footprintPolygon: footprintPolygonXY,
+      footprintPerimeterFt: perimeterFt,
+      frontAzimuthDeg,
+      buildingWidthFt,
+      buildingLengthFt,
+      wallHeightFt: totalWallHt,
+      overrides: params.material_section_overrides || {},
+      roofAreaSqFt: solarRoofAreaSqFtValue,
+    });
+    reconcileWallSectionGross(wallMaterialSections, grossWallSqFt);
+    debugLogs.push(
+      `Material sections (${wallMaterialSections.face_length_source}, perimeter ${wallMaterialSections.perimeter_ft} LF ${wallMaterialSections.perimeter_source}, confidence ${wallMaterialSections.confidence}): `
+      + `siding ${wallMaterialSections.totals_gross_sqft.siding} / stone ${wallMaterialSections.totals_gross_sqft.stone} / stucco ${wallMaterialSections.totals_gross_sqft.stucco} / brick ${wallMaterialSections.totals_gross_sqft.brick} sqft`,
+    );
     debugLogs.push(`Openings: ${totalWindows} windows + ${totalShutters} shutters + ${totalDoors} entry doors + ${totalGarageDoors} garage doors`);
+    const openingReviewFlags = measurementGraph.totals.opening_review_flags || [];
+    if (openingReviewFlags.length) {
+      debugLogs.push(`Opening area capped: ${openingReviewFlags.map((flag) => `${String(flag.face).replace(/_/g, ' ')} ${Math.round(flag.ratio * 100)}% of the wall, kept ${Math.round(flag.cap_sqft)} sqft`).join('; ')}`);
+    }
     debugLogs.push(`Fascia: ${photoFasciaLf}ft | Soffit: ${photoSoffitSqFt} sqft | Trim: ${photoTrimSqFt} sqft`);
 
     return {
@@ -12805,13 +14244,51 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       building_width_ft: Math.round(buildingWidthFt),
       perimeter_ft: Math.round(perimeterFt),
       story_count: storyCount,
+      story_count_source: isGarageJob
+        ? 'garage'
+        : (Number(story_count_override) >= 1 ? 'user_override' : 'photos_well_supported'),
+      wall_material_sections: wallMaterialSections,
+      roof_area_sqft: solarRoofAreaSqFtValue > 0 ? Math.round(solarRoofAreaSqFtValue) : null,
+      roof_needs_rep_review: wallRoofGap != null,
+      roof_rep_review_reasons: wallRoofGap ? [wallRoofGap.code] : [],
+      roof_rep_review_message: roofRepReviewMessage,
+      roof_area_source: roofAreaSource,
+      roof_estimated_area_sqft: roofEstimatedAreaSqFt > 0 ? Math.round(roofEstimatedAreaSqFt) : 0,
+      roof_completion_methods: roofCompletionMethods,
+      roof_diagnostics: {
+        sources: [
+          solarPotentialForRoof ? 'google_solar' : null,
+          osmRoofRing ? 'osm_footprint' : null,
+          footprintSource ? `wall_${footprintSource}` : null,
+        ].filter(Boolean),
+        segment_count: diagParts?.segment_count ?? 0,
+        segment_area_sqft: diagParts?.segment_area_sqft ?? null,
+        whole_area_sqft: diagParts?.whole_area_sqft ?? null,
+        segment_to_whole_ratio: diagParts?.segment_to_whole_ratio ?? null,
+        ground_area_sqft: diagParts?.ground_area_sqft ?? null,
+        roof_plan_area_sqft: roofObservedPlanSqFt > 0 ? Math.round(roofObservedPlanSqFt) : null,
+        footprint_plan_sqft: independentPlanSqFt > 0 ? Math.round(independentPlanSqFt) : null,
+        footprint_source: osmRoofRing ? 'osm' : null,
+        footprint_geometry: osmRoofRing ? 'traced_polygon' : null,
+        osm_building_count: osmBuildingCount,
+        area_method: diagParts?.area_method || null,
+        completion_applied: roofAreaSource === 'solar_completed',
+        completion_methods: roofCompletionMethods,
+        completion_skip_reason: roofCompletionSkip,
+        solar_query: solarQueryPoint,
+      },
       // Keep half-foot precision: Math.round(9.5) = 10 silently inflated every
       // rebuild by 0.5 ft on the Hover garage benchmark. avgEaveHt is already
       // rounded to the nearest 0.5 by deriveWallHeight.
       story_height_ft: Math.round(avgEaveHt * 2) / 2,
       height_source: _wallHtSource,
+      height_references: faceEaves?.references || [],
+      face_eave_ft: faceEaves?.eaves || null,
+      ai_face_eave_ft: faceEaves?.aiEaves || faceEaves?.eaves || null,
+      confirmed_face_heights: faceEaves?.confirmed || null,
       height_adjusted: heightAdjusted,
-      windows_count: totalWindows,
+      windows_count: measurementGraph.counts.window_units || totalWindows,
+      openings_by_face: measurementGraph.counts.by_face || null,
       window_assemblies_count: measurementGraph.counts.window_assemblies,
       window_units_count: measurementGraph.counts.window_units,
       rough_openings_count: measurementGraph.counts.rough_openings,
@@ -12829,43 +14306,14 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       soffit_sqft: photoSoffitSqFt,
       eave_lf: Math.round(roofEaveLf),
       rake_lf: Math.round(roofRakeLf),
-      gutter_lf: (() => {
-        const byFace = new Map();
-        for (const result of perPhotoResults) {
-          const face = String(result.wall_face || result.view_label || '').toLowerCase();
-          const canonical = face.includes('front') ? 'front'
-            : (face.includes('back') || face.includes('rear')) ? 'back'
-            : face.includes('left') ? 'left'
-            : face.includes('right') ? 'right'
-            : '';
-          if (!canonical) continue;
-          if (result.gutter_visible === true || Number(result.gutter_run_lf) > 0) {
-            byFace.set(canonical, Math.max(byFace.get(canonical) || 0, Number(result.gutter_run_lf) || 0));
-          }
-        }
-        const photoSum = [...byFace.values()].reduce((sum, n) => sum + n, 0);
-        const graphLf = roofMeasurementGraph?.coverage?.gutter_coverage_complete
-          ? Number(roofMeasurementGraph?.totals?.gutter_lf) || 0
-          : 0;
-        if (byFace.size >= 4 && photoSum > 0) return Math.round(photoSum);
-        if (graphLf > 0) return Math.round(graphLf);
-        return Math.round(roofEaveLf);
-      })(),
-      gutter_source: (() => {
-        const graphComplete = roofMeasurementGraph?.coverage?.gutter_coverage_complete === true
-          && Number(roofMeasurementGraph?.totals?.gutter_lf) > 0;
-        const photoComplete = ['front', 'back', 'left', 'right'].every(face =>
-          perPhotoResults.some(result => {
-            const label = String(result.wall_face || result.view_label || '').toLowerCase();
-            return label.includes(face === 'back' ? 'back' : face) && (result.gutter_visible === true || Number(result.gutter_run_lf) > 0);
-          })
-        );
-        return (photoComplete || graphComplete) ? 'photos' : 'estimated_from_eave';
-      })(),
+      gutter_lf: gutterTakeoff.gutter_lf,
+      gutter_source: gutterTakeoff.gutter_source,
+      gutter_eave_lf: gutterEaveLf,
+      gutter_eave_source: gutterBasis.source,
       soffit_level_sqft: levelSoffitSqFt,
       soffit_sloped_sqft: slopedSoffitSqFt,
-      soffit_level_depth_ft: soffitDepthSource === 'measured' ? LEVEL_SOFFIT_DEPTH_FT : (hasMeasuredRoofEdges ? LEVEL_SOFFIT_DEPTH_FT : EAVE_OVERHANG_FT),
-      soffit_sloped_depth_ft: soffitDepthSource === 'measured' ? SLOPED_SOFFIT_DEPTH_FT : (hasMeasuredRoofEdges ? SLOPED_SOFFIT_DEPTH_FT : EAVE_OVERHANG_FT),
+      soffit_level_depth_ft: soffitDepths.levelDepthFt,
+      soffit_sloped_depth_ft: soffitDepths.slopedDepthFt,
       soffit_depth_source: soffitDepthSource,
       roof_edge_source: hasMeasuredRoofEdges ? 'roof_facets' : 'footprint_fallback',
       trim_sqft: photoTrimSqFt,
@@ -12884,13 +14332,21 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       opening_deduct_min_sqft: Number(params.opening_deduct_min_sqft) === 33 ? 33 : 20,
       opening_deduct_sqft: Math.round(openDeductSqFt),
       opening_deduction_sqft: Math.round(openDeductSqFt),
+      opening_area_capped: measurementGraph.totals.opening_area_capped === true,
+      opening_review_flags: measurementGraph.totals.opening_review_flags || [],
+      opening_deduction_basis: measurementGraph.counts.rough_openings > 0 ? 'measured' : 'allowance',
       gross_wall_area_sqft: Math.round(grossWallSqFt),
       material_map: materialMap,
       materialMap,
+      material_review_flags: materialReviewFlags,
+      material_rep_review_message: materialRepReviewMessage,
+      material_proposals: materialProposalsFromMap(materialMap),
+      face_material_classification: faceMaterialByFace,
       siding_material_area_sqft: Math.round(materialSidingSqFt || 0),
       stone_area_sqft: materialStoneSqFt,
       brick_area_sqft: materialBrickSqFt,
       stone_brick_area_sqft: materialStoneSqFt + materialBrickSqFt,
+      stucco_area_sqft: materialStuccoSqFt,
       siding_material: material,
       siding_condition: condition,
       wall_complexity: complexity,
@@ -12916,6 +14372,8 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
       coverage: measurementGraph.coverage,
       trim_totals: {
         j_channel_lf: measurementGraph.totals.j_channel_lf,
+        j_channel_openings_lf: measurementGraph.totals.j_channel_openings_lf,
+        j_channel_roof_wall_lf: measurementGraph.totals.j_channel_roof_wall_lf,
         starter_strip_lf: measurementGraph.totals.starter_strip_lf,
         outside_corner_lf: outsideCornersLf,
         inside_corner_lf: insideCornersLf,
@@ -13010,15 +14468,9 @@ ${photoUsabilityGate.FRAME_SUBJECT_SCHEMA_FRAGMENT}
     const wholeAreaSqFt = wholeAreaM2 * 10.764;
     let segSumM2 = 0; roofSegments.forEach(s => { segSumM2 += s.stats?.areaMeters2 || 0; });
     const segSumSqFt = segSumM2 * 10.764;
-    let roofAreaSqFt = 0, areaMethod = '';
-    if (segSumSqFt > 0 && wholeAreaSqFt > 0) {
-      const r = segSumSqFt / wholeAreaSqFt;
-      if (r >= 0.85) { roofAreaSqFt = segSumSqFt; areaMethod = 'segment_sum'; }
-      else if (r >= 0.65) { roofAreaSqFt = segSumSqFt * 1.05; areaMethod = 'segment_sum+5%'; }
-      else { roofAreaSqFt = (segSumSqFt + wholeAreaSqFt) / 2; areaMethod = 'average'; }
-    } else if (segSumSqFt > 0) { roofAreaSqFt = segSumSqFt; areaMethod = 'segment_sum'; }
-    else if (wholeAreaSqFt > 0) { roofAreaSqFt = wholeAreaSqFt * 0.92; areaMethod = 'wholeRoofStats'; }
-    else { roofAreaSqFt = 600; areaMethod = 'fallback'; }
+    const resolvedGeminiRoof = resolveSolarRoofArea(segSumSqFt, wholeAreaSqFt);
+    let roofAreaSqFt = resolvedGeminiRoof ? resolvedGeminiRoof.area : 600;
+    let areaMethod = resolvedGeminiRoof ? resolvedGeminiRoof.method : 'fallback';
     const roofAreaSquares = Math.round((roofAreaSqFt / 100) * 100) / 100;
 
     const degToX12 = (deg) => `${Math.min(20, Math.max(1, Math.round(Math.tan((deg * Math.PI) / 180) * 12)))}/12`;
@@ -13593,13 +15045,17 @@ Respond ONLY with a JSON object with this exact shape:
           const sorted = axisOptions.map(az => ({ az, err: angDiffSV(frontH, az) }))
                                     .sort((a, b) => a.err - b.err);
           const frontAz = sorted[0].az;
+          // Street-facing convention: left/right are named while looking at
+          // the front from the street. A south-facing front has its left wall
+          // facing west, not east. The previous +90° "right" was that swap.
+          const streetAz = streetFacingWallAzimuths(frontAz);
           buildingWallAzimuths = {
-            'Front':      frontAz,
-            'Right Side': (frontAz + 90) % 360,
-            'Back':       (frontAz + 180) % 360,
-            'Left Side':  (frontAz + 270) % 360,
+            'Front':      streetAz.front,
+            'Right Side': streetAz.right,
+            'Back':       streetAz.back,
+            'Left Side':  streetAz.left,
           };
-          console.log(`[getStreetViewImages] Solar wall azimuths: Front=${frontAz.toFixed(1)}° Right=${((frontAz+90)%360).toFixed(1)}° Back=${((frontAz+180)%360).toFixed(1)}° Left=${((frontAz+270)%360).toFixed(1)}°`);
+          console.log(`[getStreetViewImages] Solar wall azimuths: Front=${streetAz.front.toFixed(1)}° Right=${streetAz.right.toFixed(1)}° Back=${streetAz.back.toFixed(1)}° Left=${streetAz.left.toFixed(1)}°`);
         }
       }
     } catch (solarErr) {
@@ -13607,23 +15063,26 @@ Respond ONLY with a JSON object with this exact shape:
     }
 
     // Build the 4 (or 1) face queries. For each wall face:
-    //   • searchBearing: direction FROM house TO the camera search point (opposite the wall outward normal)
-    //   • wallAz:        outward-normal azimuth of the wall face
-    // The camera heading to look at a wall with outward normal wallAz = wallAz (camera faces the wall).
+    //   • wallAz:        outward normal of that wall (points at the photographer)
+    //   • searchBearing: stand outside that wall, in the direction it faces
+    //   • camera heading: look back at the house, opposite the outward normal
+    // Searching on the opposite side photographed the back wall into the Front
+    // slot. Left/right only looked correct because that error cancelled a
+    // swapped left/right azimuth.
     const faceQueries = buildingWallAzimuths
       ? Object.entries(buildingWallAzimuths).map(([label, wallAz]) => ({
           label,
           wallAz,
-          searchBearing: (wallAz + 180) % 360, // opposite side of house from this wall
+          searchBearing: cameraForWall(wallAz).searchBearing,
         }))
-      : [{ label: 'Front', wallAz: frontH, searchBearing: (frontH + 180) % 360 }];
+      : [{ label: 'Front', wallAz: frontH, searchBearing: cameraForWall(frontH).searchBearing }];
 
     const results = [];
     for (const fq of faceQueries) {
       // Search for a panorama 80 m from the house, on the far side from this wall
       const searchPt = offsetLatLng(latitude, longitude, 80, fq.searchBearing);
       let facePanoId = null;
-      let cameraHeading = fq.wallAz; // default: perpendicular to wall face
+      let cameraHeading = cameraForWall(fq.wallAz).cameraHeading;
       try {
         const faceMetaUrl = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${searchPt.lat},${searchPt.lng}&radius=80&source=outdoor&key=${apiKey}`;
         const faceMetaResp = await fetch(faceMetaUrl);
@@ -13790,6 +15249,8 @@ If you cannot determine pitch at all: use "refinedPitch": "${currentPitch || 'un
   },
 
   async disconnectGHL(params, apiKey, req) {
+    const stagingBlock = stagingSideEffects.blockedAction('ghl-disconnect');
+    if (stagingBlock) return stagingBlock;
     const { companyId, pool } = await ghlAdminContext(req, params?.company_id);
     await pool.query(
       `DELETE FROM generic_entities WHERE entity_type='GHLIntegrationOAuth' AND company_id=$1`,
@@ -13812,6 +15273,8 @@ If you cannot determine pitch at all: use "refinedPitch": "${currentPitch || 'un
   },
 
   async completeGHLCallback(params) {
+    const stagingBlock = stagingSideEffects.blockedAction('ghl-oauth-callback');
+    if (stagingBlock) return stagingBlock;
     const { code, state, error } = params || {};
     if (error) throw new Error('GoHighLevel authorization was cancelled.');
     if (!code || !state || !process.env.GHL_CLIENT_ID || !process.env.GHL_CLIENT_SECRET) {
@@ -13873,6 +15336,8 @@ If you cannot determine pitch at all: use "refinedPitch": "${currentPitch || 'un
   },
 
   async syncGHLContacts(params, apiKey, req) {
+    const stagingBlock = stagingSideEffects.blockedAction('ghl-sync');
+    if (stagingBlock) return stagingBlock;
     const pool = getPool();
     const user = req ? await getUserFromRequest(req) : null;
     if (req && !user) throw new Error('Not authenticated');
@@ -14050,6 +15515,8 @@ If you cannot determine pitch at all: use "refinedPitch": "${currentPitch || 'un
   },
 
   async pushToGHL(params, apiKey, req) {
+    const stagingBlock = stagingSideEffects.blockedAction('ghl-push');
+    if (stagingBlock) return stagingBlock;
     const pool = getPool();
     const user = req ? await getUserFromRequest(req) : null;
     const { entityType, entityId, action = 'create' } = params;
@@ -14141,6 +15608,8 @@ If you cannot determine pitch at all: use "refinedPitch": "${currentPitch || 'un
   },
 
   async ghlAutoSyncCron(params) {
+    const stagingBlock = stagingSideEffects.blockedAction('ghl-auto-sync');
+    if (stagingBlock) return stagingBlock;
     const pool = getPool();
     const enabledSettings = await pool.query(
       `SELECT company_id, data
@@ -14333,6 +15802,8 @@ If you cannot determine pitch at all: use "refinedPitch": "${currentPitch || 'un
   },
 
   async syncJobNimbusData(params, apiKey, req) {
+    const stagingBlock = stagingSideEffects.blockedAction('jobnimbus-sync');
+    if (stagingBlock) return stagingBlock;
     const pool = getPool();
     const { company_id } = params || {};
     const auth = await functionHandlers._authorizeJobNimbusCompany(pool, req, company_id);
@@ -18954,23 +20425,41 @@ Return JSON:
       y += 10;
 
       const openDeductPct = Number(sm.opening_deduction_pct) || 0;
+      const openDeductSqft = Number(sm.opening_deduction_sqft ?? sm.opening_deduct_sqft) || 0;
+      const openingAreaSqft = Number(sm.measurement_graph?.totals?.opening_area_total_sqft) || openDeductSqft;
+      const measuredOpenings = sm.opening_deduction_basis === 'measured'
+        || (Array.isArray(sm.openings_detail) && sm.openings_detail.length > 0);
       const outsideCorners = Number(sm.outside_corners_count) || 0;
+      const outsideCornersLf = Number(sm.outside_corners_lf) || 0;
       const insideCorners = Number(sm.inside_corners_count) || 0;
+      const insideCornersLf = Number(sm.inside_corners_lf) || 0;
       const gableArea = Number(sm.gable_area_sqft) || 0;
       const storyHtFt = Number(sm.story_height_ft) || 9;
-      const windowsCount = Number(sm.windows_count) || 0;
+      const windowUnits = Number(sm.window_units_count) || 0;
+      const windowsCount = windowUnits > 0 ? windowUnits : (Number(sm.windows_count) || 0);
       const doorsCount = Number(sm.doors_count) || 0;
       const garageDoorCount = Number(sm.garage_door_count) || 0;
+      const brickSqft = Number(sm.brick_area_sqft) || Number(sm.masonry_deduct_sqft) || 0;
+      const fasciaLf = Number(sm.fascia_lf) || 0;
+      const soffitSqft = Number(sm.soffit_sqft) || 0;
+      const gutterLf = Number(sm.gutter_lf) || 0;
+      const openingDeductionVal = measuredOpenings && openingAreaSqft > 0
+        ? `${Math.round(openingAreaSqft).toLocaleString()} sqft measured`
+        : (openDeductPct > 0 ? `${openDeductPct}% (windows/doors)` : '—');
 
       const detailItems = [
         { label: 'Perimeter', val: perimeterFt > 0 ? `${perimeterFt} LF` : '—', color: { r: 22, g: 101, b: 52 } },
         { label: 'Story Height', val: `${storyHtFt} ft / story`, color: { r: 59, g: 130, b: 246 } },
         { label: 'Gross Wall Area', val: `${grossWallSqFt.toLocaleString()} sqft`, color: { r: 147, g: 51, b: 234 } },
-        { label: 'Opening Deduction', val: `${openDeductPct}% (windows/doors)`, color: { r: 249, g: 115, b: 22 } },
-        { label: 'Outside Corners', val: outsideCorners > 0 ? `${outsideCorners} corners` : '—', color: { r: 16, g: 185, b: 129 } },
-        { label: 'Inside Corners', val: insideCorners > 0 ? `${insideCorners} corners` : '—', color: { r: 236, g: 72, b: 153 } },
+        { label: 'Opening Deduction', val: openingDeductionVal, color: { r: 249, g: 115, b: 22 } },
+        { label: 'Outside Corners', val: outsideCorners > 0 ? `${outsideCorners} corners${outsideCornersLf > 0 ? ` · ${Math.round(outsideCornersLf)} LF` : ''}` : '—', color: { r: 16, g: 185, b: 129 } },
+        { label: 'Inside Corners', val: insideCorners > 0 ? `${insideCorners} corners${insideCornersLf > 0 ? ` · ${Math.round(insideCornersLf)} LF` : ''}` : '—', color: { r: 236, g: 72, b: 153 } },
         { label: 'Gable Area', val: gableArea > 0 ? `${gableArea.toLocaleString()} sqft` : '—', color: { r: 239, g: 68, b: 68 } },
       ];
+      if (brickSqft > 0) detailItems.push({ label: 'Brick excluded', val: `${Math.round(brickSqft).toLocaleString()} sqft`, color: { r: 180, g: 83, b: 9 } });
+      if (fasciaLf > 0) detailItems.push({ label: 'Fascia', val: `${Math.round(fasciaLf)} LF`, color: { r: 14, g: 116, b: 144 } });
+      if (soffitSqft > 0) detailItems.push({ label: 'Soffit', val: `${Math.round(soffitSqft).toLocaleString()} sqft`, color: { r: 14, g: 116, b: 144 } });
+      if (gutterLf > 0) detailItems.push({ label: 'Gutters', val: `${Math.round(gutterLf)} LF`, color: { r: 3, g: 105, b: 161 } });
 
       if (windowsCount > 0 || doorsCount > 0 || garageDoorCount > 0) {
         const openingParts = [];
@@ -21981,41 +23470,50 @@ Return JSON:
   },
 
   async syncEstimateAdjustmentToInvoice(params) {
-    const { estimate_id, new_total, adjustment_amount } = params;
+    const { estimate_id } = params || {};
     if (!estimate_id) return { success: false, error: 'estimate_id required' };
     const pool = getPool();
     try {
-      // Find invoice linked to this estimate
+      // Admin repair only. The estimate screen applies the same payload after
+      // a person confirms the diff, and neither path emails or texts anyone.
       const companyId = params.company_id || params.companyId;
       if (!companyId) return { success: false, error: 'company_id is required' };
+      const estRes = await pool.query(
+        `SELECT * FROM estimates WHERE id = $1 AND company_id = $2 LIMIT 1`,
+        [estimate_id, companyId]
+      );
+      const estimate = estRes.rows[0];
+      if (!estimate) return { success: false, error: 'Estimate not found' };
       const invRes = await pool.query(
-        `SELECT id, total_amount, amount_paid, items, data FROM invoices WHERE data->>'estimate_id' = $1 AND company_id = $2 ORDER BY created_at DESC LIMIT 1`,
+        `SELECT * FROM invoices WHERE data->>'estimate_id' = $1 AND company_id = $2 ORDER BY created_at DESC LIMIT 1`,
         [estimate_id, companyId]
       );
       if (invRes.rows.length === 0) {
         return { success: false, skipped: true, reason: 'No linked invoice found' };
       }
       const inv = invRes.rows[0];
-      const existingItems = Array.isArray(inv.items) ? inv.items : (typeof inv.items === 'string' ? JSON.parse(inv.items) : []);
-      const existingData = typeof inv.data === 'string' ? JSON.parse(inv.data) : (inv.data || {});
-
-      // Update or add the Adjustment line item
-      const adj = Number(adjustment_amount) || 0;
-      let updatedItems = existingItems.filter(i => i.description !== 'Adjustment');
-      if (adj !== 0) {
-        updatedItems.push({ description: 'Adjustment', quantity: 1, rate: adj, amount: adj, unit: '', code: '' });
-      }
-
-      const newTotal = Number(new_total) || 0;
-      const updatedData = { ...existingData, amount: newTotal, adjustment_amount: adj };
+      const { payload, preview } = buildLinkedInvoiceUpdate(inv, estimate);
 
       await pool.query(
-        `UPDATE invoices SET total_amount = $1, items = $2, data = $3, updated_at = NOW() WHERE id = $4`,
-        [newTotal, JSON.stringify(updatedItems), JSON.stringify(updatedData), inv.id]
+        `UPDATE invoices
+            SET total_amount = $1,
+                items = $2::jsonb,
+                data = $3::jsonb,
+                status = COALESCE($4, status),
+                updated_at = NOW()
+          WHERE id = $5 AND company_id = $6`,
+        [payload.total_amount, JSON.stringify(payload.items), JSON.stringify(payload.data), payload.status || null, inv.id, companyId]
       );
 
-      console.log(`[syncEstimateAdjustmentToInvoice] Invoice ${inv.id} updated: total ${inv.total_amount} → ${newTotal}, adj=${adj}`);
-      return { success: true, invoice_id: inv.id, old_total: inv.total_amount, new_total: newTotal };
+      console.log(`[syncEstimateAdjustmentToInvoice] Invoice ${inv.id} updated: total ${preview.previousTotal} → ${preview.nextTotal}; amount paid left at ${preview.amountPaid}`);
+      return {
+        success: true,
+        invoice_id: inv.id,
+        old_total: preview.previousTotal,
+        new_total: preview.nextTotal,
+        amount_paid: preview.amountPaid,
+        notified: false,
+      };
     } catch (err) {
       console.error('[syncEstimateAdjustmentToInvoice] Error:', err.message);
       return { success: false, error: err.message };
@@ -22094,137 +23592,53 @@ Return JSON:
         : [];
       const allItems = rawItems;
       console.log(`[convertEstimateToInvoice] allItems count: ${allItems.length}, first item sample: ${JSON.stringify(allItems[0] || null)}`);
-      // Saved value wins, including an intentional $0, so an invoice can never be
-      // worth more than the estimate it came from. See resolveStoredRcvServer.
-      const itemsTotal = allItems.reduce((sum, item) => sum + resolveStoredRcvServer(item), 0);
+      // The adjustment field becomes its own line and is included in the total
+      // once. A total that was saved before the adjustment was typed in is
+      // raised by that amount; a total that already includes it is not raised
+      // again. See lib/estimateInvoiceSync.cjs.
+      const draft = invoiceDraftFromEstimate(estimate);
+      const resolvedAmount = draft.total;
+      console.log(`[convertEstimateToInvoice] resolvedAmount=${resolvedAmount}, adjustment=${draft.adjustmentAmount}`);
 
-      // Compute discount explicitly from stored discount fields (applied at estimate level)
-      let discountAmount = 0;
-      const discountType = estData.discount_type;
-      const discountValue = Number(estData.discount_value) || 0;
-      if (discountType === 'percentage' && discountValue > 0) {
-        discountAmount = itemsTotal * (discountValue / 100);
-      } else if (discountType === 'fixed' && discountValue > 0) {
-        discountAmount = discountValue;
-      }
-      const adjustmentAmount = Number(estData.adjustment_amount) || 0;
-
-      // Prefer the saved discounted amount (set when estimate was last saved via EstimateEditor).
-      // Do NOT prioritise total_rcv — that is the raw pre-discount sum of item RCVs.
-      const savedDiscountedAmount = Number(estData.amount) || Number(estData.total_amount) || Number(estimate.amount) || 0;
-      const computedDiscountedAmount = itemsTotal - discountAmount + adjustmentAmount;
-      const resolvedAmount = savedDiscountedAmount > 0
-        ? savedDiscountedAmount
-        : computedDiscountedAmount > 0
-          ? computedDiscountedAmount
-          : Number(estData.total_rcv) || Number(estData.total) || itemsTotal || 0;
-
-      console.log(`[convertEstimateToInvoice] itemsTotal=${itemsTotal}, discountType=${discountType}, discountValue=${discountValue}, discountAmount=${discountAmount}, savedDiscountedAmount=${savedDiscountedAmount}, resolvedAmount=${resolvedAmount}`);
-
-      // Generate the next invoice number from the HIGHEST existing numeric
-      // suffix for this year (NOT COUNT(*)+1, which collides the moment any
-      // invoice is deleted, imported with gaps, or created concurrently — that
-      // is exactly how multiple customers ended up sharing INV-YEAR-#### numbers).
-      // We then verify the candidate is actually free and step forward until it
-      // is, so gaps/legacy rows can never produce a duplicate.
-      const invYear = new Date().getFullYear();
-      const invPrefix = `INV-${invYear}-`;
-      const invMaxRes = await pool.query(
-        `SELECT COALESCE(MAX(
-                  CASE
-                    WHEN substring(invoice_number from '^INV-[0-9]{4}-([0-9]+)$') ~ '^[0-9]{1,9}$'
-                    THEN CAST(substring(invoice_number from '^INV-[0-9]{4}-([0-9]+)$') AS INTEGER)
-                    ELSE 0
-                  END
-                ), 0) AS maxseq
-           FROM invoices WHERE company_id = $1 AND invoice_number LIKE $2`,
-        [estimate.company_id, invPrefix + '%']
-      );
-      let invSeq = parseInt(invMaxRes.rows[0].maxseq, 10) + 1;
-      let invNum = `${invPrefix}${String(invSeq).padStart(4, '0')}`;
-      for (let invGuard = 0; invGuard < 10000; invGuard++) {
-        const invDupe = await pool.query(
-          `SELECT 1 FROM invoices WHERE company_id = $1 AND invoice_number = $2 LIMIT 1`,
-          [estimate.company_id, invNum]
-        );
-        if (invDupe.rows.length === 0) break;
-        invSeq += 1;
-        invNum = `${invPrefix}${String(invSeq).padStart(4, '0')}`;
-      }
+      // Number allocation and the insert share one transaction. The advisory
+      // lock is per company, so a second conversion waits until this row is
+      // visible and cannot reuse the same INV-YYYY-####.
       const invId = `inv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      let invNum;
 
-      // Map estimate items to invoice item format
-      const mappedItems = allItems.map(item => ({
-        description: item.description || item.name || '',
-        quantity: Number(item.quantity) || 1,
-        rate: Number(item.rate) || 0,
-        amount: resolveStoredRcvServer(item),
-        unit: item.unit || '',
-        code: item.code || '',
-      }));
+      const invoiceItems = draft.items;
+      console.log(`[convertEstimateToInvoice] invoiceItems count: ${invoiceItems.length}`);
 
-      // If there is a discount, append a discount line item so it appears on the invoice
-      if (discountAmount > 0) {
-        const discountLabel = discountType === 'percentage'
-          ? `Discount (${discountValue}%)`
-          : 'Discount';
-        mappedItems.push({
-          description: discountLabel,
-          quantity: 1,
-          rate: -discountAmount,
-          amount: -discountAmount,
-          unit: '',
-          code: '',
-        });
-      }
-      if (adjustmentAmount !== 0) {
-        mappedItems.push({
-          description: adjustmentAmount > 0 ? 'Adjustment' : 'Adjustment',
-          quantity: 1,
-          rate: adjustmentAmount,
-          amount: adjustmentAmount,
-          unit: '',
-          code: '',
-        });
-      }
-
-      // Safety net: if all mapped items have $0 amounts but we have a real total,
-      // the estimate items were saved without pricing (e.g. from satellite measurement categories).
-      // Create a single clean summary line item so the invoice has a usable line item.
-      const allItemsAreZero = mappedItems.length > 0 && mappedItems.every(i => Number(i.amount) === 0);
-      const invoiceItems = (allItemsAreZero && resolvedAmount > 0)
-        ? [{
-            description: estData.estimate_title || estData.title || `Roofing Services — Est. ${estData.estimate_number || ''}`.trim(),
-            quantity: 1,
-            rate: resolvedAmount,
-            amount: resolvedAmount,
-            unit: 'EA',
-            code: '',
-          }]
-        : mappedItems.length > 0
-          ? mappedItems
-          : [{
-              description: estData.estimate_title || estData.title || `Roofing Services — Est. ${estData.estimate_number || ''}`.trim(),
-              quantity: 1,
-              rate: resolvedAmount,
-              amount: resolvedAmount,
-              unit: 'EA',
-              code: '',
-            }];
-      console.log(`[convertEstimateToInvoice] invoiceItems count: ${invoiceItems.length}, allItemsAreZero: ${allItemsAreZero}`);
-
+      // Link the invoice to the estimate's customer right away so it shows on
+      // the customer's profile. The estimate may hold the customer's id, its
+      // base44_id, only a lead, or only a typed name; resolve within the
+      // company and leave the invoice unlinked when the match is ambiguous.
+      // See lib/estimateInvoiceCustomer.cjs.
       let linkedCustomerId = null;
-      if (estData.customer_id) {
-        const customerRes = await pool.query(
-          `SELECT id FROM customers WHERE id = $1 AND company_id = $2 LIMIT 1`,
-          [estData.customer_id, estimate.company_id]
-        );
-        linkedCustomerId = customerRes.rows[0]?.id || null;
+      let linkedCustomer = null;
+      let estimateLead = null;
+      try {
+        const estLeadId = String(estData.lead_id || '').trim();
+        if (estLeadId) {
+          const leadRes = await pool.query(
+            `SELECT id, name, email FROM leads WHERE id = $1 AND company_id = $2 LIMIT 1`,
+            [estLeadId, estimate.company_id]
+          );
+          estimateLead = leadRes.rows[0] || null;
+        }
+        const resolveInput = { estimate: { ...estData, company_id: estimate.company_id }, lead: estimateLead };
+        const candidateRes = await pool.query(ESTIMATE_CUSTOMER_CANDIDATES_SQL, candidateQueryParams(resolveInput));
+        const resolved = resolveEstimateInvoiceCustomer({ ...resolveInput, customers: candidateRes.rows });
+        linkedCustomer = resolved.customer;
+        linkedCustomerId = linkedCustomer?.id || null;
+        console.log(`[convertEstimateToInvoice] customer link: ${linkedCustomerId ? `via ${resolved.via}` : `none (${resolved.reason})`}`);
+      } catch (linkErr) {
+        console.warn('[convertEstimateToInvoice] customer resolve failed:', linkErr.message);
       }
 
       const invoiceData = {
-        customer_name: estData.customer_name,
-        customer_email: estData.customer_email,
+        customer_name: estData.customer_name || linkedCustomer?.name || '',
+        customer_email: estData.customer_email || linkedCustomer?.email || estimateLead?.email || '',
         customer_phone: estData.customer_phone,
         customer_address: estData.customer_address || estData.property_address || '',
         property_address: estData.property_address || '',
@@ -22242,14 +23656,36 @@ Return JSON:
         estimate_number: estData.estimate_number,
       };
 
-      await pool.query(
-        `INSERT INTO invoices (id, company_id, invoice_number, customer_id, customer_name, customer_email, total_amount, amount_paid, status, items, data, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())`,
-        [invId, estimate.company_id, invNum, invoiceData.customer_id, invoiceData.customer_name, invoiceData.customer_email,
-          invoiceData.amount || 0, 0, 'draft', JSON.stringify(invoiceItems), JSON.stringify(invoiceData)]
-      );
-
-      await pool.query(`UPDATE estimates SET status = 'converted', updated_at = NOW() WHERE id = $1`, [estimate.id]);
+      const invoiceClient = await pool.connect();
+      try {
+        await invoiceClient.query('BEGIN');
+        const assigned = await allocateInvoiceNumber(invoiceClient, estimate.company_id);
+        invNum = assigned.invoiceNumber;
+        invoiceData.invoice_number = invNum;
+        await invoiceClient.query(
+          `INSERT INTO invoices (id, company_id, invoice_number, customer_id, customer_name, customer_email, total_amount, amount_paid, status, items, data, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())`,
+          [invId, estimate.company_id, invNum, invoiceData.customer_id, invoiceData.customer_name, invoiceData.customer_email,
+            invoiceData.amount || 0, 0, 'draft', JSON.stringify(invoiceItems), JSON.stringify(invoiceData)]
+        );
+        await invoiceClient.query(`UPDATE estimates SET status = 'converted', updated_at = NOW() WHERE id = $1`, [estimate.id]);
+        // An estimate that was only matched by lead, name or email gets the same
+        // customer_id, so the estimate and its invoice stay on one profile. An
+        // estimate already pointing at a customer is never repointed.
+        if (linkedCustomerId) {
+          await invoiceClient.query(
+            `UPDATE estimates SET customer_id = $1, updated_at = NOW()
+              WHERE id = $2 AND company_id = $3 AND NULLIF(BTRIM(COALESCE(customer_id, '')), '') IS NULL`,
+            [linkedCustomerId, estimate.id, estimate.company_id]
+          );
+        }
+        await invoiceClient.query('COMMIT');
+      } catch (allocErr) {
+        await invoiceClient.query('ROLLBACK').catch(() => {});
+        throw allocErr;
+      } finally {
+        invoiceClient.release();
+      }
 
       console.log(`[convertEstimateToInvoice] Created invoice ${invNum} from estimate ${estData.estimate_number}`);
       return { success: true, invoice: { id: invId, invoice_number: invNum, ...invoiceData } };
@@ -22590,29 +24026,8 @@ Return JSON:
       );
       if (existingInvoice.rowCount) throw new Error('This customer already has an invoice. Link the payment to the existing invoice instead');
 
-      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`invoice-number:${company_id}`]);
-      const invoiceYear = new Date().getFullYear();
-      const invoicePrefix = `INV-${invoiceYear}-`;
-      const nextRes = await client.query(
-          `SELECT COALESCE(MAX(
-                    CASE
-                      WHEN substring(invoice_number FROM '^INV-[0-9]{4}-([0-9]+)$') ~ '^[0-9]{1,9}$'
-                      THEN CAST(substring(invoice_number FROM '^INV-[0-9]{4}-([0-9]+)$') AS INTEGER)
-                      ELSE 0
-                    END
-                  ), 0) + 1 AS next_number
-         FROM invoices WHERE company_id = $1 AND invoice_number LIKE $2`,
-        [company_id, `${invoicePrefix}%`]
-      );
-      let invoiceSequence = Number(nextRes.rows[0].next_number);
-      let invoiceNumber = `${invoicePrefix}${String(invoiceSequence).padStart(4, '0')}`;
-      while ((await client.query(
-        `SELECT 1 FROM invoices WHERE company_id = $1 AND invoice_number = $2 LIMIT 1`,
-        [company_id, invoiceNumber]
-      )).rowCount) {
-        invoiceSequence += 1;
-        invoiceNumber = `${invoicePrefix}${String(invoiceSequence).padStart(4, '0')}`;
-      }
+      const assignedInvoiceNumber = await allocateInvoiceNumber(client, company_id);
+      const invoiceNumber = assignedInvoiceNumber.invoiceNumber;
       const invoiceId = crypto.randomUUID();
       const issueDate = payment.payment_date
         ? new Date(payment.payment_date).toISOString().slice(0, 10)
@@ -24177,21 +25592,48 @@ Return JSON:
                     else if (directTable === 'estimates' || directTable === 'invoices') rawFields.status = 'draft';
                   }
                   if (directTable === 'leads' && !rawFields.lead_source) rawFields.lead_source = 'Lexi AI';
-                  const fields = {};
-                  for (const [k, v] of Object.entries(rawFields)) {
-                    if (validCols.has(k) && v !== undefined && v !== null) fields[k] = v;
+                  const insertDirect = async (queryable) => {
+                    const fields = {};
+                    for (const [k, v] of Object.entries(rawFields)) {
+                      if (validCols.has(k) && v !== undefined && v !== null) fields[k] = v;
+                    }
+                    const keys = Object.keys(fields);
+                    const vals = Object.values(fields);
+                    const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+                    return queryable.query(
+                      `INSERT INTO ${directTable} (${keys.join(', ')}) VALUES (${placeholders}) RETURNING id`,
+                      vals
+                    );
+                  };
+                  if (directTable === 'invoices') {
+                    const resolvedCustomer = await resolveInvoiceCustomerForCreate(pool, actualCompanyId, rawFields);
+                    if (!resolvedCustomer.ok) {
+                      toolResult = { success: false, error: resolvedCustomer.error, needs_customer: true };
+                    } else {
+                    rawFields.customer_id = resolvedCustomer.customer.id;
+                    rawFields.customer_name = resolvedCustomer.customer.name || rawFields.customer_name || '';
+                    rawFields.customer_email = resolvedCustomer.customer.email || '';
+                    const invoiceClient = await pool.connect();
+                    try {
+                      await invoiceClient.query('BEGIN');
+                      await prepareEntityWrite(invoiceClient, 'invoices', rawFields);
+                      const createRes = await insertDirect(invoiceClient);
+                      await invoiceClient.query('COMMIT');
+                      toolResult = { success: true, id: createRes.rows[0].id, invoice_number: rawFields.invoice_number, message: `${entity_name} created` };
+                    } catch (invoiceCreateErr) {
+                      try { await invoiceClient.query('ROLLBACK'); } catch (_) {}
+                      toolResult = { success: false, error: invoiceCreateErr.message };
+                    } finally {
+                      invoiceClient.release();
+                    }
+                    }
+                  } else {
+                    const createRes = await insertDirect(pool);
+                    if ((directTable === 'leads' || directTable === 'customers') && entity_data?.phone) {
+                      invalidateCallerCache(actualCompanyId, entity_data.phone);
+                    }
+                    toolResult = { success: true, id: createRes.rows[0].id, message: `${entity_name} created` };
                   }
-                  const keys = Object.keys(fields);
-                  const vals = Object.values(fields);
-                  const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-                  const createRes = await pool.query(
-                    `INSERT INTO ${directTable} (${keys.join(', ')}) VALUES (${placeholders}) RETURNING id`,
-                    vals
-                  );
-                  if ((directTable === 'leads' || directTable === 'customers') && entity_data?.phone) {
-                    invalidateCallerCache(actualCompanyId, entity_data.phone);
-                  }
-                  toolResult = { success: true, id: createRes.rows[0].id, message: `${entity_name} created` };
                 } else {
                   const genId = `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                   // Expense: map LLM alias fields (vendor/date) → canonical schema + default
@@ -24203,7 +25645,9 @@ Return JSON:
                   );
                   toolResult = { success: true, id: createRes.rows[0].id, message: `${entity_name} created` };
                 }
-                actionsExecuted.push({ tool_name: 'create_entity', result: `Created ${entity_name}` });
+                if (toolResult && toolResult.success !== false) {
+                  actionsExecuted.push({ tool_name: 'create_entity', result: `Created ${entity_name}` });
+                }
 
               } else if (entity_action === 'update' && entity_id && !isPaymentTarget) {
                 if (directTable) {
@@ -24664,7 +26108,7 @@ Return JSON:
               }
             } else if (fname === 'record_payment') {
               const { amount: rpAmt, payment_method: rpMethod, customer_name: rpCustName, customer_id: rpCustId,
-                      invoice_number: rpInvNum, payment_date: rpDateRaw, reference_number: rpRef, notes: rpNotes } = args;
+                      invoice_number: rpInvNum, invoice_id: rpInvId, payment_date: rpDateRaw, reference_number: rpRef, notes: rpNotes } = args;
               if (!rpAmt || isNaN(Number(rpAmt)) || Number(rpAmt) <= 0) {
                 toolResult = { error: 'A valid payment amount greater than zero is required.' };
               } else {
@@ -24673,44 +26117,53 @@ Return JSON:
                 let rpCustomerId = rpCustId || null;
                 let rpCustomerName = '';
                 let rpInvoiceId = null;
-                let rpInvoiceNumber = rpInvNum || null;
+                let rpInvoiceNumber = null;
+                let rpReference = rpRef || null;
 
-                if (rpInvNum) {
-                  const rpIR = await pool.query(
-                    `SELECT id, invoice_number, customer_id, customer_name FROM invoices WHERE company_id = $1 AND LOWER(invoice_number) = LOWER($2) LIMIT 1`,
-                    [actualCompanyId, rpInvNum.trim()]
+                if (rpCustomerId && !rpCustomerName) {
+                  const rpCR = await pool.query(`SELECT id, name FROM customers WHERE id::text = $1 AND company_id = $2 LIMIT 1`, [String(rpCustomerId), actualCompanyId]);
+                  if (rpCR.rows.length > 0) rpCustomerName = rpCR.rows[0].name;
+                } else if (!rpCustomerId && rpCustName) {
+                  const rpCn = rpCustName.trim().toLowerCase();
+                  const rpCR = await pool.query(
+                    `SELECT id, name FROM customers WHERE company_id = $1 AND LOWER(name) LIKE $2 ORDER BY (LOWER(name) = $3) DESC, created_at DESC LIMIT 5`,
+                    [actualCompanyId, `%${rpCn}%`, rpCn]
                   );
-                  if (rpIR.rows.length > 0) {
-                    rpInvoiceId = rpIR.rows[0].id;
-                    rpInvoiceNumber = rpIR.rows[0].invoice_number;
-                    if (!rpCustomerId) rpCustomerId = rpIR.rows[0].customer_id;
-                    if (!rpCustomerName) rpCustomerName = rpIR.rows[0].customer_name || '';
+                  if (rpCR.rows.length === 0) {
+                    toolResult = { error: `No customer found matching "${rpCustName}". Please check the name.` };
                   } else {
-                    // Invoice number not found in CRM — treat as external reference (e.g. insurance
-                    // remittance numbers like BI-XXXXX from Sedgwick, carrier billing IDs, etc.).
-                    // Keep rpInvoiceNumber for display and store in reference_number; don't hard-stop.
-                    rpInvoiceNumber = rpInvNum.trim();
+                    rpCustomerId = rpCR.rows[0].id;
+                    rpCustomerName = rpCR.rows[0].name;
                   }
+                } else if (!rpCustomerId && !rpCustName && !rpInvNum && !rpInvId) {
+                  toolResult = { error: 'Who is this payment from? Please provide a customer name or invoice number.' };
                 }
 
-                if (!toolResult.error) {
-                  if (rpCustomerId && !rpCustomerName) {
-                    const rpCR = await pool.query(`SELECT id, name FROM customers WHERE id::text = $1 AND company_id = $2 LIMIT 1`, [String(rpCustomerId), actualCompanyId]);
-                    if (rpCR.rows.length > 0) rpCustomerName = rpCR.rows[0].name;
-                  } else if (!rpCustomerId && rpCustName) {
-                    const rpCn = rpCustName.trim().toLowerCase();
-                    const rpCR = await pool.query(
-                      `SELECT id, name FROM customers WHERE company_id = $1 AND LOWER(name) LIKE $2 ORDER BY (LOWER(name) = $3) DESC, created_at DESC LIMIT 5`,
-                      [actualCompanyId, `%${rpCn}%`, rpCn]
-                    );
-                    if (rpCR.rows.length === 0) {
-                      toolResult = { error: `No customer found matching "${rpCustName}". Please check the name.` };
-                    } else {
-                      rpCustomerId = rpCR.rows[0].id;
-                      rpCustomerName = rpCR.rows[0].name;
+                // invoice id is the link. A number is a display label and is used
+                // only when it identifies exactly one invoice (or exactly one for
+                // this customer). An unmatched label is a reference, not an invoice.
+                if (!toolResult.error && (rpInvId || rpInvNum)) {
+                  try {
+                    const link = await resolvePaymentInvoiceLink(pool, {
+                      companyId: actualCompanyId,
+                      invoiceId: rpInvId,
+                      invoiceNumber: rpInvNum,
+                      customerId: rpCustomerId,
+                      customerName: rpCustomerName || null,
+                    });
+                    rpInvoiceId = link.invoice_id;
+                    rpInvoiceNumber = link.invoice_number;
+                    if (!link.linked && link.unmatched_number && !rpReference) rpReference = link.unmatched_number;
+                    if (link.linked) {
+                      if (!rpCustomerId && link.customer_id) rpCustomerId = link.customer_id;
+                      if (!rpCustomerName && link.customer_name) rpCustomerName = link.customer_name;
                     }
-                  } else if (!rpCustomerId && !rpCustName && !rpInvNum) {
-                    toolResult = { error: 'Who is this payment from? Please provide a customer name or invoice number.' };
+                  } catch (linkErr) {
+                    if (linkErr.code === 'AMBIGUOUS_INVOICE_NUMBER' || linkErr.code === 'INVOICE_NOT_FOUND') {
+                      toolResult = { error: linkErr.message, success: false };
+                    } else {
+                      throw linkErr;
+                    }
                   }
                 }
 
@@ -24730,7 +26183,7 @@ Return JSON:
                     [rpPmtId, actualCompanyId, rpCustomerId || null, rpCustomerName || null,
                      rpInvoiceId || null, rpInvoiceNumber || null, rpPmtNum,
                      Number(rpAmt), rpMethod || 'other', rpDate,
-                     rpRef || null, rpNotes || null]
+                     rpReference || null, rpNotes || null]
                   );
                   const methodLabel = { cash: 'Cash', check: 'Check', credit_card: 'Credit Card', bank_transfer: 'Bank Transfer', paypal: 'PayPal', stripe: 'Stripe', other: 'Other' }[rpMethod] || rpMethod;
                   try {
@@ -24742,7 +26195,7 @@ Return JSON:
                   const msg = `✅ Payment recorded — ${rpPmtNum}: $${Number(rpAmt).toFixed(2)} by ${methodLabel}` +
                     (rpCustomerName ? ` from ${rpCustomerName}` : '') +
                     (rpInvoiceNumber ? `, applied to ${rpInvoiceNumber}` : '') +
-                    (rpRef ? `, Ref: ${rpRef}` : '');
+                    (rpReference ? `, Ref: ${rpReference}` : '');
                   toolResult = { success: true, payment_number: rpPmtNum, customer: rpCustomerName, invoice: rpInvoiceNumber, amount: Number(rpAmt), method: methodLabel, date: rpDate, message: msg };
                   actionsExecuted.push({ tool_name: 'record_payment', result: `Payment $${Number(rpAmt).toFixed(2)} recorded for ${rpCustomerName || 'customer'}` });
                 }
@@ -31608,6 +33061,8 @@ Return JSON:
   // profile data timestamp. A profile timestamp cannot protect two overlapping
   // cron requests or duplicate staff profiles that point at the same mobile.
   async sendMorningDigest(params) {
+    const stagingBlock = stagingSideEffects.blockedAction('morning-digest');
+    if (stagingBlock) return stagingBlock;
     const pool = getPool();
     const targetEmail = params?.staff_email || null;
     const targetCompanyId = params?.company_id || null;
@@ -32754,6 +34209,8 @@ Return JSON:
   },
 
   async syncQuickBooksInvoice(params, apiKey, req) {
+    const stagingBlock = stagingSideEffects.blockedAction('quickbooks-invoice-sync');
+    if (stagingBlock) return stagingBlock;
     const { invoice_id } = params || {};
     if (!invoice_id) return { error: 'invoice_id required' };
 
@@ -32872,6 +34329,8 @@ Return JSON:
   },
 
   async bulkSyncQuickBooks(params, apiKey, req) {
+    const stagingBlock = stagingSideEffects.blockedAction('quickbooks-sync');
+    if (stagingBlock) return stagingBlock;
     const user = req ? await getUserFromRequest(req) : null;
     if (!user) throw new Error('Not authenticated');
     const p = getPool();
@@ -32907,6 +34366,8 @@ Return JSON:
   },
 
   async syncQuickBooksPayment(params, apiKey, req) {
+    const stagingBlock = stagingSideEffects.blockedAction('quickbooks-payment-sync');
+    if (stagingBlock) return stagingBlock;
     const { payment_id } = params || {};
     if (!payment_id) return { error: 'payment_id required' };
     const user = req ? await getUserFromRequest(req) : null;
@@ -33430,6 +34891,8 @@ Return JSON:
   },
 
   async syncUserGoogleCalendar(params, apiKey, req) {
+    const stagingBlock = stagingSideEffects.blockedAction('google-calendar-sync');
+    if (stagingBlock) return stagingBlock;
     const p = getPool();
     let targetEmail = params.targetUserEmail;
     if (!targetEmail) {
@@ -33527,6 +34990,9 @@ Return JSON:
     // Google's events PUT is a full replace: pushing back a Google-originated
     // event strips its attendees, reminders, and Meet links.
     const googleTouchedGids = new Set();
+    const gidCalendar = new Map(); // google_event_id -> calendarId it lives on
+    let pullFailed = null;
+    let fromGoogleRepaired = 0, skipUnchanged = 0, skipOtherOwner = 0;
     const lastSyncTime = targetUser.last_google_sync ? new Date(targetUser.last_google_sync).getTime() : 0;
 
     try {
@@ -33535,12 +35001,33 @@ Return JSON:
       // so without pagination events silently go missing AND the orphan
       // sweep below would wrongly delete rows for events Google does have.
       let googleEvents = [];
-      let listComplete = false;
-      let pageToken = null;
+      let listComplete = true;
       let retriedAfter401 = false;
+      // Pull from EVERY calendar the user has selected in Google (not just
+      // 'primary'): contractors usually keep jobs on a secondary calendar
+      // such as "Roofing contractor". Birthdays/holiday feeds are skipped.
+      let calendarIds = ['primary'];
+      try {
+        const clResp = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader&maxResults=250', { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        if (clResp.ok) {
+          const cl = await clResp.json();
+          const ids = (cl.items || [])
+            .filter(c => c.selected !== false && !c.deleted && !c.hidden)
+            .filter(c => !/#(contacts|holiday|weeknum)@group\.v\.calendar\.google\.com$/.test(c.id))
+            .map(c => (c.primary ? 'primary' : c.id));
+          if (ids.length) calendarIds = Array.from(new Set(['primary', ...ids]));
+        } else {
+          console.warn('[Calendar] calendarList failed', clResp.status, '- falling back to primary only');
+        }
+      } catch (e) { console.warn('[Calendar] calendarList error:', e.message); }
+      console.log('[Calendar] Pulling calendars for', targetEmail, calendarIds);
+      for (const calendarId of calendarIds) {
+      let pageToken = null;
+      let calComplete = false;
+      const calPath = encodeURIComponent(calendarId);
       for (let page = 0; page < 40; page++) {
         let googleResp = await fetch(
-          `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=250&showDeleted=true` + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''),
+          `https://www.googleapis.com/calendar/v3/calendars/${calPath}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=250&showDeleted=true` + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''),
           { headers: { 'Authorization': `Bearer ${accessToken}` } }
         );
         if (!googleResp.ok && googleResp.status === 401 && !retriedAfter401) {
@@ -33557,7 +35044,7 @@ Return JSON:
             accessToken = retryToken.accessToken;
             targetUser = { ...targetUser, ...(retryToken.user || {}) };
             googleResp = await fetch(
-              `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=250&showDeleted=true` + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''),
+              `https://www.googleapis.com/calendar/v3/calendars/${calPath}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=250&showDeleted=true` + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''),
               { headers: { 'Authorization': `Bearer ${accessToken}` } }
             );
           } else if (retryToken.revoked) {
@@ -33584,10 +35071,14 @@ Return JSON:
           throw new Error(`Google API error (${googleResp.status}): ${errText}`);
         }
         const googleData = await googleResp.json();
-        googleEvents = googleEvents.concat(googleData.items || []);
+        for (const it of (googleData.items || [])) { it.__calendarId = calendarId; googleEvents.push(it); }
         pageToken = googleData.nextPageToken || null;
-        if (!pageToken) { listComplete = true; break; }
+        if (!pageToken) { calComplete = true; break; }
       }
+      console.log('[Calendar]   calendar', calendarId, '->', googleEvents.filter(e => e.__calendarId === calendarId).length, 'events', calComplete ? '' : '(INCOMPLETE)');
+      if (!calComplete) listComplete = false;
+      }
+      for (const ev of googleEvents) gidCalendar.set(ev.id, ev.__calendarId);
       console.log(`[Calendar] Found ${googleEvents.length} events in Google Calendar (listComplete=${listComplete})`);
 
       for (const gEvent of googleEvents) {
@@ -33606,10 +35097,26 @@ Return JSON:
           // which then fires urgent "leave soon!" reminders at 11 PM the prior evening.
           // Fix: add T09:00:00 so all-day events land at 9 AM instead of midnight.
           const isAllDay = !gEvent.start.dateTime && !!gEvent.start.date;
-          const startTime = gEvent.start.dateTime || (gEvent.start.date + 'T09:00:00');
-          const endTime = gEvent.end?.dateTime || (gEvent.end?.date ? gEvent.end.date + 'T10:00:00' : startTime);
-          const existing = await p.query('SELECT id, updated_at FROM calendar_events WHERE google_event_id = $1', [gEvent.id]);
+          // TIMESTAMP columns do not retain an incoming offset. Normalize timed
+          // events first or +08:00 / -04:00 clock times get stored as if UTC.
+          const startTime = gEvent.start.dateTime
+            ? new Date(gEvent.start.dateTime).toISOString()
+            : (gEvent.start.date + 'T09:00:00');
+          const endTime = gEvent.end?.dateTime
+            ? new Date(gEvent.end.dateTime).toISOString()
+            : (gEvent.end?.date ? gEvent.end.date + 'T10:00:00' : startTime);
+          const existing = await p.query('SELECT id, updated_at, company_id, assigned_to FROM calendar_events WHERE google_event_id = $1', [gEvent.id]);
           if (existing.rows.length > 0) {
+            const ex = existing.rows[0];
+            // Repair rows that an earlier sync saved with no/wrong company or
+            // owner: they exist (so dedupe skips them) but the Calendar page,
+            // which filters on company_id, never shows them.
+            if (companyId && (ex.company_id !== companyId || !ex.assigned_to) && (!ex.assigned_to || ex.assigned_to === targetEmail || !ex.company_id)) {
+              await p.query('UPDATE calendar_events SET company_id = $1, assigned_to = COALESCE(assigned_to, $2) WHERE id = $3', [companyId, targetEmail, ex.id]);
+              fromGoogleRepaired++;
+            } else if (ex.company_id !== companyId || ex.assigned_to !== targetEmail) {
+              skipOtherOwner++;
+            }
             const lastUpdatedCrm = new Date(existing.rows[0].updated_at).getTime();
             const lastUpdatedGoogle = new Date(gEvent.updated).getTime();
             if (lastUpdatedGoogle > lastUpdatedCrm) {
@@ -33623,7 +35130,7 @@ Return JSON:
               );
               fromGoogleUpdated++;
               googleTouchedGids.add(gEvent.id);
-            }
+            } else { skipUnchanged++; }
           } else {
             // ON CONFLICT relies on the partial unique index on google_event_id
             // (idx_calendar_google_event_unique) — belt-and-braces against a
@@ -33639,6 +35146,9 @@ Return JSON:
           }
         } catch (e) { fromGoogleErrors++; console.error('[Calendar] Event error:', e.message); }
       }
+
+      console.log(`[Calendar] Pull result for ${targetEmail} (company ${companyId}): created=${fromGoogleCreated} updated=${fromGoogleUpdated} repaired=${fromGoogleRepaired} unchanged=${skipUnchanged} ownedByOtherUserOrCompany=${skipOtherOwner} deleted=${fromGoogleDeleted} errors=${fromGoogleErrors}`);
+      if (!companyId) console.warn('[Calendar] No company resolved for', targetEmail, '- imported events get company_id NULL and will NOT show on the Calendar page');
 
       // Orphan sweep: when a whole recurring series is deleted in Google,
       // the API does NOT return its instances as status 'cancelled' (that
@@ -33670,7 +35180,7 @@ Return JSON:
           }
         } catch (e) { fromGoogleErrors++; console.error('[Calendar] Orphan sweep error:', e.message); }
       }
-    } catch (e) { fromGoogleErrors++; console.error('[Calendar] Google sync error:', e.message); }
+    } catch (e) { fromGoogleErrors++; pullFailed = e.message; console.error('[Calendar] Google sync error:', e.message); }
 
     let toGoogleCreated = 0, toGoogleUpdated = 0, toGoogleErrors = 0;
     try {
@@ -33699,7 +35209,11 @@ Return JSON:
             // successful sync.
             if (googleTouchedGids.has(crmEvent.google_event_id)) continue;
             if (lastSyncTime && crmEvent.updated_at && new Date(crmEvent.updated_at).getTime() <= lastSyncTime) continue;
-            const updateResp = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${crmEvent.google_event_id}`, {
+            const ownCal = gidCalendar.get(crmEvent.google_event_id);
+            // Event lives on a calendar we could not list this run: don't PUT
+            // to primary (404 -> duplicate create). Retry next run.
+            if (!ownCal && pullFailed) continue;
+            const updateResp = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(ownCal || 'primary')}/events/${crmEvent.google_event_id}`, {
               method: 'PUT',
               headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
               body: JSON.stringify(googleEventData)
@@ -33749,13 +35263,26 @@ Return JSON:
       }
     } catch (e) { toGoogleErrors++; }
 
+    // Only stamp "last synced" when the Google pull actually worked; otherwise
+    // the UI shows "Synced" while nothing came through.
+    if (pullFailed) {
+      console.error('[Calendar] Pull failed for', targetEmail, '- not stamping last_google_sync:', pullFailed);
+      return {
+        success: false,
+        error: 'Could not read Google Calendar: ' + pullFailed,
+        fromGoogle: { created: fromGoogleCreated, updated: fromGoogleUpdated, deleted: fromGoogleDeleted, errors: fromGoogleErrors },
+        toGoogle: { created: toGoogleCreated, updated: toGoogleUpdated, errors: toGoogleErrors },
+      };
+    }
     await p.query('UPDATE users SET last_google_sync = $1, updated_at = NOW() WHERE email = $2', [syncStartedAt, targetEmail]);
 
     return {
       success: true,
-      fromGoogle: { created: fromGoogleCreated, updated: fromGoogleUpdated, deleted: fromGoogleDeleted, errors: fromGoogleErrors },
+      calendars: Array.from(new Set(Array.from(gidCalendar.values()))),
+      companyId,
+      fromGoogle: { created: fromGoogleCreated, updated: fromGoogleUpdated, repaired: fromGoogleRepaired, unchanged: skipUnchanged, otherOwner: skipOtherOwner, deleted: fromGoogleDeleted, errors: fromGoogleErrors },
       toGoogle: { created: toGoogleCreated, updated: toGoogleUpdated, errors: toGoogleErrors },
-      total: fromGoogleCreated + fromGoogleUpdated + toGoogleCreated + toGoogleUpdated
+      total: fromGoogleRepaired + fromGoogleCreated + fromGoogleUpdated + toGoogleCreated + toGoogleUpdated
     };
     } finally {
       // Always release the per-user sync lock (see acquisition above).
@@ -33769,6 +35296,8 @@ Return JSON:
   },
 
   async bulkSyncAllCalendars(params) {
+    const stagingBlock = stagingSideEffects.blockedAction('google-calendar-sync');
+    if (stagingBlock) return stagingBlock;
     const p = getPool();
     const usersResult = await p.query('SELECT email FROM users WHERE google_calendar_connected = true AND google_access_token IS NOT NULL');
     const results = { success: 0, failed: 0, details: [] };
@@ -35367,6 +36896,14 @@ functionHandlers.connectGoogleCalendar = functionHandlers.connectUserGoogleCalen
 functionHandlers.checkGoogleCalendarConnection = functionHandlers.checkUserGoogleCalendarConnection;
 functionHandlers.disconnectGoogleCalendar = functionHandlers.disconnectUserGoogleCalendar;
 functionHandlers.syncGoogleCalendar = functionHandlers.syncUserGoogleCalendar;
+// "Fix Missing Events" button on the Calendar page (previously 'No handler').
+// Re-runs the sync, which now re-homes Google-imported rows that were saved
+// with a NULL/wrong company_id so the Calendar page can see them.
+functionHandlers.fixGoogleCalendarEvents = async function (params, apiKey, req) {
+  const r = await functionHandlers.syncUserGoogleCalendar(params || {}, apiKey, req);
+  const fg = (r && r.fromGoogle) || {};
+  return { ...r, message: r && r.success === false ? (r.error || 'Sync failed') : `Imported ${fg.created || 0}, updated ${fg.updated || 0}, repaired ${fg.repaired || 0} Google events.` };
+};
 
 // HOVER OAuth is deliberately company-scoped and never uses IntegrationCredential.
 const HOVER_TOKEN_ENDPOINT = 'https://hover.to/oauth/token';
@@ -35550,13 +37087,7 @@ functionHandlers.connectGmailForLexi = async (params, apiKey, req) => {
   }
   const gmailBaseUrl = getGmailBaseUrl();
   const REDIRECT_URI = `${gmailBaseUrl}/api/gmail-callback`;
-  const scopes = [
-    'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/gmail.modify',
-    'https://www.googleapis.com/auth/gmail.labels',
-    'https://www.googleapis.com/auth/userinfo.email'
-  ];
+  const scopes = nodeRequire('./lib/lexiEmail.cjs').CONNECT_SCOPES;
   const stateSecret = process.env.GOOGLE_CLIENT_SECRET || 'gmail-oauth-state';
   const statePayload = JSON.stringify({ user_email: user.email, redirect_to: '/settings', ts: Date.now() });
   const stateSig = crypto.createHmac('sha256', stateSecret).update(statePayload).digest('hex');
@@ -41117,6 +42648,12 @@ export default function viteFunctionsPlugin() {
 
         // ── WebRTC token (browser dialer) — dev parity with prod-server.cjs ────
         if (req.url?.startsWith('/api/twilio/webrtc-token') && req.method === 'GET') {
+          if (stagingSideEffects.sideEffectsDisabled()) {
+            stagingSideEffects.logSuppressed('call', { action: 'webrtc-token' });
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'staging side effects disabled', suppressed: true }));
+            return;
+          }
           const wtUrl = new URL(req.url, `https://${req.headers.host}`);
           const companyId = wtUrl.searchParams.get('companyId');
           const identity = wtUrl.searchParams.get('identity') || 'agent';
@@ -42446,14 +43983,16 @@ export default function viteFunctionsPlugin() {
                 `UPDATE chat_conversations SET last_message = $1, last_message_at = NOW(), updated_at = NOW() WHERE id = $2`,
                 [previewText.length > 80 ? previewText.slice(0, 80) + '…' : previewText, conversation_id]
               );
-              // Fire-and-forget: Lexi answers in her own direct thread. Her
-              // reply is inserted with direct SQL (lib/lexiTeamChat.cjs) so it
-              // never re-enters the email/SMS fan-out below.
+              // Fire-and-forget: Lexi answers a direct thread with her, or an
+              // @Lexi mention in a Space or group. Her reply is inserted with
+              // direct SQL (lib/lexiTeamChat.cjs) so it never re-enters the
+              // email/SMS fan-out below. The brain is the phone tool set.
               (async () => {
                 try {
                   const convRow = await pool.query('SELECT chat_type, participants FROM chat_conversations WHERE id = $1 AND company_id = $2', [conversation_id, company_id]);
-                  if (!lexiTeamChat.isLexiDirectConversation(convRow.rows[0])) return;
                   if (resolvedType !== 'text') return;
+                  if (!lexiTeamChat.shouldLexiAnswer(convRow.rows[0], message, authedEmail)) return;
+                  const lexiPhone = nodeRequire('./lib/lexiPhone.cjs');
                   await lexiTeamChat.handleLexiTeamChatTurn({
                     pool,
                     companyId: company_id,
@@ -42461,12 +44000,13 @@ export default function viteFunctionsPlugin() {
                     userEmail: authedEmail,
                     userName: resolvedName,
                     text: message,
-                    // Same handler, same tools, same per-user access scoping as
-                    // Lexi's own page — the caller's session drives authz.
-                    invokeLexi: async (lexiParams) => {
-                      const keyInfo = await getCompanyGeminiKeyInfo(company_id);
-                      return functionHandlers.lexiChat(lexiParams, keyInfo?.key, req);
-                    },
+                    conversation: convRow.rows[0],
+                    sendCustomerMessage: lexiTeamChat.defaultSendCustomerMessage,
+                    syncCalendar: lexiTeamChat.defaultSyncCalendar,
+                    generate: ({ body }) => lexiPhone.defaultGenerate({
+                      apiKey: process.env.GOOGLE_GEMINI_API_KEY || '',
+                      body,
+                    }),
                   });
                 } catch (lexiErr) { console.warn('[LexiTeamChat]', lexiErr.message); }
               })();

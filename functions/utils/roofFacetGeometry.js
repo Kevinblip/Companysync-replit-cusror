@@ -170,6 +170,10 @@ export function buildRoofFacetsFromSolarSegments(roofSegments) {
   });
 
   classifyFacetEdges(facets);
+  // Local plan origin so a footprint drawn on a different centroid can be
+  // shifted into this frame. JSON drops array properties; in-process callers
+  // read it before the response is serialized.
+  facets.frameOrigin = { latitude: refLat, longitude: refLng };
   return facets;
 }
 

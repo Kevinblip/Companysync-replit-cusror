@@ -11,6 +11,8 @@ export default function PublicPricing() {
   const navigate = useNavigate();
 
   const plans = [
+    // Display stays on the live Stripe price IDs. Cole quotes $99/$199/$399.
+    // See config/salesPricingAlignment.json before changing these numbers.
     {
       name: "Basic",
       price: 59,

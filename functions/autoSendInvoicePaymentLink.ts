@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
       console.log('✅ Found existing invoice:', invoice.invoice_number);
     } else {
       // Create invoice from job
-      const invoiceNumber = `INV-${Date.now()}`;
+      const invoiceNumber = `INV-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       
       invoice = await base44.asServiceRole.entities.Invoice.create({
         company_id: company_id,

@@ -4,10 +4,11 @@
  *
  * Guards three contracts introduced with the "Grade B siding + PhotoPresent" work:
  *
- *   1. PHOTO WALL PRISM. Four photographed elevations are the measurement and
- *      override the footprint, even when the box and the traced perimeter
- *      disagree. That override is flagged. Fewer than four faces, or a poor
- *      elevation, stay estimated instead of being guessed.
+ *   1. PHOTO WALL PRISM. Photo elevations supply height, gables and openings.
+ *      Wall lengths stay on the footprint edges. A photo width more than 15%
+ *      off its edge falls back, and a photo-width sum more than 15% off the
+ *      traced perimeter is flagged. Four photo widths never replace a longer
+ *      footprint.
  *
  *   2. MULLION BANKS ARE COUNTING-ONLY. Banking adjacent windows changes
  *      window_assemblies and nothing else — opening groups, components, the
@@ -56,7 +57,9 @@ function check(name, cond, extra) {
   {
     const t = run(ALL_FOUR).totals;
     check('four measured faces matching the footprint become the hero',
-      t.gross_wall_area_source === 'photo_wall_planes', t);
+      t.gross_wall_area_source === 'photo_anchored_footprint'
+        && t.photo_overrides_footprint === false
+        && t.wall_total_quality === 'measured', t);
     check('the extrusion is still reported for the cross-check',
       t.extrusion_wall_area_sqft === 1800, t);
     check('the hero equals the measured prism, not the extrusion',
@@ -85,18 +88,24 @@ function check(name, cond, extra) {
   {
     // Only two faces photographed — below the three-face floor.
     const t = run([face('front', 30, win(4)), face('back', 30, win(4))]).totals;
-    check('two measured faces cannot become the hero',
-      t.gross_wall_area_source === 'footprint_extrusion', t);
-    check('a rejected prism is still reported for transparency',
-      t.photo_wall_area_sqft > 0 && t.photo_wall_area_usable === false, t);
+    check('two measured faces refine those walls and leave the others on the footprint',
+      t.gross_wall_area_source === 'photo_anchored_footprint'
+        && t.wall_total_quality === 'estimated'
+        && t.photo_substituted_faces.includes('left_side')
+        && t.photo_substituted_faces.includes('right_side'), t);
+    check('a partial prism is reported and stays estimated',
+      t.photo_wall_area_sqft > 0
+        && t.photo_wall_area_usable === true
+        && t.wall_total_quality === 'estimated', t);
   }
   {
     // Three faces measured, the fourth substituted from the footprint. The
     // substituted width fills the prism but is footprint arithmetic, so it can
     // never certify photo coverage — 80 of 100 measured LF must be rejected.
     const t = run([face('front', 30, win(4)), face('back', 30, win(4)), face('left_side', 20, win(3))]).totals;
-    check('a hybrid prism with one unphotographed wall cannot bill as photo-measured',
-      t.gross_wall_area_source === 'footprint_extrusion', t);
+    check('a hybrid prism keeps the unphotographed wall on the footprint',
+      t.gross_wall_area_source === 'photo_anchored_footprint'
+        && t.wall_total_quality === 'estimated', t);
     check('the substituted face is disclosed, not hidden',
       Array.isArray(t.photo_substituted_faces) && t.photo_substituted_faces.includes('right_side'), t);
     check('coverage is measured against photos only, not the hybrid prism',
@@ -108,42 +117,48 @@ function check(name, cond, extra) {
     // clears the 98% floor — the gate is about coverage, not face count.
     const t = run(ALL_FOUR, { grossWallAreaSqft: 101 * HT, perimeterFt: 101 }).totals;
     check('a negligible unmeasured remainder still clears the coverage floor',
-      t.gross_wall_area_source === 'photo_wall_planes', t.photo_measured_perimeter_coverage);
+      t.gross_wall_area_source === 'photo_anchored_footprint'
+        && t.photo_perimeter_flagged === false
+        && t.wall_total_quality === 'measured', t.photo_measured_perimeter_coverage);
   }
   {
     // Wings: four elevations still bill the photo prism and flag the mismatch.
     const t = run(ALL_FOUR, { grossWallAreaSqft: 160 * HT, perimeterFt: 160 }).totals;
-    check('four elevations override a longer footprint and flag the override',
-      t.gross_wall_area_source === 'photo_wall_planes'
-        && t.photo_overrides_footprint === true
-        && t.wall_total_quality === 'measured'
+    check('four elevations keep a longer footprint and flag the photo-width gap',
+      t.gross_wall_area_source === 'photo_anchored_footprint'
+        && t.photo_overrides_footprint === false
+        && t.photo_perimeter_flagged === true
+        && t.gross_wall_area_sqft === 160 * HT
         && t.sanity_review_required === true,
       t);
   }
   {
     // Prism materially larger than the extrusion. Photos still win; the delta is flagged.
     const t = run(ALL_FOUR, { grossWallAreaSqft: 80 * HT, perimeterFt: 80 }).totals;
-    check('four elevations override an undersized footprint and flag the override',
-      t.gross_wall_area_source === 'photo_wall_planes'
-        && t.photo_overrides_footprint === true
-        && t.wall_total_quality === 'measured',
+    check('four elevations cannot outgrow an undersized footprint',
+      t.gross_wall_area_source === 'photo_anchored_footprint'
+        && t.photo_overrides_footprint === false
+        && t.gross_wall_area_sqft === 80 * HT
+        && t.photo_perimeter_flagged === true,
       t);
   }
   {
     const t = run(ALL_FOUR, { grossWallAreaSqft: 70 * HT, perimeterFt: 70 }).totals;
-    check('photo-vs-extrusion siding mismatch above 25% requires SANITY-REVIEW',
+    check('a photo-width sum more than 15% off the perimeter requires review',
       t.sanity_review_required === true
-        && t.sanity_delta_pct > 25
-        && t.gross_wall_area_source === 'photo_wall_planes'
-        && t.wall_total_quality === 'measured',
+        && t.photo_perimeter_flagged === true
+        && t.photo_perimeter_deviation_pct > 15
+        && t.gross_wall_area_source === 'photo_anchored_footprint'
+        && t.photo_overrides_footprint === false,
       t);
   }
   {
     // No footprint perimeter. Four elevations are still the measurement.
     const t = run(ALL_FOUR, { perimeterFt: 0 }).totals;
-    check('four elevations measure the wall when the footprint perimeter is missing',
-      t.gross_wall_area_source === 'photo_wall_planes'
-        && t.wall_total_quality === 'measured',
+    check('four elevations anchor to the footprint edges when the perimeter is missing',
+      t.gross_wall_area_source === 'photo_anchored_footprint'
+        && t.wall_total_quality === 'measured'
+        && t.gross_wall_area_sqft === 100 * HT,
       t);
   }
   {
@@ -153,11 +168,12 @@ function check(name, cond, extra) {
       face('left_side', 20, win(3)),
       face('right_side', 20, win(3), { elevation_poor: true, occluded: true }),
     ]).totals;
-    check('a poor elevation is flagged and the wall total stays estimated',
+    check('a poor elevation falls back on that wall and the total stays estimated',
       t.wall_total_quality === 'estimated'
         && Array.isArray(t.poor_faces)
         && t.poor_faces.includes('right_side')
-        && t.gross_wall_area_source === 'footprint_extrusion',
+        && t.gross_wall_area_source === 'photo_anchored_footprint'
+        && t.photo_substituted_faces.includes('right_side'),
       t);
   }
   {
@@ -181,6 +197,39 @@ function check(name, cond, extra) {
     check('a gable adds exactly half its bounding rectangle',
       Math.abs((gabled.photo_wall_area_sqft - flat.photo_wall_area_sqft) - 120) < 0.5,
       { flat: flat.photo_wall_area_sqft, gabled: gabled.photo_wall_area_sqft });
+  }
+  {
+    // Satellite assumed every wall was a full 18 ft. Photos show the sides
+    // are one storey. Lengths stay on the 40×30 footprint.
+    const partial = run([
+      face('front', 40, win(2), { eave_height_ft: 18, wall_height_ft: 18 }),
+      face('back', 40, win(2), { eave_height_ft: 18, wall_height_ft: 18 }),
+      face('left_side', 30, win(1), { eave_height_ft: 9, wall_height_ft: 9 }),
+      face('right_side', 30, win(1), { eave_height_ft: 9, wall_height_ft: 9 }),
+    ], { buildingWidthFt: 40, buildingLengthFt: 30, perimeterFt: 140, grossWallAreaSqft: 140 * HT }).totals;
+    const satellite = 140 * HT;
+    const photoTruth = 40 * 18 * 2 + 30 * 9 * 2;
+    check('partial-height photos beat a full-height satellite extrusion',
+      partial.gross_wall_area_sqft === photoTruth
+        && partial.gross_wall_area_sqft < satellite
+        && partial.photo_overrides_footprint === false,
+      { photo: partial.gross_wall_area_sqft, satellite, photoTruth });
+  }
+  {
+    // A bad front width (25% over the footprint edge) falls back that wall.
+    // The other walls keep their photo heights. The traced perimeter is kept.
+    const scaled = run([
+      face('front', 70, win(2), { eave_height_ft: 12, wall_height_ft: 12 }),
+      face('back', 40, win(2)),
+      face('left_side', 30, win(1)),
+      face('right_side', 30, win(1)),
+    ], { buildingWidthFt: 40, buildingLengthFt: 30, perimeterFt: 140, grossWallAreaSqft: 140 * HT }).totals;
+    check('a photo width more than 15% off its edge falls back that wall only',
+      scaled.photo_width_fallback_faces.includes('front')
+        && !scaled.photo_width_fallback_faces.includes('back')
+        && scaled.gross_wall_area_sqft === 140 * HT
+        && scaled.photo_perimeter_flagged === true,
+      scaled);
   }
 
   console.log('\n\u2500\u2500 2. Mullion banks are counting-only \u2500\u2500');
@@ -267,7 +316,10 @@ function check(name, cond, extra) {
     const photoGraph = run(ALL_FOUR);
     const photoJob = { measurement_graph: photoGraph, wall_area_sqft: 1500, confidence_grade: 'B', tolerance_pct: 15 };
     const extrusionJob = {
-      measurement_graph: run([face('front', 30, win(4)), face('back', 30, win(4))]),
+      measurement_graph: run([
+        face('front', 30, win(4), { elevation_poor: true, occluded: true }),
+        face('back', 30, win(4), { elevation_poor: true, occluded: true }),
+      ]),
       wall_area_sqft: 1500,
     };
 

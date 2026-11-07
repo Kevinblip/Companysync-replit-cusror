@@ -33,12 +33,10 @@ function ok(label, condition, got, expected) {
   }
 }
 
-const WALL_AZIMUTHS = {
-  front: 0,
-  right: 90,
-  back: 180,
-  left: 270,
-};
+let sharedHeadingToWallFace;
+// Front wall faces north. Left is east (90°), right is west (270°),
+// named while standing north of the house looking south at the front.
+let WALL_AZIMUTHS;
 
 const OBLIQUE_THRESHOLD_DEG = 35;
 
@@ -54,29 +52,7 @@ function angularDifference(a, b) {
  * that is also the outward normal of the wall being photographed.
  */
 function headingToWallFace(cameraHeading, wallAzimuths) {
-  const walls = [
-    { face: 'front', az: wallAzimuths.front },
-    { face: 'right_side', az: wallAzimuths.right },
-    { face: 'back', az: wallAzimuths.back },
-    { face: 'left_side', az: wallAzimuths.left },
-  ];
-  walls.sort(
-    (a, b) =>
-      angularDifference(cameraHeading, a.az) -
-      angularDifference(cameraHeading, b.az),
-  );
-
-  const primary = walls[0];
-  const secondary = walls[1];
-  const angularError = angularDifference(cameraHeading, primary.az);
-  const isOblique = angularError > OBLIQUE_THRESHOLD_DEG;
-
-  return {
-    face: primary.face,
-    isOblique,
-    secondaryFace: isOblique ? secondary.face : null,
-    angularError,
-  };
+  return sharedHeadingToWallFace(cameraHeading, wallAzimuths);
 }
 
 /**
@@ -174,6 +150,9 @@ function comparableGraphResult(graph) {
 }
 
 (async () => {
+  const orientation = await import('../functions/utils/photoSlotOrientation.js');
+  sharedHeadingToWallFace = orientation.headingToWallFace;
+  WALL_AZIMUTHS = orientation.streetFacingWallAzimuths(0);
   const { buildSidingMeasurementGraph } =
     await import('../functions/utils/sidingMeasurementGraph.js');
 
@@ -185,8 +164,8 @@ function comparableGraphResult(graph) {
   // ── Scenario 1: EXIF headings agree with correctly labelled photos ──────────
   console.log('\n── EXIF headings preserve correctly labelled wall faces ──');
   const labels = [
-    { label: 'Front', face: 'front', heading: 0, id: 'front-window', position: 5 },
-    { label: 'Back', face: 'back', heading: 180, id: 'back-window', position: 10 },
+    { label: 'Front', face: 'front', heading: 180, id: 'front-window', position: 5 },
+    { label: 'Back', face: 'back', heading: 0, id: 'back-window', position: 10 },
     { label: 'Left Side', face: 'left_side', heading: 270, id: 'left-window', position: 15 },
     { label: 'Right Side', face: 'right_side', heading: 90, id: 'right-window', position: 20 },
   ];
@@ -284,23 +263,23 @@ function comparableGraphResult(graph) {
 
   // ── Scenario 3: oblique corner shot does not double-count an opening ────────
   console.log('\n── 45° EXIF heading is a corner without area inflation ──');
-  const cornerMapping = headingToWallFace(45, WALL_AZIMUTHS);
-  ok('45° heading is flagged as oblique', cornerMapping.isOblique === true);
+  const cornerMapping = headingToWallFace(135, WALL_AZIMUTHS);
+  ok('front-right corner heading is flagged as oblique', cornerMapping.isOblique === true);
   ok(
-    '45° heading selects the front/right corner pair',
+    'front-right corner heading selects the front/right pair',
     cornerMapping.face === 'front' && cornerMapping.secondaryFace === 'right_side',
     cornerMapping,
     { face: 'front', secondaryFace: 'right_side' },
   );
   ok(
     'corner threshold is strictly greater than 35°',
-    headingToWallFace(35, WALL_AZIMUTHS).isOblique === false &&
-      headingToWallFace(35.1, WALL_AZIMUTHS).isOblique === true,
+    headingToWallFace(215, WALL_AZIMUTHS).isOblique === false &&
+      headingToWallFace(215.1, WALL_AZIMUTHS).isOblique === true,
   );
 
   const cornerPhoto = applyFaceBinding({
     ...labeledPhoto('Front-right corner', 'unknown', 'front-window', 5),
-    exif_heading: 45,
+    exif_heading: 135,
   }, WALL_AZIMUTHS);
   ok(
     'EXIF corner result records both adjoining faces',

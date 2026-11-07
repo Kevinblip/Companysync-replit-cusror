@@ -4,6 +4,7 @@ import { BulkDeleteButton } from "@/components/BulkDeleteControls";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { TablePageSkeleton } from "@/components/PageSkeleton";
 import { useRoleBasedData } from "../components/hooks/useRoleBasedData";
+import { resolveUniqueCustomer } from "@/utils/invoiceCustomerAssociation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -231,13 +232,21 @@ export default function Payments() {
       (paymentName && invoice.customer_name?.trim().toLowerCase() === paymentName)
     );
   }, [invoices]);
+  const paymentCustomerResolution = React.useCallback((payment) => (
+    resolveUniqueCustomer(customers, {
+      customerId: payment?.customer_id,
+      customerName: payment?.customer_name,
+      companyId: myCompany?.id,
+    })
+  ), [customers, myCompany?.id]);
   const canCreateInvoiceFromPayment = React.useCallback((payment) => {
     const status = String(payment.status || 'received').toLowerCase();
     return !isLoadingInvoices
       && ['received', 'completed'].includes(status)
       && Number(payment.amount) > 0
-      && !customerHasInvoice(payment);
-  }, [customerHasInvoice, isLoadingInvoices]);
+      && !customerHasInvoice(payment)
+      && paymentCustomerResolution(payment).reason === null;
+  }, [customerHasInvoice, isLoadingInvoices, paymentCustomerResolution]);
 
   const totalReceived = React.useMemo(() => {
     return filteredPayments.filter(p => p.status === 'received').reduce((sum, p) => sum + Number(p.amount || 0), 0);
@@ -1555,6 +1564,14 @@ export default function Payments() {
                         ? 'Creating…'
                         : 'Create invoice'}
                     </button>
+                  )}
+                  {!customerHasInvoice(p) && paymentCustomerResolution(p).reason !== null && (
+                    <span
+                      className="border-l border-orange-300 px-2 py-1 text-xs font-semibold text-amber-900"
+                      data-testid={`flag-payment-needs-customer-${p.id}`}
+                    >
+                      Needs a customer before an invoice can be created
+                    </span>
                   )}
                   <button
                     onClick={() => initiateDeletePayment(p)}

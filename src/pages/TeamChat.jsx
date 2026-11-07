@@ -54,6 +54,7 @@ import {
   Headphones,
 } from "lucide-react";
 import HandsFreeVoiceMessage, { isHandsFreeSupported } from "@/components/chat/HandsFreeVoiceMessage";
+import { voiceRecipients } from "@/utils/handsFreeDelivery";
 
 const BOT_EMAIL = "companysync-bot@system";
 // Lexi is a conversational teammate in the roster — a separate identity from
@@ -480,10 +481,11 @@ export default function TeamChat() {
     return [{ contact: LEXI_CONTACT, conv: dmByEmail[LEXI_EMAIL] || null }, ...roster];
   },[otherContacts,dmByEmail,userEmail]);
 
-  // Teammates the hands-free flow can address (people only — never Lexi,
-  // never a Space).
+  // Hands-free recipients: Lexi first, then people. Never a Space. Lexi stays
+  // on the list even when she is the only contact, so the dialog can record
+  // a message for her instead of saying there is nobody to send it to.
   const voiceRoster = useMemo(
-    ()=>dmRoster.map(r=>r.contact).filter(c=>c.email!==LEXI_EMAIL),
+    () => voiceRecipients(dmRoster.map((r) => r.contact)),
     [dmRoster]
   );
 
@@ -635,7 +637,9 @@ export default function TeamChat() {
   const lastMsg = messages[messages.length - 1];
   const showQuickReplies = lastMsg && lastMsg.sender_email !== userEmail && lastMsg.message_type === "text";
   // Lexi answers server-side; until her reply lands the thread looks stalled.
-  const lexiThinking = isLexiThread && !!lastMsg && lastMsg.sender_email === userEmail && lastMsg.message_type === "text";
+  const lastMentionsLexi = /(?:^|[^A-Za-z0-9_])@lexi\b/i.test(lastMsg?.message || "");
+  const lexiThinking = !!lastMsg && lastMsg.sender_email === userEmail && lastMsg.message_type === "text"
+    && (isLexiThread || (selConv && isSpaceLike(selConv) && selConv.chat_type !== "broadcast" && lastMentionsLexi));
   const QUICK_REPLIES = ["Thanks", "Got it", "Sounds good", "On it!", "Approved", "Thanks for the update"];
 
   function handleSend() {
@@ -1017,7 +1021,7 @@ export default function TeamChat() {
                     </button>
                   </div>
                 : <Textarea ref={inputRef} value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={onKey}
-                    placeholder="Message…" rows={1}
+                    placeholder={isLexiThread ? "Message Lexi…" : (selConv && isSpaceLike(selConv) && selConv.chat_type !== "broadcast" ? "Message…  Type @Lexi to ask her" : "Message…")} rows={1}
                     className="flex-1 resize-none rounded-2xl border-slate-200 bg-slate-50 text-sm leading-relaxed py-2.5 px-4 min-h-[40px] max-h-32 focus-visible:ring-1 focus-visible:ring-blue-300"
                     data-testid="input-message"
                   />

@@ -52,7 +52,12 @@ async function main() {
   ok(html.includes('PHOTO ON FILE'), 'photo thumbnail is labeled honestly');
   ok(!/elev-est[^"]*elev-has-photo/.test(html), 'missing faces never receive placeholder photos');
   ok(!html.includes('front-canvas') && !html.includes('renderElevation('), 'canvas elevation engine stays deleted');
-  ok(html.includes('iso-canvas') && html.includes('perim-canvas'), 'iso + perimeter canvases retained');
+  ok(html.includes('id="house-3d"') && html.includes('perim-canvas'), 'interactive 3d mount + perimeter canvas retained');
+  ok(html.includes('Complex Perimeter Layout'), 'perimeter drawing label retained');
+  ok(!html.includes('iso-canvas') && !html.includes('function renderIso'), 'flat isometric main picture removed');
+  ok(html.includes("import('https://cdn.jsdelivr.net/npm/three@0.171.0/build/three.module.js')"), 'three.js is loaded by the report page, not bundled into it');
+  ok(html.includes('#3b82f6') && html.includes('#f97316') && html.includes('#22c55e') && html.includes('#a855f7'), 'wall legend uses the N/S/E/W breakdown colors');
+  ok(html.includes('hip_skeleton') && html.includes('Drag to rotate'), 'report builds a rotatable footprint roof');
   ok(/\.elev-box\{height:1\d\dpx/.test(html), 'elevation boxes height-bounded (one-page layout)');
   ok(html.includes('Test Co') && html.includes('123 Test St'), 'header renders company + address');
 
