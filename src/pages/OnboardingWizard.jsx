@@ -149,10 +149,6 @@ export default function OnboardingWizard() {
     }
   };
 
-  const handleBackToWebsite = () => {
-    window.location.href = 'https://companysync.io';
-  };
-
   if (isComplete) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-cyan-50 flex items-center justify-center p-4">
@@ -201,13 +197,13 @@ export default function OnboardingWizard() {
       <div className="max-w-2xl w-full">
         {/* Back to website */}
         <div className="mb-8">
-          <button 
-            onClick={handleBackToWebsite}
+          <a
+            href="https://companysync.io"
             className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-6"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to website
-          </button>
+          </a>
           
           {/* Logo and Title */}
           <div className="text-center">

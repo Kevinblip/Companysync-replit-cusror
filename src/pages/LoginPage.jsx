@@ -1,14 +1,21 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Mail, Lock, Eye, EyeOff } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { setLastUsedCompanyId } from "@/lib/activeCompanySelection";
+import { applyPageMeta } from "@/lib/pageMeta";
+import BackToWebsiteLink from "@/components/BackToWebsiteLink";
 
 export default function LoginPage() {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
+  useEffect(() => {
+    if (location.pathname === '/login') return undefined;
+    return applyPageMeta('/login');
+  }, [location.pathname]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -194,6 +201,7 @@ export default function LoginPage() {
                 Sign up
               </Link>
             </div>
+            <BackToWebsiteLink className="text-sm text-slate-500 hover:text-blue-700" />
           </div>
         </div>
       </div>

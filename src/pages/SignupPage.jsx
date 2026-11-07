@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Building2, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Link } from "react-router-dom";
+import BackToWebsiteLink from "@/components/BackToWebsiteLink";
 
 export default function SignupPage() {
   const [email, setEmail] = useState("");
@@ -209,6 +210,7 @@ export default function SignupPage() {
                 Log in
               </Link>
             </div>
+            <BackToWebsiteLink className="inline-block text-slate-500 hover:text-blue-700" />
             <p className="text-xs leading-5">
               By signing up, you agree to our{" "}
               <Link to="/terms" className="text-blue-600 underline hover:text-blue-700">Terms of Service</Link>
