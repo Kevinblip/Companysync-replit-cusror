@@ -184,7 +184,7 @@ export default function PublicPricing() {
               Choose Your Plan
             </h2>
             <p className="text-lg text-gray-600">
-              Full access during trial • Cancel anytime
+              14-day free trial • No credit card required • Cancel anytime
             </p>
           </div>
 

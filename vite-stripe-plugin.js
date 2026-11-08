@@ -1,4 +1,5 @@
 import { createRequire } from 'module';
+import { applyCheckoutTrial, planCheckoutSessionCompleted, planSubscriptionCheckoutTrial, NEW_TRIAL_CLAIM_SQL } from './src/lib/trialPolicy.js';
 const require = createRequire(import.meta.url);
 
 let stripeClient = null;
@@ -175,9 +176,10 @@ function createStripeHandlers(pool) {
       if (!priceId) throw new Error('priceId is required');
 
       let customerId = null;
+      let checkoutCompany = null;
       if (companyId) {
-        const company = await getCompanyById(companyId);
-        if (company?.stripe_customer_id) customerId = company.stripe_customer_id;
+        checkoutCompany = await getCompanyById(companyId);
+        if (checkoutCompany?.stripe_customer_id) customerId = checkoutCompany.stripe_customer_id;
       }
 
       const domains = process.env.REPLIT_DOMAINS;
@@ -200,15 +202,14 @@ function createStripeHandlers(pool) {
       if (customerId) sessionConfig.customer = customerId;
 
       if (mode === 'subscription') {
-        const extendTrial = metadata.extend_trial === '7';
+        const trialPlan = planSubscriptionCheckoutTrial(checkoutCompany, metadata);
         sessionConfig.subscription_data = {
-          trial_period_days: extendTrial ? 21 : 14,
           metadata: {
             company_id: companyId || '',
             plan_name: planName || '',
-            bonus_days_applied: extendTrial ? '7' : '0'
           }
         };
+        applyCheckoutTrial(sessionConfig, trialPlan);
       }
 
       const session = await stripe.checkout.sessions.create(sessionConfig);
@@ -535,16 +536,27 @@ async function handleStripeEvent(event, stripe, pool) {
           await notifyAdmins(companyId, 'Credits Added', `Successfully added ${credits} credits.`, 'payment_received');
         }
       } else if (companyId) {
-        const planName = session.metadata?.plan_name;
-        const trialEndsAt = new Date();
-        trialEndsAt.setDate(trialEndsAt.getDate() + 14);
-        await updateCompany(companyId, {
-          subscription_plan: planName?.toLowerCase() || 'professional',
-          subscription_status: 'trial',
-          trial_end_date: trialEndsAt.toISOString(),
-          stripe_subscription_id: session.subscription || ''
+        const companyRes = await pool.query(`SELECT * FROM companies WHERE id = $1`, [companyId]);
+        const decision = planCheckoutSessionCompleted({
+          company: companyRes.rows[0] || null,
+          session,
         });
-        await notifyAdmins(companyId, 'Subscription Started!', `Your ${planName || 'Professional'} plan trial has begun. You have 14 days to explore all features.`, 'subscription_created');
+        if (decision.action === 'initialize_new_trial' && decision.update) {
+          const claim = await pool.query(NEW_TRIAL_CLAIM_SQL, [
+            companyId,
+            decision.update.trial_end_date,
+            decision.update.trial_ends_at,
+          ]);
+          if (claim.rowCount === 1) {
+            const planName = session.metadata?.plan_name;
+            await notifyAdmins(
+              companyId,
+              'Subscription Started!',
+              `Your ${planName || 'Professional'} plan trial has begun. You have 14 days to explore all features. No credit card charge today.`,
+              'subscription_created'
+            );
+          }
+        }
       }
       break;
     }

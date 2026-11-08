@@ -1698,10 +1698,17 @@ async function handleLocalDbRoute(req, res, pathname, url) {
       const displayName = name || email.split('@')[0];
       const companyName = `${displayName}'s Company`;
 
+      const { newCompanyTrialRecord } = await import('../src/lib/trialPolicy.js');
+      const trial = newCompanyTrialRecord();
+      const trialData = JSON.stringify({
+        trial_ends_at: trial.trial_ends_at,
+        trial_end_date: trial.trial_end_date,
+        subscription_status: 'trial',
+      });
       await p.query(
-        `INSERT INTO companies (id, name, company_name, created_by, email, preferred_language, subscription_plan, is_deleted, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, 'en', 'professional', false, NOW(), NOW())`,
-        [companyId, companyName, companyName, email, email]
+        `INSERT INTO companies (id, name, company_name, created_by, email, preferred_language, subscription_plan, subscription_status, trial_end_date, data, is_deleted, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, 'en', 'professional', 'trial', $6, $7::jsonb, false, NOW(), NOW())`,
+        [companyId, companyName, companyName, email, email, trial.trial_end_date, trialData]
       );
 
       const staffId = `staff_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;

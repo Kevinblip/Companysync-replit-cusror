@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { newCompanyTrialRecord } from "@/lib/trialPolicy";
 
 const STEPS = [
   { id: 'company', title: 'Company Info', icon: Building2 },
@@ -123,9 +124,7 @@ export default function QuickSetup() {
         
         console.log('Auto-creating company from onboarding data:', data);
         
-        // Calculate trial end date
-        const trialEndDate = new Date();
-        trialEndDate.setDate(trialEndDate.getDate() + 14);
+        const trial = newCompanyTrialRecord();
         
         // Get plan limits - MUST match Pricing page: Basic=$59, Business=$149, Enterprise=$299
         const plan = data.selected_plan || selectedPlan || 'basic';
@@ -150,8 +149,9 @@ export default function QuickSetup() {
           state: data.state || "",
           zip: data.zip || "",
           subscription_plan: plan,
-          subscription_status: 'trial',
-          trial_ends_at: trialEndDate.toISOString().split('T')[0],
+          subscription_status: trial.subscription_status,
+          trial_ends_at: trial.trial_ends_at,
+          trial_end_date: trial.trial_end_date,
           max_users: limits.max_users,
           max_customers: limits.max_customers,
           setup_completed: false
@@ -239,8 +239,7 @@ export default function QuickSetup() {
         return base44.entities.Company.update(myCompany.id, data);
       } else {
         // New company signup - start 14-day free trial with selected plan
-        const trialEndDate = new Date();
-        trialEndDate.setDate(trialEndDate.getDate() + 14);
+        const trial = newCompanyTrialRecord();
         
         // Calculate limits based on selected plan - MUST match Pricing page
         const planLimits = {
@@ -256,8 +255,9 @@ export default function QuickSetup() {
         const newCompany = await base44.entities.Company.create({
           ...data,
           subscription_plan: selectedPlan || 'professional',
-          subscription_status: 'trial',
-          trial_ends_at: trialEndDate.toISOString().split('T')[0],
+          subscription_status: trial.subscription_status,
+          trial_ends_at: trial.trial_ends_at,
+          trial_end_date: trial.trial_end_date,
           max_users: limits.max_users,
           max_customers: limits.max_customers,
           setup_completed: false
@@ -495,15 +495,15 @@ The Qualification Process:
             variant="outline"
             onClick={async () => {
               if (!myCompany) {
-                const trialEndDate = new Date();
-                trialEndDate.setDate(trialEndDate.getDate() + 14);
+                const trial = newCompanyTrialRecord();
                 
                 const newCompany = await base44.entities.Company.create({
                   company_name: user?.full_name ? `${user.full_name}'s Company` : 'My Company',
                   email: user?.email || '',
                   subscription_plan: 'trial',
-                  subscription_status: 'trial',
-                  trial_ends_at: trialEndDate.toISOString().split('T')[0],
+                  subscription_status: trial.subscription_status,
+                  trial_ends_at: trial.trial_ends_at,
+                  trial_end_date: trial.trial_end_date,
                   setup_completed: true
                 });
 

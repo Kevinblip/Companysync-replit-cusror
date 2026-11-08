@@ -1,5 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 import Stripe from 'npm:stripe@16.6.0';
+import { applyCheckoutTrial, planSubscriptionCheckoutTrial } from '../src/lib/trialPolicy.js';
 
 Deno.serve(async (req) => {
   try {
@@ -27,10 +28,12 @@ Deno.serve(async (req) => {
 
     // Get or create Stripe customer
     let customerId = null;
+    let checkoutCompany = null;
     if (companyId) {
       const companies = await base44.asServiceRole.entities.Company.filter({ id: companyId });
-      if (companies[0]?.stripe_customer_id) {
-        customerId = companies[0].stripe_customer_id;
+      checkoutCompany = companies[0] || null;
+      if (checkoutCompany?.stripe_customer_id) {
+        customerId = checkoutCompany.stripe_customer_id;
       }
     }
 
@@ -58,17 +61,14 @@ Deno.serve(async (req) => {
     }
 
     if (mode === 'subscription') {
-      // Check if this is an "add card for bonus days" checkout
-      const extendTrial = metadata.extend_trial === '7';
-      
+      const trialPlan = planSubscriptionCheckoutTrial(checkoutCompany, metadata);
       sessionConfig.subscription_data = {
-        trial_period_days: extendTrial ? 21 : 14, // 21 days = 14 + 7 bonus
         metadata: {
           company_id: companyId || '',
           plan_name: planName || '',
-          bonus_days_applied: extendTrial ? '7' : '0'
         }
       };
+      applyCheckoutTrial(sessionConfig, trialPlan);
     }
 
     const session = await stripe.checkout.sessions.create(sessionConfig);

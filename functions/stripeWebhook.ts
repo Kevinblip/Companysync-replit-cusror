@@ -1,5 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
 import Stripe from 'npm:stripe@17.5.0';
+import { planCheckoutSessionCompleted } from '../src/lib/trialPolicy.js';
 
 const stripeApiKey = Deno.env.get('STRIPE_SECRET_KEY') || 
                      Deno.env.get('STRIPE_API_KEY') || 
@@ -88,48 +89,50 @@ Deno.serve(async (req) => {
               }
             }
           } 
-          // HANDLE SUBSCRIPTION START (Legacy/Plan)
+          // Subscription checkout. Paid charges and any company that already
+          // has a trial end or subscription status are not rewritten.
           else {
-            const planName = session.metadata.plan_name;
-            const trialEndsAt = new Date();
-            trialEndsAt.setDate(trialEndsAt.getDate() + 14);
-
-            await base44.asServiceRole.entities.Company.update(companyId, {
-              subscription_plan: planName?.toLowerCase() || 'professional',
-              subscription_status: 'trial',
-              trial_ends_at: trialEndsAt.toISOString().split('T')[0],
-              stripe_subscription_id: session.subscription
+            const companies = await base44.asServiceRole.entities.Company.filter({ id: companyId });
+            const decision = planCheckoutSessionCompleted({
+              company: companies[0] || null,
+              session,
             });
 
-            // 🔔 Send notification to all admins
-          const staffProfiles = await base44.asServiceRole.entities.StaffProfile.filter({ 
-            company_id: companyId, 
-            is_administrator: true 
-          });
+            if (decision.action === 'initialize_new_trial' && decision.update) {
+              await base44.asServiceRole.entities.Company.update(companyId, decision.update);
 
-          for (const admin of staffProfiles) {
-            await base44.asServiceRole.entities.Notification.create({
-              company_id: companyId,
-              user_email: admin.user_email,
-              title: '🎉 Subscription Started!',
-              message: `Your ${planName || 'Professional'} plan trial has begun. You have 14 days to explore all features.`,
-              type: 'subscription_created',
-              is_read: false
-            });
-
-            // 📧 Send email notification
-            try {
-              await base44.asServiceRole.integrations.Core.SendEmail({
-                to: admin.user_email,
-                subject: '🎉 Welcome to Your New Subscription Plan!',
-                body: `Hi ${admin.full_name || 'there'},\n\nYour ${planName || 'Professional'} plan subscription has been activated with a 14-day trial period.\n\nYou now have access to all premium features. Your trial ends on ${trialEndsAt.toLocaleDateString()}.\n\nEnjoy exploring your new capabilities!\n\nBest regards,\nThe Team`
+              const planName = session.metadata.plan_name;
+              const trialEndsAt = new Date(decision.trialEnd);
+              const staffProfiles = await base44.asServiceRole.entities.StaffProfile.filter({
+                company_id: companyId,
+                is_administrator: true
               });
-            } catch (emailError) {
-              console.error('Failed to send subscription email:', emailError);
-            }
-          }
 
-          console.log(`✅ Company ${companyId} trial started with notifications sent`);
+              for (const admin of staffProfiles) {
+                await base44.asServiceRole.entities.Notification.create({
+                  company_id: companyId,
+                  user_email: admin.user_email,
+                  title: '🎉 Subscription Started!',
+                  message: `Your ${planName || 'Professional'} plan trial has begun. You have 14 days to explore all features. No credit card charge today.`,
+                  type: 'subscription_created',
+                  is_read: false
+                });
+
+                try {
+                  await base44.asServiceRole.integrations.Core.SendEmail({
+                    to: admin.user_email,
+                    subject: '🎉 Welcome to Your New Subscription Plan!',
+                    body: `Hi ${admin.full_name || 'there'},\n\nYour ${planName || 'Professional'} plan subscription has been activated with a 14-day free trial. No credit card charge is due today.\n\nYou now have access to all premium features. Your trial ends on ${trialEndsAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}.\n\nEnjoy exploring your new capabilities!\n\nBest regards,\nThe Team`
+                  });
+                } catch (emailError) {
+                  console.error('Failed to send subscription email:', emailError);
+                }
+              }
+
+              console.log(`✅ Company ${companyId} trial started with notifications sent`);
+            } else {
+              console.log(`✅ Company ${companyId} checkout left existing trial and subscription unchanged (${decision.action})`);
+            }
         }
         break;
       }

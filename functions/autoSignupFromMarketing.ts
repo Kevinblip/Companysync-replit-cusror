@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@base44/sdk@0.8.6';
+import { newCompanyTrialRecord } from '../src/lib/trialPolicy.js';
 
 Deno.serve(async (req) => {
     try {
@@ -31,8 +32,8 @@ Deno.serve(async (req) => {
             }, { status: 400 });
         }
 
-        // Calculate trial end date (14 days from now)
-        const trialEndDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+        // New company only. Existing emails already returned above.
+        const trial = newCompanyTrialRecord();
 
         // Create company with trial settings
         const company = await base44.asServiceRole.entities.Company.create({
@@ -45,8 +46,9 @@ Deno.serve(async (req) => {
             zip: companyData.zip || '',
             industry: companyData.industry || 'roofing',
             subscription_plan: companyData.plan_type || 'professional',
-            subscription_status: 'trial',
-            trial_ends_at: trialEndDate.toISOString().split('T')[0],
+            subscription_status: trial.subscription_status,
+            trial_ends_at: trial.trial_ends_at,
+            trial_end_date: trial.trial_end_date,
             max_users: companyData.team_size ? parseInt(companyData.team_size) : 10,
             max_customers: 1000,
             setup_completed: false

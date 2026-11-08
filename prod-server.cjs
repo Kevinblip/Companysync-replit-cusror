@@ -861,7 +861,7 @@ async function localCheckVoiceAccess(companyId) {
   const pool = prodDb.getPool();
   try {
     const { rows } = await pool.query(
-      `SELECT id, name, subscription_plan, trial_end_date, data FROM companies WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false) LIMIT 1`,
+      `SELECT id, name, subscription_plan, trial_end_date, stripe_subscription_id, data FROM companies WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false) LIMIT 1`,
       [companyId]
     );
     const company = rows[0];
@@ -870,16 +870,12 @@ async function localCheckVoiceAccess(companyId) {
       return { allowed: true };
     }
 
-    const plan = (company.subscription_plan || company.data?.subscription_plan || 'trial').toLowerCase();
-    const status = company.data?.subscription_status || 'active';
-    const trialExpired = company.data?.trial_expired === true ||
-      (company.trial_end_date && new Date(company.trial_end_date) < new Date());
-
-    if (trialExpired && plan === 'trial') {
-      return { allowed: false, reason: 'Trial expired. Please upgrade to continue using voice features.' };
-    }
-    if (status === 'cancelled' || status === 'suspended') {
-      return { allowed: false, reason: `Subscription ${status}. Please contact support to reactivate.` };
+    const { evaluateVoiceTrialAccess } = await import('./src/lib/trialPolicy.js');
+    const access = evaluateVoiceTrialAccess(company);
+    const plan = access.plan;
+    const status = access.status;
+    if (!access.allowed) {
+      return { allowed: false, reason: access.reason };
     }
 
     let callMinutesUsed = 0;

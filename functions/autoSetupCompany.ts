@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { newCompanyTrialRecord } from '../src/lib/trialPolicy.js';
 
 Deno.serve(async (req) => {
   try {
@@ -66,7 +67,13 @@ Deno.serve(async (req) => {
           company = await base44.asServiceRole.entities.Company.update(company.id, companyData);
           console.log('✅ Company updated (found during final check)');
         } else {
-          company = await base44.asServiceRole.entities.Company.create(companyData);
+          const trial = newCompanyTrialRecord();
+          company = await base44.asServiceRole.entities.Company.create({
+            ...companyData,
+            subscription_status: trial.subscription_status,
+            trial_ends_at: trial.trial_ends_at,
+            trial_end_date: trial.trial_end_date,
+          });
           console.log('✅ Company created');
         }
       }

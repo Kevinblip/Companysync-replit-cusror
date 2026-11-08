@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Check, Sparkles, Zap, Crown, Loader2 } from "lucide-react";
+import { canInitializeTrial, newCompanyTrialRecord } from "@/lib/trialPolicy";
 
 export default function Pricing() {
   const navigate = useNavigate();
@@ -220,17 +221,21 @@ export default function Pricing() {
       // For this simplified version: Click always goes to Stripe Checkout if they already have a company
       // This allows them to "Activate" the trial with a card or Upgrade
       
-      // EXCEPTION: If they are BRAND NEW (no plan set or just created), allow the No-Card Trial
-      if ((!myCompany.subscription_plan || myCompany.subscription_plan === 'trial') && !isExpired && !isActive) {
-         // Calculate trial end date (14 days from now)
-        const trialEndDate = new Date();
-        trialEndDate.setDate(trialEndDate.getDate() + 14);
+      // No-card trial only for a company that has never had a status, end date,
+      // or Stripe subscription. A stored 14/21/30-day end is not rewritten.
+      if (
+        canInitializeTrial(myCompany) &&
+        (!myCompany.subscription_plan || myCompany.subscription_plan === 'trial') &&
+        !isExpired &&
+        !isActive
+      ) {
+        const trial = newCompanyTrialRecord();
 
-        // Start trial immediately - no credit card required
         await base44.entities.Company.update(myCompany.id, {
           subscription_plan: plan.name.toLowerCase(),
-          subscription_status: 'trial',
-          trial_ends_at: trialEndDate.toISOString().split('T')[0],
+          subscription_status: trial.subscription_status,
+          trial_ends_at: trial.trial_ends_at,
+          trial_end_date: trial.trial_end_date,
           max_users: plan.limits.users,
           max_customers: plan.limits.clients
         });
