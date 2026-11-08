@@ -2,6 +2,10 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 
+function loadTrialPolicy() {
+  return import('../src/lib/trialPolicy.js');
+}
+
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
@@ -247,17 +251,29 @@ async function handleSignup(req, res, pool) {
       return;
     }
 
-    // New company signup — create company, user, and admin staff profile
+    // New company signup — create company, user, and admin staff profile.
+    // ON CONFLICT DO NOTHING so a retried id cannot move an existing trial end.
     const companyId = generateId();
     const companyNameTrimmed = company_name.trim();
-    const trialEndDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
-
-    await pool.query(
-      `INSERT INTO companies (id, name, company_name, email, created_by, subscription_plan, subscription_status, trial_end_date, created_at, updated_at)
-       VALUES ($1, $2, $2, $3, $3, 'trial', 'trial', $4, NOW(), NOW())
-       ON CONFLICT (id) DO NOTHING`,
-      [companyId, companyNameTrimmed, emailLower, trialEndDate]
+    const { insertNewCompanyTrial } = await loadTrialPolicy();
+    const inserted = await insertNewCompanyTrial(
+      (text, values) => pool.query(text, values),
+      {
+        id: companyId,
+        name: companyNameTrimmed,
+        company_name: companyNameTrimmed,
+        email: emailLower,
+        created_by: emailLower,
+        subscription_plan: 'trial',
+        onConflictDoNothing: true,
+      }
     );
+    if (!inserted.ok) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'An unexpected error occurred. Please try again.' }));
+      return;
+    }
+    const trialEndDate = new Date(inserted.trial.trial_end_date);
 
     await pool.query(
       `INSERT INTO users (id, email, first_name, last_name, password_hash, is_local_auth, must_change_password, company_id, created_at, updated_at)
@@ -541,13 +557,24 @@ async function handleConfirmEmail(req, res, pool) {
     const passwordHash = await bcrypt.hash(tempPassword, 10);
     const userId = generateId();
     const companyId = generateId();
-
-    await pool.query(
-      `INSERT INTO companies (id, name, company_name, created_by, subscription_plan, subscription_status, created_at, updated_at)
-       VALUES ($1, $2, $2, $3, 'trial', 'trial', NOW(), NOW())
-       ON CONFLICT (id) DO NOTHING`,
-      [companyId, signup.company_name, signup.email]
+    const { insertNewCompanyTrial } = await loadTrialPolicy();
+    const inserted = await insertNewCompanyTrial(
+      (text, values) => pool.query(text, values),
+      {
+        id: companyId,
+        name: signup.company_name,
+        company_name: signup.company_name,
+        created_by: signup.email,
+        subscription_plan: 'trial',
+        onConflictDoNothing: true,
+      }
     );
+    if (!inserted.ok) {
+      res.writeHead(500, { 'Content-Type': 'text/html' });
+      res.end('<html><body><h1>Error</h1><p>Something went wrong. Please try again or contact support.</p></body></html>');
+      return;
+    }
+    const trialEndStr = new Date(inserted.trial.trial_end_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
     await pool.query(
       `INSERT INTO users (id, email, first_name, last_name, password_hash, is_local_auth, must_change_password, company_id, created_at, updated_at)
@@ -581,6 +608,7 @@ async function handleConfirmEmail(req, res, pool) {
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <h1 style="color: #1e293b; margin-bottom: 8px;">Your Account Is Ready!</h1>
         <p style="color: #64748b; font-size: 16px;">Welcome to CompanySync, ${signup.company_name}!</p>
+        <p style="color: #334155; font-size: 15px;">Your 14-day free trial has started. No credit card is required. It ends on <strong>${trialEndStr}</strong>.</p>
         <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
         <p style="color: #334155; font-size: 15px;">Your account has been created. Here are your login credentials:</p>
         <div style="background: #f1f5f9; border-radius: 8px; padding: 20px; margin: 20px 0;">
@@ -622,7 +650,7 @@ async function handleConfirmEmail(req, res, pool) {
         <div class="card">
           <div class="check"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg></div>
           <h1>Email Confirmed!</h1>
-          <p>Your CompanySync account for <strong>${signup.company_name}</strong> has been created.</p>
+          <p>Your CompanySync account for <strong>${signup.company_name}</strong> has been created. Your 14-day free trial is active and no credit card is required.</p>
           <p>We've sent your login credentials to <strong>${signup.email}</strong>. Check your inbox for your temporary password.</p>
           <a href="${loginUrl}" class="btn">Go to Login</a>
         </div>

@@ -1698,11 +1698,21 @@ async function handleLocalDbRoute(req, res, pathname, url) {
       const displayName = name || email.split('@')[0];
       const companyName = `${displayName}'s Company`;
 
-      await p.query(
-        `INSERT INTO companies (id, name, company_name, created_by, email, preferred_language, subscription_plan, is_deleted, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, 'en', 'professional', false, NOW(), NOW())`,
-        [companyId, companyName, companyName, email, email]
+      const { insertNewCompanyTrial } = await import('../src/lib/trialPolicy.js');
+      const inserted = await insertNewCompanyTrial(
+        (text, values) => p.query(text, values),
+        {
+          id: companyId,
+          name: companyName,
+          company_name: companyName,
+          created_by: email,
+          email,
+          preferred_language: 'en',
+          subscription_plan: 'professional',
+          is_deleted: false,
+        }
       );
+      if (!inserted.ok) return sendJson({ error: 'Trial could not be recorded on this database' }, 500);
 
       const staffId = `staff_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       await p.query(

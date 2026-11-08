@@ -3,6 +3,7 @@ import { syncEntityBatch, syncCallRoutingCache, getSyncStatus } from './db/sync.
 import { getDashboardData, getEntityList, getCallRouting, getStaffByTwilioNumber, getReportingData } from './db/queries.js';
 import { notifyAdmins, getEntityNotificationConfig } from './vite-notification-helper.js';
 import { functionHandlers } from './vite-functions-plugin.js';
+import { insertNewCompanyTrial } from './src/lib/trialPolicy.js';
 
 async function sendViaResend({ to, subject, html, from }) {
   const resendKey = process.env.RESEND_API_KEY;
@@ -34,14 +35,17 @@ async function sendViaResend({ to, subject, html, from }) {
   }
 }
 
-async function sendNewCompanyEmails({ email, displayName, companyName, companyId }) {
+async function sendNewCompanyEmails({ email, displayName, companyName, companyId, trialEndsAt }) {
   const adminEmail = process.env.ADMIN_EMAIL || 'io.companysync@gmail.com';
   const now = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+  const trialEndStr = trialEndsAt
+    ? new Date(trialEndsAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+    : '';
 
   // Welcome email to new user
   await sendViaResend({
     to: email,
-    subject: `Welcome to CompanySync — Your free trial is ready!`,
+    subject: `Welcome to CompanySync — Your 14-day free trial is ready!`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#222;">
         <div style="background:#1d4ed8;padding:28px 32px;border-radius:8px 8px 0 0;">
@@ -49,7 +53,7 @@ async function sendNewCompanyEmails({ email, displayName, companyName, companyId
         </div>
         <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;">
           <p style="font-size:16px;">Hi ${displayName},</p>
-          <p>Your <strong>free trial account</strong> is ready. Here's what you can do right now:</p>
+          <p>Your <strong>14-day free trial</strong> is ready. No credit card is required.${trialEndStr ? ` Full access runs through <strong>${trialEndStr}</strong>.` : ''} Here's what you can do right now:</p>
           <ul>
             <li>Add your first customer or lead</li>
             <li>Create an AI-powered estimate in seconds</li>
@@ -1748,11 +1752,21 @@ export default function dbPlugin() {
             const displayName = name || email.split('@')[0];
             const companyName = `${displayName}'s Company`;
 
-            await pool.query(
-              `INSERT INTO companies (id, name, company_name, created_by, email, preferred_language, subscription_plan, is_deleted, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, 'en', 'professional', false, NOW(), NOW())`,
-              [companyId, companyName, companyName, email, email]
+            const inserted = await insertNewCompanyTrial(
+              (text, values) => pool.query(text, values),
+              {
+                id: companyId,
+                name: companyName,
+                company_name: companyName,
+                created_by: email,
+                email,
+                preferred_language: 'en',
+                subscription_plan: 'professional',
+                is_deleted: false,
+              }
             );
+            if (!inserted.ok) return sendError(res, 'Trial could not be recorded on this database', 500);
+            const trial = inserted.trial;
 
             const staffId = `staff_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             await pool.query(
@@ -1769,7 +1783,7 @@ export default function dbPlugin() {
             console.log(`[Auto-Provision] Created company "${companyName}" (${companyId}) and staff profile for ${email}`);
 
             // Send welcome email to new company + admin notification (fire and forget)
-            sendNewCompanyEmails({ email, displayName, companyName, companyId }).catch(err =>
+            sendNewCompanyEmails({ email, displayName, companyName, companyId, trialEndsAt: trial.trial_ends_at }).catch(err =>
               console.error('[Auto-Provision] Email notification error:', err.message)
             );
 

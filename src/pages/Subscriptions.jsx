@@ -17,6 +17,7 @@ import {
   TrendingUp
 } from "lucide-react";
 import { format } from "date-fns";
+import { planSubscriptionRecordCreate } from "@/lib/trialPolicy";
 
 export default function Subscriptions() {
   const [selectedPlan, setSelectedPlan] = useState(null);
@@ -54,17 +55,16 @@ export default function Subscriptions() {
 
   const handleSelectPlan = (plan) => {
     if (window.confirm(`Switch to ${plan.plan_name} plan?`)) {
-      const subscriptionData = {
-        company_name: "My Company",
-        plan_name: plan.plan_name,
-        status: "trial",
-        billing_cycle_start: new Date().toISOString().split('T')[0],
-        billing_cycle_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        user_count: 1,
-        monthly_cost: plan.base_price,
-        trial_ends_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-      };
-      createSubscriptionMutation.mutate(subscriptionData);
+      const decision = planSubscriptionRecordCreate({
+        company: myCompany,
+        existingSubscription: currentSubscription,
+        plan,
+      });
+      if (!decision.create) {
+        window.alert(decision.message);
+        return;
+      }
+      createSubscriptionMutation.mutate(decision.record);
     }
   };
 

@@ -46,6 +46,7 @@ Deno.serve(async (req) => {
     <div class="content">
       <h2>Hi ${companyName}!</h2>
       <p>Thank you for joining CompanySync! We're thrilled to have you on board.</p>
+      ${(company.subscription_status === 'trial' || company.trial_ends_at || company.trial_end_date) ? `<p>Your <strong>14-day free trial</strong> is active. No credit card is required.${(company.trial_ends_at || company.trial_end_date) ? ` It ends on ${new Date(company.trial_ends_at || company.trial_end_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}.` : ''}</p>` : ''}
       <p>Your account is all set up and ready to go. Here's what you can do next:</p>
       
       <div class="features">
