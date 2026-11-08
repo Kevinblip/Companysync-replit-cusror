@@ -255,21 +255,25 @@ async function handleSignup(req, res, pool) {
     // ON CONFLICT DO NOTHING so a retried id cannot move an existing trial end.
     const companyId = generateId();
     const companyNameTrimmed = company_name.trim();
-    const { newCompanyTrialRecord } = await loadTrialPolicy();
-    const trial = newCompanyTrialRecord();
-    const trialEndDate = new Date(trial.trial_end_date);
-    const trialData = JSON.stringify({
-      trial_ends_at: trial.trial_ends_at,
-      trial_end_date: trial.trial_end_date,
-      subscription_status: 'trial',
-    });
-
-    await pool.query(
-      `INSERT INTO companies (id, name, company_name, email, created_by, subscription_plan, subscription_status, trial_end_date, data, created_at, updated_at)
-       VALUES ($1, $2, $2, $3, $3, 'trial', 'trial', $4, $5::jsonb, NOW(), NOW())
-       ON CONFLICT (id) DO NOTHING`,
-      [companyId, companyNameTrimmed, emailLower, trial.trial_end_date, trialData]
+    const { insertNewCompanyTrial } = await loadTrialPolicy();
+    const inserted = await insertNewCompanyTrial(
+      (text, values) => pool.query(text, values),
+      {
+        id: companyId,
+        name: companyNameTrimmed,
+        company_name: companyNameTrimmed,
+        email: emailLower,
+        created_by: emailLower,
+        subscription_plan: 'trial',
+        onConflictDoNothing: true,
+      }
     );
+    if (!inserted.ok) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'An unexpected error occurred. Please try again.' }));
+      return;
+    }
+    const trialEndDate = new Date(inserted.trial.trial_end_date);
 
     await pool.query(
       `INSERT INTO users (id, email, first_name, last_name, password_hash, is_local_auth, must_change_password, company_id, created_at, updated_at)
@@ -553,21 +557,24 @@ async function handleConfirmEmail(req, res, pool) {
     const passwordHash = await bcrypt.hash(tempPassword, 10);
     const userId = generateId();
     const companyId = generateId();
-    const { newCompanyTrialRecord } = await loadTrialPolicy();
-    const trial = newCompanyTrialRecord();
-    const trialEndStr = new Date(trial.trial_end_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
-    const trialData = JSON.stringify({
-      trial_ends_at: trial.trial_ends_at,
-      trial_end_date: trial.trial_end_date,
-      subscription_status: 'trial',
-    });
-
-    await pool.query(
-      `INSERT INTO companies (id, name, company_name, created_by, subscription_plan, subscription_status, trial_end_date, data, created_at, updated_at)
-       VALUES ($1, $2, $2, $3, 'trial', 'trial', $4, $5::jsonb, NOW(), NOW())
-       ON CONFLICT (id) DO NOTHING`,
-      [companyId, signup.company_name, signup.email, trial.trial_end_date, trialData]
+    const { insertNewCompanyTrial } = await loadTrialPolicy();
+    const inserted = await insertNewCompanyTrial(
+      (text, values) => pool.query(text, values),
+      {
+        id: companyId,
+        name: signup.company_name,
+        company_name: signup.company_name,
+        created_by: signup.email,
+        subscription_plan: 'trial',
+        onConflictDoNothing: true,
+      }
     );
+    if (!inserted.ok) {
+      res.writeHead(500, { 'Content-Type': 'text/html' });
+      res.end('<html><body><h1>Error</h1><p>Something went wrong. Please try again or contact support.</p></body></html>');
+      return;
+    }
+    const trialEndStr = new Date(inserted.trial.trial_end_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
     await pool.query(
       `INSERT INTO users (id, email, first_name, last_name, password_hash, is_local_auth, must_change_password, company_id, created_at, updated_at)

@@ -3,7 +3,7 @@ import { syncEntityBatch, syncCallRoutingCache, getSyncStatus } from './db/sync.
 import { getDashboardData, getEntityList, getCallRouting, getStaffByTwilioNumber, getReportingData } from './db/queries.js';
 import { notifyAdmins, getEntityNotificationConfig } from './vite-notification-helper.js';
 import { functionHandlers } from './vite-functions-plugin.js';
-import { newCompanyTrialRecord } from './src/lib/trialPolicy.js';
+import { insertNewCompanyTrial } from './src/lib/trialPolicy.js';
 
 async function sendViaResend({ to, subject, html, from }) {
   const resendKey = process.env.RESEND_API_KEY;
@@ -1752,17 +1752,21 @@ export default function dbPlugin() {
             const displayName = name || email.split('@')[0];
             const companyName = `${displayName}'s Company`;
 
-            const trial = newCompanyTrialRecord();
-            const trialData = JSON.stringify({
-              trial_ends_at: trial.trial_ends_at,
-              trial_end_date: trial.trial_end_date,
-              subscription_status: 'trial',
-            });
-            await pool.query(
-              `INSERT INTO companies (id, name, company_name, created_by, email, preferred_language, subscription_plan, subscription_status, trial_end_date, data, is_deleted, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, 'en', 'professional', 'trial', $6, $7::jsonb, false, NOW(), NOW())`,
-              [companyId, companyName, companyName, email, email, trial.trial_end_date, trialData]
+            const inserted = await insertNewCompanyTrial(
+              (text, values) => pool.query(text, values),
+              {
+                id: companyId,
+                name: companyName,
+                company_name: companyName,
+                created_by: email,
+                email,
+                preferred_language: 'en',
+                subscription_plan: 'professional',
+                is_deleted: false,
+              }
             );
+            if (!inserted.ok) return sendError(res, 'Trial could not be recorded on this database', 500);
+            const trial = inserted.trial;
 
             const staffId = `staff_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             await pool.query(

@@ -37,6 +37,13 @@ function copyProdServer() {
         }
         console.log('[Build] Copied db/ -> dist/db/');
       }
+      const policySrc = path.resolve(__dirname, 'src', 'lib', 'trialPolicy.js');
+      const policyDestDir = path.resolve(__dirname, 'dist', 'src', 'lib');
+      if (fs.existsSync(policySrc)) {
+        if (!fs.existsSync(policyDestDir)) fs.mkdirSync(policyDestDir, { recursive: true });
+        fs.copyFileSync(policySrc, path.join(policyDestDir, 'trialPolicy.js'));
+        console.log('[Build] Copied src/lib/trialPolicy.js -> dist/src/lib/');
+      }
       for (const pluginFile of ['vite-functions-plugin.js', 'vite-stripe-plugin.js']) {
         const pluginSrc = path.resolve(__dirname, pluginFile);
         const pluginDest = path.resolve(__dirname, 'dist', pluginFile);

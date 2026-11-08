@@ -1,5 +1,5 @@
 import { createRequire } from 'module';
-import { applyCheckoutTrial, planCheckoutSessionCompleted, planSubscriptionCheckoutTrial, NEW_TRIAL_CLAIM_SQL } from './src/lib/trialPolicy.js';
+import { applyCheckoutTrial, planCheckoutSessionCompleted, planSubscriptionCheckoutTrial, newTrialClaimSql, COMPANY_COLUMNS_SQL } from './src/lib/trialPolicy.js';
 const require = createRequire(import.meta.url);
 
 let stripeClient = null;
@@ -542,11 +542,19 @@ async function handleStripeEvent(event, stripe, pool) {
           session,
         });
         if (decision.action === 'initialize_new_trial' && decision.update) {
-          const claim = await pool.query(NEW_TRIAL_CLAIM_SQL, [
-            companyId,
-            decision.update.trial_end_date,
-            decision.update.trial_ends_at,
-          ]);
+          const columnResult = await pool.query(COMPANY_COLUMNS_SQL);
+          const columnNames = new Set(columnResult.rows.map((record) => record.column_name));
+          const claimSql = newTrialClaimSql({
+            hasSubscriptionStatusColumn: columnNames.has('subscription_status'),
+            hasTrialEndDateColumn: columnNames.has('trial_end_date'),
+          });
+          const claim = claimSql
+            ? await pool.query(claimSql, [
+              companyId,
+              decision.update.trial_end_date,
+              decision.update.trial_ends_at,
+            ])
+            : { rowCount: 0 };
           if (claim.rowCount === 1) {
             const planName = session.metadata?.plan_name;
             await notifyAdmins(

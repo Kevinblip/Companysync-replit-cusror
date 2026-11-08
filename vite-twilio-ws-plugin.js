@@ -540,7 +540,7 @@ async function localCheckVoiceAccess(companyId) {
   try {
     const pool = getLocalPool();
     const { rows } = await pool.query(
-      `SELECT id, name, subscription_plan, subscription_status, trial_end_date, stripe_subscription_id, data FROM companies WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false) LIMIT 1`,
+      `SELECT id, name, subscription_plan, trial_end_date, stripe_subscription_id, data FROM companies WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = false) LIMIT 1`,
       [companyId]
     );
     const company = rows[0];

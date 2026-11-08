@@ -155,7 +155,7 @@ export function planSubscriptionCheckoutTrial(company, metadata = {}, now = new 
     };
   }
 
-  if (KNOWN_PAID_PLANS.has(readPlan(company))) {
+  if (KNOWN_PAID_PLANS.has(readPlan(company)) || readStripeSubscriptionId(company)) {
     return {
       action: 'no_trial_on_existing_subscription',
       trial_period_days: null,
@@ -236,13 +236,116 @@ export function reduceTrialClaim(company, session, now = new Date()) {
 }
 
 /**
- * Atomic claim for a Postgres companies row. Matches canInitializeTrial:
- * no stored end in either field, no status, no Stripe subscription.
- * A second delivery updates zero rows and must not send mail.
+ * In-memory stand-in for a unique claim row. The second caller throws the
+ * same class of duplicate error a primary key would, and must not write.
  */
-export const NEW_TRIAL_CLAIM_SQL = `UPDATE companies
-  SET subscription_status = 'trial',
-      trial_end_date = $2::timestamptz,
+export function createMemoryTrialClaim() {
+  const claims = new Map();
+  return {
+    claims,
+    async createClaim({ id, companyId, trialEndsAt }) {
+      if (claims.has(id)) {
+        const error = new Error('duplicate key value');
+        error.code = '23505';
+        throw error;
+      }
+      claims.set(id, { companyId, trialEndsAt });
+      return { claimed: true };
+    },
+  };
+}
+
+export async function claimTrialInitialization({ company, session, now, companyId, createClaim, updateCompany, readCompany }) {
+  const decision = planCheckoutSessionCompleted({ company, session, now });
+  if (decision.action !== 'initialize_new_trial' || !decision.update) {
+    return { ...decision, claimed: false, wrote: false, notify: false };
+  }
+  const id = `trial_init_${companyId}`;
+  try {
+    await createClaim({ id, companyId, trialEndsAt: decision.update.trial_ends_at });
+  } catch {
+    return { action: 'claim_rejected', update: null, claimed: false, wrote: false, notify: false, trialEnd: decision.trialEnd };
+  }
+  const fresh = typeof readCompany === 'function' ? await readCompany() : company;
+  const again = planCheckoutSessionCompleted({ company: fresh, session, now });
+  if (again.action !== 'initialize_new_trial' || !again.update) {
+    return { ...again, claimed: true, wrote: false, notify: false };
+  }
+  if (typeof updateCompany === 'function') await updateCompany(again.update);
+  return { ...again, claimed: true, wrote: true, notify: true };
+}
+
+const INSERTABLE_COLUMNS = [
+  'id', 'name', 'company_name', 'email', 'created_by', 'preferred_language',
+  'subscription_plan', 'subscription_status', 'trial_end_date', 'is_deleted', 'data',
+];
+
+export const COMPANY_COLUMNS_SQL = `SELECT column_name FROM information_schema.columns WHERE table_name = 'companies' AND table_schema = current_schema()`;
+
+export function buildNewCompanyInsert({ columnNames, row }) {
+  const available = new Set(columnNames || []);
+  const trial = newCompanyTrialRecord(row.now);
+  if (!available.has('data') && !available.has('trial_end_date')) {
+    return { ok: false, reason: 'no_trial_column', trial };
+  }
+  const dataPayload = {
+    trial_ends_at: trial.trial_ends_at,
+    trial_end_date: trial.trial_end_date,
+    subscription_status: 'trial',
+  };
+  const valuesByColumn = {
+    id: row.id,
+    name: row.name,
+    company_name: row.company_name,
+    email: row.email,
+    created_by: row.created_by,
+    preferred_language: row.preferred_language || 'en',
+    subscription_plan: row.subscription_plan || 'professional',
+    subscription_status: 'trial',
+    trial_end_date: trial.trial_end_date,
+    is_deleted: row.is_deleted === undefined ? false : row.is_deleted,
+    data: JSON.stringify(dataPayload),
+  };
+  const columns = [];
+  const values = [];
+  const placeholders = [];
+  for (const column of INSERTABLE_COLUMNS) {
+    if (!available.has(column)) continue;
+    if (valuesByColumn[column] === undefined) continue;
+    columns.push(column);
+    values.push(valuesByColumn[column]);
+    placeholders.push(column === 'data' ? `$${values.length}::jsonb` : `$${values.length}`);
+  }
+  if (available.has('created_at')) {
+    columns.push('created_at');
+    placeholders.push('NOW()');
+  }
+  if (available.has('updated_at')) {
+    columns.push('updated_at');
+    placeholders.push('NOW()');
+  }
+  let text = `INSERT INTO companies (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+  if (row.onConflictDoNothing && available.has('id')) {
+    text += ' ON CONFLICT (id) DO NOTHING';
+  }
+  return { ok: true, text, values, columns, trial };
+}
+
+export async function insertNewCompanyTrial(query, row) {
+  const discovered = await query(COMPANY_COLUMNS_SQL);
+  const columnNames = (discovered.rows || []).map((record) => record.column_name);
+  const built = buildNewCompanyInsert({ columnNames, row });
+  if (!built.ok) return built;
+  const inserted = await query(built.text, built.values);
+  return { ...built, rowCount: inserted?.rowCount ?? null };
+}
+
+export function newTrialClaimSql({ hasSubscriptionStatusColumn = true, hasTrialEndDateColumn = true } = {}) {
+  if (!hasTrialEndDateColumn) return null;
+  const statusSet = hasSubscriptionStatusColumn ? "subscription_status = 'trial',\n      " : '';
+  const statusWhere = hasSubscriptionStatusColumn ? "\n    AND COALESCE(subscription_status, '') = ''" : '';
+  return `UPDATE companies
+  SET ${statusSet}trial_end_date = $2::timestamptz,
       data = jsonb_set(
         jsonb_set(
           jsonb_set(COALESCE(data, '{}'::jsonb), '{trial_ends_at}', to_jsonb($3::text), true),
@@ -254,14 +357,51 @@ export const NEW_TRIAL_CLAIM_SQL = `UPDATE companies
   WHERE id = $1
     AND trial_end_date IS NULL
     AND COALESCE(data->>'trial_ends_at', '') = ''
-    AND COALESCE(data->>'trial_end_date', '') = ''
-    AND COALESCE(subscription_status, '') = ''
+    AND COALESCE(data->>'trial_end_date', '') = ''${statusWhere}
     AND COALESCE(data->>'subscription_status', '') = ''
     AND COALESCE(stripe_subscription_id, '') = ''
     AND COALESCE(data->>'stripe_subscription_id', '') = ''
     AND COALESCE(subscription_plan, '') NOT IN ('basic', 'business', 'enterprise', 'professional', 'starter', 'freelance')
     AND COALESCE(data->>'subscription_plan', '') NOT IN ('basic', 'business', 'enterprise', 'professional', 'starter', 'freelance')
   RETURNING id, trial_end_date`;
+}
+
+export function planSubscriptionRecordCreate({ company, existingSubscription, plan, now = new Date() }) {
+  const nowDate = now instanceof Date ? now : new Date(now);
+  const stored = readStoredTrialEnd(existingSubscription) || readStoredTrialEnd(company);
+  if (existingSubscription || stored || (company && !canInitializeTrial(company))) {
+    return {
+      create: false,
+      action: 'preserve_existing',
+      trialEnd: stored,
+      message: 'Your existing subscription and trial end were left unchanged.',
+    };
+  }
+  const trial = newCompanyTrialRecord(nowDate);
+  return {
+    create: true,
+    action: 'new_trial',
+    trialEnd: trial.trial_ends_at,
+    record: {
+      company_name: 'My Company',
+      plan_name: plan?.plan_name,
+      status: 'trial',
+      billing_cycle_start: nowDate.toISOString().split('T')[0],
+      billing_cycle_end: new Date(nowDate.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      user_count: 1,
+      monthly_cost: plan?.base_price,
+      trial_ends_at: trial.trial_ends_at,
+      trial_end_date: trial.trial_end_date,
+    },
+  };
+}
+
+/**
+ * Atomic claim for a Postgres companies row. Matches canInitializeTrial:
+ * no stored end in either field, no status, no Stripe subscription.
+ * A second delivery updates zero rows and must not send mail.
+ */
+export const NEW_TRIAL_CLAIM_SQL = newTrialClaimSql({ hasSubscriptionStatusColumn: true, hasTrialEndDateColumn: true });
 
 export function evaluateVoiceTrialAccess(company, now = new Date()) {
   if (!company) return { allowed: true, plan: null, status: null };

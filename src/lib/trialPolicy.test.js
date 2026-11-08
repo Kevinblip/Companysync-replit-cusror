@@ -8,11 +8,17 @@ import {
   NEW_COMPANY_TRIAL_MS,
   NEW_TRIAL_CLAIM_SQL,
   applyCheckoutTrial,
+  buildNewCompanyInsert,
   canInitializeTrial,
+  claimTrialInitialization,
+  createMemoryTrialClaim,
   evaluateVoiceTrialAccess,
+  insertNewCompanyTrial,
   newCompanyTrialRecord,
+  newTrialClaimSql,
   planCheckoutSessionCompleted,
   planSubscriptionCheckoutTrial,
+  planSubscriptionRecordCreate,
   reduceTrialClaim,
 } from './trialPolicy.js'
 
@@ -259,5 +265,142 @@ describe('claim sql and unchanged billing links', () => {
     expect(stripePlugin).toContain('unit_amount: amount * 100')
     expect(stripePlugin).toContain("purchase_type: 'credits'")
     expect(purchase).not.toContain('price_1T4Q')
+  })
+})
+
+const PROD_COLUMNS_WITHOUT_STATUS = [
+  'id', 'name', 'company_name', 'email', 'created_by', 'preferred_language',
+  'subscription_plan', 'trial_end_date', 'data', 'is_deleted', 'created_at', 'updated_at',
+]
+
+describe('auto-provision insert follows real columns', () => {
+  it('omits subscription_status when that column is absent and still stores a 14-day trial', async () => {
+    const calls = []
+    const inserted = await insertNewCompanyTrial(async (sql, values) => {
+      calls.push({ sql, values })
+      if (String(sql).includes('information_schema')) {
+        return { rows: PROD_COLUMNS_WITHOUT_STATUS.map((column_name) => ({ column_name })) }
+      }
+      return { rowCount: 1 }
+    }, {
+      id: 'company_new',
+      name: 'North Roofing',
+      company_name: 'North Roofing',
+      email: 'owner@example.com',
+      created_by: 'owner@example.com',
+      subscription_plan: 'professional',
+      now: NOW,
+    })
+    expect(inserted.ok).toBe(true)
+    expect(inserted.columns).not.toContain('subscription_status')
+    expect(inserted.text).not.toContain('subscription_status')
+    expect(inserted.text.startsWith('INSERT INTO companies (')).toBe(true)
+    const data = JSON.parse(inserted.values[inserted.columns.indexOf('data')])
+    expect(data.subscription_status).toBe('trial')
+    expect(data.trial_ends_at).toBe(inserted.trial.trial_ends_at)
+    expect(new Date(inserted.trial.trial_ends_at).getTime() - NOW.getTime()).toBe(14 * DAY)
+    expect(calls[1].sql).toBe(inserted.text)
+  })
+
+  it('includes subscription_status when the column exists', () => {
+    const built = buildNewCompanyInsert({
+      columnNames: [...PROD_COLUMNS_WITHOUT_STATUS, 'subscription_status'],
+      row: { id: 'c', name: 'N', company_name: 'N', subscription_plan: 'trial', now: NOW },
+    })
+    expect(built.columns).toContain('subscription_status')
+    expect(built.values[built.columns.indexOf('subscription_status')]).toBe('trial')
+  })
+
+  it('refuses to insert when neither trial column exists', () => {
+    const built = buildNewCompanyInsert({
+      columnNames: ['id', 'name', 'company_name'],
+      row: { id: 'c', name: 'N', company_name: 'N', now: NOW },
+    })
+    expect(built.ok).toBe(false)
+  })
+})
+
+describe('webhook claim and subscription records', () => {
+  it('lets one claim write and the duplicate write nothing', async () => {
+    const store = createMemoryTrialClaim()
+    let writes = 0
+    const session = { mode: 'subscription', amount_total: 0, metadata: {} }
+    const first = await claimTrialInitialization({
+      company: {},
+      session,
+      now: NOW,
+      companyId: 'company_1',
+      createClaim: store.createClaim,
+      updateCompany: async () => { writes += 1 },
+      readCompany: async () => ({}),
+    })
+    const second = await claimTrialInitialization({
+      company: {},
+      session,
+      now: new Date(NOW.getTime() + DAY),
+      companyId: 'company_1',
+      createClaim: store.createClaim,
+      updateCompany: async () => { writes += 1 },
+      readCompany: async () => ({}),
+    })
+    expect(first.wrote).toBe(true)
+    expect(first.notify).toBe(true)
+    expect(second.wrote).toBe(false)
+    expect(second.notify).toBe(false)
+    expect(writes).toBe(1)
+    expect(store.claims.size).toBe(1)
+  })
+
+  it('does not update after the claim if the company gained an end', async () => {
+    const store = createMemoryTrialClaim()
+    const end = isoDaysFromNow(30)
+    let writes = 0
+    const result = await claimTrialInitialization({
+      company: {},
+      session: { mode: 'subscription', amount_total: 0, metadata: {} },
+      now: NOW,
+      companyId: 'company_2',
+      createClaim: store.createClaim,
+      updateCompany: async () => { writes += 1 },
+      readCompany: async () => ({ trial_ends_at: end, subscription_status: 'trial' }),
+    })
+    expect(result.claimed).toBe(true)
+    expect(result.wrote).toBe(false)
+    expect(result.notify).toBe(false)
+    expect(writes).toBe(0)
+    expect(result.trialEnd).toBe(end)
+  })
+
+  it('does not create a subscription row that replaces a stored trial end', () => {
+    const end = isoDaysFromNow(30)
+    const preserved = planSubscriptionRecordCreate({
+      company: { subscription_status: 'trial', trial_ends_at: end },
+      existingSubscription: { status: 'trial', trial_ends_at: end, monthly_cost: 199 },
+      plan: { plan_name: 'Business', base_price: 199 },
+      now: NOW,
+    })
+    expect(preserved.create).toBe(false)
+    expect(preserved.trialEnd).toBe(end)
+
+    const fresh = planSubscriptionRecordCreate({
+      company: {},
+      existingSubscription: null,
+      plan: { plan_name: 'Basic', base_price: 99 },
+      now: NOW,
+    })
+    expect(fresh.create).toBe(true)
+    expect(new Date(fresh.record.trial_ends_at).getTime() - NOW.getTime()).toBe(14 * DAY)
+    expect(fresh.record.trial_end_date).toBe(fresh.record.trial_ends_at)
+    expect(fresh.record.monthly_cost).toBe(99)
+    expect(fresh.record.billing_cycle_end).toBe(new Date(NOW.getTime() + 30 * DAY).toISOString().split('T')[0])
+  })
+
+  it('builds a claim update that does not name a missing status column', () => {
+    const sql = newTrialClaimSql({ hasSubscriptionStatusColumn: false, hasTrialEndDateColumn: true })
+    expect(sql).not.toContain("subscription_status = 'trial'")
+    expect(sql).not.toContain("COALESCE(subscription_status, '')")
+    expect(sql).toContain("data->>'subscription_status'")
+    expect(sql).toContain('trial_end_date IS NULL')
+    expect(newTrialClaimSql({ hasTrialEndDateColumn: false })).toBeNull()
   })
 })
