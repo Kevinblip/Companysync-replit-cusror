@@ -13473,7 +13473,7 @@ async function fireGeminiApiHealthAlert(errorReason, closeCode) {
       try {
         await sendEmail({
           to: email, subject: title,
-          html: `<h2 style="color:#dc2626">${title}</h2><p style="font-family:sans-serif;font-size:14px">${message}</p><hr/><p style="font-family:sans-serif;font-size:12px;color:#666">This alert fires every time the Gemini Live health-check probe detects a failure. Check the server logs for details ([Cron:geminiLiveProbe]).</p>`,
+          html: `<h2 style="color:#dc2626">${title}</h2><p style="font-family:sans-serif;font-size:14px">${message}</p><hr/><p style="font-family:sans-serif;font-size:12px;color:#666">This alert is sent once per failure episode (probe runs at most once a day). Check the server logs for details ([Cron:geminiLiveProbe]).</p>`,
         });
       } catch (emailErr) { console.warn('[GeminiProbe] Email error:', emailErr.message); }
     }
@@ -13483,42 +13483,42 @@ async function fireGeminiApiHealthAlert(errorReason, closeCode) {
   }
 }
 
-// geminiLiveProbe — every 2 hours (detects API changes within ~2 hours).
-// Alerts immediately on first failure, then re-alerts every 6 hours while
-// the API remains down, so sustained outages produce approximately one
-// alert per 6 hours rather than per probe run.
-let geminiProbeLastFailureAlertAt = 0;
+// geminiLiveProbe — OFF unless GEMINI_LIVE_PROBE_ENABLED=1.
+// The live app (getcompanysync.com on Replit) already runs a free, once-a-day
+// Gemini key check. This copy opened a real Gemini Live audio session every
+// 2 hours and re-emailed every 6 hours while the key was failing, which
+// flooded the inbox with duplicate "health-check failed" alerts.
+// When enabled: one probe per 24 hours, and one email per failure episode
+// (no repeat emails until the probe succeeds and then fails again).
 let geminiProbeLastStatus = null; // 'ok' | 'fail' | null
-setInterval(async () => {
-  try {
-    const result = await probeGeminiLiveApi();
-    if (result.ok) {
-      if (geminiProbeLastStatus === 'fail') {
-        console.log(`[Cron:geminiLiveProbe] ✅ Gemini Live API recovered (latency ${result.latencyMs}ms)`);
+if (process.env.GEMINI_LIVE_PROBE_ENABLED === '1') {
+  setInterval(async () => {
+    try {
+      const result = await probeGeminiLiveApi();
+      if (result.ok) {
+        if (geminiProbeLastStatus === 'fail') {
+          console.log(`[Cron:geminiLiveProbe] ✅ Gemini Live API recovered (latency ${result.latencyMs}ms)`);
+        } else {
+          console.log(`[Cron:geminiLiveProbe] ✅ OK (setupComplete + audio quiet window passed in ${result.latencyMs}ms)`);
+        }
+        geminiProbeLastStatus = 'ok';
       } else {
-        console.log(`[Cron:geminiLiveProbe] ✅ OK (setupComplete + audio quiet window passed in ${result.latencyMs}ms)`);
+        console.error(`[Cron:geminiLiveProbe] ❌ FAILED: ${result.errorReason} (latency ${result.latencyMs}ms)`);
+        const shouldAlert = geminiProbeLastStatus !== 'fail';
+        geminiProbeLastStatus = 'fail';
+        if (shouldAlert) {
+          await fireGeminiApiHealthAlert(result.errorReason, result.closeCode);
+        } else {
+          console.warn('[Cron:geminiLiveProbe] Still failing — alert already sent for this episode');
+        }
       }
-      geminiProbeLastStatus = 'ok';
-    } else {
-      console.error(`[Cron:geminiLiveProbe] ❌ FAILED: ${result.errorReason} (latency ${result.latencyMs}ms)`);
-      const now = Date.now();
-      // Alert on first failure OR after 6-hour re-alert cooldown during sustained failure.
-      // With a 2-hour probe interval this gives a re-alert spacing of 6-8 hours (2h probe
-      // granularity means the first probe that clears the 6h cooldown fires the alert).
-      const shouldAlert = geminiProbeLastStatus !== 'fail' || (now - geminiProbeLastFailureAlertAt >= 6 * 60 * 60 * 1000);
-      geminiProbeLastStatus = 'fail';
-      if (shouldAlert) {
-        geminiProbeLastFailureAlertAt = now;
-        await fireGeminiApiHealthAlert(result.errorReason, result.closeCode);
-      } else {
-        const nextAlertMins = Math.round((6 * 60 * 60 * 1000 - (now - geminiProbeLastFailureAlertAt)) / 60000);
-        console.warn(`[Cron:geminiLiveProbe] Still failing — next alert in ~${nextAlertMins}min`);
-      }
+    } catch (err) {
+      console.error('[Cron:geminiLiveProbe] Unexpected error:', err.message);
     }
-  } catch (err) {
-    console.error('[Cron:geminiLiveProbe] Unexpected error:', err.message);
-  }
-}, 2 * 60 * 60 * 1000);
+  }, 24 * 60 * 60 * 1000);
+} else {
+  console.log('[Cron:geminiLiveProbe] disabled (set GEMINI_LIVE_PROBE_ENABLED=1 to enable)');
+}
 
 function startProductionServer() {
 server.listen(PORT, '0.0.0.0', () => {
